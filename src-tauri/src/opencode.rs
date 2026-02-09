@@ -4,6 +4,7 @@
 //! Tauri events when its status changes. The frontend never polls -- it
 //! just listens for `opencode-status-changed` events.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -24,6 +25,72 @@ const RESTART_DELAY_SECS: u64 = 3;
 
 /// Maximum number of consecutive auto-restart attempts.
 const MAX_RESTART_ATTEMPTS: u32 = 5;
+
+/// Maximum log entries kept in the ring buffer.
+const MAX_LOG_ENTRIES: usize = 2000;
+
+// ── Log infrastructure ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LogEntry {
+    pub timestamp: f64,
+    pub source: String,
+    pub message: String,
+}
+
+/// Shared ring buffer of log entries, accessible from anywhere.
+pub type SharedLogBuffer = Arc<Mutex<VecDeque<LogEntry>>>;
+
+/// Append a log line to the buffer and emit it as a Tauri event.
+pub fn app_log(buffer: &SharedLogBuffer, app: &AppHandle, source: &str, message: &str) {
+    let entry = LogEntry {
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64(),
+        source: source.to_string(),
+        message: message.to_string(),
+    };
+
+    // Also print to stderr for dev mode
+    eprintln!("[{}] {}", source, message);
+
+    let _ = app.emit("app-log", &entry);
+
+    // Non-blocking push to ring buffer (try_lock to avoid blocking the caller)
+    let buf = buffer.clone();
+    let entry_clone = entry;
+    tokio::spawn(async move {
+        let mut b = buf.lock().await;
+        if b.len() >= MAX_LOG_ENTRIES {
+            b.pop_front();
+        }
+        b.push_back(entry_clone);
+    });
+}
+
+/// Helper for synchronous contexts (blocking push).
+pub fn app_log_sync(buffer: &SharedLogBuffer, app: &AppHandle, source: &str, message: &str) {
+    let entry = LogEntry {
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64(),
+        source: source.to_string(),
+        message: message.to_string(),
+    };
+
+    eprintln!("[{}] {}", source, message);
+    let _ = app.emit("app-log", &entry);
+
+    // Best-effort push (try_lock to avoid deadlock in sync context)
+    if let Ok(mut b) = buffer.try_lock() {
+        if b.len() >= MAX_LOG_ENTRIES {
+            b.pop_front();
+        }
+        b.push_back(entry);
+    }
+}
 
 // ── Status ──────────────────────────────────────────────────────────────
 
@@ -94,7 +161,7 @@ async fn set_status(
 }
 
 /// Kill any stale `opencode serve` processes left over from previous runs.
-async fn kill_stale_opencode_processes() {
+async fn kill_stale_opencode_processes(log: &SharedLogBuffer, app: &AppHandle) {
     #[cfg(unix)]
     {
         let output = Command::new("pkill")
@@ -103,7 +170,7 @@ async fn kill_stale_opencode_processes() {
             .await;
         if let Ok(o) = output {
             if o.status.success() {
-                eprintln!("[opencode] Killed stale opencode process(es)");
+                app_log(log, app, "opencode", "Killed stale opencode process(es)");
             }
         }
     }
@@ -115,7 +182,7 @@ async fn kill_stale_opencode_processes() {
             .await;
         if let Ok(o) = output {
             if o.status.success() {
-                eprintln!("[opencode] Killed stale opencode process(es)");
+                app_log(log, app, "opencode", "Killed stale opencode process(es)");
             }
         }
     }
@@ -145,6 +212,7 @@ async fn find_available_port(start: u16) -> u16 {
 pub async fn start_opencode_server(
     state: SharedOpenCodeState,
     app: AppHandle,
+    log: SharedLogBuffer,
 ) -> Result<u16, String> {
     // Guard: don't double-start
     {
@@ -157,15 +225,24 @@ pub async fn start_opencode_server(
         }
     }
 
-    let opencode_bin = crate::paths::bundled_opencode_path()?;
-    let nodejs_bin_dir = crate::paths::bundled_nodejs_bin_dir()?;
+    let opencode_bin = crate::paths::bundled_opencode_path().map_err(|e| {
+        app_log(&log, &app, "opencode", &format!("Failed to find opencode binary: {e}"));
+        e
+    })?;
+    app_log(&log, &app, "opencode", &format!("Binary: {}", opencode_bin.display()));
+
+    let nodejs_bin_dir = crate::paths::bundled_nodejs_bin_dir().map_err(|e| {
+        app_log(&log, &app, "opencode", &format!("Failed to find Node.js: {e}"));
+        e
+    })?;
+    app_log(&log, &app, "opencode", &format!("Node.js bin: {}", nodejs_bin_dir.display()));
 
     set_status(&state, &app, OpenCodeStatus::Starting).await;
 
     // Clean up stale processes, then find a free port.
-    kill_stale_opencode_processes().await;
+    kill_stale_opencode_processes(&log, &app).await;
     let port = find_available_port(DEFAULT_PORT).await;
-    eprintln!("[opencode] Using port {port}");
+    app_log(&log, &app, "opencode", &format!("Using port {port}"));
 
     {
         let mut s = state.lock().await;
@@ -276,29 +353,37 @@ pub async fn start_opencode_server(
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("Failed to start OpenCode server: {e}"))?;
+        .map_err(|e| {
+            let msg = format!("Failed to start OpenCode server: {e}");
+            app_log(&log, &app, "opencode", &msg);
+            msg
+        })?;
 
-    eprintln!("[opencode] Isolated environment: {}", opencode_home.display());
-    eprintln!("[opencode] PATH: {}", minimal_path);
+    app_log(&log, &app, "opencode", &format!("Isolated environment: {}", opencode_home.display()));
+    app_log(&log, &app, "opencode", &format!("PATH: {}", minimal_path));
 
     // Capture stderr for logging (all lines)
     if let Some(stderr) = child.stderr.take() {
+        let log2 = log.clone();
+        let app2 = app.clone();
         tokio::spawn(async move {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                eprintln!("[opencode:err] {line}");
+                app_log(&log2, &app2, "opencode:err", &line);
             }
         });
     }
 
     // Capture stdout for logging
     if let Some(stdout) = child.stdout.take() {
+        let log2 = log.clone();
+        let app2 = app.clone();
         tokio::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                eprintln!("[opencode:out] {line}");
+                app_log(&log2, &app2, "opencode:out", &line);
             }
         });
     }
@@ -331,14 +416,16 @@ pub async fn start_opencode_server(
             let mut s = state.lock().await;
             s.restart_attempts = 0;
         }
+        app_log(&log, &app, "opencode", &format!("Server healthy on port {port}"));
         set_status(&state, &app, OpenCodeStatus::Running).await;
 
         // Spawn the process exit monitor with auto-restart
-        spawn_exit_monitor(Arc::clone(&state), app.clone());
+        spawn_exit_monitor(Arc::clone(&state), app.clone(), log);
 
         Ok(port)
     } else {
         let err = "OpenCode server started but health check timed out".to_string();
+        app_log(&log, &app, "opencode", &err);
         set_status(&state, &app, OpenCodeStatus::Error(err.clone())).await;
         Err(err)
     }
@@ -346,7 +433,7 @@ pub async fn start_opencode_server(
 
 /// Monitor the child process. If it exits unexpectedly, update status
 /// and attempt auto-restart (up to MAX_RESTART_ATTEMPTS).
-fn spawn_exit_monitor(state: SharedOpenCodeState, app: AppHandle) {
+fn spawn_exit_monitor(state: SharedOpenCodeState, app: AppHandle, log: SharedLogBuffer) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -359,11 +446,12 @@ fn spawn_exit_monitor(state: SharedOpenCodeState, app: AppHandle) {
                             matches!(s.status, OpenCodeStatus::Running);
 
                         if exit_status.success() {
+                            app_log(&log, &app, "opencode", "Process exited cleanly");
                             s.status = OpenCodeStatus::Stopped;
                             emit_status(&app, &s.status, s.port);
                         } else {
                             let msg = format!("Exited with {exit_status}");
-                            eprintln!("[opencode] Process exited: {msg}");
+                            app_log(&log, &app, "opencode", &format!("Process exited: {msg}"));
 
                             // Auto-restart if we were previously running
                             // and haven't exceeded the attempt limit
@@ -375,9 +463,9 @@ fn spawn_exit_monitor(state: SharedOpenCodeState, app: AppHandle) {
                                 let port = s.port;
                                 drop(s); // release lock before restart
 
-                                eprintln!(
-                                    "[opencode] Auto-restart attempt {attempt}/{MAX_RESTART_ATTEMPTS} in {RESTART_DELAY_SECS}s"
-                                );
+                                app_log(&log, &app, "opencode", &format!(
+                                    "Auto-restart attempt {attempt}/{MAX_RESTART_ATTEMPTS} in {RESTART_DELAY_SECS}s"
+                                ));
                                 emit_status(
                                     &app,
                                     &OpenCodeStatus::Error(msg),
@@ -392,6 +480,7 @@ fn spawn_exit_monitor(state: SharedOpenCodeState, app: AppHandle) {
                                 let _ = start_opencode_server(
                                     Arc::clone(&state),
                                     app.clone(),
+                                    log.clone(),
                                 )
                                 .await;
                                 return; // new monitor spawned by start_opencode_server
@@ -404,6 +493,7 @@ fn spawn_exit_monitor(state: SharedOpenCodeState, app: AppHandle) {
                     }
                     Ok(None) => {} // Still running
                     Err(e) => {
+                        app_log(&log, &app, "opencode", &format!("Exit monitor error: {e}"));
                         s.status = OpenCodeStatus::Error(e.to_string());
                         s.child = None;
                         emit_status(&app, &s.status, s.port);
@@ -455,12 +545,14 @@ pub async fn get_opencode_status(
 /// when it detects the MCP stdio connection has broken but the HTTP
 /// server on port 3002 is still alive (zombie process).
 #[tauri::command]
-pub async fn kill_stale_mcp() -> Result<(), String> {
-    eprintln!("[mcp] Killing stale robloxstudio-mcp processes");
+pub async fn kill_stale_mcp(
+    log: tauri::State<'_, SharedLogBuffer>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    app_log(&log, &app, "mcp", "Killing stale robloxstudio-mcp processes");
 
     #[cfg(unix)]
     {
-        // Kill by process name
         let _ = Command::new("pkill")
             .args(["-f", "robloxstudio-mcp"])
             .output()
@@ -481,11 +573,21 @@ pub async fn kill_stale_mcp() -> Result<(), String> {
             .await
             .is_ok()
         {
-            eprintln!("[mcp] Port 3002 released");
+            app_log(&log, &app, "mcp", "Port 3002 released");
             return Ok(());
         }
     }
 
-    eprintln!("[mcp] Warning: port 3002 may still be in use");
+    app_log(&log, &app, "mcp", "Warning: port 3002 may still be in use");
     Ok(())
+}
+
+/// Retrieve all buffered log entries. Used by the frontend debug panel
+/// to show logs that were emitted before the panel was opened.
+#[tauri::command]
+pub async fn get_logs(
+    log: tauri::State<'_, SharedLogBuffer>,
+) -> Result<Vec<LogEntry>, String> {
+    let b = log.lock().await;
+    Ok(b.iter().cloned().collect())
 }

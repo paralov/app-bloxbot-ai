@@ -1,7 +1,8 @@
 mod opencode;
 mod paths;
 
-use opencode::SharedOpenCodeState;
+use opencode::{SharedLogBuffer, SharedOpenCodeState};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
@@ -11,14 +12,17 @@ use tokio::sync::Mutex;
 pub fn run() {
     let opencode_state: SharedOpenCodeState =
         Arc::new(Mutex::new(opencode::OpenCodeState::default()));
+    let log_buffer: SharedLogBuffer = Arc::new(Mutex::new(VecDeque::new()));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(opencode_state)
+        .manage(log_buffer)
         .invoke_handler(tauri::generate_handler![
             opencode::get_opencode_status,
             opencode::kill_stale_mcp,
+            opencode::get_logs,
             paths::get_workspace_dir,
             paths::check_plugin_installed,
             paths::install_studio_plugin,
@@ -62,8 +66,13 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+Shift+D")
                 .build(app)?;
 
+            let logs_toggle = CheckMenuItemBuilder::with_id("debug_logs", "Logs")
+                .accelerator("CmdOrCtrl+Shift+L")
+                .build(app)?;
+
             let debug_submenu = SubmenuBuilder::new(app, "Debug")
                 .item(&debug_toggle)
+                .item(&logs_toggle)
                 .build()?;
 
             let menu = MenuBuilder::new(app)
@@ -79,6 +88,8 @@ pub fn run() {
             app.on_menu_event(move |app_handle, event| {
                 if event.id() == debug_toggle.id() {
                     let _ = app_handle.emit("toggle-debug-view", ());
+                } else if event.id() == logs_toggle.id() {
+                    let _ = app_handle.emit("toggle-debug-logs", ());
                 }
             });
 
@@ -87,11 +98,16 @@ pub fn run() {
                 .state::<SharedOpenCodeState>()
                 .inner()
                 .clone();
+            let log = app
+                .state::<SharedLogBuffer>()
+                .inner()
+                .clone();
             let handle = app.handle().clone();
+            opencode::app_log_sync(&log, &handle, "setup", "BloxBot starting up");
             tauri::async_runtime::spawn(async move {
-                match opencode::start_opencode_server(state, handle).await {
-                    Ok(port) => eprintln!("[setup] OpenCode started on port {port}"),
-                    Err(e) => eprintln!("[setup] Failed to auto-start OpenCode: {e}"),
+                match opencode::start_opencode_server(state, handle.clone(), log.clone()).await {
+                    Ok(port) => opencode::app_log(&log, &handle, "setup", &format!("OpenCode started on port {port}")),
+                    Err(e) => opencode::app_log(&log, &handle, "setup", &format!("Failed to auto-start OpenCode: {e}")),
                 }
             });
 

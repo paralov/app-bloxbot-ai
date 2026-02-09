@@ -4,6 +4,7 @@ import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
 import ChatSetup from "@/components/ChatSetup";
 import ChatSidebar from "@/components/ChatSidebar";
+import DebugLogs from "@/components/DebugLogs";
 import Settings from "@/components/Settings";
 import { useStore } from "@/stores/opencode";
 
@@ -20,23 +21,35 @@ function Chat() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [debugView, setDebugView] = useState(false);
+  const [debugLogs, setDebugLogs] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   const serverRunning = status === "Running";
 
-  // Listen for debug toggle from native menu (Debug > OpenCode Web UI)
+  // Listen for debug toggles from native menu
   useEffect(() => {
-    const unlisten = listen("toggle-debug-view", () => {
+    const unlistenView = listen("toggle-debug-view", () => {
       setDebugView((prev) => !prev);
+      setDebugLogs(false);
+    });
+    const unlistenLogs = listen("toggle-debug-logs", () => {
+      setDebugLogs((prev) => !prev);
+      setDebugView(false);
     });
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenView.then((fn) => fn());
+      unlistenLogs.then((fn) => fn());
     };
   }, []);
 
   // ── First-run welcome screen ─────────────────────────────────────────
   if (!hasLaunched) {
     return <ChatSetup />;
+  }
+
+  // ── Debug logs panel (available regardless of server state) ──────────
+  if (debugLogs) {
+    return <DebugLogs onClose={() => setDebugLogs(false)} />;
   }
 
   // ── Waiting for the backend to start OpenCode ────────────────────────
