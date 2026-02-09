@@ -72,59 +72,31 @@ jobs:
 
       # ── Download sidecar binaries ──────────────────────────────────
 
-      - name: Download sidecars (macOS)
-        if: runner.os == 'macOS'
+      - name: Download Bun sidecar
+        run: gh release download "bun-v${{ env.BUN_VERSION }}" -R oven-sh/bun -p "${{ matrix.bun_asset }}" -D src-tauri/binaries --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download OpenCode sidecar
+        run: gh release download "v${{ env.OPENCODE_VERSION }}" -R anomalyco/opencode -p "${{ matrix.opencode_asset }}" -D src-tauri/binaries --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract and rename sidecars
+        shell: bash
         run: |
           cd src-tauri/binaries
 
-          curl -fSL --retry 5 --retry-delay 10 --retry-all-errors -o bun.zip \
-            "https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/${{ matrix.bun_asset }}"
-          unzip -o bun.zip
-          mv "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" "bun-${{ matrix.target }}"
-          rm -rf bun.zip ${{ matrix.bun_inner_dir }}
-          chmod +x "bun-${{ matrix.target }}"
+          unzip -o "${{ matrix.bun_asset }}"
+          mv "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" "bun-${{ matrix.target }}${{ matrix.ext }}"
+          rm -rf "${{ matrix.bun_asset }}" "${{ matrix.bun_inner_dir }}"
 
-          curl -fSL --retry 5 --retry-delay 10 --retry-all-errors -o opencode.zip \
-            "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}"
-          unzip -o opencode.zip
-          mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}"
-          rm -f opencode.zip
-          chmod +x "opencode-${{ matrix.target }}"
+          unzip -o "${{ matrix.opencode_asset }}"
+          mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}${{ matrix.ext }}"
+          rm -f "${{ matrix.opencode_asset }}"
 
+          chmod +x "bun-${{ matrix.target }}${{ matrix.ext }}" "opencode-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
           ls -lh bun-* opencode-*
-
-      - name: Download sidecars (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cd src-tauri/binaries
-
-          function Download-WithRetry {
-            param([string]$Url, [string]$OutFile, [int]$MaxRetries = 5, [int]$DelaySeconds = 10)
-            for ($i = 1; $i -le $MaxRetries; $i++) {
-              try {
-                Write-Host "Downloading $Url (attempt $i/$MaxRetries)"
-                Invoke-WebRequest -Uri $Url -OutFile $OutFile -MaximumRetryCount 3 -RetryIntervalSec 5
-                return
-              } catch {
-                Write-Host "Attempt $i failed: $_"
-                if ($i -eq $MaxRetries) { throw "Failed to download $Url after $MaxRetries attempts" }
-                Start-Sleep -Seconds $DelaySeconds
-              }
-            }
-          }
-
-          Download-WithRetry -Url "https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/${{ matrix.bun_asset }}" -OutFile bun.zip
-          Expand-Archive -Path bun.zip -DestinationPath . -Force
-          Move-Item -Path "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" -Destination "bun-${{ matrix.target }}.exe" -Force
-          Remove-Item -Recurse -Force bun.zip, ${{ matrix.bun_inner_dir }}
-
-          Download-WithRetry -Url "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}" -OutFile opencode.zip
-          Expand-Archive -Path opencode.zip -DestinationPath . -Force
-          Move-Item -Path "${{ matrix.opencode_bin }}" -Destination "opencode-${{ matrix.target }}.exe" -Force
-          Remove-Item -Force opencode.zip
-
-          Get-ChildItem bun-*, opencode-*
 
       # ── Build ──────────────────────────────────────────────────────
 
