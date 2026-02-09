@@ -30,16 +30,6 @@ jobs:
             ext: ""
             bundle_ext: dmg
 
-          - os: macos-13
-            target: x86_64-apple-darwin
-            bun_asset: bun-darwin-x64.zip
-            bun_inner_dir: bun-darwin-x64
-            bun_bin: bun
-            opencode_asset: opencode-darwin-x64.zip
-            opencode_bin: opencode
-            ext: ""
-            bundle_ext: dmg
-
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bun_asset: bun-windows-x64.zip
@@ -82,35 +72,44 @@ jobs:
 
       # ── Download sidecar binaries ──────────────────────────────────
 
-      - name: Download Bun sidecar
-        shell: bash
+      - name: Download sidecars (macOS)
+        if: runner.os == 'macOS'
         run: |
           cd src-tauri/binaries
+
           curl -fSL -o bun.zip \
             "https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/${{ matrix.bun_asset }}"
           unzip -o bun.zip
-          mv "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" \
-             "bun-${{ matrix.target }}${{ matrix.ext }}"
+          mv "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" "bun-${{ matrix.target }}"
           rm -rf bun.zip ${{ matrix.bun_inner_dir }}
-          chmod +x "bun-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
+          chmod +x "bun-${{ matrix.target }}"
 
-      - name: Download OpenCode sidecar
-        shell: bash
-        run: |
-          cd src-tauri/binaries
           curl -fSL -o opencode.zip \
             "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}"
           unzip -o opencode.zip
-          mv "${{ matrix.opencode_bin }}" \
-             "opencode-${{ matrix.target }}${{ matrix.ext }}"
+          mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}"
           rm -f opencode.zip
-          chmod +x "opencode-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
+          chmod +x "opencode-${{ matrix.target }}"
 
-      - name: Verify sidecars
-        shell: bash
+          ls -lh bun-* opencode-*
+
+      - name: Download sidecars (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          echo "=== Sidecar binaries ==="
-          ls -lh src-tauri/binaries/bun-* src-tauri/binaries/opencode-*
+          cd src-tauri/binaries
+
+          Invoke-WebRequest -Uri "https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/${{ matrix.bun_asset }}" -OutFile bun.zip
+          Expand-Archive -Path bun.zip -DestinationPath . -Force
+          Move-Item -Path "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" -Destination "bun-${{ matrix.target }}.exe" -Force
+          Remove-Item -Recurse -Force bun.zip, ${{ matrix.bun_inner_dir }}
+
+          Invoke-WebRequest -Uri "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}" -OutFile opencode.zip
+          Expand-Archive -Path opencode.zip -DestinationPath . -Force
+          Move-Item -Path "${{ matrix.opencode_bin }}" -Destination "opencode-${{ matrix.target }}.exe" -Force
+          Remove-Item -Force opencode.zip
+
+          Get-ChildItem bun-*, opencode-*
 
       # ── Build ──────────────────────────────────────────────────────
 
