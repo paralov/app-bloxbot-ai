@@ -28,6 +28,7 @@ jobs:
             opencode_bin: opencode
             ext: ""
             bundle_ext: dmg
+            tauri_args: ""
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -36,7 +37,8 @@ jobs:
             opencode_asset: opencode-windows-x64.zip
             opencode_bin: opencode.exe
             ext: ".exe"
-            bundle_ext: msi
+            bundle_ext: nsis
+            tauri_args: "--bundles nsis"
 
     runs-on: ${{ matrix.os }}
 
@@ -141,6 +143,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: pnpm tauri
+          args: ${{ matrix.tauri_args }}
 
       # ── Upload artifacts ───────────────────────────────────────────
 
@@ -153,13 +156,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload Windows MSI
-        if: matrix.bundle_ext == 'msi'
+      - name: Upload Windows installer
+        if: matrix.bundle_ext == 'nsis'
         uses: actions/upload-artifact@v4
         with:
           name: BloxBot-${{ matrix.target }}
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: warn
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
           retention-days: 14
