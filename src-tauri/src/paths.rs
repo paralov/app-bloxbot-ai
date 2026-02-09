@@ -40,21 +40,29 @@ fn sidecar_path(name: &str) -> Result<PathBuf, String> {
 /// Returns the path to the bundled Node.js bin directory from resources.
 /// This directory contains node, npm, and npx.
 ///
-/// Production macOS: `<App>/Contents/Resources/nodejs/bin/`
-/// Production Windows: `<App>/nodejs/bin`
+/// Production macOS: `<App>/Contents/Resources/resources/nodejs/bin/`
+/// Production Windows: `<App>/resources/nodejs/bin/`
 /// Dev: `src-tauri/resources/nodejs/bin`
 pub fn bundled_nodejs_bin_dir() -> Result<PathBuf, String> {
     let sidecar = sidecar_dir()?;
 
-    // Production layout on macOS: <App>/Contents/MacOS/../Resources/nodejs/bin
+    // With Tauri array-format resources, the directory `resources/nodejs` is
+    // placed under the app's resource directory preserving its relative path.
+    //
+    // macOS production:  <App>/Contents/MacOS/../Resources/resources/nodejs/bin
+    // Windows production: <exe_dir>/resources/nodejs/bin
     #[cfg(target_os = "macos")]
     let prod_path = sidecar
         .parent()
-        .map(|p| p.join("Resources").join("nodejs").join("bin"))
+        .map(|p| {
+            p.join("Resources")
+                .join("resources")
+                .join("nodejs")
+                .join("bin")
+        })
         .unwrap_or_default();
-    // Production layout on Windows: next to the exe
     #[cfg(not(target_os = "macos"))]
-    let prod_path = sidecar.join("nodejs").join("bin");
+    let prod_path = sidecar.join("resources").join("nodejs").join("bin");
 
     if prod_path.exists() {
         return Ok(prod_path);
@@ -125,36 +133,35 @@ fn roblox_plugins_dir() -> Result<PathBuf, String> {
 
 /// Returns the path to the bundled MCPPlugin.rbxmx inside the app resources.
 ///
-/// In production the Tauri resource mapping `resources/studio-plugin/*` -> `studio-plugin/`
-/// places the file at `<resource_dir>/studio-plugin/MCPPlugin.rbxmx`.
-///
-/// During `cargo tauri dev` the resource dir points to `src-tauri/` so the
-/// file lives at `src-tauri/resources/studio-plugin/MCPPlugin.rbxmx`.
+/// With the Tauri array-format `"resources/studio-plugin"`, the directory is
+/// placed at `<resource_dir>/resources/studio-plugin/MCPPlugin.rbxmx` in
+/// production. During `cargo tauri dev` the resource dir points to `src-tauri/`
+/// so it lives at `src-tauri/resources/studio-plugin/MCPPlugin.rbxmx`.
 fn bundled_plugin_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let resource_dir = app
         .path()
         .resource_dir()
         .map_err(|e| format!("Could not determine resource directory: {e}"))?;
 
-    // Production layout
-    let prod_path = resource_dir.join("studio-plugin").join(PLUGIN_FILENAME);
-    if prod_path.exists() {
-        return Ok(prod_path);
-    }
-
-    // Dev layout: resources are under src-tauri/resources/
-    let dev_path = resource_dir
+    // Both production and dev: resources/studio-plugin/MCPPlugin.rbxmx
+    let path = resource_dir
         .join("resources")
         .join("studio-plugin")
         .join(PLUGIN_FILENAME);
-    if dev_path.exists() {
-        return Ok(dev_path);
+    if path.exists() {
+        return Ok(path);
+    }
+
+    // Fallback: check without resources/ prefix (legacy mapping)
+    let fallback = resource_dir.join("studio-plugin").join(PLUGIN_FILENAME);
+    if fallback.exists() {
+        return Ok(fallback);
     }
 
     Err(format!(
         "Bundled plugin not found. Checked:\n  {}\n  {}",
-        prod_path.display(),
-        dev_path.display()
+        path.display(),
+        fallback.display()
     ))
 }
 
