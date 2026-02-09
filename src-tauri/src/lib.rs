@@ -20,6 +20,8 @@ pub fn run() {
             opencode::get_opencode_status,
             opencode::kill_stale_mcp,
             paths::get_workspace_dir,
+            paths::check_plugin_installed,
+            paths::install_studio_plugin,
         ])
         .setup(|app| {
             // ── Application menu ──────────────────────────────────

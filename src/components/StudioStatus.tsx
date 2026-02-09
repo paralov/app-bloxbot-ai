@@ -38,7 +38,10 @@ const STATUS_CONFIG: Record<
 function StudioStatus() {
   const studioStatus = useStore((s) => s.studioStatus);
   const studioError = useStore((s) => s.studioError);
+  const pluginInstalled = useStore((s) => s.pluginInstalled);
+  const installPlugin = useStore((s) => s.installPlugin);
   const [hovering, setHovering] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const config = STATUS_CONFIG[studioStatus];
@@ -50,6 +53,17 @@ function StudioStatus() {
 
   function handleLeave() {
     timeoutRef.current = setTimeout(() => setHovering(false), 150);
+  }
+
+  async function handleInstall() {
+    setInstalling(true);
+    try {
+      await installPlugin();
+    } catch {
+      // Error logged by store
+    } finally {
+      setInstalling(false);
+    }
   }
 
   return (
@@ -76,11 +90,23 @@ function StudioStatus() {
             </p>
           )}
           {studioStatus === "disconnected" && (
-            <ol className="mt-2 space-y-1 text-[10px] text-muted-foreground">
-              <li>1. Open Roblox Studio</li>
-              <li>2. Open or create a place file</li>
-              <li>3. The plugin will connect automatically</li>
-            </ol>
+            <div className="mt-2">
+              {pluginInstalled === false ? (
+                <button
+                  onClick={handleInstall}
+                  disabled={installing}
+                  className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-md bg-foreground text-[11px] font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {installing ? "Installing..." : "Install Studio Plugin"}
+                </button>
+              ) : (
+                <ol className="space-y-1 text-[10px] text-muted-foreground">
+                  <li>1. Open Roblox Studio</li>
+                  <li>2. Open or create a place file</li>
+                  <li>3. The plugin will connect automatically</li>
+                </ol>
+              )}
+            </div>
           )}
         </div>
       )}

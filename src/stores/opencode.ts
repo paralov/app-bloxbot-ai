@@ -139,7 +139,9 @@ interface OpenCodeState {
   connectedProviders: string[];
   authMethods: AuthMethods;
 
-  // ── Studio plugin connection ────────────────────────────────────────
+  // ── Studio plugin ───────────────────────────────────────────────────
+  /** Whether the .rbxmx plugin file is installed in Roblox's Plugins dir. null = not yet checked. */
+  pluginInstalled: boolean | null;
   /** Status of the roblox-studio MCP server (polled via SDK). */
   studioStatus: StudioConnectionStatus;
   /** Error message when studioStatus is "failed". */
@@ -164,6 +166,10 @@ interface OpenCodeState {
   dismissWelcome: () => void;
   /** Poll the roblox-studio MCP server status via the SDK. */
   pollStudioStatus: () => Promise<void>;
+  /** Check if the Studio plugin file is installed. */
+  checkPluginInstalled: () => Promise<void>;
+  /** Copy the bundled plugin into Roblox's Plugins directory. */
+  installPlugin: () => Promise<void>;
 
   // ── Actions: init ─────────────────────────────────────────────────
   init: () => Promise<void>;
@@ -250,6 +256,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
     connectedProviders: [],
     authMethods: {},
 
+    pluginInstalled: null,
     studioStatus: "unknown",
     studioError: null,
 
@@ -337,6 +344,26 @@ export const useStore = create<OpenCodeState>((set, get) => {
       }
     },
 
+    checkPluginInstalled: async () => {
+      try {
+        const installed = await invoke<boolean>("check_plugin_installed");
+        set({ pluginInstalled: installed });
+      } catch (err) {
+        console.error("Failed to check plugin status:", err);
+        set({ pluginInstalled: false });
+      }
+    },
+
+    installPlugin: async () => {
+      try {
+        await invoke<string>("install_studio_plugin");
+        set({ pluginInstalled: true });
+      } catch (err) {
+        console.error("Failed to install plugin:", err);
+        throw err;
+      }
+    },
+
     setClient: (client) => {
       set({ client });
       if (!client) {
@@ -413,20 +440,22 @@ export const useStore = create<OpenCodeState>((set, get) => {
             updates.authMethods = authMethodsRes.data as AuthMethods;
           }
 
-          // Load persisted data
-          const [ownIds, hidden, hasLaunched, savedSessionModels, savedLastModel] =
+          // Load persisted data + check plugin status
+          const [ownIds, hidden, hasLaunched, savedSessionModels, savedLastModel, pluginInstalled] =
             await Promise.all([
               loadOwnSessionIds(),
               loadHiddenModels(),
               tauriStore.get<boolean>("has-launched").catch(() => false),
               loadSessionModels(),
               loadLastModel(),
+              invoke<boolean>("check_plugin_installed").catch(() => false),
             ]);
           if (get().initGeneration !== generation) return;
           updates.ownSessionIds = ownIds;
           updates.hiddenModels = hidden;
           updates.hasLaunched = hasLaunched ?? false;
           updates.sessionModels = savedSessionModels;
+          updates.pluginInstalled = pluginInstalled;
 
           // Model selection priority:
           // 1. savedLastModel (if its provider is still connected)

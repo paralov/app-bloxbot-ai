@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use tauri::Manager;
 
 // ── Sidecar binary resolution ───────────────────────────────────────────
 //
@@ -58,9 +59,106 @@ pub fn workspace_dir() -> Result<PathBuf, String> {
     Ok(workspace)
 }
 
+// ── Studio plugin ────────────────────────────────────────────────────────
+
+const PLUGIN_FILENAME: &str = "MCPPlugin.rbxmx";
+
+/// Returns the Roblox Studio plugins directory for the current platform.
+///   macOS:   ~/Documents/Roblox/Plugins
+///   Windows: %LOCALAPPDATA%/Roblox/Plugins
+fn roblox_plugins_dir() -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let home =
+            dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
+        Ok(home.join("Documents").join("Roblox").join("Plugins"))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let local_app = dirs::data_local_dir()
+            .ok_or_else(|| "Could not determine LOCALAPPDATA directory".to_string())?;
+        Ok(local_app.join("Roblox").join("Plugins"))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("Roblox Studio plugins are only supported on macOS and Windows".to_string())
+    }
+}
+
+/// Returns the path to the bundled MCPPlugin.rbxmx inside the app resources.
+///
+/// In production the Tauri resource mapping `resources/studio-plugin/*` -> `studio-plugin/`
+/// places the file at `<resource_dir>/studio-plugin/MCPPlugin.rbxmx`.
+///
+/// During `cargo tauri dev` the resource dir points to `src-tauri/` so the
+/// file lives at `src-tauri/resources/studio-plugin/MCPPlugin.rbxmx`.
+fn bundled_plugin_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Could not determine resource directory: {e}"))?;
+
+    // Production layout
+    let prod_path = resource_dir.join("studio-plugin").join(PLUGIN_FILENAME);
+    if prod_path.exists() {
+        return Ok(prod_path);
+    }
+
+    // Dev layout: resources are under src-tauri/resources/
+    let dev_path = resource_dir
+        .join("resources")
+        .join("studio-plugin")
+        .join(PLUGIN_FILENAME);
+    if dev_path.exists() {
+        return Ok(dev_path);
+    }
+
+    Err(format!(
+        "Bundled plugin not found. Checked:\n  {}\n  {}",
+        prod_path.display(),
+        dev_path.display()
+    ))
+}
+
 // ── Tauri commands ───────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn get_workspace_dir() -> Result<String, String> {
     workspace_dir().map(|p| p.to_string_lossy().to_string())
+}
+
+/// Check whether the MCPPlugin.rbxmx file exists in the Roblox plugins dir.
+#[tauri::command]
+pub fn check_plugin_installed() -> Result<bool, String> {
+    let dest = roblox_plugins_dir()?.join(PLUGIN_FILENAME);
+    Ok(dest.exists())
+}
+
+/// Copy the bundled MCPPlugin.rbxmx into the Roblox plugins directory.
+/// Creates the plugins directory if it does not exist.
+#[tauri::command]
+pub fn install_studio_plugin(app: tauri::AppHandle) -> Result<String, String> {
+    let source = bundled_plugin_path(&app)?;
+    let plugins_dir = roblox_plugins_dir()?;
+
+    if !plugins_dir.exists() {
+        std::fs::create_dir_all(&plugins_dir)
+            .map_err(|e| format!("Failed to create Roblox plugins directory: {e}"))?;
+    }
+
+    let dest = plugins_dir.join(PLUGIN_FILENAME);
+    std::fs::copy(&source, &dest).map_err(|e| {
+        format!(
+            "Failed to copy plugin from {} to {}: {e}",
+            source.display(),
+            dest.display()
+        )
+    })?;
+
+    eprintln!(
+        "[plugin] Installed {} -> {}",
+        source.display(),
+        dest.display()
+    );
+    Ok(dest.to_string_lossy().to_string())
 }
