@@ -1,0 +1,115 @@
+mod opencode;
+mod paths;
+
+use opencode::SharedOpenCodeState;
+use std::sync::Arc;
+use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::{Emitter, Manager};
+use tokio::sync::Mutex;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let opencode_state: SharedOpenCodeState =
+        Arc::new(Mutex::new(opencode::OpenCodeState::default()));
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .manage(opencode_state)
+        .invoke_handler(tauri::generate_handler![
+            opencode::get_opencode_status,
+            opencode::kill_stale_mcp,
+            paths::get_workspace_dir,
+        ])
+        .setup(|app| {
+            // ── Application menu ──────────────────────────────────
+            let app_submenu = SubmenuBuilder::new(app, "BloxBot")
+                .about(None)
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+
+            let view_submenu = SubmenuBuilder::new(app, "View")
+                .fullscreen()
+                .build()?;
+
+            let window_submenu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .item(&PredefinedMenuItem::maximize(app, None)?)
+                .separator()
+                .close_window()
+                .build()?;
+
+            let debug_toggle = CheckMenuItemBuilder::with_id("debug_opencode_ui", "OpenCode Web UI")
+                .accelerator("CmdOrCtrl+Shift+D")
+                .build(app)?;
+
+            let debug_submenu = SubmenuBuilder::new(app, "Debug")
+                .item(&debug_toggle)
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&app_submenu)
+                .item(&edit_submenu)
+                .item(&view_submenu)
+                .item(&window_submenu)
+                .item(&debug_submenu)
+                .build()?;
+
+            app.set_menu(menu)?;
+
+            app.on_menu_event(move |app_handle, event| {
+                if event.id() == debug_toggle.id() {
+                    let _ = app_handle.emit("toggle-debug-view", ());
+                }
+            });
+
+            // ── Auto-start OpenCode server ────────────────────────
+            let state = app
+                .state::<SharedOpenCodeState>()
+                .inner()
+                .clone();
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                match opencode::start_opencode_server(state, handle).await {
+                    Ok(port) => eprintln!("[setup] OpenCode started on port {port}"),
+                    Err(e) => eprintln!("[setup] Failed to auto-start OpenCode: {e}"),
+                }
+            });
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let state = window
+                    .app_handle()
+                    .state::<SharedOpenCodeState>()
+                    .inner()
+                    .clone();
+                tauri::async_runtime::block_on(async {
+                    let mut s = state.lock().await;
+                    if let Some(ref mut child) = s.child {
+                        let _ = child.kill().await;
+                    }
+                });
+            }
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running BloxBot");
+}
