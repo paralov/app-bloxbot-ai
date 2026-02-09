@@ -120,18 +120,17 @@ jobs:
 
       # ── Download OpenCode sidecar ─────────────────────────────────────
 
-      - name: Download OpenCode sidecar
-        run: gh release download "v${{ env.OPENCODE_VERSION }}" -R anomalyco/opencode -p "${{ matrix.opencode_asset }}" -D src-tauri/binaries --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract OpenCode sidecar
+      - name: Download and extract OpenCode sidecar
         shell: bash
         run: |
+          mkdir -p src-tauri/binaries
+          curl -fSL --retry 3 --retry-delay 5 \
+            "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}" \
+            -o "/tmp/${{ matrix.opencode_asset }}"
           cd src-tauri/binaries
-          unzip -o "${{ matrix.opencode_asset }}"
+          unzip -o "/tmp/${{ matrix.opencode_asset }}"
           mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}${{ matrix.ext }}"
-          rm -f "${{ matrix.opencode_asset }}"
+          rm -f "/tmp/${{ matrix.opencode_asset }}"
           chmod +x "opencode-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
           ls -lh
 
