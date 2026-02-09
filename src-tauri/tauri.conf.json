@@ -36,11 +36,11 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/bun",
       "binaries/opencode"
     ],
     "resources": {
-      "resources/studio-plugin/*": "studio-plugin/"
+      "resources/studio-plugin/*": "studio-plugin/",
+      "resources/nodejs/**/*": "nodejs/"
     }
   }
 }

@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUN_VERSION: "1.3.9"
+  NODE_VERSION: "22.13.1"
   OPENCODE_VERSION: "1.1.53"
 
 jobs:
@@ -22,9 +22,8 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
-            bun_asset: bun-darwin-aarch64.zip
-            bun_inner_dir: bun-darwin-aarch64
-            bun_bin: bun
+            node_asset: node-v22.13.1-darwin-arm64.tar.gz
+            node_inner_dir: node-v22.13.1-darwin-arm64
             opencode_asset: opencode-darwin-arm64.zip
             opencode_bin: opencode
             ext: ""
@@ -32,9 +31,8 @@ jobs:
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            bun_asset: bun-windows-x64.zip
-            bun_inner_dir: bun-windows-x64
-            bun_bin: bun.exe
+            node_asset: node-v22.13.1-win-x64.zip
+            node_inner_dir: node-v22.13.1-win-x64
             opencode_asset: opencode-windows-x64.zip
             opencode_bin: opencode.exe
             ext: ".exe"
@@ -70,33 +68,70 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
-      # ── Download sidecar binaries ──────────────────────────────────
+      # ── Download and bundle Node.js runtime ───────────────────────────
 
-      - name: Download Bun sidecar
-        run: gh release download "bun-v${{ env.BUN_VERSION }}" -R oven-sh/bun -p "${{ matrix.bun_asset }}" -D src-tauri/binaries --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download Node.js
+        shell: bash
+        run: |
+          curl -fsSL "https://nodejs.org/dist/v${{ env.NODE_VERSION }}/${{ matrix.node_asset }}" -o "/tmp/${{ matrix.node_asset }}"
+
+      - name: Extract Node.js to resources (Unix)
+        if: matrix.ext == ''
+        shell: bash
+        run: |
+          cd /tmp
+          tar -xzf "${{ matrix.node_asset }}"
+          
+          # Copy the Node.js distribution to resources (bin + lib/node_modules/npm)
+          mkdir -p "$GITHUB_WORKSPACE/src-tauri/resources/nodejs"
+          cp -R "${{ matrix.node_inner_dir }}/bin" "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/"
+          mkdir -p "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules"
+          cp -R "${{ matrix.node_inner_dir }}/lib/node_modules/npm" "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules/"
+          
+          # Remove corepack (not needed)
+          rm -f "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/corepack"
+          rm -rf "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules/corepack" 2>/dev/null || true
+          
+          # Verify structure
+          ls -la "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/"
+
+      - name: Extract Node.js to resources (Windows)
+        if: matrix.ext == '.exe'
+        shell: bash
+        run: |
+          cd /tmp
+          unzip -o "${{ matrix.node_asset }}"
+          
+          # Copy the Node.js distribution to resources
+          mkdir -p "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin"
+          cp "${{ matrix.node_inner_dir }}/node.exe" "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/"
+          
+          # Create npm/npx batch wrappers that call node with the JS files
+          printf '@echo off\r\n"%%~dp0node.exe" "%%~dp0..\\lib\\node_modules\\npm\\bin\\npm-cli.js" %%*\r\n' > "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/npm.cmd"
+          printf '@echo off\r\n"%%~dp0node.exe" "%%~dp0..\\lib\\node_modules\\npm\\bin\\npx-cli.js" %%*\r\n' > "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/npx.cmd"
+          
+          mkdir -p "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules"
+          cp -R "${{ matrix.node_inner_dir }}/node_modules/npm" "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules/"
+          
+          # Verify structure
+          ls -la "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/"
+
+      # ── Download OpenCode sidecar ─────────────────────────────────────
 
       - name: Download OpenCode sidecar
         run: gh release download "v${{ env.OPENCODE_VERSION }}" -R anomalyco/opencode -p "${{ matrix.opencode_asset }}" -D src-tauri/binaries --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract and rename sidecars
+      - name: Extract OpenCode sidecar
         shell: bash
         run: |
           cd src-tauri/binaries
-
-          unzip -o "${{ matrix.bun_asset }}"
-          mv "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" "bun-${{ matrix.target }}${{ matrix.ext }}"
-          rm -rf "${{ matrix.bun_asset }}" "${{ matrix.bun_inner_dir }}"
-
           unzip -o "${{ matrix.opencode_asset }}"
           mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}${{ matrix.ext }}"
           rm -f "${{ matrix.opencode_asset }}"
-
-          chmod +x "bun-${{ matrix.target }}${{ matrix.ext }}" "opencode-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
-          ls -lh bun-* opencode-*
+          chmod +x "opencode-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
+          ls -lh
 
       # ── Build ──────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { selectAvailableVariants, useStore } from "@/stores/opencode";
 import type { ModelInfo } from "@/types";
@@ -29,7 +30,7 @@ function ChatInput() {
   const storeAbort = useStore((s) => s.abort);
   const storeSetApiKey = useStore((s) => s.setApiKey);
   const storeStartOAuth = useStore((s) => s.startOAuth);
-  const storeRefreshProviders = useStore((s) => s.refreshProviders);
+  const storeCompleteOAuth = useStore((s) => s.completeOAuth);
 
   const [text, setText] = useState("");
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -39,14 +40,12 @@ function ChatInput() {
   const modelSearchRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const agentPickerRef = useRef<HTMLDivElement>(null);
-  const oauthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const oauthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const oauthAbortRef = useRef<AbortController | null>(null);
 
-  // Clean up OAuth polling on unmount
+  // Clean up OAuth on unmount
   useEffect(() => {
     return () => {
-      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
-      if (oauthTimeoutRef.current) clearTimeout(oauthTimeoutRef.current);
+      oauthAbortRef.current?.abort();
     };
   }, []);
 
@@ -57,6 +56,9 @@ function ChatInput() {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [authSaving, setAuthSaving] = useState(false);
   const [authOauthLoading, setAuthOauthLoading] = useState(false);
+  const [authOauthInstructions, setAuthOauthInstructions] = useState<string | null>(null);
+  const [authOauthMethod, setAuthOauthMethod] = useState<"auto" | "code" | null>(null);
+  const [authOauthCodeInput, setAuthOauthCodeInput] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Auto-resize textarea
@@ -95,6 +97,8 @@ function ChatInput() {
       setPendingModelId(null);
       setApiKeyInput("");
       setAuthError(null);
+      setAuthOauthLoading(false);
+      setAuthOauthInstructions(null);
       setModelSearch("");
       setShowModelPicker(false);
     }
@@ -198,32 +202,71 @@ function ChatInput() {
     return methods.some((m) => m.type === "api");
   }
 
+  function resetInlineOAuth() {
+    setAuthOauthLoading(false);
+    setAuthOauthInstructions(null);
+    setAuthOauthMethod(null);
+    setAuthOauthCodeInput("");
+    oauthAbortRef.current?.abort();
+    oauthAbortRef.current = null;
+  }
+
   async function handleInlineOAuth() {
     if (!authProviderId) return;
     const methodIndex = getOAuthMethodIndex(authProviderId);
     if (methodIndex === null) return;
 
     setAuthOauthLoading(true);
+    setAuthOauthInstructions(null);
+    setAuthOauthMethod(null);
+    setAuthOauthCodeInput("");
     setAuthError(null);
     try {
-      await storeStartOAuth(authProviderId, methodIndex);
-      // Clean up any previous poll
-      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
-      if (oauthTimeoutRef.current) clearTimeout(oauthTimeoutRef.current);
-      // Poll for completion
-      oauthPollRef.current = setInterval(async () => {
-        await storeRefreshProviders();
-      }, 2000);
-      oauthTimeoutRef.current = setTimeout(() => {
-        if (oauthPollRef.current) {
-          clearInterval(oauthPollRef.current);
-          oauthPollRef.current = null;
+      const authResult = await storeStartOAuth(authProviderId, methodIndex);
+      if (!authResult) {
+        resetInlineOAuth();
+        return;
+      }
+      setAuthOauthMethod(authResult.method);
+      if (authResult.instructions) {
+        setAuthOauthInstructions(authResult.instructions);
+      }
+      if (authResult.method === "auto") {
+        // For "auto" flows (e.g. GitHub device code): call callback which blocks
+        // until the user authorizes on the external site
+        const abort = new AbortController();
+        oauthAbortRef.current = abort;
+        try {
+          await storeCompleteOAuth(authProviderId, methodIndex);
+          if (!abort.signal.aborted) {
+            resetInlineOAuth();
+            // The useEffect watching connectedProviders will auto-select the model
+          }
+        } catch {
+          if (!abort.signal.aborted) {
+            setAuthError("Sign-in timed out or was cancelled");
+            resetInlineOAuth();
+          }
         }
-        setAuthOauthLoading(false);
-      }, 60000);
+      }
+      // For "code" flows, we wait for the user to submit via handleInlineOAuthCode
     } catch {
       setAuthError("Failed to start sign-in");
-      setAuthOauthLoading(false);
+      resetInlineOAuth();
+    }
+  }
+
+  async function handleInlineOAuthCode() {
+    if (!authProviderId || !authOauthCodeInput.trim()) return;
+    const methodIndex = getOAuthMethodIndex(authProviderId);
+    if (methodIndex === null) return;
+    try {
+      await storeCompleteOAuth(authProviderId, methodIndex, authOauthCodeInput.trim());
+      resetInlineOAuth();
+      // The useEffect watching connectedProviders will auto-select the model
+    } catch {
+      setAuthError("Invalid code. Please try again.");
+      resetInlineOAuth();
     }
   }
 
@@ -375,7 +418,10 @@ function ChatInput() {
                 <div className="p-3">
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setAuthProviderId(null)}
+                      onClick={() => {
+                        resetInlineOAuth();
+                        setAuthProviderId(null);
+                      }}
                       className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
                     >
                       <svg
@@ -397,26 +443,95 @@ function ChatInput() {
                   <div className="mt-3 space-y-2">
                     {/* OAuth button */}
                     {oauthIndex !== null && (
-                      <button
-                        onClick={handleInlineOAuth}
-                        disabled={authOauthLoading}
-                        className="flex h-8 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
-                      >
+                      <div>
                         {authOauthLoading ? (
-                          <>
-                            <svg
-                              className="h-3 w-3 animate-spin"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
+                          <div className="space-y-2">
+                            <button
+                              disabled
+                              className="flex h-8 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium opacity-50"
                             >
-                              <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                            </svg>
-                            Waiting for sign-in...
-                          </>
+                              <svg
+                                className="h-3 w-3 animate-spin"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                              >
+                                <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+                              </svg>
+                              Waiting for sign-in...
+                            </button>
+                            {authOauthInstructions && authOauthMethod === "auto" && (
+                              <div className="rounded-md border bg-muted/50 p-2">
+                                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                  {authOauthInstructions}
+                                </p>
+                                <button
+                                  onClick={() => {
+                                    const code =
+                                      authOauthInstructions.match(/[A-Z0-9]{4,}-[A-Z0-9]{4,}/i);
+                                    if (code) {
+                                      navigator.clipboard.writeText(code[0]);
+                                      toast("Code copied to clipboard");
+                                    }
+                                  }}
+                                  className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent"
+                                >
+                                  <svg
+                                    width="10"
+                                    height="10"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                  Copy code
+                                </button>
+                              </div>
+                            )}
+                            {authOauthMethod === "code" && (
+                              <div className="space-y-1.5">
+                                {authOauthInstructions && (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {authOauthInstructions}
+                                  </p>
+                                )}
+                                <div className="flex gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={authOauthCodeInput}
+                                    onChange={(e) => setAuthOauthCodeInput(e.target.value)}
+                                    placeholder="Paste authorization code..."
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" && authOauthCodeInput.trim()) {
+                                        e.preventDefault();
+                                        handleInlineOAuthCode();
+                                      }
+                                    }}
+                                    className="h-7 flex-1 rounded border bg-background px-2 font-mono text-[11px] placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                                    autoFocus
+                                  />
+                                  <button
+                                    onClick={handleInlineOAuthCode}
+                                    disabled={!authOauthCodeInput.trim()}
+                                    className="h-7 rounded bg-foreground px-2.5 text-[11px] font-medium text-background transition-opacity disabled:opacity-40"
+                                  >
+                                    Submit
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         ) : (
-                          <>
+                          <button
+                            onClick={handleInlineOAuth}
+                            className="flex h-8 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium transition-colors hover:bg-accent"
+                          >
                             <svg
                               width="11"
                               height="11"
@@ -432,9 +547,9 @@ function ChatInput() {
                               <line x1="15" y1="12" x2="3" y2="12" />
                             </svg>
                             Sign in with {authProviderName}
-                          </>
+                          </button>
                         )}
-                      </button>
+                      </div>
                     )}
 
                     {/* Divider */}

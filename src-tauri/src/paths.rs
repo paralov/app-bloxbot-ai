@@ -37,9 +37,47 @@ fn sidecar_path(name: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// Returns the path to the bundled Bun sidecar binary.
-pub fn bundled_bun_path() -> Result<PathBuf, String> {
-    sidecar_path("bun")
+/// Returns the path to the bundled Node.js bin directory from resources.
+/// This directory contains node, npm, and npx.
+///
+/// Production macOS: `<App>/Contents/Resources/nodejs/bin/`
+/// Production Windows: `<App>/nodejs/bin`
+/// Dev: `src-tauri/resources/nodejs/bin`
+pub fn bundled_nodejs_bin_dir() -> Result<PathBuf, String> {
+    let sidecar = sidecar_dir()?;
+
+    // Production layout on macOS: <App>/Contents/MacOS/../Resources/nodejs/bin
+    #[cfg(target_os = "macos")]
+    let prod_path = sidecar
+        .parent()
+        .map(|p| p.join("Resources").join("nodejs").join("bin"))
+        .unwrap_or_default();
+    // Production layout on Windows: next to the exe
+    #[cfg(not(target_os = "macos"))]
+    let prod_path = sidecar.join("nodejs").join("bin");
+
+    if prod_path.exists() {
+        return Ok(prod_path);
+    }
+
+    // Dev layout: during `cargo tauri dev`, sidecar is at src-tauri/target/debug/
+    // We need to go up to src-tauri/ then into resources/
+    // sidecar/../../resources/nodejs/bin
+    let dev_path = sidecar
+        .parent() // target/
+        .and_then(|p| p.parent()) // src-tauri/
+        .map(|p| p.join("resources").join("nodejs").join("bin"))
+        .unwrap_or_default();
+
+    if dev_path.exists() {
+        return Ok(dev_path);
+    }
+
+    Err(format!(
+        "Bundled Node.js not found. Checked:\n  {}\n  {}",
+        prod_path.display(),
+        dev_path.display()
+    ))
 }
 
 /// Returns the path to the bundled OpenCode sidecar binary.

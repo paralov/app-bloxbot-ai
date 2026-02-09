@@ -416,8 +416,8 @@ function ChatSidebar({ collapsed, onToggle, onSessionSelect, onOpenSettings }: C
             })}
           </div>
 
-          {/* Settings button at bottom */}
-          <div className="shrink-0 border-t px-3 py-2">
+          {/* Footer: Settings */}
+          <div className="shrink-0 border-t px-3 py-2 space-y-1">
             <button
               onClick={onOpenSettings}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"

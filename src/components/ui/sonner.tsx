@@ -6,12 +6,19 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme="light"
       className="toaster group"
       position="bottom-right"
+      toastOptions={{
+        style: {
+          pointerEvents: "auto",
+        },
+      }}
       style={
         {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
+          // Ensure the toaster container doesn't block the title bar
+          pointerEvents: "none",
         } as React.CSSProperties
       }
       {...props}

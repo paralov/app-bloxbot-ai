@@ -158,7 +158,7 @@ pub async fn start_opencode_server(
     }
 
     let opencode_bin = crate::paths::bundled_opencode_path()?;
-    let bun_path = crate::paths::bundled_bun_path()?;
+    let nodejs_bin_dir = crate::paths::bundled_nodejs_bin_dir()?;
 
     set_status(&state, &app, OpenCodeStatus::Starting).await;
 
@@ -172,11 +172,8 @@ pub async fn start_opencode_server(
         s.port = port;
     }
 
-    // Configure the MCP server for robloxstudio-mcp using the bundled Bun,
-    // and register auth plugins so providers like Google get OAuth support.
-    // The --bun flag forces bun to use its own runtime instead of node,
-    // which is necessary because our minimal PATH doesn't include node.
-    let bun_str = bun_path.to_string_lossy().to_string();
+    // Configure the MCP server for robloxstudio-mcp.
+    // npx from our bundled Node.js will fetch and run the package.
     let mcp_config = serde_json::json!({
         "plugin": [
             "opencode-gemini-auth@latest"
@@ -184,8 +181,40 @@ pub async fn start_opencode_server(
         "mcp": {
             "roblox-studio": {
                 "type": "local",
-                "command": [bun_str, "x", "--bun", MCP_PACKAGE],
+                "command": ["npx", MCP_PACKAGE],
                 "enabled": true
+            }
+        },
+        "default_agent": "studio",
+        "agent": {
+            "build": {
+                "description": "Executes tools based on the conversation"
+            },
+            "studio": {
+                "mode": "primary",
+                "description": "Roblox Studio development assistant",
+                "prompt": concat!(
+                    "You are BloxBot, a specialized AI assistant for Roblox game development inside Roblox Studio.\n\n",
+                    "## Your Capabilities\n",
+                    "You have access to Roblox Studio through MCP (Model Context Protocol) tools. ",
+                    "Use these tools to directly interact with the Studio environment: read and modify the explorer hierarchy, ",
+                    "create and edit scripts, manipulate parts and models, manage properties, and more.\n\n",
+                    "## Roblox Development Guidelines\n",
+                    "- Write all game scripts in **Luau** (Roblox's typed Lua dialect). Use modern Luau features like type annotations, `if-then-else` expressions, and string interpolation where appropriate.\n",
+                    "- Follow Roblox conventions: use PascalCase for services, instances, and properties. Use camelCase for local variables and functions.\n",
+                    "- Distinguish between **Script** (server-side, runs in ServerScriptService or Workspace), **LocalScript** (client-side, runs in StarterPlayerScripts, StarterCharacterScripts, or StarterGui), and **ModuleScript** (shared code in ReplicatedStorage or ServerStorage).\n",
+                    "- Use the correct Roblox services: Players, Workspace, ReplicatedStorage, ServerStorage, ServerScriptService, StarterGui, StarterPlayerScripts, Lighting, TweenService, UserInputService, RunService, etc.\n",
+                    "- For client-server communication, use RemoteEvents and RemoteFunctions placed in ReplicatedStorage.\n",
+                    "- Never trust the client. Validate all inputs on the server.\n\n",
+                    "## MCP Tool Usage\n",
+                    "Always prefer using the available Roblox Studio MCP tools to directly modify the Studio project rather than just showing code snippets. ",
+                    "When a user asks you to create or modify something, use the tools to actually make the changes in Studio.\n",
+                    "After making changes, briefly explain what you did and why.\n\n",
+                    "## Communication Style\n",
+                    "- Be concise and practical. Focus on making things work in Studio.\n",
+                    "- When explaining Roblox concepts, be clear but don't over-explain basics unless asked.\n",
+                    "- If something cannot be done through the available tools, explain what the user needs to do manually."
+                )
             }
         }
     });
@@ -211,19 +240,20 @@ pub async fn start_opencode_server(
         }
     }
 
-    // Build a minimal PATH that includes our sidecar directory and essential system paths.
-    // This prevents OpenCode from accidentally using system-installed binaries.
+    // Build a minimal PATH with our bundled Node.js bin directory first,
+    // then essential system paths. This ensures npx/npm use our bundled Node.js.
+    let nodejs_bin = nodejs_bin_dir.to_string_lossy().to_string();
     let sidecar_dir = opencode_bin
         .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
     #[cfg(unix)]
-    let minimal_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", sidecar_dir);
+    let minimal_path = format!("{}:{}:/usr/bin:/bin:/usr/sbin:/sbin", nodejs_bin, sidecar_dir);
     #[cfg(windows)]
     let minimal_path = format!(
-        "{};C:\\Windows\\System32;C:\\Windows",
-        sidecar_dir
+        "{};{};C:\\Windows\\System32;C:\\Windows",
+        nodejs_bin, sidecar_dir
     );
 
     let mut child = Command::new(&opencode_bin)
@@ -240,7 +270,7 @@ pub async fn start_opencode_server(
         .env("XDG_STATE_HOME", &xdg_state)
         // Config content (MCP servers, plugins)
         .env("OPENCODE_CONFIG_CONTENT", &config_content)
-        // Minimal PATH to prevent picking up system binaries
+        // Minimal PATH with bundled node/npm/npx first
         .env("PATH", &minimal_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

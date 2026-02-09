@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Bundled runtimes (downloaded during CI / dev setup, too large for git)
+src-tauri/resources/nodejs/
+src-tauri/binaries/opencode*
+src-tauri/binaries/*.exe
+src-tauri/binaries/*.zip
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

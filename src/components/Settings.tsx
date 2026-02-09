@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useStore } from "@/stores/opencode";
 import type { ModelInfo, ProviderInfo } from "@/types";
 
@@ -164,12 +165,17 @@ function ProvidersTab() {
   const authMethods = useStore((s) => s.authMethods);
   const storeSetApiKey = useStore((s) => s.setApiKey);
   const storeStartOAuth = useStore((s) => s.startOAuth);
-  const storeRefreshProviders = useStore((s) => s.refreshProviders);
+  const storeCompleteOAuth = useStore((s) => s.completeOAuth);
+  const storeDisconnect = useStore((s) => s.disconnectProvider);
 
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+  const [oauthInstructions, setOauthInstructions] = useState<string | null>(null);
+  const [oauthMethod, setOauthMethod] = useState<"auto" | "code" | null>(null);
+  const [oauthCodeInput, setOauthCodeInput] = useState("");
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [feedback, setFeedback] = useState<{
     providerId: string;
@@ -178,14 +184,13 @@ function ProvidersTab() {
   } | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
-  const oauthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const oauthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Holds the AbortController for cancelling an in-flight completeOAuth call. */
+  const oauthAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     searchRef.current?.focus();
     return () => {
-      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
-      if (oauthTimeoutRef.current) clearTimeout(oauthTimeoutRef.current);
+      oauthAbortRef.current?.abort();
     };
   }, []);
 
@@ -223,33 +228,98 @@ function ProvidersTab() {
     return methods.some((m) => m.type === "api");
   }
 
+  function resetOAuthState() {
+    setOauthLoading(null);
+    setOauthInstructions(null);
+    setOauthMethod(null);
+    setOauthCodeInput("");
+    oauthAbortRef.current?.abort();
+    oauthAbortRef.current = null;
+  }
+
   async function handleOAuth(providerId: string) {
     const methodIndex = getOAuthMethodIndex(providerId);
     if (methodIndex === null) return;
     setOauthLoading(providerId);
+    setOauthInstructions(null);
+    setOauthMethod(null);
+    setOauthCodeInput("");
     setFeedback(null);
     try {
-      await storeStartOAuth(providerId, methodIndex);
-      // Clean up any previous poll
-      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
-      if (oauthTimeoutRef.current) clearTimeout(oauthTimeoutRef.current);
-      oauthPollRef.current = setInterval(async () => {
-        await storeRefreshProviders();
-      }, 2000);
-      oauthTimeoutRef.current = setTimeout(() => {
-        if (oauthPollRef.current) {
-          clearInterval(oauthPollRef.current);
-          oauthPollRef.current = null;
+      const authResult = await storeStartOAuth(providerId, methodIndex);
+      if (!authResult) {
+        resetOAuthState();
+        return;
+      }
+      setOauthMethod(authResult.method);
+      if (authResult.instructions) {
+        setOauthInstructions(authResult.instructions);
+      }
+      if (authResult.method === "auto") {
+        // For "auto" flows (e.g. GitHub device code): call callback which blocks
+        // until the user authorizes on the external site
+        const abort = new AbortController();
+        oauthAbortRef.current = abort;
+        try {
+          await storeCompleteOAuth(providerId, methodIndex);
+          if (!abort.signal.aborted) {
+            resetOAuthState();
+            setFeedback({ providerId, type: "success", text: "Connected!" });
+          }
+        } catch {
+          if (!abort.signal.aborted) {
+            setFeedback({
+              providerId,
+              type: "error",
+              text: "Sign-in timed out or was cancelled",
+            });
+            resetOAuthState();
+          }
         }
-        setOauthLoading(null);
-      }, 60000);
+      }
+      // For "code" flows, we wait for the user to submit a code via handleOAuthCode
     } catch {
       setFeedback({
         providerId,
         type: "error",
         text: "Failed to start sign-in flow",
       });
-      setOauthLoading(null);
+      resetOAuthState();
+    }
+  }
+
+  async function handleOAuthCode(providerId: string) {
+    const methodIndex = getOAuthMethodIndex(providerId);
+    if (methodIndex === null || !oauthCodeInput.trim()) return;
+    try {
+      await storeCompleteOAuth(providerId, methodIndex, oauthCodeInput.trim());
+      resetOAuthState();
+      setFeedback({ providerId, type: "success", text: "Connected!" });
+    } catch {
+      setFeedback({
+        providerId,
+        type: "error",
+        text: "Invalid code. Please try again.",
+      });
+      resetOAuthState();
+    }
+  }
+
+  async function handleDisconnect(providerId: string) {
+    setDisconnecting(providerId);
+    setFeedback(null);
+    try {
+      await storeDisconnect(providerId);
+      setExpandedProvider(null);
+      setFeedback({ providerId, type: "success", text: "Disconnected" });
+    } catch {
+      setFeedback({
+        providerId,
+        type: "error",
+        text: "Failed to disconnect",
+      });
+    } finally {
+      setDisconnecting(null);
     }
   }
 
@@ -273,8 +343,16 @@ function ProvidersTab() {
     }
   }
 
+  // Auto-collapse when a provider just became connected (e.g. after OAuth flow)
+  const prevConnectedRef = useRef(connectedProviders);
   useEffect(() => {
-    if (expandedProvider && connectedProviders.includes(expandedProvider)) {
+    const prev = prevConnectedRef.current;
+    prevConnectedRef.current = connectedProviders;
+    if (!expandedProvider) return;
+    // Only collapse if this provider wasn't connected before but is now
+    const justConnected =
+      connectedProviders.includes(expandedProvider) && !prev.includes(expandedProvider);
+    if (justConnected) {
       setExpandedProvider(null);
       setApiKeyInput("");
     }
@@ -293,14 +371,11 @@ function ProvidersTab() {
       <div key={provider.id} className="rounded-lg border bg-card">
         <button
           onClick={() => {
-            if (isConnected) return;
             setExpandedProvider(isExpanded ? null : provider.id);
             setApiKeyInput("");
             setFeedback(null);
           }}
-          className={`flex w-full items-center gap-3 px-3.5 py-2.5 text-left ${
-            isConnected ? "cursor-default" : "cursor-pointer"
-          }`}
+          className="flex w-full cursor-pointer items-center gap-3 px-3.5 py-2.5 text-left"
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent text-xs font-semibold text-muted-foreground">
             {provider.name.charAt(0).toUpperCase()}
@@ -313,51 +388,152 @@ function ProvidersTab() {
               </span>
             )}
           </div>
-          {isConnected ? (
+          {isConnected && (
             <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Connected
             </span>
-          ) : (
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`shrink-0 text-muted-foreground transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
           )}
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`shrink-0 text-muted-foreground transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </button>
 
+        {/* Connected: show disconnect option */}
+        {isExpanded && isConnected && (
+          <div className="animate-fade-in border-t px-3.5 py-3">
+            <button
+              onClick={() => handleDisconnect(provider.id)}
+              disabled={disconnecting === provider.id}
+              className="flex h-8 w-full items-center justify-center gap-2 rounded-md border border-red-200 bg-background text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+            >
+              {disconnecting === provider.id ? (
+                <>
+                  <svg
+                    className="h-3 w-3 animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+                  </svg>
+                  Disconnecting...
+                </>
+              ) : (
+                "Disconnect"
+              )}
+            </button>
+            {providerFeedback && (
+              <p
+                className={`mt-2 text-[11px] ${providerFeedback.type === "error" ? "text-destructive" : "text-emerald-600"}`}
+              >
+                {providerFeedback.text}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Not connected: show sign-in options */}
         {isExpanded && !isConnected && (
           <div className="animate-fade-in border-t px-3.5 py-3">
             {oauthIndex !== null && (
-              <button
-                onClick={() => handleOAuth(provider.id)}
-                disabled={isOauthLoading}
-                className="flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
-              >
+              <div>
                 {isOauthLoading ? (
-                  <>
-                    <svg
-                      className="h-3 w-3 animate-spin"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
+                  <div className="space-y-2">
+                    <button
+                      disabled
+                      className="flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium opacity-50"
                     >
-                      <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                    </svg>
-                    Waiting for sign-in...
-                  </>
+                      <svg
+                        className="h-3 w-3 animate-spin"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+                      </svg>
+                      Waiting for sign-in...
+                    </button>
+                    {oauthInstructions && oauthMethod === "auto" && (
+                      <div className="rounded-md border bg-muted/50 p-2.5">
+                        <p className="text-[11px] leading-relaxed text-muted-foreground">
+                          {oauthInstructions}
+                        </p>
+                        <button
+                          onClick={() => {
+                            const code = oauthInstructions.match(/[A-Z0-9]{4,}-[A-Z0-9]{4,}/i);
+                            if (code) {
+                              navigator.clipboard.writeText(code[0]);
+                              toast("Code copied to clipboard");
+                            }
+                          }}
+                          className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent"
+                        >
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          Copy code
+                        </button>
+                      </div>
+                    )}
+                    {oauthMethod === "code" && (
+                      <div className="space-y-1.5">
+                        {oauthInstructions && (
+                          <p className="text-[11px] text-muted-foreground">{oauthInstructions}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={oauthCodeInput}
+                            onChange={(e) => setOauthCodeInput(e.target.value)}
+                            placeholder="Paste authorization code..."
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && oauthCodeInput.trim()) {
+                                e.preventDefault();
+                                handleOAuthCode(provider.id);
+                              }
+                            }}
+                            className="h-8 flex-1 rounded border bg-background px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleOAuthCode(provider.id)}
+                            disabled={!oauthCodeInput.trim()}
+                            className="h-8 rounded bg-foreground px-3 text-xs font-medium text-background transition-opacity disabled:opacity-40"
+                          >
+                            Submit
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <>
+                  <button
+                    onClick={() => handleOAuth(provider.id)}
+                    className="flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium transition-colors hover:bg-accent"
+                  >
                     <svg
                       width="12"
                       height="12"
@@ -373,9 +549,9 @@ function ProvidersTab() {
                       <line x1="15" y1="12" x2="3" y2="12" />
                     </svg>
                     Sign in with {provider.name}
-                  </>
+                  </button>
                 )}
-              </button>
+              </div>
             )}
             {oauthIndex !== null && supportsApiKey && (
               <div className="my-2.5 flex items-center gap-2">

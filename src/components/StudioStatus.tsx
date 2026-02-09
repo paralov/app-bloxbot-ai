@@ -68,15 +68,15 @@ function StudioStatus() {
 
   return (
     <div className="relative" onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
-      {/* Indicator pill */}
-      <div className="flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent">
-        <span className={`inline-block h-1.5 w-1.5 rounded-full ${config.dot}`} />
-        <span className="text-[10px] text-muted-foreground">{config.label}</span>
+      {/* Indicator row */}
+      <div className="flex w-full cursor-default items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent">
+        <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${config.dot}`} />
+        <span className="text-[11px] text-muted-foreground">{config.label}</span>
       </div>
 
       {/* Popover */}
       {hovering && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-popover p-3 shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-popover p-3 shadow-lg">
           <div className="flex items-center gap-2">
             <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${config.dot}`} />
             <span className="text-xs font-medium text-foreground">{config.label}</span>

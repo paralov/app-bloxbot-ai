@@ -12,6 +12,7 @@ import type {
   Todo,
 } from "@opencode-ai/sdk/v2/client";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 import type {
@@ -192,7 +193,15 @@ interface OpenCodeState {
 
   // ── Actions: auth / providers ─────────────────────────────────────
   setApiKey: (providerID: string, key: string) => Promise<void>;
-  startOAuth: (providerID: string, methodIndex: number) => Promise<void>;
+  startOAuth: (
+    providerID: string,
+    methodIndex: number,
+  ) => Promise<{ method: "auto" | "code"; instructions: string } | undefined>;
+  /** Call after startOAuth to complete the flow. For "auto" flows this blocks until
+   *  the user authorizes on the external site. For "code" flows, pass the user-entered code. */
+  completeOAuth: (providerID: string, methodIndex: number, code?: string) => Promise<boolean>;
+  /** Remove stored credentials for a provider. */
+  disconnectProvider: (providerID: string) => Promise<void>;
   refreshProviders: () => Promise<void>;
 
   // ── Actions: preferences ──────────────────────────────────────────
@@ -434,6 +443,13 @@ export const useStore = create<OpenCodeState>((set, get) => {
 
           if (agentsRes.data && Array.isArray(agentsRes.data)) {
             updates.agents = agentsRes.data;
+            // Auto-select the first primary agent if none is selected
+            if (!get().selectedAgent) {
+              const primary = agentsRes.data.find((a: Agent) => a.mode === "primary" && !a.hidden);
+              if (primary) {
+                updates.selectedAgent = primary.name;
+              }
+            }
           }
 
           if (authMethodsRes.data) {
@@ -729,29 +745,67 @@ export const useStore = create<OpenCodeState>((set, get) => {
           providerID,
           auth: { type: "api", key },
         });
-        const res = await c.provider.list({});
-        if (res.data) {
-          set({ connectedProviders: res.data.connected });
-        }
+        // Dispose cached instance so provider state is re-computed with new auth
+        await c.instance.dispose();
+        await get().refreshProviders();
       } catch (err) {
         console.error("Failed to set API key:", err);
         throw err;
       }
     },
 
-    startOAuth: async (providerID, methodIndex) => {
+    disconnectProvider: async (providerID) => {
       const c = get().client;
       if (!c) return;
+      try {
+        await c.auth.remove({ providerID });
+        await c.instance.dispose();
+        await get().refreshProviders();
+      } catch (err) {
+        console.error("Failed to disconnect provider:", err);
+        throw err;
+      }
+    },
+
+    startOAuth: async (providerID, methodIndex) => {
+      const c = get().client;
+      if (!c) return undefined;
       try {
         const res = await c.provider.oauth.authorize({
           providerID,
           method: methodIndex,
         });
         if (res.data) {
-          window.open(res.data.url, "_blank");
+          await openUrl(res.data.url);
+          return {
+            method: res.data.method,
+            instructions: res.data.instructions,
+          };
         }
+        return undefined;
       } catch (err) {
         console.error("Failed to start OAuth:", err);
+        throw err;
+      }
+    },
+
+    completeOAuth: async (providerID, methodIndex, code?) => {
+      const c = get().client;
+      if (!c) return false;
+      try {
+        const res = await c.provider.oauth.callback({
+          providerID,
+          method: methodIndex,
+          ...(code ? { code } : {}),
+        });
+        // The OpenCode server caches provider state per-directory. After saving
+        // new OAuth credentials, the cached state is stale. Dispose the instance
+        // so the next API call re-initialises state with the new auth.
+        await c.instance.dispose();
+        await get().refreshProviders();
+        return res.data === true;
+      } catch (err) {
+        console.error("OAuth callback failed:", err);
         throw err;
       }
     },
@@ -760,12 +814,34 @@ export const useStore = create<OpenCodeState>((set, get) => {
       const c = get().client;
       if (!c) return;
       try {
-        const res = await c.provider.list({});
-        if (res.data) {
-          set({
-            connectedProviders: res.data.connected,
-            allProviders: res.data.all.map((p) => ({ id: p.id, name: p.name, env: p.env })),
-          });
+        const [provRes, authRes] = await Promise.all([
+          c.provider.list({}),
+          c.provider.auth({}).catch(() => ({ data: undefined })),
+        ]);
+        if (provRes.data) {
+          const { all, connected } = provRes.data;
+          const models: ModelInfo[] = [];
+          for (const provider of all) {
+            for (const model of Object.values(provider.models)) {
+              models.push({
+                id: model.id,
+                name: model.name,
+                providerId: provider.id,
+                providerName: provider.name,
+                status: model.status,
+                variants: model.variants as Record<string, Record<string, unknown>> | undefined,
+              });
+            }
+          }
+          const updates: Partial<OpenCodeState> = {
+            connectedProviders: connected,
+            allProviders: all.map((p) => ({ id: p.id, name: p.name, env: p.env })),
+            allModels: models,
+          };
+          if (authRes.data) {
+            updates.authMethods = authRes.data as AuthMethods;
+          }
+          set(updates);
         }
       } catch {
         // Non-critical

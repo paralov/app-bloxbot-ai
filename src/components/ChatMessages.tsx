@@ -5,7 +5,9 @@ import type {
   QuestionRequest,
   Todo,
 } from "@opencode-ai/sdk/v2/client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useStore } from "@/stores/opencode";
 import type { MessageWithParts } from "@/types";
 
@@ -439,8 +441,115 @@ function DefaultToolView({
 
 // ── Part renderers ─────────────────────────────────────────────────────
 
+const markdownComponents: Components = {
+  p({ children }) {
+    return <p className="mb-2 last:mb-0">{children}</p>;
+  },
+  h1({ children }) {
+    return <h1 className="mb-2 mt-4 first:mt-0 text-lg font-semibold">{children}</h1>;
+  },
+  h2({ children }) {
+    return <h2 className="mb-2 mt-3 first:mt-0 text-base font-semibold">{children}</h2>;
+  },
+  h3({ children }) {
+    return <h3 className="mb-1.5 mt-2.5 first:mt-0 text-sm font-semibold">{children}</h3>;
+  },
+  h4({ children }) {
+    return <h4 className="mb-1 mt-2 first:mt-0 text-[13px] font-semibold">{children}</h4>;
+  },
+  ul({ children }) {
+    return <ul className="mb-2 ml-4 list-disc space-y-0.5 last:mb-0">{children}</ul>;
+  },
+  ol({ children }) {
+    return <ol className="mb-2 ml-4 list-decimal space-y-0.5 last:mb-0">{children}</ol>;
+  },
+  li({ children }) {
+    return <li className="pl-0.5">{children}</li>;
+  },
+  a({ href, children }) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-800 hover:decoration-blue-500"
+      >
+        {children}
+      </a>
+    );
+  },
+  strong({ children }) {
+    return <strong className="font-semibold">{children}</strong>;
+  },
+  em({ children }) {
+    return <em>{children}</em>;
+  },
+  blockquote({ children }) {
+    return (
+      <blockquote className="mb-2 border-l-2 border-stone-300 pl-3 text-muted-foreground last:mb-0">
+        {children}
+      </blockquote>
+    );
+  },
+  hr() {
+    return <hr className="my-3 border-stone-200" />;
+  },
+  code({ className, children }) {
+    const isBlock = className?.includes("language-");
+    if (isBlock) {
+      const lang = className?.replace("language-", "") ?? "";
+      return (
+        <div className="mb-2 overflow-hidden rounded-md border border-stone-200 last:mb-0">
+          {lang && (
+            <div className="border-b border-stone-200 bg-stone-100 px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+              {lang}
+            </div>
+          )}
+          <pre className="overflow-x-auto bg-stone-900 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-stone-100">
+            <code>{children}</code>
+          </pre>
+        </div>
+      );
+    }
+    return (
+      <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-[11.5px] text-stone-800">
+        {children}
+      </code>
+    );
+  },
+  pre({ children }) {
+    // react-markdown wraps code blocks in <pre><code>. Our code() handler above
+    // already renders the full block, so we just pass children through to avoid
+    // double-wrapping.
+    return <>{children}</>;
+  },
+  table({ children }) {
+    return (
+      <div className="mb-2 overflow-x-auto last:mb-0">
+        <table className="min-w-full border-collapse text-[12px]">{children}</table>
+      </div>
+    );
+  },
+  thead({ children }) {
+    return <thead className="border-b border-stone-200 bg-stone-50">{children}</thead>;
+  },
+  th({ children }) {
+    return <th className="px-2 py-1 text-left font-semibold text-foreground">{children}</th>;
+  },
+  td({ children }) {
+    return <td className="border-t border-stone-100 px-2 py-1 text-foreground">{children}</td>;
+  },
+};
+
 function TextPartView({ part }: { part: Extract<Part, { type: "text" }> }) {
-  return <div className="whitespace-pre-wrap text-[13px] leading-relaxed">{part.text}</div>;
+  const content = useMemo(() => part.text, [part.text]);
+  return (
+    <div className="text-[13px] leading-relaxed">
+      <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {content}
+      </Markdown>
+    </div>
+  );
 }
 
 function ReasoningPartView({ part }: { part: Extract<Part, { type: "reasoning" }> }) {
