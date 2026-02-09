@@ -192,6 +192,38 @@ pub async fn start_opencode_server(
 
     let workspace = crate::paths::workspace_dir()?;
 
+    // Create isolated XDG directories under ~/BloxBot/.opencode/
+    // This prevents the bundled OpenCode from reading/writing to the user's
+    // global ~/.config/opencode, ~/.local/share/opencode, etc.
+    let opencode_home = workspace.join(".opencode");
+    let xdg_data = opencode_home.join("data");
+    let xdg_config = opencode_home.join("config");
+    let xdg_cache = opencode_home.join("cache");
+    let xdg_state = opencode_home.join("state");
+
+    // Create directories if they don't exist
+    for dir in [&xdg_data, &xdg_config, &xdg_cache, &xdg_state] {
+        if !dir.exists() {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("Failed to create directory {}: {e}", dir.display()))?;
+        }
+    }
+
+    // Build a minimal PATH that includes our sidecar directory and essential system paths.
+    // This prevents OpenCode from accidentally using system-installed binaries.
+    let sidecar_dir = opencode_bin
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    #[cfg(unix)]
+    let minimal_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", sidecar_dir);
+    #[cfg(windows)]
+    let minimal_path = format!(
+        "{};C:\\Windows\\System32;C:\\Windows",
+        sidecar_dir
+    );
+
     let mut child = Command::new(&opencode_bin)
         .arg("serve")
         .arg("--port")
@@ -199,12 +231,23 @@ pub async fn start_opencode_server(
         .arg("--hostname")
         .arg("127.0.0.1")
         .current_dir(&workspace)
+        // Isolated XDG directories
+        .env("XDG_DATA_HOME", &xdg_data)
+        .env("XDG_CONFIG_HOME", &xdg_config)
+        .env("XDG_CACHE_HOME", &xdg_cache)
+        .env("XDG_STATE_HOME", &xdg_state)
+        // Config content (MCP servers, plugins)
         .env("OPENCODE_CONFIG_CONTENT", &config_content)
+        // Minimal PATH to prevent picking up system binaries
+        .env("PATH", &minimal_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("Failed to start OpenCode server: {e}"))?;
+
+    eprintln!("[opencode] Isolated environment: {}", opencode_home.display());
+    eprintln!("[opencode] PATH: {}", minimal_path);
 
     // Capture stderr for logging (all lines)
     if let Some(stderr) = child.stderr.take() {
