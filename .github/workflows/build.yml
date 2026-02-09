@@ -77,14 +77,14 @@ jobs:
         run: |
           cd src-tauri/binaries
 
-          curl -fSL --retry 3 --retry-delay 5 -o bun.zip \
+          curl -fSL --retry 5 --retry-delay 10 --retry-all-errors -o bun.zip \
             "https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/${{ matrix.bun_asset }}"
           unzip -o bun.zip
           mv "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" "bun-${{ matrix.target }}"
           rm -rf bun.zip ${{ matrix.bun_inner_dir }}
           chmod +x "bun-${{ matrix.target }}"
 
-          curl -fSL --retry 3 --retry-delay 5 -o opencode.zip \
+          curl -fSL --retry 5 --retry-delay 10 --retry-all-errors -o opencode.zip \
             "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}"
           unzip -o opencode.zip
           mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}"
@@ -99,12 +99,27 @@ jobs:
         run: |
           cd src-tauri/binaries
 
-          Invoke-WebRequest -Uri "https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/${{ matrix.bun_asset }}" -OutFile bun.zip
+          function Download-WithRetry {
+            param([string]$Url, [string]$OutFile, [int]$MaxRetries = 5, [int]$DelaySeconds = 10)
+            for ($i = 1; $i -le $MaxRetries; $i++) {
+              try {
+                Write-Host "Downloading $Url (attempt $i/$MaxRetries)"
+                Invoke-WebRequest -Uri $Url -OutFile $OutFile -MaximumRetryCount 3 -RetryIntervalSec 5
+                return
+              } catch {
+                Write-Host "Attempt $i failed: $_"
+                if ($i -eq $MaxRetries) { throw "Failed to download $Url after $MaxRetries attempts" }
+                Start-Sleep -Seconds $DelaySeconds
+              }
+            }
+          }
+
+          Download-WithRetry -Url "https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/${{ matrix.bun_asset }}" -OutFile bun.zip
           Expand-Archive -Path bun.zip -DestinationPath . -Force
           Move-Item -Path "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" -Destination "bun-${{ matrix.target }}.exe" -Force
           Remove-Item -Recurse -Force bun.zip, ${{ matrix.bun_inner_dir }}
 
-          Invoke-WebRequest -Uri "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}" -OutFile opencode.zip
+          Download-WithRetry -Url "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}" -OutFile opencode.zip
           Expand-Archive -Path opencode.zip -DestinationPath . -Force
           Move-Item -Path "${{ matrix.opencode_bin }}" -Destination "opencode-${{ matrix.target }}.exe" -Force
           Remove-Item -Force opencode.zip
