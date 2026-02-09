@@ -77,14 +77,14 @@ jobs:
         run: |
           cd src-tauri/binaries
 
-          curl -fSL -o bun.zip \
+          curl -fSL --retry 3 --retry-delay 5 -o bun.zip \
             "https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/${{ matrix.bun_asset }}"
           unzip -o bun.zip
           mv "${{ matrix.bun_inner_dir }}/${{ matrix.bun_bin }}" "bun-${{ matrix.target }}"
           rm -rf bun.zip ${{ matrix.bun_inner_dir }}
           chmod +x "bun-${{ matrix.target }}"
 
-          curl -fSL -o opencode.zip \
+          curl -fSL --retry 3 --retry-delay 5 -o opencode.zip \
             "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}"
           unzip -o opencode.zip
           mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}"
