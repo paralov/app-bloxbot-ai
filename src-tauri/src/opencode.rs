@@ -174,6 +174,8 @@ pub async fn start_opencode_server(
 
     // Configure the MCP server for robloxstudio-mcp using the bundled Bun,
     // and register auth plugins so providers like Google get OAuth support.
+    // The --bun flag forces bun to use its own runtime instead of node,
+    // which is necessary because our minimal PATH doesn't include node.
     let bun_str = bun_path.to_string_lossy().to_string();
     let mcp_config = serde_json::json!({
         "plugin": [
@@ -182,7 +184,7 @@ pub async fn start_opencode_server(
         "mcp": {
             "roblox-studio": {
                 "type": "local",
-                "command": [bun_str, "x", MCP_PACKAGE],
+                "command": [bun_str, "x", "--bun", MCP_PACKAGE],
                 "enabled": true
             }
         }
