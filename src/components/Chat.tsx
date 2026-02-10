@@ -1,16 +1,13 @@
-import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
 import ChatSetup from "@/components/ChatSetup";
 import ChatSidebar from "@/components/ChatSidebar";
-import DebugLogs from "@/components/DebugLogs";
 import Settings from "@/components/Settings";
 import { useStore } from "@/stores/opencode";
 
 function Chat() {
   const status = useStore((s) => s.status);
-  const port = useStore((s) => s.port);
   const activeSession = useStore((s) => s.activeSession);
   const isBusy = useStore((s) => s.isBusy);
   const ready = useStore((s) => s.ready);
@@ -20,36 +17,13 @@ function Chat() {
   const createSession = useStore((s) => s.createSession);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [debugView, setDebugView] = useState(false);
-  const [debugLogs, setDebugLogs] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   const serverRunning = status === "Running";
 
-  // Listen for debug toggles from native menu
-  useEffect(() => {
-    const unlistenView = listen("toggle-debug-view", () => {
-      setDebugView((prev) => !prev);
-      setDebugLogs(false);
-    });
-    const unlistenLogs = listen("toggle-debug-logs", () => {
-      setDebugLogs((prev) => !prev);
-      setDebugView(false);
-    });
-    return () => {
-      unlistenView.then((fn) => fn());
-      unlistenLogs.then((fn) => fn());
-    };
-  }, []);
-
   // ── First-run welcome screen ─────────────────────────────────────────
   if (!hasLaunched) {
     return <ChatSetup />;
-  }
-
-  // ── Debug logs panel (available regardless of server state) ──────────
-  if (debugLogs) {
-    return <DebugLogs onClose={() => setDebugLogs(false)} />;
   }
 
   // ── Waiting for the backend to start OpenCode ────────────────────────
@@ -73,46 +47,6 @@ function Chat() {
             </p>
           )}
         </div>
-      </div>
-    );
-  }
-
-  // ── Debug view: embed OpenCode's own web UI ──────────────────────────
-  if (debugView) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-10 shrink-0 items-center justify-between border-b bg-card px-4">
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-amber-700">
-              DEBUG
-            </span>
-            <span className="text-xs text-muted-foreground">OpenCode Web UI</span>
-          </div>
-          <button
-            onClick={() => setDebugView(false)}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-            Exit debug
-          </button>
-        </div>
-        <iframe
-          src={`http://127.0.0.1:${port}`}
-          className="flex-1 border-none"
-          title="OpenCode Web UI"
-        />
       </div>
     );
   }

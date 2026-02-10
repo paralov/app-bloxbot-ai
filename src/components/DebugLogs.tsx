@@ -41,7 +41,7 @@ function formatTime(ts: number): string {
   );
 }
 
-function DebugLogs({ onClose }: { onClose: () => void }) {
+function DebugLogs({ onClose }: { onClose?: () => void } = {}) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -160,25 +160,27 @@ function DebugLogs({ onClose }: { onClose: () => void }) {
           >
             Clear
           </button>
-          <button
-            onClick={onClose}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-            Close
-          </button>
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+              Close
+            </button>
+          )}
         </div>
       </div>
 

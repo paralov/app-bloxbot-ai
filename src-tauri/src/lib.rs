@@ -4,8 +4,10 @@ mod paths;
 use opencode::{SharedLogBuffer, SharedOpenCodeState};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, PredefinedMenuItem, SubmenuBuilder};
-use tauri::{Emitter, Manager};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::webview::WebviewWindowBuilder;
+use tauri::Manager;
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -62,11 +64,11 @@ pub fn run() {
                 .close_window()
                 .build()?;
 
-            let debug_toggle = CheckMenuItemBuilder::with_id("debug_opencode_ui", "OpenCode Web UI")
+            let debug_toggle = MenuItemBuilder::with_id("debug_opencode_ui", "OpenCode Web UI")
                 .accelerator("CmdOrCtrl+Shift+D")
                 .build(app)?;
 
-            let logs_toggle = CheckMenuItemBuilder::with_id("debug_logs", "Logs")
+            let logs_toggle = MenuItemBuilder::with_id("debug_logs", "Logs")
                 .accelerator("CmdOrCtrl+Shift+L")
                 .build(app)?;
 
@@ -87,9 +89,34 @@ pub fn run() {
 
             app.on_menu_event(move |app_handle, event| {
                 if event.id() == debug_toggle.id() {
-                    let _ = app_handle.emit("toggle-debug-view", ());
+                    // Open the OpenCode web UI in the default system browser
+                    let state = app_handle.state::<SharedOpenCodeState>().inner().clone();
+                    let handle = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let port = {
+                            let s = state.lock().await;
+                            s.port
+                        };
+                        if port > 0 {
+                            let url = format!("http://127.0.0.1:{}", port);
+                            let _ = handle.opener().open_url(&url, None::<&str>);
+                        }
+                    });
                 } else if event.id() == logs_toggle.id() {
-                    let _ = app_handle.emit("toggle-debug-logs", ());
+                    // Open (or focus) the debug logs window
+                    if let Some(win) = app_handle.get_webview_window("debug-logs") {
+                        let _ = win.set_focus();
+                    } else {
+                        let _ = WebviewWindowBuilder::new(
+                            app_handle,
+                            "debug-logs",
+                            tauri::WebviewUrl::App("debug-logs.html".into()),
+                        )
+                        .title("BloxBot - Debug Logs")
+                        .inner_size(900.0, 600.0)
+                        .min_inner_size(400.0, 300.0)
+                        .build();
+                    }
                 }
             });
 
@@ -115,6 +142,10 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
+                // Only kill the OpenCode server when the main window closes
+                if window.label() != "main" {
+                    return;
+                }
                 let state = window
                     .app_handle()
                     .state::<SharedOpenCodeState>()
