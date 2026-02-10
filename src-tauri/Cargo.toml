@@ -2,7 +2,8 @@
 name = "bloxbot"
 version = "0.1.0"
 description = "AI-assisted Roblox development made easy"
-authors = ["you"]
+authors = ["BloxBot"]
+license = "MIT"
 edition = "2021"
 
 [lib]

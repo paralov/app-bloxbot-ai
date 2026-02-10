@@ -12,19 +12,37 @@ dist
 dist-ssr
 *.local
 
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Bundled runtimes (downloaded during CI / dev setup, too large for git)
 src-tauri/resources/nodejs/
 src-tauri/binaries/opencode*
 src-tauri/binaries/*.exe
 src-tauri/binaries/*.zip
 
+# Internal docs (not for public repo)
+PLAN.md
+
+# Build output
+*.dmg
+*.msi
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# OS metadata
+.DS_Store
+Thumbs.db

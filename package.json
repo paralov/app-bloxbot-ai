@@ -3,6 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
+  "author": "BloxBot",
+  "homepage": "https://bloxbot.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paralov/app-bloxbot-ai.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

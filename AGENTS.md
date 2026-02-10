@@ -1,7 +1,6 @@
 # AGENTS.md
 
 This file provides guidance for AI coding agents operating in this repository.
-For product context, architecture, and development phases, see **[PLAN.md](./PLAN.md)**.
 
 ## Project Overview
 
