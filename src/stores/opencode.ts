@@ -300,29 +300,58 @@ export const useStore = create<OpenCodeState>((set, get) => {
     pollStudioStatus: async () => {
       const c = get().client;
 
-      // First check OpenCode's view of the MCP server.
-      // If it reports "failed", the stdio pipe is broken and we need to
-      // kill the zombie robloxstudio-mcp process so OpenCode can respawn it.
+      // Check OpenCode's view of the MCP server status.
       if (c) {
         try {
           const mcpRes = await c.mcp.status({});
           const roblox = mcpRes.data?.["roblox-studio"];
-          if (roblox && roblox.status === "failed") {
-            set({
-              studioStatus: "disconnected",
-              studioError: "MCP bridge lost, reconnecting...",
-            });
-            // Kill the zombie process, then ask OpenCode to reconnect
-            await invoke("kill_stale_mcp");
-            await c.mcp.connect({ name: "roblox-studio" }).catch(() => {});
-            return;
+          if (roblox) {
+            if (roblox.status === "failed") {
+              // The MCP server failed. Before killing anything, check if
+              // a zombie process is actually holding port 3002. If not,
+              // just ask OpenCode to reconnect — npx may still be downloading.
+              let zombieHoldingPort = false;
+              try {
+                const probe = await fetch("http://localhost:3002/health", {
+                  signal: AbortSignal.timeout(1000),
+                });
+                // If we get ANY response, there's a process on port 3002
+                zombieHoldingPort = probe.ok || probe.status > 0;
+              } catch {
+                // Connection refused — nothing on port 3002, no zombie
+              }
+
+              if (zombieHoldingPort) {
+                set({
+                  studioStatus: "disconnected",
+                  studioError: "MCP bridge lost, reconnecting...",
+                });
+                await invoke("kill_stale_mcp");
+              } else {
+                set({
+                  studioStatus: "disconnected",
+                  studioError: "MCP server starting...",
+                });
+              }
+              // Ask OpenCode to (re)connect the MCP server
+              await c.mcp.connect({ name: "roblox-studio" }).catch(() => {});
+              return;
+            }
+
+            if (roblox.status !== "connected") {
+              set({
+                studioStatus: "disconnected",
+                studioError: `MCP server: ${roblox.status}`,
+              });
+              return;
+            }
           }
         } catch {
           // SDK not ready or OpenCode down -- fall through to HTTP check
         }
       }
 
-      // Then check the robloxstudio-mcp HTTP bridge directly for
+      // Check the robloxstudio-mcp HTTP bridge directly for
       // the actual Studio plugin connection.
       try {
         const res = await fetch("http://localhost:3002/health", {
