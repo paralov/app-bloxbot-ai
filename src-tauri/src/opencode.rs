@@ -11,6 +11,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
+/// Windows: prevent child processes from opening a visible console window.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// Preferred starting port for the OpenCode server.
 const DEFAULT_PORT: u16 = 4096;
 
@@ -178,6 +182,7 @@ async fn kill_stale_opencode_processes(log: &SharedLogBuffer, app: &AppHandle) {
     {
         let output = Command::new("taskkill")
             .args(["/F", "/IM", "opencode.exe"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .await;
         if let Ok(o) = output {
@@ -335,8 +340,8 @@ pub async fn start_opencode_server(
         nodejs_bin, sidecar_dir
     );
 
-    let mut child = Command::new(&opencode_bin)
-        .arg("serve")
+    let mut cmd = Command::new(&opencode_bin);
+    cmd.arg("serve")
         .arg("--port")
         .arg(port.to_string())
         .arg("--hostname")
@@ -353,13 +358,17 @@ pub async fn start_opencode_server(
         .env("PATH", &minimal_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| {
-            let msg = format!("Failed to start OpenCode server: {e}");
-            app_log(&log, &app, "opencode", &msg);
-            msg
-        })?;
+        .kill_on_drop(true);
+
+    // On Windows, prevent the child process from spawning a visible console window
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let mut child = cmd.spawn().map_err(|e| {
+        let msg = format!("Failed to start OpenCode server: {e}");
+        app_log(&log, &app, "opencode", &msg);
+        msg
+    })?;
 
     app_log(&log, &app, "opencode", &format!("Isolated environment: {}", opencode_home.display()));
     app_log(&log, &app, "opencode", &format!("PATH: {}", minimal_path));
@@ -564,6 +573,7 @@ pub async fn kill_stale_mcp(
     {
         let _ = Command::new("taskkill")
             .args(["/F", "/FI", "IMAGENAME eq bun.exe", "/FI", "COMMANDLINE eq *robloxstudio-mcp*"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .await;
     }
