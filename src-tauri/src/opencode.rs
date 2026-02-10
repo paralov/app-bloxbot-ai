@@ -208,6 +208,15 @@ async fn find_available_port(start: u16) -> u16 {
     start // fallback — let the spawn surface the real error
 }
 
+/// Strip the Windows extended-length path prefix (`\\?\`) from a path string.
+/// These prefixes are returned by `std::fs::canonicalize` / Tauri resource resolution
+/// but break when used in the `PATH` env var or passed to other programs.
+#[cfg(windows)]
+fn strip_win_prefix(p: &std::path::Path) -> String {
+    let s = p.to_string_lossy();
+    s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+}
+
 // ── Core lifecycle ──────────────────────────────────────────────────────
 
 /// Start the OpenCode server. Called automatically on app launch.
@@ -256,6 +265,12 @@ pub async fn start_opencode_server(
 
     // Configure the MCP server for robloxstudio-mcp.
     // npx from our bundled Node.js will fetch and run the package.
+    // On Windows, npx is a .cmd batch wrapper so we must use npx.cmd.
+    #[cfg(unix)]
+    let npx_cmd = "npx";
+    #[cfg(windows)]
+    let npx_cmd = "npx.cmd";
+
     let mcp_config = serde_json::json!({
         "plugin": [
             "opencode-gemini-auth@latest"
@@ -263,7 +278,7 @@ pub async fn start_opencode_server(
         "mcp": {
             "roblox-studio": {
                 "type": "local",
-                "command": ["npx", MCP_PACKAGE],
+                "command": [npx_cmd, MCP_PACKAGE],
                 "enabled": true
             }
         },
@@ -326,10 +341,24 @@ pub async fn start_opencode_server(
 
     // Build a minimal PATH with our bundled Node.js bin directory first,
     // then essential system paths. This ensures npx/npm use our bundled Node.js.
+    //
+    // On Windows, Tauri resolves resource paths with the \\?\ extended-length prefix
+    // (from std::fs::canonicalize). This prefix breaks PATH lookups and child process
+    // resolution, so we strip it.
+    #[cfg(unix)]
     let nodejs_bin = nodejs_bin_dir.to_string_lossy().to_string();
+    #[cfg(windows)]
+    let nodejs_bin = strip_win_prefix(&nodejs_bin_dir);
+
+    #[cfg(unix)]
     let sidecar_dir = opencode_bin
         .parent()
         .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    #[cfg(windows)]
+    let sidecar_dir = opencode_bin
+        .parent()
+        .map(|p| strip_win_prefix(p))
         .unwrap_or_default();
 
     #[cfg(unix)]
