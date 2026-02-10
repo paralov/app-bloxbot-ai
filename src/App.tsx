@@ -1,9 +1,16 @@
+import { useEffect } from "react";
 import Chat from "@/components/Chat";
 import OpenCodeProvider from "@/components/OpenCodeProvider";
 import StudioStatus from "@/components/StudioStatus";
 import { Toaster } from "@/components/ui/sonner";
+import { capture, initTelemetry } from "@/lib/telemetry";
 
 function App() {
+  useEffect(() => {
+    initTelemetry();
+    capture("app_launched");
+  }, []);
+
   return (
     <OpenCodeProvider>
       <main className="flex h-full flex-col overflow-hidden">

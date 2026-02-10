@@ -16,6 +16,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
 import { frontendLog } from "@/components/DebugLogs";
+import { capture } from "@/lib/telemetry";
 import type {
   AuthMethods,
   MessageWithParts,
@@ -296,6 +297,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
     dismissWelcome: () => {
       set({ hasLaunched: true });
       tauriStore.set("has-launched", true);
+      capture("welcome_completed");
     },
 
     pollStudioStatus: async () => {
@@ -374,7 +376,11 @@ export const useStore = create<OpenCodeState>((set, get) => {
         };
 
         if (data.pluginConnected && data.mcpServerActive) {
+          const wasConnected = get().studioStatus === "connected";
           set({ studioStatus: "connected", studioError: null });
+          if (!wasConnected) {
+            capture("studio_connected");
+          }
         } else if (!data.mcpServerActive) {
           set({
             studioStatus: "disconnected",
@@ -403,6 +409,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
       try {
         await invoke<string>("install_studio_plugin");
         set({ pluginInstalled: true });
+        capture("plugin_installed");
       } catch (err) {
         console.error("Failed to install plugin:", err);
         throw err;
@@ -569,6 +576,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
             activePermission: null,
             isBusy: false,
           }));
+          capture("session_created");
         }
       } catch (err) {
         console.error("Failed to create session:", err);
@@ -719,6 +727,10 @@ export const useStore = create<OpenCodeState>((set, get) => {
         }
 
         await c.session.promptAsync(opts as Parameters<typeof c.session.promptAsync>[0]);
+        capture("message_sent", {
+          model: selectedModel ?? undefined,
+          agent: selectedAgent ?? undefined,
+        });
       } catch (err) {
         console.error("Failed to send message:", err);
         set({ isBusy: false });
@@ -784,6 +796,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
         // Dispose cached instance so provider state is re-computed with new auth
         await c.instance.dispose();
         await get().refreshProviders();
+        capture("provider_connected", { provider: providerID, method: "api_key" });
       } catch (err) {
         console.error("Failed to set API key:", err);
         throw err;
@@ -797,6 +810,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
         await c.auth.remove({ providerID });
         await c.instance.dispose();
         await get().refreshProviders();
+        capture("provider_disconnected", { provider: providerID });
       } catch (err) {
         console.error("Failed to disconnect provider:", err);
         throw err;
@@ -839,6 +853,9 @@ export const useStore = create<OpenCodeState>((set, get) => {
         // so the next API call re-initialises state with the new auth.
         await c.instance.dispose();
         await get().refreshProviders();
+        if (res.data === true) {
+          capture("provider_connected", { provider: providerID, method: "oauth" });
+        }
         return res.data === true;
       } catch (err) {
         console.error("OAuth callback failed:", err);
