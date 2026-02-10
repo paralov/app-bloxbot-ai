@@ -28,7 +28,7 @@ function ChatSetup() {
   if (step === "welcome") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6">
-        <div className="animate-fade-in-up w-full max-w-sm text-center">
+        <div className="animate-fade-in-up flex w-full max-w-sm flex-col items-center text-center">
           <img src="/bloxbot-logo.svg" alt="" className="mx-auto h-14 w-14" />
           <p className="mt-3 font-serif text-lg italic text-foreground">bloxbot</p>
 

@@ -298,6 +298,8 @@ pub async fn start_opencode_server(
     let config_content = serde_json::to_string(&mcp_config)
         .map_err(|e| format!("Failed to serialize OpenCode config: {e}"))?;
 
+    app_log(&log, &app, "opencode", &format!("Config: {config_content}"));
+
     let workspace = crate::paths::workspace_dir()?;
 
     // Create isolated XDG directories under ~/BloxBot/.opencode/

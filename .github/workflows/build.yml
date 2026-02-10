@@ -84,18 +84,20 @@ jobs:
           cd /tmp
           tar -xzf "${{ matrix.node_asset }}"
           
-          # Copy the Node.js distribution to resources (bin + lib/node_modules/npm)
-          mkdir -p "$GITHUB_WORKSPACE/src-tauri/resources/nodejs"
-          cp -R "${{ matrix.node_inner_dir }}/bin" "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/"
-          mkdir -p "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules"
-          cp -R "${{ matrix.node_inner_dir }}/lib/node_modules/npm" "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules/"
+          # Copy node binary + npm lib (not symlinks — Tauri flattens them)
+          DEST="$GITHUB_WORKSPACE/src-tauri/resources/nodejs"
+          mkdir -p "$DEST/bin"
+          cp "${{ matrix.node_inner_dir }}/bin/node" "$DEST/bin/"
+          mkdir -p "$DEST/lib/node_modules"
+          cp -R "${{ matrix.node_inner_dir }}/lib/node_modules/npm" "$DEST/lib/node_modules/"
           
-          # Remove corepack (not needed)
-          rm -f "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/corepack"
-          rm -rf "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules/corepack" 2>/dev/null || true
+          # Create shell wrapper scripts (not symlinks) for npm/npx
+          printf '#!/bin/sh\nbasedir=$(dirname "$(realpath "$0")")\nexec "$basedir/node" "$basedir/../lib/node_modules/npm/bin/npm-cli.js" "$@"\n' > "$DEST/bin/npm"
+          printf '#!/bin/sh\nbasedir=$(dirname "$(realpath "$0")")\nexec "$basedir/node" "$basedir/../lib/node_modules/npm/bin/npx-cli.js" "$@"\n' > "$DEST/bin/npx"
+          chmod +x "$DEST/bin/npm" "$DEST/bin/npx"
           
           # Verify structure
-          ls -la "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/"
+          ls -la "$DEST/bin/"
 
       - name: Extract Node.js to resources (Windows)
         if: matrix.ext == '.exe'

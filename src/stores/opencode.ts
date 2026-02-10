@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
+import { frontendLog } from "@/components/DebugLogs";
 import type {
   AuthMethods,
   MessageWithParts,
@@ -304,7 +305,12 @@ export const useStore = create<OpenCodeState>((set, get) => {
       if (c) {
         try {
           const mcpRes = await c.mcp.status({});
+          const keys = mcpRes.data ? Object.keys(mcpRes.data) : [];
           const roblox = mcpRes.data?.["roblox-studio"];
+          frontendLog(
+            "mcp-poll",
+            `MCP servers: [${keys.join(", ")}], roblox-studio: ${roblox ? roblox.status : "not found"}`,
+          );
           if (roblox) {
             if (roblox.status === "failed") {
               // The MCP server failed. Before killing anything, check if
@@ -346,7 +352,8 @@ export const useStore = create<OpenCodeState>((set, get) => {
               return;
             }
           }
-        } catch {
+        } catch (err) {
+          frontendLog("mcp-poll", `MCP status check failed: ${err}`);
           // SDK not ready or OpenCode down -- fall through to HTTP check
         }
       }

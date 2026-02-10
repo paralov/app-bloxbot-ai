@@ -95,12 +95,14 @@ $(NODEJS_BIN):
 		-o "/tmp/bloxbot-deps/$(NODE_ASSET)"
 	@echo "📦 Extracting Node.js to src-tauri/resources/nodejs..."
 	cd /tmp/bloxbot-deps && tar -xzf "$(NODE_ASSET)"
-	mkdir -p src-tauri/resources/nodejs
-	cp -R "/tmp/bloxbot-deps/$(NODE_DIR)/bin" src-tauri/resources/nodejs/
+	mkdir -p src-tauri/resources/nodejs/bin
+	cp "/tmp/bloxbot-deps/$(NODE_DIR)/bin/node" src-tauri/resources/nodejs/bin/
 	mkdir -p src-tauri/resources/nodejs/lib/node_modules
 	cp -R "/tmp/bloxbot-deps/$(NODE_DIR)/lib/node_modules/npm" src-tauri/resources/nodejs/lib/node_modules/
-	rm -f src-tauri/resources/nodejs/bin/corepack
-	rm -rf src-tauri/resources/nodejs/lib/node_modules/corepack 2>/dev/null || true
+	# Create shell wrapper scripts (not symlinks — Tauri flattens symlinks)
+	printf '#!/bin/sh\nbasedir=$$(dirname "$$(realpath "$$0")")\nexec "$$basedir/node" "$$basedir/../lib/node_modules/npm/bin/npm-cli.js" "$$@"\n' > src-tauri/resources/nodejs/bin/npm
+	printf '#!/bin/sh\nbasedir=$$(dirname "$$(realpath "$$0")")\nexec "$$basedir/node" "$$basedir/../lib/node_modules/npm/bin/npx-cli.js" "$$@"\n' > src-tauri/resources/nodejs/bin/npx
+	chmod +x src-tauri/resources/nodejs/bin/npm src-tauri/resources/nodejs/bin/npx
 	rm -rf /tmp/bloxbot-deps
 	@echo "✓ Node.js ready"
 
