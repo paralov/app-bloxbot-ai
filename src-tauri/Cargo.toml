@@ -1,6 +1,6 @@
 [package]
 name = "bloxbot"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI-assisted Roblox development made easy"
 authors = ["BloxBot"]
 license = "MIT"
@@ -22,4 +22,8 @@ tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macr
 reqwest = { version = "0.12", features = ["json"] }
 tauri-plugin-store = "2.4.2"
 dirs = "6"
+tauri-plugin-posthog = "0.2.4"
+tauri-plugin-updater = "2.10.0"
+tauri-plugin-process = "2.3.1"
+tauri-plugin-log = "2.8.0"
 

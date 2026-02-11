@@ -1,24 +1,25 @@
-/** Product telemetry via PostHog. */
+/** Product telemetry via PostHog (Rust-side, via tauri-plugin-posthog). */
 
-import posthog from "posthog-js";
+import { invoke } from "@tauri-apps/api/core";
 
-const POSTHOG_KEY = "phc_4LeGCHJx8ymSSCZd3hf5QK8nlq3Sf1ZSC8nyRLc2JY4";
-const POSTHOG_HOST = "https://eu.i.posthog.com";
-
-let initialized = false;
-
-/** Initialize PostHog. Call once at app startup. */
-export function initTelemetry(): void {
-  if (initialized) return;
-  initialized = true;
-
-  posthog.init(POSTHOG_KEY, {
-    api_host: POSTHOG_HOST,
-  });
-}
-
-/** Capture a telemetry event. No-op if called before init. */
+/**
+ * Capture a telemetry event.
+ *
+ * Events are sent from the Rust backend using posthog-rs,
+ * completely bypassing the webview's network restrictions.
+ */
 export function capture(event: string, properties?: Record<string, unknown>): void {
-  if (!initialized) return;
-  posthog.capture(event, properties);
+  // Fire-and-forget: we don't want telemetry failures to affect the app.
+  invoke("plugin:posthog|capture", {
+    request: {
+      event,
+      properties: properties ?? null,
+      distinctId: null,
+      groups: null,
+      timestamp: null,
+      anonymous: false,
+    },
+  }).catch((err) => {
+    console.warn("[telemetry] capture failed:", err);
+  });
 }

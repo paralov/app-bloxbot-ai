@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
 use tauri::Manager;
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
@@ -17,8 +18,23 @@ pub fn run() {
     let log_buffer: SharedLogBuffer = Arc::new(Mutex::new(VecDeque::new()));
 
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                    Target::new(TargetKind::Webview),
+                ])
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_posthog::init(tauri_plugin_posthog::PostHogConfig {
+            api_key: "phc_4LeGCHJx8ymSSCZd3hf5QK8nlq3Sf1ZSC8nyRLc2JY4".to_string(),
+            api_host: "https://eu.i.posthog.com".to_string(),
+            options: None,
+        }))
         .manage(opencode_state)
         .manage(log_buffer)
         .invoke_handler(tauri::generate_handler![
@@ -119,6 +135,10 @@ pub fn run() {
                     }
                 }
             });
+
+            // ── Updater plugin ────────────────────────────────────
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
 
             // ── Auto-start OpenCode server ────────────────────────
             let state = app

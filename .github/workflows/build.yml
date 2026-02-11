@@ -24,27 +24,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - platform: macos-latest
             target: aarch64-apple-darwin
             node_asset: node-v22.13.1-darwin-arm64.tar.gz
             node_inner_dir: node-v22.13.1-darwin-arm64
             opencode_asset: opencode-darwin-arm64.zip
             opencode_bin: opencode
             ext: ""
-            bundle_ext: dmg
-            tauri_args: ""
+            args: ""
 
-          - os: windows-latest
+          - platform: windows-latest
             target: x86_64-pc-windows-msvc
             node_asset: node-v22.13.1-win-x64.zip
             node_inner_dir: node-v22.13.1-win-x64
             opencode_asset: opencode-windows-x64.zip
             opencode_bin: opencode.exe
             ext: ".exe"
-            bundle_ext: nsis
-            tauri_args: "--bundles nsis"
+            args: "--bundles nsis"
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v4
@@ -87,21 +85,16 @@ jobs:
         run: |
           cd /tmp
           tar -xzf "${{ matrix.node_asset }}"
-          
-          # Copy node binary + npm lib (not symlinks — Tauri flattens them)
+
           DEST="$GITHUB_WORKSPACE/src-tauri/resources/nodejs"
           mkdir -p "$DEST/bin"
           cp "${{ matrix.node_inner_dir }}/bin/node" "$DEST/bin/"
           mkdir -p "$DEST/lib/node_modules"
           cp -R "${{ matrix.node_inner_dir }}/lib/node_modules/npm" "$DEST/lib/node_modules/"
-          
-          # Create shell wrapper scripts (not symlinks) for npm/npx
+
           printf '#!/bin/sh\nbasedir=$(dirname "$(realpath "$0")")\nexec "$basedir/node" "$basedir/../lib/node_modules/npm/bin/npm-cli.js" "$@"\n' > "$DEST/bin/npm"
           printf '#!/bin/sh\nbasedir=$(dirname "$(realpath "$0")")\nexec "$basedir/node" "$basedir/../lib/node_modules/npm/bin/npx-cli.js" "$@"\n' > "$DEST/bin/npx"
           chmod +x "$DEST/bin/npm" "$DEST/bin/npx"
-          
-          # Verify structure
-          ls -la "$DEST/bin/"
 
       - name: Extract Node.js to resources (Windows)
         if: matrix.ext == '.exe'
@@ -109,20 +102,15 @@ jobs:
         run: |
           cd /tmp
           unzip -o "${{ matrix.node_asset }}"
-          
-          # Copy the Node.js distribution to resources
+
           mkdir -p "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin"
           cp "${{ matrix.node_inner_dir }}/node.exe" "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/"
-          
-          # Create npm/npx batch wrappers that call node with the JS files
+
           printf '@echo off\r\n"%%~dp0node.exe" "%%~dp0..\\lib\\node_modules\\npm\\bin\\npm-cli.js" %%*\r\n' > "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/npm.cmd"
           printf '@echo off\r\n"%%~dp0node.exe" "%%~dp0..\\lib\\node_modules\\npm\\bin\\npx-cli.js" %%*\r\n' > "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/npx.cmd"
-          
+
           mkdir -p "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules"
           cp -R "${{ matrix.node_inner_dir }}/node_modules/npm" "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/lib/node_modules/"
-          
-          # Verify structure
-          ls -la "$GITHUB_WORKSPACE/src-tauri/resources/nodejs/bin/"
 
       # ── Download OpenCode sidecar ─────────────────────────────────────
 
@@ -136,9 +124,7 @@ jobs:
           cd src-tauri/binaries
           unzip -o "/tmp/${{ matrix.opencode_asset }}"
           mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}${{ matrix.ext }}"
-          rm -f "/tmp/${{ matrix.opencode_asset }}"
           chmod +x "opencode-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
-          ls -lh
 
       # ── Build and bundle MCP server ────────────────────────────────
 
@@ -150,44 +136,22 @@ jobs:
           cd /tmp/mcp-server
           npm install
           npm run build
-          
-          # Copy built server + production deps into resources
+
           DEST="$GITHUB_WORKSPACE/src-tauri/resources/mcp-server"
           mkdir -p "$DEST"
           cp -R dist "$DEST/"
           cp package.json "$DEST/"
           cd "$DEST"
           npm install --omit=dev --no-package-lock
-          
-          echo "MCP server bundled:"
-          ls -la "$DEST/dist/"
 
       # ── Build ──────────────────────────────────────────────────────
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tauriScript: pnpm tauri
-          args: ${{ matrix.tauri_args }}
-
-      # ── Upload artifacts ───────────────────────────────────────────
-
-      - name: Upload macOS DMG
-        if: matrix.bundle_ext == 'dmg'
-        uses: actions/upload-artifact@v4
-        with:
-          name: BloxBot-${{ matrix.target }}
-          path: src-tauri/target/release/bundle/dmg/*.dmg
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload Windows installer
-        if: matrix.bundle_ext == 'nsis'
-        uses: actions/upload-artifact@v4
-        with:
-          name: BloxBot-${{ matrix.target }}
-          path: src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: error
-          retention-days: 14
+          args: ${{ matrix.args }}
+          uploadWorkflowArtifacts: true
