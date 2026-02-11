@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
+use tauri::webview::WebviewWindowBuilder;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
@@ -80,8 +81,13 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+Shift+D")
                 .build(app)?;
 
+            let logs_toggle = MenuItemBuilder::with_id("debug_logs", "Debug Logs")
+                .accelerator("CmdOrCtrl+Shift+L")
+                .build(app)?;
+
             let debug_submenu = SubmenuBuilder::new(app, "Debug")
                 .item(&debug_toggle)
+                .item(&logs_toggle)
                 .build()?;
 
             let menu = MenuBuilder::new(app)
@@ -109,6 +115,21 @@ pub fn run() {
                             let _ = handle.opener().open_url(&url, None::<&str>);
                         }
                     });
+                } else if event.id() == logs_toggle.id() {
+                    // Toggle the debug logs window
+                    if let Some(win) = app_handle.get_webview_window("debug-logs") {
+                        let _ = win.set_focus();
+                    } else {
+                        let _ = WebviewWindowBuilder::new(
+                            app_handle,
+                            "debug-logs",
+                            tauri::WebviewUrl::App("debug-logs.html".into()),
+                        )
+                        .title("BloxBot - Debug Logs")
+                        .inner_size(900.0, 500.0)
+                        .min_inner_size(500.0, 300.0)
+                        .build();
+                    }
                 }
             });
 
