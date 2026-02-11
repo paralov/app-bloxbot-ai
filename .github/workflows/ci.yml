@@ -170,9 +170,22 @@ jobs:
             | macOS (Apple Silicon) | `BloxBot_*_aarch64.dmg` |
             | Windows (64-bit) | `BloxBot_*_x64-setup.exe` |
 
-            **macOS**: Open the `.dmg`, drag BloxBot to Applications. On first launch, right-click → Open to bypass Gatekeeper.
+            ### macOS — Gatekeeper
 
-            **Windows**: Run the `.exe` installer. If SmartScreen warns, click "More info" → "Run anyway".
+            Since the app is not signed with an Apple Developer certificate, macOS will block it on first launch. To open it:
+            1. Open the `.dmg` and drag **BloxBot** to Applications.
+            2. Try to open BloxBot — macOS will show a warning and block it.
+            3. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+            4. Confirm in the dialog that reappears.
+
+            After this, BloxBot will open normally like any other app.
+
+            ### Windows — SmartScreen
+
+            The installer is not yet code-signed, so Windows SmartScreen may show a warning:
+            1. Run the `.exe` installer.
+            2. If you see "Windows protected your PC", click **More info**.
+            3. Click **Run anyway**.
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           updaterJsonPreferNsis: true
