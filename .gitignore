@@ -20,8 +20,9 @@ dist-ssr
 *.p12
 *.pfx
 
-# Bundled runtimes (downloaded during CI / dev setup, too large for git)
+# Bundled runtimes (downloaded/built during CI / dev setup, too large for git)
 src-tauri/resources/nodejs/
+src-tauri/resources/mcp-server/
 src-tauri/binaries/opencode*
 src-tauri/binaries/*.exe
 src-tauri/binaries/*.zip

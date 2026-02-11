@@ -21,8 +21,8 @@ const DEFAULT_PORT: u16 = 4096;
 /// How many consecutive ports to try before giving up.
 const PORT_RANGE: u16 = 10;
 
-/// The robloxstudio-mcp package to run via bunx.
-const MCP_PACKAGE: &str = "robloxstudio-mcp@latest";
+/// Default port for the MCP bridge (Studio plugin ↔ MCP server).
+const MCP_PORT: u16 = 3002;
 
 /// Delay before auto-restart after a crash.
 const RESTART_DELAY_SECS: u64 = 3;
@@ -263,13 +263,19 @@ pub async fn start_opencode_server(
         s.port = port;
     }
 
-    // Configure the MCP server for robloxstudio-mcp.
-    // npx from our bundled Node.js will fetch and run the package.
-    // On Windows, npx is a .cmd batch wrapper so we must use npx.cmd.
+    // Configure the MCP server to use our bundled copy (run directly with node).
+    // This avoids npx download issues on Windows and ensures a known-good version.
+    let mcp_server_dir = crate::paths::bundled_mcp_server_dir().map_err(|e| {
+        app_log(&log, &app, "opencode", &format!("Failed to find MCP server: {e}"));
+        e
+    })?;
+    let mcp_entry = mcp_server_dir.join("dist").join("index.js");
+    app_log(&log, &app, "opencode", &format!("MCP server: {}", mcp_entry.display()));
+
     #[cfg(unix)]
-    let npx_cmd = "npx";
+    let node_cmd = "node";
     #[cfg(windows)]
-    let npx_cmd = "npx.cmd";
+    let node_cmd = "node.exe";
 
     let mcp_config = serde_json::json!({
         "plugin": [
@@ -278,8 +284,11 @@ pub async fn start_opencode_server(
         "mcp": {
             "roblox-studio": {
                 "type": "local",
-                "command": [npx_cmd, MCP_PACKAGE],
-                "enabled": true
+                "command": [node_cmd, mcp_entry.to_string_lossy()],
+                "enabled": true,
+                "env": {
+                    "ROBLOX_STUDIO_PORT": MCP_PORT.to_string()
+                }
             }
         },
         "default_agent": "studio",
@@ -607,19 +616,19 @@ pub async fn kill_stale_mcp(
             .await;
     }
 
-    // Wait for port 3002 to be released
+    // Wait for the MCP port to be released
     for _ in 0..10 {
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-        if tokio::net::TcpListener::bind(("127.0.0.1", 3002))
+        if tokio::net::TcpListener::bind(("127.0.0.1", MCP_PORT))
             .await
             .is_ok()
         {
-            app_log(&log, &app, "mcp", "Port 3002 released");
+            app_log(&log, &app, "mcp", &format!("Port {} released", MCP_PORT));
             return Ok(());
         }
     }
 
-    app_log(&log, &app, "mcp", "Warning: port 3002 may still be in use");
+    app_log(&log, &app, "mcp", &format!("Warning: port {} may still be in use", MCP_PORT));
     Ok(())
 }
 

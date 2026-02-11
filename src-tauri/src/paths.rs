@@ -88,6 +88,44 @@ pub fn bundled_nodejs_bin_dir() -> Result<PathBuf, String> {
     ))
 }
 
+/// Returns the path to the bundled MCP server directory.
+/// The entry point is `dist/index.js` inside this directory.
+///
+/// Production macOS: `<App>/Contents/Resources/resources/mcp-server/`
+/// Production Windows: `<App>/resources/mcp-server/`
+/// Dev: `src-tauri/resources/mcp-server/`
+pub fn bundled_mcp_server_dir() -> Result<PathBuf, String> {
+    let sidecar = sidecar_dir()?;
+
+    #[cfg(target_os = "macos")]
+    let prod_path = sidecar
+        .parent()
+        .map(|p| p.join("Resources").join("resources").join("mcp-server"))
+        .unwrap_or_default();
+    #[cfg(not(target_os = "macos"))]
+    let prod_path = sidecar.join("resources").join("mcp-server");
+
+    if prod_path.join("dist").join("index.js").exists() {
+        return Ok(prod_path);
+    }
+
+    let dev_path = sidecar
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("resources").join("mcp-server"))
+        .unwrap_or_default();
+
+    if dev_path.join("dist").join("index.js").exists() {
+        return Ok(dev_path);
+    }
+
+    Err(format!(
+        "Bundled MCP server not found. Checked:\n  {}\n  {}",
+        prod_path.display(),
+        dev_path.display()
+    ))
+}
+
 /// Returns the path to the bundled OpenCode sidecar binary.
 pub fn bundled_opencode_path() -> Result<PathBuf, String> {
     sidecar_path("opencode")

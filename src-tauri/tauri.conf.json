@@ -44,7 +44,8 @@
     ],
     "resources": [
       "resources/studio-plugin",
-      "resources/nodejs"
+      "resources/nodejs",
+      "resources/mcp-server"
     ]
   }
 }

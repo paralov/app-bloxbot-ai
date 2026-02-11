@@ -12,6 +12,8 @@ concurrency:
 env:
   NODE_VERSION: "22.13.1"
   OPENCODE_VERSION: "1.1.53"
+  MCP_SERVER_REPO: "boshyxd/robloxstudio-mcp"
+  MCP_SERVER_VERSION: "v1.9.0"
 
 jobs:
   build:
@@ -130,6 +132,28 @@ jobs:
           rm -f "/tmp/${{ matrix.opencode_asset }}"
           chmod +x "opencode-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
           ls -lh
+
+      # ── Build and bundle MCP server ────────────────────────────────
+
+      - name: Clone and build MCP server
+        shell: bash
+        run: |
+          git clone --depth 1 --branch "${{ env.MCP_SERVER_VERSION }}" \
+            "https://github.com/${{ env.MCP_SERVER_REPO }}.git" /tmp/mcp-server
+          cd /tmp/mcp-server
+          npm install
+          npm run build
+          
+          # Copy built server + production deps into resources
+          DEST="$GITHUB_WORKSPACE/src-tauri/resources/mcp-server"
+          mkdir -p "$DEST"
+          cp -R dist "$DEST/"
+          cp package.json "$DEST/"
+          cd "$DEST"
+          npm install --omit=dev --no-package-lock
+          
+          echo "MCP server bundled:"
+          ls -la "$DEST/dist/"
 
       # ── Build ──────────────────────────────────────────────────────
 
