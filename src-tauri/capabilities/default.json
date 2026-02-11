@@ -11,6 +11,7 @@
     "posthog:default",
     "updater:default",
     "process:default",
-    "log:default"
+    "log:default",
+    "shell:default"
   ]
 }

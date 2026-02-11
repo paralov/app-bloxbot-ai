@@ -25,6 +25,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_posthog::init(tauri_plugin_posthog::PostHogConfig {
@@ -144,8 +145,8 @@ pub fn run() {
                     .clone();
                 tauri::async_runtime::block_on(async {
                     let mut s = state.lock().await;
-                    if let Some(ref mut child) = s.child {
-                        let _ = child.kill().await;
+                    if let Some(child) = s.child.take() {
+                        let _ = child.kill();
                     }
                 });
             }

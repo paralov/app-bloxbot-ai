@@ -3,16 +3,16 @@
 //! Starts the OpenCode server as a child process on app launch and emits
 //! Tauri events when its status changes. The frontend never polls -- it
 //! just listens for `opencode-status-changed` events.
+//!
+//! All process spawning goes through `tauri-plugin-shell`, which provides
+//! sidecar resolution, event-based stdout/stderr, and cross-platform
+//! process management (including hiding console windows on Windows).
 
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
-
-/// Windows: prevent child processes from opening a visible console window.
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Preferred starting port for the OpenCode server.
 const DEFAULT_PORT: u16 = 4096;
@@ -51,7 +51,7 @@ pub struct StatusPayload {
 pub struct OpenCodeState {
     pub status: OpenCodeStatus,
     pub port: u16,
-    pub(crate) child: Option<Child>,
+    pub(crate) child: Option<CommandChild>,
     /// Consecutive restart attempts (reset on successful health check).
     restart_attempts: u32,
 }
@@ -98,30 +98,31 @@ async fn set_status(
 }
 
 /// Kill any stale `opencode serve` processes left over from previous runs.
-async fn kill_stale_opencode_processes() {
+async fn kill_stale_opencode_processes(app: &AppHandle) {
     #[cfg(unix)]
     {
-        let output = Command::new("pkill")
-            .args(["-f", "opencode serve"])
-            .output()
-            .await;
-        if let Ok(o) = output {
-            if o.status.success() {
+        let cmd = app
+            .shell()
+            .command("pkill")
+            .args(["-f", "opencode serve"]);
+        match cmd.status().await {
+            Ok(status) if status.success() => {
                 log::info!("Killed stale opencode process(es)");
             }
+            _ => {} // No stale processes or pkill not found — fine
         }
     }
     #[cfg(windows)]
     {
-        let output = Command::new("taskkill")
-            .args(["/F", "/IM", "opencode.exe"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .await;
-        if let Ok(o) = output {
-            if o.status.success() {
+        let cmd = app
+            .shell()
+            .command("taskkill")
+            .args(["/F", "/IM", "opencode.exe"]);
+        match cmd.status().await {
+            Ok(status) if status.success() => {
                 log::info!("Killed stale opencode process(es)");
             }
+            _ => {}
         }
     }
     // Brief pause so the OS can release bound ports.
@@ -154,8 +155,10 @@ fn strip_win_prefix(p: &std::path::Path) -> String {
 
 /// Start the OpenCode server. Called automatically on app launch.
 ///
-/// Emits `opencode-status-changed` events as the server progresses
-/// through Starting -> Running (or Error).
+/// Uses `tauri-plugin-shell` sidecar support to spawn the bundled
+/// `opencode` binary. stdout/stderr and process exit are handled via
+/// the shell plugin's event channel, replacing manual BufReader capture
+/// and polling-based exit monitoring.
 pub async fn start_opencode_server(
     state: SharedOpenCodeState,
     app: AppHandle,
@@ -171,12 +174,6 @@ pub async fn start_opencode_server(
         }
     }
 
-    let opencode_bin = crate::paths::bundled_opencode_path().map_err(|e| {
-        log::error!("Failed to find opencode binary: {e}");
-        e
-    })?;
-    log::info!("Binary: {}", opencode_bin.display());
-
     let nodejs_bin_dir = crate::paths::bundled_nodejs_bin_dir().map_err(|e| {
         log::error!("Failed to find Node.js: {e}");
         e
@@ -186,7 +183,7 @@ pub async fn start_opencode_server(
     set_status(&state, &app, OpenCodeStatus::Starting).await;
 
     // Clean up stale processes, then find a free port.
-    kill_stale_opencode_processes().await;
+    kill_stale_opencode_processes(&app).await;
     let port = find_available_port(DEFAULT_PORT).await;
     log::info!("Using port {port}");
 
@@ -286,36 +283,40 @@ pub async fn start_opencode_server(
     // On Windows, Tauri resolves resource paths with the \\?\ extended-length prefix
     // (from std::fs::canonicalize). This prefix breaks PATH lookups and child process
     // resolution, so we strip it.
+    let sidecar_dir = crate::paths::sidecar_dir()?;
+
     #[cfg(unix)]
     let nodejs_bin = nodejs_bin_dir.to_string_lossy().to_string();
     #[cfg(windows)]
     let nodejs_bin = strip_win_prefix(&nodejs_bin_dir);
 
     #[cfg(unix)]
-    let sidecar_dir = opencode_bin
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let sidecar_path_str = sidecar_dir.to_string_lossy().to_string();
     #[cfg(windows)]
-    let sidecar_dir = opencode_bin
-        .parent()
-        .map(|p| strip_win_prefix(p))
-        .unwrap_or_default();
+    let sidecar_path_str = strip_win_prefix(&sidecar_dir);
 
     #[cfg(unix)]
-    let minimal_path = format!("{}:{}:/usr/bin:/bin:/usr/sbin:/sbin", nodejs_bin, sidecar_dir);
+    let minimal_path = format!(
+        "{}:{}:/usr/bin:/bin:/usr/sbin:/sbin",
+        nodejs_bin, sidecar_path_str
+    );
     #[cfg(windows)]
     let minimal_path = format!(
         "{};{};C:\\Windows\\System32;C:\\Windows",
-        nodejs_bin, sidecar_dir
+        nodejs_bin, sidecar_path_str
     );
 
-    let mut cmd = Command::new(&opencode_bin);
-    cmd.arg("serve")
-        .arg("--port")
-        .arg(port.to_string())
-        .arg("--hostname")
-        .arg("127.0.0.1")
+    // Spawn the sidecar via the shell plugin. This automatically resolves
+    // the binary from the `externalBin` config in tauri.conf.json.
+    let (rx, child) = app
+        .shell()
+        .sidecar("opencode")
+        .map_err(|e| {
+            let msg = format!("Failed to create sidecar command: {e}");
+            log::error!("{msg}");
+            msg
+        })?
+        .args(["serve", "--port", &port.to_string(), "--hostname", "127.0.0.1"])
         .current_dir(&workspace)
         // Isolated XDG directories
         .env("XDG_DATA_HOME", &xdg_data)
@@ -326,49 +327,25 @@ pub async fn start_opencode_server(
         .env("OPENCODE_CONFIG_CONTENT", &config_content)
         // Minimal PATH with bundled node/npm/npx first
         .env("PATH", &minimal_path)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-
-    // On Windows, prevent the child process from spawning a visible console window
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-
-    let mut child = cmd.spawn().map_err(|e| {
-        let msg = format!("Failed to start OpenCode server: {e}");
-        log::error!("{msg}");
-        msg
-    })?;
+        .spawn()
+        .map_err(|e| {
+            let msg = format!("Failed to start OpenCode server: {e}");
+            log::error!("{msg}");
+            msg
+        })?;
 
     log::info!("Isolated environment: {}", opencode_home.display());
     log::debug!("PATH: {}", minimal_path);
-
-    // Capture stderr for logging (all lines)
-    if let Some(stderr) = child.stderr.take() {
-        tokio::spawn(async move {
-            let reader = BufReader::new(stderr);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                log::warn!(target: "opencode::stderr", "{line}");
-            }
-        });
-    }
-
-    // Capture stdout for logging
-    if let Some(stdout) = child.stdout.take() {
-        tokio::spawn(async move {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                log::info!(target: "opencode::stdout", "{line}");
-            }
-        });
-    }
 
     {
         let mut s = state.lock().await;
         s.child = Some(child);
     }
+
+    // Spawn an event handler for stdout, stderr, and process exit.
+    // This replaces both the BufReader capture tasks and the polling-based
+    // spawn_exit_monitor from the old tokio::process implementation.
+    spawn_event_handler(rx, Arc::clone(&state), app.clone());
 
     // Wait for the server to be ready by polling the health endpoint
     let health_url = format!("http://127.0.0.1:{port}/global/health");
@@ -395,10 +372,6 @@ pub async fn start_opencode_server(
         }
         log::info!("Server healthy on port {port}");
         set_status(&state, &app, OpenCodeStatus::Running).await;
-
-        // Spawn the process exit monitor with auto-restart
-        spawn_exit_monitor(Arc::clone(&state), app.clone());
-
         Ok(port)
     } else {
         let err = "OpenCode server started but health check timed out".to_string();
@@ -408,77 +381,102 @@ pub async fn start_opencode_server(
     }
 }
 
-/// Monitor the child process. If it exits unexpectedly, update status
-/// and attempt auto-restart (up to MAX_RESTART_ATTEMPTS).
-fn spawn_exit_monitor(state: SharedOpenCodeState, app: AppHandle) {
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-            let mut s = state.lock().await;
-            if let Some(ref mut child) = s.child {
-                match child.try_wait() {
-                    Ok(Some(exit_status)) => {
-                        s.child = None;
-                        let was_running =
-                            matches!(s.status, OpenCodeStatus::Running);
+/// Spawn an event handler task that processes stdout/stderr and handles
+/// process termination with auto-restart.
+///
+/// The restart loop lives inside this function so the recursive
+/// `start_opencode_server` call doesn't need to be captured in a
+/// `Send` future (the shell plugin's `Command` isn't `Send`).
+fn spawn_event_handler(
+    rx: tauri::async_runtime::Receiver<CommandEvent>,
+    state: SharedOpenCodeState,
+    app: AppHandle,
+) {
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to build tokio runtime for event handler");
 
-                        if exit_status.success() {
-                            log::info!("Process exited cleanly");
-                            s.status = OpenCodeStatus::Stopped;
-                            emit_status(&app, &s.status, s.port);
-                        } else {
-                            let msg = format!("Exited with {exit_status}");
-                            log::warn!("Process exited: {msg}");
-
-                            if was_running
-                                && s.restart_attempts < MAX_RESTART_ATTEMPTS
-                            {
-                                s.restart_attempts += 1;
-                                let attempt = s.restart_attempts;
-                                let port = s.port;
-                                drop(s);
-
-                                log::info!(
-                                    "Auto-restart attempt {attempt}/{MAX_RESTART_ATTEMPTS} in {RESTART_DELAY_SECS}s"
-                                );
-                                emit_status(
-                                    &app,
-                                    &OpenCodeStatus::Error(msg),
-                                    port,
-                                );
-
-                                tokio::time::sleep(
-                                    tokio::time::Duration::from_secs(RESTART_DELAY_SECS),
-                                )
-                                .await;
-
-                                let _ = start_opencode_server(
-                                    Arc::clone(&state),
-                                    app.clone(),
-                                )
-                                .await;
-                                return;
-                            } else {
-                                s.status = OpenCodeStatus::Error(msg.clone());
-                                emit_status(&app, &s.status, s.port);
-                            }
-                        }
-                        break;
-                    }
-                    Ok(None) => {} // Still running
-                    Err(e) => {
-                        log::error!("Exit monitor error: {e}");
-                        s.status = OpenCodeStatus::Error(e.to_string());
-                        s.child = None;
-                        emit_status(&app, &s.status, s.port);
-                        break;
-                    }
-                }
-            } else {
-                break;
+        rt.block_on(async move {
+            let should_restart = process_events(rx, &state, &app).await;
+            if should_restart {
+                tokio::time::sleep(tokio::time::Duration::from_secs(RESTART_DELAY_SECS)).await;
+                let _ = start_opencode_server(Arc::clone(&state), app).await;
             }
-        }
+        });
     });
+}
+
+/// Process shell plugin events until the process terminates.
+/// Returns `true` if the process should be auto-restarted.
+async fn process_events(
+    mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+    state: &SharedOpenCodeState,
+    app: &AppHandle,
+) -> bool {
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => {
+                let text = String::from_utf8_lossy(&line);
+                log::info!(target: "opencode::stdout", "{}", text.trim_end());
+            }
+            CommandEvent::Stderr(line) => {
+                let text = String::from_utf8_lossy(&line);
+                log::warn!(target: "opencode::stderr", "{}", text.trim_end());
+            }
+            CommandEvent::Terminated(payload) => {
+                return handle_process_exit(state, app, &payload).await;
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Handle process termination from the shell plugin event channel.
+/// Auto-restarts if the process crashed unexpectedly and we haven't
+/// exceeded the restart limit.
+///
+/// Returns `true` if a restart should be attempted.
+async fn handle_process_exit(
+    state: &SharedOpenCodeState,
+    app: &AppHandle,
+    payload: &tauri_plugin_shell::process::TerminatedPayload,
+) -> bool {
+    let mut s = state.lock().await;
+    s.child = None;
+    let was_running = matches!(s.status, OpenCodeStatus::Running);
+
+    if payload.code == Some(0) {
+        log::info!("Process exited cleanly");
+        s.status = OpenCodeStatus::Stopped;
+        emit_status(app, &s.status, s.port);
+        return false;
+    }
+
+    let msg = format!(
+        "Exited with code {:?} (signal {:?})",
+        payload.code, payload.signal
+    );
+    log::warn!("Process exited: {msg}");
+
+    if was_running && s.restart_attempts < MAX_RESTART_ATTEMPTS {
+        s.restart_attempts += 1;
+        let attempt = s.restart_attempts;
+        let port = s.port;
+        drop(s);
+
+        log::info!(
+            "Auto-restart attempt {attempt}/{MAX_RESTART_ATTEMPTS} in {RESTART_DELAY_SECS}s"
+        );
+        emit_status(app, &OpenCodeStatus::Error(msg), port);
+        true
+    } else {
+        s.status = OpenCodeStatus::Error(msg.clone());
+        emit_status(app, &s.status, s.port);
+        false
+    }
 }
 
 /// Stop the OpenCode server. Currently only used at window destroy
@@ -489,13 +487,11 @@ pub async fn stop_opencode_server(
     app: &AppHandle,
 ) -> Result<(), String> {
     let mut s = state.lock().await;
-    if let Some(ref mut child) = s.child {
+    if let Some(child) = s.child.take() {
         child
             .kill()
-            .await
             .map_err(|e| format!("Failed to kill OpenCode process: {e}"))?;
         s.status = OpenCodeStatus::Stopped;
-        s.child = None;
         emit_status(app, &s.status, s.port);
         Ok(())
     } else {
@@ -519,22 +515,31 @@ pub async fn get_opencode_status(
 /// when it detects the MCP stdio connection has broken but the HTTP
 /// server on port 3002 is still alive (zombie process).
 #[tauri::command]
-pub async fn kill_stale_mcp() -> Result<(), String> {
+pub async fn kill_stale_mcp(app: AppHandle) -> Result<(), String> {
     log::info!("Killing stale robloxstudio-mcp processes");
 
     #[cfg(unix)]
     {
-        let _ = Command::new("pkill")
+        let _ = app
+            .shell()
+            .command("pkill")
             .args(["-f", "robloxstudio-mcp"])
-            .output()
+            .status()
             .await;
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
-            .args(["/F", "/FI", "IMAGENAME eq bun.exe", "/FI", "COMMANDLINE eq *robloxstudio-mcp*"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
+        let _ = app
+            .shell()
+            .command("taskkill")
+            .args([
+                "/F",
+                "/FI",
+                "IMAGENAME eq bun.exe",
+                "/FI",
+                "COMMANDLINE eq *robloxstudio-mcp*",
+            ])
+            .status()
             .await;
     }
 

@@ -18,7 +18,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "net"] }
+tokio = { version = "1", features = ["sync", "time", "net"] }
+tauri-plugin-shell = "2"
 reqwest = { version = "0.12", features = ["json"] }
 tauri-plugin-store = "2.4.2"
 dirs = "6"

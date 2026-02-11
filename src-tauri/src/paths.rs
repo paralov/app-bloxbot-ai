@@ -9,7 +9,7 @@ use tauri::Manager;
 // also works because the binaries are copied into the target directory.
 
 /// Returns the directory containing the main executable (and all sidecars).
-fn sidecar_dir() -> Result<PathBuf, String> {
+pub(crate) fn sidecar_dir() -> Result<PathBuf, String> {
     let exe = tauri::utils::platform::current_exe()
         .map_err(|e| format!("Could not determine current executable path: {e}"))?;
     exe.parent()
@@ -19,6 +19,7 @@ fn sidecar_dir() -> Result<PathBuf, String> {
 
 /// Resolves a sidecar binary by name. The name should match the filename
 /// portion of the `externalBin` entry (without the target-triple suffix).
+#[allow(dead_code)]
 fn sidecar_path(name: &str) -> Result<PathBuf, String> {
     #[cfg(target_os = "windows")]
     let bin_name = format!("{name}.exe");
@@ -127,6 +128,7 @@ pub fn bundled_mcp_server_dir() -> Result<PathBuf, String> {
 }
 
 /// Returns the path to the bundled OpenCode sidecar binary.
+#[allow(dead_code)]
 pub fn bundled_opencode_path() -> Result<PathBuf, String> {
     sidecar_path("opencode")
 }
