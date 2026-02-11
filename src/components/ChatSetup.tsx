@@ -94,7 +94,8 @@ function ChatSetup() {
               Plugin installed
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Open Roblox Studio and the plugin will connect automatically.
+              Open Roblox Studio, go to the <strong>Plugins</strong> tab, open the MCP plugin
+              window, and click <strong>Connect</strong>.
             </p>
             <button
               onClick={dismissWelcome}

@@ -14,8 +14,7 @@ const STATUS_CONFIG: Record<
   disconnected: {
     dot: "bg-red-400",
     label: "Studio not connected",
-    description:
-      "Open Roblox Studio and make sure the BloxBot plugin is installed. The plugin connects automatically when Studio is running.",
+    description: "Open Roblox Studio and connect the BloxBot plugin from the Plugins tab.",
   },
   failed: {
     dot: "bg-amber-400 animate-pulse",
@@ -103,7 +102,12 @@ function StudioStatus() {
                 <ol className="space-y-1 text-[10px] text-muted-foreground">
                   <li>1. Open Roblox Studio</li>
                   <li>2. Open or create a place file</li>
-                  <li>3. The plugin will connect automatically</li>
+                  <li>
+                    3. Click the <strong>Plugins</strong> tab
+                  </li>
+                  <li>
+                    4. Open the MCP plugin and click <strong>Connect</strong>
+                  </li>
                 </ol>
               )}
             </div>
