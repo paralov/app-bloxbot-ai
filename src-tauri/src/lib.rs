@@ -1,11 +1,9 @@
 mod opencode;
 mod paths;
 
-use opencode::{SharedLogBuffer, SharedOpenCodeState};
-use std::collections::VecDeque;
+use opencode::SharedOpenCodeState;
 use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-use tauri::webview::WebviewWindowBuilder;
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_opener::OpenerExt;
@@ -15,7 +13,6 @@ use tokio::sync::Mutex;
 pub fn run() {
     let opencode_state: SharedOpenCodeState =
         Arc::new(Mutex::new(opencode::OpenCodeState::default()));
-    let log_buffer: SharedLogBuffer = Arc::new(Mutex::new(VecDeque::new()));
 
     tauri::Builder::default()
         .plugin(
@@ -36,11 +33,9 @@ pub fn run() {
             options: None,
         }))
         .manage(opencode_state)
-        .manage(log_buffer)
         .invoke_handler(tauri::generate_handler![
             opencode::get_opencode_status,
             opencode::kill_stale_mcp,
-            opencode::get_logs,
             paths::get_workspace_dir,
             paths::check_plugin_installed,
             paths::install_studio_plugin,
@@ -84,13 +79,8 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+Shift+D")
                 .build(app)?;
 
-            let logs_toggle = MenuItemBuilder::with_id("debug_logs", "Logs")
-                .accelerator("CmdOrCtrl+Shift+L")
-                .build(app)?;
-
             let debug_submenu = SubmenuBuilder::new(app, "Debug")
                 .item(&debug_toggle)
-                .item(&logs_toggle)
                 .build()?;
 
             let menu = MenuBuilder::new(app)
@@ -118,21 +108,6 @@ pub fn run() {
                             let _ = handle.opener().open_url(&url, None::<&str>);
                         }
                     });
-                } else if event.id() == logs_toggle.id() {
-                    // Open (or focus) the debug logs window
-                    if let Some(win) = app_handle.get_webview_window("debug-logs") {
-                        let _ = win.set_focus();
-                    } else {
-                        let _ = WebviewWindowBuilder::new(
-                            app_handle,
-                            "debug-logs",
-                            tauri::WebviewUrl::App("debug-logs.html".into()),
-                        )
-                        .title("BloxBot - Debug Logs")
-                        .inner_size(900.0, 600.0)
-                        .min_inner_size(400.0, 300.0)
-                        .build();
-                    }
                 }
             });
 
@@ -145,16 +120,12 @@ pub fn run() {
                 .state::<SharedOpenCodeState>()
                 .inner()
                 .clone();
-            let log = app
-                .state::<SharedLogBuffer>()
-                .inner()
-                .clone();
             let handle = app.handle().clone();
-            opencode::app_log_sync(&log, &handle, "setup", "BloxBot starting up");
+            log::info!("BloxBot starting up");
             tauri::async_runtime::spawn(async move {
-                match opencode::start_opencode_server(state, handle.clone(), log.clone()).await {
-                    Ok(port) => opencode::app_log(&log, &handle, "setup", &format!("OpenCode started on port {port}")),
-                    Err(e) => opencode::app_log(&log, &handle, "setup", &format!("Failed to auto-start OpenCode: {e}")),
+                match opencode::start_opencode_server(state, handle).await {
+                    Ok(port) => log::info!("OpenCode started on port {port}"),
+                    Err(e) => log::error!("Failed to auto-start OpenCode: {e}"),
                 }
             });
 

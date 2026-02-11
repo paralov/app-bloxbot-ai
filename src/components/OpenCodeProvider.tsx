@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { frontendLog } from "@/components/DebugLogs";
+
 import { useStore } from "@/stores/opencode";
 import type { OpenCodeStatus } from "@/types";
 
@@ -39,14 +39,14 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
 
   // ── Tauri event listener for status changes from the backend ─────────
   useEffect(() => {
-    frontendLog("frontend", "OpenCodeProvider mounted, fetching initial status");
+    console.debug("frontend", "OpenCodeProvider mounted, fetching initial status");
     // Fetch initial status (in case events were emitted before frontend loaded)
     useStore.getState().fetchInitialStatus();
 
     const unlisten = listen<StatusPayload>("opencode-status-changed", (event) => {
       const s = event.payload.status;
       const label = typeof s === "object" && "Error" in s ? `Error(${s.Error})` : String(s);
-      frontendLog("frontend", `Server status changed: ${label} (port ${event.payload.port})`);
+      console.debug("frontend", `Server status changed: ${label} (port ${event.payload.port})`);
       useStore.getState().setServerStatus(event.payload.status, event.payload.port);
     });
 
@@ -58,24 +58,24 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
   // ── Client creation: when server becomes "Running", create SDK client ─
   useEffect(() => {
     if (status === "Running" && !client) {
-      frontendLog("frontend", `Creating SDK client for port ${port}`);
+      console.debug("frontend", `Creating SDK client for port ${port}`);
       invoke<string>("get_workspace_dir")
         .then((dir) => {
-          frontendLog("frontend", `Workspace dir: ${dir}`);
+          console.debug("frontend", `Workspace dir: ${dir}`);
           useStore.getState().setClient(
             createOpencodeClient({
               baseUrl: `http://127.0.0.1:${port}`,
               directory: dir,
             }),
           );
-          frontendLog("frontend", "SDK client created");
+          console.debug("frontend", "SDK client created");
         })
         .catch((err) => {
-          frontendLog("frontend", `Failed to get workspace dir: ${err}`);
+          console.debug("frontend", `Failed to get workspace dir: ${err}`);
           console.error("Failed to get workspace directory:", err);
         });
     } else if (status !== "Running" && client) {
-      frontendLog("frontend", "Server no longer running, clearing client");
+      console.debug("frontend", "Server no longer running, clearing client");
       useStore.getState().setClient(null);
     }
   }, [status, port, client]);
@@ -83,15 +83,15 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
   // ── Init trigger: when client becomes available, run init with retry ─
   useEffect(() => {
     if (client && !ready) {
-      frontendLog("frontend", "Client available, running init()");
+      console.debug("frontend", "Client available, running init()");
       useStore
         .getState()
         .init()
         .then(() => {
-          frontendLog("frontend", "init() completed");
+          console.debug("frontend", "init() completed");
         })
         .catch((err) => {
-          frontendLog("frontend", `init() failed: ${err}`);
+          console.debug("frontend", `init() failed: ${err}`);
         });
     }
   }, [client, ready]);
@@ -108,22 +108,22 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
         const c = useStore.getState().client;
         if (!c) return;
 
-        frontendLog("frontend", "Subscribing to SSE events");
+        console.debug("frontend", "Subscribing to SSE events");
         const sseResult = await c.event.subscribe({});
         if (!sseResult?.stream) {
-          frontendLog("frontend", "SSE subscribe returned no stream");
+          console.debug("frontend", "SSE subscribe returned no stream");
           return;
         }
-        frontendLog("frontend", "SSE stream connected");
+        console.debug("frontend", "SSE stream connected");
 
         for await (const event of sseResult.stream) {
           if (abortController.signal.aborted) break;
           useStore.getState().handleEvent(event);
         }
-        frontendLog("frontend", "SSE stream ended");
+        console.debug("frontend", "SSE stream ended");
       } catch (err) {
         if (!abortController.signal.aborted) {
-          frontendLog("frontend", `SSE stream error: ${err}`);
+          console.debug("frontend", `SSE stream error: ${err}`);
           console.error("SSE stream error:", err);
           setTimeout(() => {
             if (!abortController.signal.aborted) subscribe();
