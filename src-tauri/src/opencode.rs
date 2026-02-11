@@ -114,13 +114,16 @@ async fn kill_stale_opencode_processes(app: &AppHandle) {
     }
     #[cfg(windows)]
     {
+        // /T kills the entire process tree (opencode.exe + its child
+        // node.exe MCP server), preventing orphaned MCP processes from
+        // holding port 3002.
         let cmd = app
             .shell()
             .command("taskkill")
-            .args(["/F", "/IM", "opencode.exe"]);
+            .args(["/F", "/T", "/IM", "opencode.exe"]);
         match cmd.status().await {
             Ok(status) if status.success() => {
-                log::info!("Killed stale opencode process(es)");
+                log::info!("Killed stale opencode process tree");
             }
             _ => {}
         }
@@ -206,6 +209,15 @@ pub async fn start_opencode_server(
     #[cfg(windows)]
     let node_cmd = "node.exe";
 
+    // On Windows, std::env::current_exe() runs fs::canonicalize which
+    // prepends \\?\ to the path. We already strip this for PATH, but the
+    // MCP entry path also needs it stripped — Node.js module resolution
+    // can break when the entry script path has this prefix.
+    #[cfg(unix)]
+    let mcp_entry_str = mcp_entry.to_string_lossy().to_string();
+    #[cfg(windows)]
+    let mcp_entry_str = strip_win_prefix(&mcp_entry);
+
     let mcp_config = serde_json::json!({
         "plugin": [
             "opencode-gemini-auth@latest"
@@ -213,7 +225,7 @@ pub async fn start_opencode_server(
         "mcp": {
             "roblox-studio": {
                 "type": "local",
-                "command": [node_cmd, mcp_entry.to_string_lossy()],
+                "command": [node_cmd, &mcp_entry_str],
                 "enabled": true,
                 "env": {
                     "ROBLOX_STUDIO_PORT": MCP_PORT.to_string()
@@ -511,15 +523,22 @@ pub async fn get_opencode_status(
     Ok((s.status.clone(), s.port))
 }
 
-/// Kill any stale `robloxstudio-mcp` processes. Called by the frontend
-/// when it detects the MCP stdio connection has broken but the HTTP
-/// server on port 3002 is still alive (zombie process).
+/// Attempt to clean up stale `robloxstudio-mcp` processes. Called by the
+/// frontend when it detects the MCP stdio connection has broken but the
+/// HTTP server on port 3002 is still alive (zombie process).
+///
+/// On Unix, `pkill -f` can target by command line, so this is safe and
+/// precise. On Windows, `taskkill` cannot filter by command line, so we
+/// only log a warning — the user may need to restart the app or kill the
+/// orphaned process manually.
 #[tauri::command]
 pub async fn kill_stale_mcp(app: AppHandle) -> Result<(), String> {
-    log::info!("Killing stale robloxstudio-mcp processes");
+    log::info!("Attempting to clean up stale MCP processes on port {MCP_PORT}");
 
     #[cfg(unix)]
     {
+        // pkill -f matches against the full command line, so this only
+        // kills node processes running the robloxstudio-mcp server.
         let _ = app
             .shell()
             .command("pkill")
@@ -529,32 +548,29 @@ pub async fn kill_stale_mcp(app: AppHandle) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        let _ = app
-            .shell()
-            .command("taskkill")
-            .args([
-                "/F",
-                "/FI",
-                "IMAGENAME eq bun.exe",
-                "/FI",
-                "COMMANDLINE eq *robloxstudio-mcp*",
-            ])
-            .status()
-            .await;
+        // On Windows we cannot safely identify the orphaned MCP process
+        // without risking killing unrelated node.exe instances. The /T
+        // tree-kill on opencode.exe (done at startup) should prevent most
+        // orphan scenarios. If we still get here, log so it's visible in
+        // debug logs.
+        log::warn!(
+            "Cannot safely kill orphaned MCP process on Windows. \
+             If port {MCP_PORT} is stuck, restart BloxBot."
+        );
     }
 
-    // Wait for the MCP port to be released
+    // Check whether the port was freed (applies to both platforms).
     for _ in 0..10 {
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         if tokio::net::TcpListener::bind(("127.0.0.1", MCP_PORT))
             .await
             .is_ok()
         {
-            log::info!("Port {} released", MCP_PORT);
+            log::info!("Port {MCP_PORT} released");
             return Ok(());
         }
     }
 
-    log::warn!("Port {} may still be in use", MCP_PORT);
+    log::warn!("Port {MCP_PORT} still in use after cleanup attempt");
     Ok(())
 }
