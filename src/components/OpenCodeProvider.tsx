@@ -9,7 +9,7 @@ import { useStore } from "@/stores/opencode";
 import type { OpenCodeStatus } from "@/types";
 
 const SSE_RECONNECT_DELAY = 3000;
-const STUDIO_POLL_INTERVAL = 2000;
+const STUDIO_POLL_INTERVAL = 500;
 
 interface StatusPayload {
   status: OpenCodeStatus;

@@ -5,10 +5,6 @@ import type { Message, Part, ProviderAuthMethod } from "@opencode-ai/sdk/v2/clie
 /** Status of the OpenCode sidecar process (from Rust backend). */
 export type OpenCodeStatus = "Stopped" | "Starting" | "Running" | { Error: string };
 
-export function openCodeIsReady(status: OpenCodeStatus): boolean {
-  return status === "Running";
-}
-
 // ── Chat types ──────────────────────────────────────────────────────────
 
 export interface MessageWithParts {

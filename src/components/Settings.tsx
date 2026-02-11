@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useStore } from "@/stores/opencode";
@@ -46,6 +47,13 @@ interface SettingsProps {
 
 function Settings({ onClose }: SettingsProps) {
   const [tab, setTab] = useState<SettingsTab>("providers");
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -128,9 +136,7 @@ function Settings({ onClose }: SettingsProps) {
           {/* About at bottom */}
           <div className="mt-auto border-t px-3 pt-3">
             <div className="space-y-1 text-[10px] text-muted-foreground">
-              <div>
-                BloxBot <span className="font-mono">v0.1.0</span>
-              </div>
+              <div>BloxBot{appVersion && <span className="font-mono"> v{appVersion}</span>}</div>
               <div>
                 Powered by{" "}
                 <a

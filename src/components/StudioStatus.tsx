@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/stores/opencode";
 import type { StudioConnectionStatus } from "@/types";
 
@@ -17,10 +17,10 @@ const STATUS_CONFIG: Record<
     description: "Open Roblox Studio and connect the BloxBot plugin from the Plugins tab.",
   },
   failed: {
-    dot: "bg-amber-400 animate-pulse",
-    label: "MCP server starting...",
+    dot: "bg-red-400",
+    label: "MCP server unreachable",
     description:
-      "The Roblox Studio bridge is not reachable yet. It usually takes a few seconds to start up after launch.",
+      "The Roblox Studio bridge is not responding. Another process may be blocking the port.",
   },
   disabled: {
     dot: "bg-stone-300",
@@ -39,11 +39,20 @@ function StudioStatus() {
   const studioError = useStore((s) => s.studioError);
   const pluginInstalled = useStore((s) => s.pluginInstalled);
   const installPlugin = useStore((s) => s.installPlugin);
+  const restartMcpServer = useStore((s) => s.restartMcpServer);
   const [hovering, setHovering] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const config = STATUS_CONFIG[studioStatus];
+
+  // Clean up pending timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   function handleEnter() {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -65,6 +74,17 @@ function StudioStatus() {
     }
   }
 
+  async function handleRestart() {
+    setRestarting(true);
+    try {
+      await restartMcpServer();
+    } catch {
+      // Error logged by store
+    } finally {
+      setRestarting(false);
+    }
+  }
+
   return (
     <div className="relative" onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
       {/* Indicator row */}
@@ -83,10 +103,21 @@ function StudioStatus() {
           <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
             {config.description}
           </p>
-          {studioStatus === "failed" && studioError && (
-            <p className="mt-1.5 rounded bg-red-50 px-2 py-1 font-mono text-[10px] text-red-600">
-              {studioError}
-            </p>
+          {studioStatus === "failed" && (
+            <div className="mt-2">
+              {studioError && (
+                <p className="mb-2 rounded bg-red-50 px-2 py-1 font-mono text-[10px] text-red-600">
+                  {studioError}
+                </p>
+              )}
+              <button
+                onClick={handleRestart}
+                disabled={restarting}
+                className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-md bg-foreground text-[11px] font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {restarting ? "Restarting..." : "Restart MCP Server"}
+              </button>
+            </div>
           )}
           {studioStatus === "disconnected" && (
             <div className="mt-2">

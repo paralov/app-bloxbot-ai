@@ -23,11 +23,7 @@ const PORT_RANGE: u16 = 10;
 /// Default port for the MCP bridge (Studio plugin ↔ MCP server).
 const MCP_PORT: u16 = 3002;
 
-/// Delay before auto-restart after a crash.
-const RESTART_DELAY_SECS: u64 = 3;
 
-/// Maximum number of consecutive auto-restart attempts.
-const MAX_RESTART_ATTEMPTS: u32 = 5;
 
 // ── Status ──────────────────────────────────────────────────────────────
 
@@ -52,8 +48,6 @@ pub struct OpenCodeState {
     pub status: OpenCodeStatus,
     pub port: u16,
     pub(crate) child: Option<CommandChild>,
-    /// Consecutive restart attempts (reset on successful health check).
-    restart_attempts: u32,
 }
 
 impl Default for OpenCodeState {
@@ -62,7 +56,6 @@ impl Default for OpenCodeState {
             status: OpenCodeStatus::Stopped,
             port: DEFAULT_PORT,
             child: None,
-            restart_attempts: 0,
         }
     }
 }
@@ -328,7 +321,13 @@ pub async fn start_opencode_server(
             log::error!("{msg}");
             msg
         })?
-        .args(["serve", "--port", &port.to_string(), "--hostname", "127.0.0.1"])
+        .args([
+            "serve",
+            "--port", &port.to_string(),
+            "--hostname", "127.0.0.1",
+            "--print-logs",
+            "--log-level", "DEBUG",
+        ])
         .current_dir(&workspace)
         // Isolated XDG directories
         .env("XDG_DATA_HOME", &xdg_data)
@@ -378,10 +377,6 @@ pub async fn start_opencode_server(
     }
 
     if healthy {
-        {
-            let mut s = state.lock().await;
-            s.restart_attempts = 0;
-        }
         log::info!("Server healthy on port {port}");
         set_status(&state, &app, OpenCodeStatus::Running).await;
         Ok(port)
@@ -394,39 +389,39 @@ pub async fn start_opencode_server(
 }
 
 /// Spawn an event handler task that processes stdout/stderr and handles
-/// process termination with auto-restart.
+/// process termination logging.
 ///
-/// The restart loop lives inside this function so the recursive
-/// `start_opencode_server` call doesn't need to be captured in a
-/// `Send` future (the shell plugin's `Command` isn't `Send`).
+/// Runs on a dedicated OS thread with its own tokio runtime because the
+/// shell plugin's `CommandEvent` receiver is not `Send`.
 fn spawn_event_handler(
     rx: tauri::async_runtime::Receiver<CommandEvent>,
     state: SharedOpenCodeState,
     app: AppHandle,
 ) {
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .expect("Failed to build tokio runtime for event handler");
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                log::error!("Failed to build tokio runtime for event handler: {e}");
+                return;
+            }
+        };
 
         rt.block_on(async move {
-            let should_restart = process_events(rx, &state, &app).await;
-            if should_restart {
-                tokio::time::sleep(tokio::time::Duration::from_secs(RESTART_DELAY_SECS)).await;
-                let _ = start_opencode_server(Arc::clone(&state), app).await;
-            }
+            process_events(rx, &state, &app).await;
         });
     });
 }
 
 /// Process shell plugin events until the process terminates.
-/// Returns `true` if the process should be auto-restarted.
 async fn process_events(
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
     state: &SharedOpenCodeState,
     app: &AppHandle,
-) -> bool {
+) {
     while let Some(event) = rx.recv().await {
         match event {
             CommandEvent::Stdout(line) => {
@@ -438,33 +433,29 @@ async fn process_events(
                 log::warn!(target: "opencode::stderr", "{}", text.trim_end());
             }
             CommandEvent::Terminated(payload) => {
-                return handle_process_exit(state, app, &payload).await;
+                handle_process_exit(state, app, &payload).await;
+                return;
             }
             _ => {}
         }
     }
-    false
 }
 
-/// Handle process termination from the shell plugin event channel.
-/// Auto-restarts if the process crashed unexpectedly and we haven't
-/// exceeded the restart limit.
-///
-/// Returns `true` if a restart should be attempted.
+/// Handle process termination. Sets the appropriate status so the
+/// frontend can show an error with a manual retry button.
 async fn handle_process_exit(
     state: &SharedOpenCodeState,
     app: &AppHandle,
     payload: &tauri_plugin_shell::process::TerminatedPayload,
-) -> bool {
+) {
     let mut s = state.lock().await;
     s.child = None;
-    let was_running = matches!(s.status, OpenCodeStatus::Running);
 
     if payload.code == Some(0) {
         log::info!("Process exited cleanly");
         s.status = OpenCodeStatus::Stopped;
         emit_status(app, &s.status, s.port);
-        return false;
+        return;
     }
 
     let msg = format!(
@@ -472,23 +463,8 @@ async fn handle_process_exit(
         payload.code, payload.signal
     );
     log::warn!("Process exited: {msg}");
-
-    if was_running && s.restart_attempts < MAX_RESTART_ATTEMPTS {
-        s.restart_attempts += 1;
-        let attempt = s.restart_attempts;
-        let port = s.port;
-        drop(s);
-
-        log::info!(
-            "Auto-restart attempt {attempt}/{MAX_RESTART_ATTEMPTS} in {RESTART_DELAY_SECS}s"
-        );
-        emit_status(app, &OpenCodeStatus::Error(msg), port);
-        true
-    } else {
-        s.status = OpenCodeStatus::Error(msg.clone());
-        emit_status(app, &s.status, s.port);
-        false
-    }
+    s.status = OpenCodeStatus::Error(msg);
+    emit_status(app, &s.status, s.port);
 }
 
 /// Stop the OpenCode server. Currently only used at window destroy
@@ -521,6 +497,16 @@ pub async fn get_opencode_status(
 ) -> Result<(OpenCodeStatus, u16), String> {
     let s = state.lock().await;
     Ok((s.status.clone(), s.port))
+}
+
+/// Manually restart the OpenCode server. Called by the frontend when the
+/// user clicks the retry button after a crash.
+#[tauri::command]
+pub async fn restart_opencode(
+    state: tauri::State<'_, SharedOpenCodeState>,
+    app: AppHandle,
+) -> Result<u16, String> {
+    start_opencode_server(state.inner().clone(), app).await
 }
 
 /// Attempt to clean up stale `robloxstudio-mcp` processes. Called by the

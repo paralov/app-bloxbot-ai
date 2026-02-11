@@ -240,8 +240,8 @@ pub fn install_studio_plugin(app: tauri::AppHandle) -> Result<String, String> {
         )
     })?;
 
-    eprintln!(
-        "[plugin] Installed {} -> {}",
+    log::info!(
+        "Installed Studio plugin: {} -> {}",
         source.display(),
         dest.display()
     );

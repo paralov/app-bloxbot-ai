@@ -1,48 +1,51 @@
+mod logging;
 mod opencode;
 mod paths;
 
 use opencode::SharedOpenCodeState;
 use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-use tauri::Manager;
-use tauri_plugin_log::{Target, TargetKind};
 use tauri::webview::WebviewWindowBuilder;
+use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialise the logger before anything else so the very first
+    // log::info!() calls are captured in the ring buffer.
+    logging::init();
+
     let opencode_state: SharedOpenCodeState =
         Arc::new(Mutex::new(opencode::OpenCodeState::default()));
 
     tauri::Builder::default()
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .targets([
-                    Target::new(TargetKind::Stdout),
-                    Target::new(TargetKind::LogDir { file_name: None }),
-                    Target::new(TargetKind::Webview),
-                ])
-                .build(),
-        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_posthog::init(tauri_plugin_posthog::PostHogConfig {
-            api_key: "phc_4LeGCHJx8ymSSCZd3hf5QK8nlq3Sf1ZSC8nyRLc2JY4".to_string(),
-            api_host: "https://eu.i.posthog.com".to_string(),
-            options: None,
-        }))
+        .plugin(tauri_plugin_posthog::init(
+            tauri_plugin_posthog::PostHogConfig {
+                api_key: "phc_4LeGCHJx8ymSSCZd3hf5QK8nlq3Sf1ZSC8nyRLc2JY4".to_string(),
+                api_host: "https://eu.i.posthog.com".to_string(),
+                options: None,
+            },
+        ))
         .manage(opencode_state)
         .invoke_handler(tauri::generate_handler![
+            logging::get_logs,
             opencode::get_opencode_status,
+            opencode::restart_opencode,
             opencode::kill_stale_mcp,
             paths::get_workspace_dir,
             paths::check_plugin_installed,
             paths::install_studio_plugin,
         ])
         .setup(|app| {
+            // Give the logger access to the AppHandle so it can emit
+            // events to webviews (the debug-logs window).
+            logging::set_app_handle(app.handle().clone());
+
             // ── Application menu ──────────────────────────────────
             let app_submenu = SubmenuBuilder::new(app, "BloxBot")
                 .about(None)
@@ -119,16 +122,17 @@ pub fn run() {
                     // Toggle the debug logs window
                     if let Some(win) = app_handle.get_webview_window("debug-logs") {
                         let _ = win.set_focus();
-                    } else {
-                        let _ = WebviewWindowBuilder::new(
-                            app_handle,
-                            "debug-logs",
-                            tauri::WebviewUrl::App("debug-logs.html".into()),
-                        )
-                        .title("BloxBot - Debug Logs")
-                        .inner_size(900.0, 500.0)
-                        .min_inner_size(500.0, 300.0)
-                        .build();
+                    } else if let Err(e) = WebviewWindowBuilder::new(
+                        app_handle,
+                        "debug-logs",
+                        tauri::WebviewUrl::App("debug-logs.html".into()),
+                    )
+                    .title("BloxBot - Debug Logs")
+                    .inner_size(900.0, 500.0)
+                    .min_inner_size(500.0, 300.0)
+                    .build()
+                    {
+                        log::error!("Failed to create debug logs window: {e}");
                     }
                 }
             });
@@ -138,10 +142,7 @@ pub fn run() {
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
             // ── Auto-start OpenCode server ────────────────────────
-            let state = app
-                .state::<SharedOpenCodeState>()
-                .inner()
-                .clone();
+            let state = app.state::<SharedOpenCodeState>().inner().clone();
             let handle = app.handle().clone();
             log::info!("BloxBot starting up");
             tauri::async_runtime::spawn(async move {
@@ -154,22 +155,29 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                // Only kill the OpenCode server when the main window closes
-                if window.label() != "main" {
-                    return;
+            // When the main window is closed, quit the entire app.
+            if window.label() != "main" {
+                return;
+            }
+
+            match event {
+                tauri::WindowEvent::CloseRequested { .. } => {
+                    // Kill the OpenCode child process before the app exits.
+                    let state = window
+                        .app_handle()
+                        .state::<SharedOpenCodeState>()
+                        .inner()
+                        .clone();
+                    tauri::async_runtime::block_on(async {
+                        let mut s = state.lock().await;
+                        if let Some(child) = s.child.take() {
+                            let _ = child.kill();
+                        }
+                    });
+                    // Exit the entire app (closes all windows including debug-logs).
+                    window.app_handle().exit(0);
                 }
-                let state = window
-                    .app_handle()
-                    .state::<SharedOpenCodeState>()
-                    .inner()
-                    .clone();
-                tauri::async_runtime::block_on(async {
-                    let mut s = state.lock().await;
-                    if let Some(child) = s.child.take() {
-                        let _ = child.kill();
-                    }
-                });
+                _ => {}
             }
         })
         .run(tauri::generate_context!())

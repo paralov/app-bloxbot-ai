@@ -1,5 +1,17 @@
-import { attachLogger, LogLevel } from "@tauri-apps/plugin-log";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// ── Types ───────────────────────────────────────────────────────────────
+
+/** Matches the `LogEntry` struct serialised from Rust. */
+interface RawLogEntry {
+  timestamp: number;
+  level: "ERROR" | "WARN" | "INFO" | "DEBUG" | "TRACE";
+  message: string;
+}
+
+type LogLevel = "ERROR" | "WARN" | "INFO" | "DEBUG" | "TRACE";
 
 interface LogEntry {
   id: number;
@@ -8,40 +20,40 @@ interface LogEntry {
   message: string;
 }
 
-const LEVEL_LABELS: Record<LogLevel, string> = {
-  [LogLevel.Trace]: "TRACE",
-  [LogLevel.Debug]: "DEBUG",
-  [LogLevel.Info]: "INFO",
-  [LogLevel.Warn]: "WARN",
-  [LogLevel.Error]: "ERROR",
-};
+// ── Helpers ─────────────────────────────────────────────────────────────
 
 const LEVEL_COLORS: Record<LogLevel, string> = {
-  [LogLevel.Trace]: "text-muted-foreground/60",
-  [LogLevel.Debug]: "text-muted-foreground",
-  [LogLevel.Info]: "text-foreground",
-  [LogLevel.Warn]: "text-amber-600",
-  [LogLevel.Error]: "text-red-600",
+  TRACE: "text-muted-foreground/60",
+  DEBUG: "text-muted-foreground",
+  INFO: "text-foreground",
+  WARN: "text-amber-600",
+  ERROR: "text-red-600",
 };
-
-const MAX_ENTRIES = 2000;
 
 function levelBadgeClass(level: LogLevel): string {
   switch (level) {
-    case LogLevel.Error:
+    case "ERROR":
       return "bg-red-100 text-red-700 border-red-200";
-    case LogLevel.Warn:
+    case "WARN":
       return "bg-amber-100 text-amber-700 border-amber-200";
-    case LogLevel.Info:
+    case "INFO":
       return "bg-sky-100 text-sky-700 border-sky-200";
-    case LogLevel.Debug:
+    case "DEBUG":
       return "bg-stone-100 text-stone-500 border-stone-200";
-    case LogLevel.Trace:
+    case "TRACE":
       return "bg-stone-50 text-stone-400 border-stone-100";
     default:
       return "bg-stone-100 text-stone-500 border-stone-200";
   }
 }
+
+function formatTimestamp(epochMs: number): string {
+  return new Date(epochMs).toISOString().slice(11, 23);
+}
+
+const MAX_ENTRIES = 5000;
+
+// ── Component ───────────────────────────────────────────────────────────
 
 function DebugLogs() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -51,34 +63,59 @@ function DebugLogs() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
 
-  // Attach the log listener
+  // Convert a raw entry from Rust into our display format.
+  const toLogEntry = useCallback((raw: RawLogEntry): LogEntry => {
+    return {
+      id: idRef.current++,
+      timestamp: formatTimestamp(raw.timestamp),
+      level: raw.level,
+      message: raw.message,
+    };
+  }, []);
+
+  // On mount: fetch the full buffer, then subscribe to new events.
   useEffect(() => {
-    const unlisten = attachLogger(({ level, message }) => {
-      const entry: LogEntry = {
-        id: idRef.current++,
-        timestamp: new Date().toISOString().slice(11, 23),
-        level,
-        message,
-      };
+    let cancelled = false;
+
+    // 1. Start real-time listener immediately so nothing is missed.
+    const unlistenPromise = listen<RawLogEntry>("log-entry", (event) => {
+      if (cancelled) return;
+      const entry = toLogEntry(event.payload);
       setLogs((prev) => {
         const next = [...prev, entry];
         return next.length > MAX_ENTRIES ? next.slice(-MAX_ENTRIES) : next;
       });
     });
 
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
+    // 2. Fetch history from the ring buffer and prepend.
+    invoke<RawLogEntry[]>("get_logs")
+      .then((history) => {
+        if (cancelled) return;
+        const entries = history.map((r) => toLogEntry(r));
+        setLogs((prev) => {
+          // Merge: history first, then any real-time entries that arrived
+          // while invoke was in flight.
+          const merged = [...entries, ...prev];
+          return merged.length > MAX_ENTRIES ? merged.slice(-MAX_ENTRIES) : merged;
+        });
+      })
+      .catch((err) => console.error("Failed to load log history:", err));
 
-  // Auto-scroll to bottom when new logs arrive
+    return () => {
+      cancelled = true;
+      unlistenPromise.then((fn) => fn());
+    };
+  }, [toLogEntry]);
+
+  // Auto-scroll to bottom when new logs arrive.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: logs used as trigger
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [logs, autoScroll]);
 
-  // Detect manual scroll to disable auto-scroll
+  // Detect manual scroll to disable auto-scroll.
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
     const el = scrollRef.current;
@@ -86,27 +123,34 @@ function DebugLogs() {
     setAutoScroll(isAtBottom);
   }, []);
 
-  const clearLogs = useCallback(() => {
-    setLogs([]);
-  }, []);
+  const clearLogs = useCallback(() => setLogs([]), []);
 
-  // Filter and search
-  const filtered = logs.filter((entry) => {
-    if (filter !== null && entry.level !== filter) return false;
-    if (search && !entry.message.toLowerCase().includes(search.toLowerCase())) {
-      return false;
-    }
-    return true;
-  });
-
-  // Level counts for filter badges
-  const counts = logs.reduce(
-    (acc, e) => {
-      acc[e.level] = (acc[e.level] || 0) + 1;
-      return acc;
-    },
-    {} as Record<number, number>,
+  // Filtered view + counts (memoized).
+  const filtered = useMemo(
+    () =>
+      logs.filter((entry) => {
+        if (filter !== null && entry.level !== filter) return false;
+        if (search && !entry.message.toLowerCase().includes(search.toLowerCase())) {
+          return false;
+        }
+        return true;
+      }),
+    [logs, filter, search],
   );
+
+  const counts = useMemo(
+    () =>
+      logs.reduce(
+        (acc, e) => {
+          acc[e.level] = (acc[e.level] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      ),
+    [logs],
+  );
+
+  // ── Render ──────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-full flex-col bg-background font-mono text-xs">
@@ -128,24 +172,31 @@ function DebugLogs() {
           />
           <FilterPill
             label="ERR"
-            count={counts[LogLevel.Error] || 0}
-            active={filter === LogLevel.Error}
-            onClick={() => setFilter(filter === LogLevel.Error ? null : LogLevel.Error)}
+            count={counts.ERROR || 0}
+            active={filter === "ERROR"}
+            onClick={() => setFilter(filter === "ERROR" ? null : "ERROR")}
             className="bg-red-100 text-red-600 border-red-200"
           />
           <FilterPill
             label="WRN"
-            count={counts[LogLevel.Warn] || 0}
-            active={filter === LogLevel.Warn}
-            onClick={() => setFilter(filter === LogLevel.Warn ? null : LogLevel.Warn)}
+            count={counts.WARN || 0}
+            active={filter === "WARN"}
+            onClick={() => setFilter(filter === "WARN" ? null : "WARN")}
             className="bg-amber-100 text-amber-600 border-amber-200"
           />
           <FilterPill
             label="INF"
-            count={counts[LogLevel.Info] || 0}
-            active={filter === LogLevel.Info}
-            onClick={() => setFilter(filter === LogLevel.Info ? null : LogLevel.Info)}
+            count={counts.INFO || 0}
+            active={filter === "INFO"}
+            onClick={() => setFilter(filter === "INFO" ? null : "INFO")}
             className="bg-sky-100 text-sky-600 border-sky-200"
+          />
+          <FilterPill
+            label="DBG"
+            count={counts.DEBUG || 0}
+            active={filter === "DEBUG"}
+            onClick={() => setFilter(filter === "DEBUG" ? null : "DEBUG")}
+            className="bg-stone-100 text-stone-500 border-stone-200"
           />
         </div>
 
@@ -190,7 +241,7 @@ function DebugLogs() {
                     <span
                       className={`inline-block w-[3.5rem] rounded border px-1 text-center text-[10px] leading-4 ${levelBadgeClass(entry.level)}`}
                     >
-                      {LEVEL_LABELS[entry.level]}
+                      {entry.level}
                     </span>
                   </td>
                   <td className={`break-all px-2 py-0.5 ${LEVEL_COLORS[entry.level]}`}>
@@ -228,6 +279,8 @@ function DebugLogs() {
     </div>
   );
 }
+
+// ── Sub-components ──────────────────────────────────────────────────────
 
 function FilterPill({
   label,

@@ -1,8 +1,11 @@
+import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
+
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
 import ChatSetup from "@/components/ChatSetup";
 import ChatSidebar from "@/components/ChatSidebar";
+import LoadingScreen from "@/components/LoadingScreen";
 import Settings from "@/components/Settings";
 import { useStore } from "@/stores/opencode";
 
@@ -18,36 +21,45 @@ function Chat() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   const serverRunning = status === "Running";
+  const isError = typeof status === "object" && "Error" in status;
+
+  // ── Still loading persisted state from disk ─────────────────────────
+  // hasLaunched is null until init() finishes reading the Tauri store.
+  // Show the loading screen to avoid flashing the welcome screen.
+  if (hasLaunched === null) {
+    return <LoadingScreen message="Starting up..." />;
+  }
 
   // ── First-run welcome screen ─────────────────────────────────────────
-  if (!hasLaunched) {
+  if (hasLaunched === false) {
     return <ChatSetup />;
   }
 
   // ── Waiting for the backend to start OpenCode ────────────────────────
   if (!serverRunning) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
-        <div className="animate-fade-in-up text-center">
-          <svg
-            className="mx-auto h-6 w-6 animate-spin text-muted-foreground"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-          </svg>
-          <p className="mt-4 text-sm text-muted-foreground">Starting OpenCode...</p>
-          {typeof status === "object" && "Error" in status && (
-            <p className="mt-2 text-xs text-destructive">
-              {status.Error}. Retrying automatically...
-            </p>
-          )}
-        </div>
-      </div>
+      <LoadingScreen
+        message={isError ? "Something went wrong" : "Starting up..."}
+        detail={isError ? status.Error : undefined}
+        onRetry={
+          isError
+            ? async () => {
+                setRestarting(true);
+                try {
+                  await invoke("restart_opencode");
+                } catch (err) {
+                  console.error("Failed to restart OpenCode:", err);
+                } finally {
+                  setRestarting(false);
+                }
+              }
+            : undefined
+        }
+        retrying={restarting}
+      />
     );
   }
 
@@ -67,21 +79,7 @@ function Chat() {
         {showSettings ? (
           <Settings onClose={() => setShowSettings(false)} />
         ) : !ready ? (
-          // SDK initializing
-          <div className="flex flex-1 flex-col items-center justify-center px-6">
-            <div className="animate-fade-in-up text-center">
-              <svg
-                className="mx-auto h-6 w-6 animate-spin text-muted-foreground"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-              </svg>
-              <p className="mt-4 text-sm text-muted-foreground">Initializing...</p>
-            </div>
-          </div>
+          <LoadingScreen message="Initializing..." />
         ) : !activeSession ? (
           // No session selected
           <div className="flex flex-1 flex-col items-center justify-center px-6">

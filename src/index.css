@@ -144,3 +144,33 @@
 .animate-scale-in {
   animation: scale-in 200ms ease-out both;
 }
+
+/* ── BloxBot loading face ────────────────────────────────────────── */
+
+@keyframes bloxbot-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+
+@keyframes bloxbot-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95%           { transform: scaleY(0.08); }
+}
+
+@keyframes bloxbot-dot-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.8; }
+}
+
+.bloxbot-face {
+  animation: bloxbot-float 2.5s ease-in-out infinite;
+}
+
+.bloxbot-eye {
+  transform-origin: center;
+  animation: bloxbot-blink 4s ease-in-out infinite;
+}
+
+.bloxbot-dot {
+  animation: bloxbot-dot-pulse 1.2s ease-in-out infinite;
+}

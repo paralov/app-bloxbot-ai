@@ -1,11 +1,16 @@
 import { useEffect } from "react";
+
 import Chat from "@/components/Chat";
 import OpenCodeProvider from "@/components/OpenCodeProvider";
 import StudioStatus from "@/components/StudioStatus";
+import UpdateBanner from "@/components/UpdateBanner";
 import { Toaster } from "@/components/ui/sonner";
+import { useUpdater } from "@/hooks/useUpdater";
 import { capture } from "@/lib/telemetry";
 
 function App() {
+  const { status, pendingUpdate, installUpdate, dismissUpdate } = useUpdater();
+
   useEffect(() => {
     capture("app_launched");
   }, []);
@@ -20,6 +25,14 @@ function App() {
         >
           <StudioStatus />
         </div>
+        {pendingUpdate && (
+          <UpdateBanner
+            status={status}
+            update={pendingUpdate}
+            onInstall={installUpdate}
+            onDismiss={dismissUpdate}
+          />
+        )}
         <Chat />
         <Toaster />
       </main>
