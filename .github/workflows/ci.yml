@@ -33,6 +33,15 @@ jobs:
             ext: ""
             args: ""
 
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            node_asset: node-v22.13.1-darwin-x64.tar.gz
+            node_inner_dir: node-v22.13.1-darwin-x64
+            opencode_asset: opencode-darwin-x64.zip
+            opencode_bin: opencode
+            ext: ""
+            args: ""
+
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             node_asset: node-v22.13.1-win-x64.zip
@@ -169,6 +178,7 @@ jobs:
             | Platform | Download |
             |----------|----------|
             | macOS (Apple Silicon) | `BloxBot_*_aarch64.dmg` |
+            | macOS (Intel) | `BloxBot_*_x64.dmg` |
             | Windows (64-bit) | `BloxBot_*_x64-setup.exe` |
 
             ### macOS — Gatekeeper

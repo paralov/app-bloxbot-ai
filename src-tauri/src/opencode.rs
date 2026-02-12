@@ -442,7 +442,11 @@ pub async fn start_opencode_server(
     // spawn_exit_monitor from the old tokio::process implementation.
     spawn_event_handler(rx, Arc::clone(&state), app.clone());
 
-    // Wait for the server to be ready by polling the health endpoint
+    // Wait for the server to be ready by polling the health endpoint.
+    // If the process exits (detected via the event handler setting the
+    // status to Error), bail out immediately instead of waiting the full
+    // timeout — this avoids a ~35 second hang when the binary crashes on
+    // launch.
     let health_url = format!("http://{LOOPBACK}:{port}/global/health");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
@@ -452,6 +456,27 @@ pub async fn start_opencode_server(
     let mut healthy = false;
     for _ in 0..15 {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // Check if the process already exited (the event handler sets
+        // child to None and status to Error on termination).
+        {
+            let s = state.lock().await;
+            if s.child.is_none() {
+                // Process is gone — return whatever error the event
+                // handler already set, or a generic message.
+                if let OpenCodeStatus::Error(ref msg) = s.status {
+                    let err = msg.clone();
+                    log::error!("Process exited before becoming healthy: {err}");
+                    return Err(err);
+                }
+                let err = "OpenCode process exited before becoming healthy".to_string();
+                log::error!("{err}");
+                drop(s);
+                set_status(&state, &app, OpenCodeStatus::Error(err.clone())).await;
+                return Err(err);
+            }
+        }
+
         if let Ok(resp) = client.get(&health_url).send().await {
             if resp.status().is_success() {
                 healthy = true;
@@ -465,6 +490,15 @@ pub async fn start_opencode_server(
         set_status(&state, &app, OpenCodeStatus::Running).await;
         Ok(port)
     } else {
+        // One final check: the process may have died on the last iteration.
+        let s = state.lock().await;
+        if let OpenCodeStatus::Error(ref msg) = s.status {
+            let err = msg.clone();
+            log::error!("Process exited during health check: {err}");
+            return Err(err);
+        }
+        drop(s);
+
         let err = "OpenCode server started but health check timed out".to_string();
         log::error!("{err}");
         set_status(&state, &app, OpenCodeStatus::Error(err.clone())).await;
