@@ -15,8 +15,6 @@ concurrency:
 env:
   NODE_VERSION: "22.13.1"
   OPENCODE_VERSION: "1.1.53"
-  MCP_SERVER_REPO: "boshyxd/robloxstudio-mcp"
-  MCP_SERVER_VERSION: "v1.9.0"
 
 jobs:
   build:
@@ -48,6 +46,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -128,23 +128,24 @@ jobs:
           mv "${{ matrix.opencode_bin }}" "opencode-${{ matrix.target }}${{ matrix.ext }}"
           chmod +x "opencode-${{ matrix.target }}${{ matrix.ext }}" 2>/dev/null || true
 
-      # ── Build and bundle MCP server ────────────────────────────────
+      # ── Build MCP server (submodule) and launcher ──────────────────
 
-      - name: Clone and build MCP server
+      - name: Build MCP server
         shell: bash
         run: |
-          git clone --depth 1 --branch "${{ env.MCP_SERVER_VERSION }}" \
-            "https://github.com/${{ env.MCP_SERVER_REPO }}.git" /tmp/mcp-server
-          cd /tmp/mcp-server
+          cd src-tauri/resources/mcp-server
           npm install
           npm run build
-
-          DEST="$GITHUB_WORKSPACE/src-tauri/resources/mcp-server"
-          mkdir -p "$DEST"
-          cp -R dist "$DEST/"
-          cp package.json "$DEST/"
-          cd "$DEST"
+          # Keep only production deps for the bundle
+          rm -rf node_modules
           npm install --omit=dev --no-package-lock
+
+      - name: Build MCP launcher
+        shell: bash
+        run: |
+          cd src-tauri/resources/launcher
+          npm install
+          npm run build
 
       # ── Build (CI) / Build & Release (tags) ─────────────────────────
 

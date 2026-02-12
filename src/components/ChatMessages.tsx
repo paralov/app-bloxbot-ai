@@ -5,15 +5,78 @@ import type {
   QuestionRequest,
   Todo,
 } from "@opencode-ai/sdk/v2/client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useStore } from "@/stores/opencode";
 import type { MessageWithParts } from "@/types";
 
+// ── Inline BloxBot thinking indicator ────────────────────────────────────
+
+/** Tiny animated BloxBot face used as the "thinking" / "waiting" indicator. */
+function BloxBotThinking({ label = "Thinking..." }: { label?: string }) {
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 512 512"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className="bloxbot-face-think shrink-0"
+        aria-hidden="true"
+      >
+        {/* Body */}
+        <rect
+          x="32"
+          y="32"
+          width="448"
+          height="448"
+          rx="112"
+          fill="currentColor"
+          className="text-foreground"
+        />
+        {/* Left eye */}
+        <rect
+          className="bloxbot-eye"
+          x="144"
+          y="176"
+          width="72"
+          height="72"
+          rx="24"
+          fill="var(--background)"
+        />
+        {/* Right eye */}
+        <rect
+          className="bloxbot-eye"
+          x="296"
+          y="176"
+          width="72"
+          height="72"
+          rx="24"
+          fill="var(--background)"
+        />
+        {/* Smile */}
+        <path
+          d="M168 328C168 328 204.8 376 256 376C307.2 376 344 328 344 328"
+          stroke="var(--background)"
+          strokeWidth="32"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="flex gap-0.5">
+        <span className="bloxbot-dot h-1 w-1 rounded-full bg-foreground/20" />
+        <span className="bloxbot-dot h-1 w-1 rounded-full bg-foreground/20 [animation-delay:150ms]" />
+        <span className="bloxbot-dot h-1 w-1 rounded-full bg-foreground/20 [animation-delay:300ms]" />
+      </span>
+    </div>
+  );
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-/** Strip MCP prefix (e.g. "mcp_roblox-studio_bash" → "bash") */
+/** Strip MCP prefix (e.g. "mcp_roblox-studio_bash" -> "bash") */
 function baseToolName(tool: string): string {
   return tool.replace(/^mcp_[^_]+_/, "");
 }
@@ -27,8 +90,10 @@ function inputField(input: Record<string, unknown>, key: string): string {
 }
 
 // ── Tool-specific renderers ─────────────────────────────────────────────
+// These are all wrapped in memo() because they receive primitive/stable
+// props from the memoized ToolPartView parent.
 
-function BashToolView({
+const BashToolView = memo(function BashToolView({
   input,
   output,
   status,
@@ -39,6 +104,10 @@ function BashToolView({
 }) {
   const command = inputField(input, "command");
   const description = inputField(input, "description");
+  // Track open/close locally so parent re-renders don't reset it
+  const [detailsOpen, setDetailsOpen] = useState<boolean | null>(null);
+  const autoOpen = Boolean(output && output.length < 500);
+  const isOpen = detailsOpen ?? autoOpen;
 
   return (
     <div>
@@ -50,7 +119,11 @@ function BashToolView({
         </div>
       )}
       {status === "completed" && output && (
-        <details className="mt-1" open={output.length < 500}>
+        <details
+          className="mt-1"
+          open={isOpen}
+          onToggle={(e) => setDetailsOpen((e.target as HTMLDetailsElement).open)}
+        >
           <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
             Output ({output.split("\n").length} lines)
           </summary>
@@ -67,9 +140,9 @@ function BashToolView({
       )}
     </div>
   );
-}
+});
 
-function EditToolView({
+const EditToolView = memo(function EditToolView({
   input,
   output,
   status,
@@ -148,9 +221,15 @@ function EditToolView({
       )}
     </div>
   );
-}
+});
 
-function ReadToolView({ input, status }: { input: Record<string, unknown>; status: string }) {
+const ReadToolView = memo(function ReadToolView({
+  input,
+  status,
+}: {
+  input: Record<string, unknown>;
+  status: string;
+}) {
   const filePath = inputField(input, "filePath");
   const shortPath = filePath.split("/").slice(-3).join("/");
 
@@ -178,9 +257,15 @@ function ReadToolView({ input, status }: { input: Record<string, unknown>; statu
       )}
     </div>
   );
-}
+});
 
-function WriteToolView({ input, status }: { input: Record<string, unknown>; status: string }) {
+const WriteToolView = memo(function WriteToolView({
+  input,
+  status,
+}: {
+  input: Record<string, unknown>;
+  status: string;
+}) {
   const filePath = inputField(input, "filePath");
   const shortPath = filePath.split("/").slice(-3).join("/");
 
@@ -210,9 +295,15 @@ function WriteToolView({ input, status }: { input: Record<string, unknown>; stat
       )}
     </div>
   );
-}
+});
 
-function GlobToolView({ input, status }: { input: Record<string, unknown>; status: string }) {
+const GlobToolView = memo(function GlobToolView({
+  input,
+  status,
+}: {
+  input: Record<string, unknown>;
+  status: string;
+}) {
   const pattern = inputField(input, "pattern");
 
   return (
@@ -237,9 +328,15 @@ function GlobToolView({ input, status }: { input: Record<string, unknown>; statu
       )}
     </div>
   );
-}
+});
 
-function GrepToolView({ input, status }: { input: Record<string, unknown>; status: string }) {
+const GrepToolView = memo(function GrepToolView({
+  input,
+  status,
+}: {
+  input: Record<string, unknown>;
+  status: string;
+}) {
   const pattern = inputField(input, "pattern");
   const include = inputField(input, "include");
 
@@ -267,9 +364,15 @@ function GrepToolView({ input, status }: { input: Record<string, unknown>; statu
       )}
     </div>
   );
-}
+});
 
-function TaskToolView({ input, status }: { input: Record<string, unknown>; status: string }) {
+const TaskToolView = memo(function TaskToolView({
+  input,
+  status,
+}: {
+  input: Record<string, unknown>;
+  status: string;
+}) {
   const description = inputField(input, "description");
   const agentType = inputField(input, "subagent_type");
 
@@ -300,9 +403,15 @@ function TaskToolView({ input, status }: { input: Record<string, unknown>; statu
       )}
     </div>
   );
-}
+});
 
-function WebFetchToolView({ input, status }: { input: Record<string, unknown>; status: string }) {
+const WebFetchToolView = memo(function WebFetchToolView({
+  input,
+  status,
+}: {
+  input: Record<string, unknown>;
+  status: string;
+}) {
   const url = inputField(input, "url");
   let displayUrl = url;
   try {
@@ -337,9 +446,13 @@ function WebFetchToolView({ input, status }: { input: Record<string, unknown>; s
       )}
     </div>
   );
-}
+});
 
-function TodoWriteToolView({ input }: { input: Record<string, unknown> }) {
+const TodoWriteToolView = memo(function TodoWriteToolView({
+  input,
+}: {
+  input: Record<string, unknown>;
+}) {
   const rawTodos = input.todos;
   if (!Array.isArray(rawTodos)) return null;
   const items = rawTodos as Todo[];
@@ -399,9 +512,9 @@ function TodoWriteToolView({ input }: { input: Record<string, unknown> }) {
       ))}
     </div>
   );
-}
+});
 
-function DefaultToolView({
+const DefaultToolView = memo(function DefaultToolView({
   tool,
   input,
   output,
@@ -413,6 +526,7 @@ function DefaultToolView({
   status: string;
 }) {
   const title = "title" in input ? inputField(input, "title") : "";
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div>
@@ -424,7 +538,11 @@ function DefaultToolView({
         )}
       </div>
       {status === "completed" && output && (
-        <details className="mt-1">
+        <details
+          className="mt-1"
+          open={detailsOpen}
+          onToggle={(e) => setDetailsOpen((e.target as HTMLDetailsElement).open)}
+        >
           <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
             Output
           </summary>
@@ -437,7 +555,7 @@ function DefaultToolView({
       )}
     </div>
   );
-}
+});
 
 // ── Part renderers ─────────────────────────────────────────────────────
 
@@ -518,9 +636,6 @@ const markdownComponents: Components = {
     );
   },
   pre({ children }) {
-    // react-markdown wraps code blocks in <pre><code>. Our code() handler above
-    // already renders the full block, so we just pass children through to avoid
-    // double-wrapping.
     return <>{children}</>;
   },
   table({ children }) {
@@ -541,21 +656,34 @@ const markdownComponents: Components = {
   },
 };
 
-function TextPartView({ part }: { part: Extract<Part, { type: "text" }> }) {
-  const content = useMemo(() => part.text, [part.text]);
-  return (
-    <div className="text-[13px] leading-relaxed">
-      <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {content}
-      </Markdown>
-    </div>
-  );
-}
+/** Memoized text part — only re-parses Markdown when `part.text` actually changes. */
+const TextPartView = memo(
+  function TextPartView({ part }: { part: Extract<Part, { type: "text" }> }) {
+    return (
+      <div className="text-[13px] leading-relaxed">
+        <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+          {part.text}
+        </Markdown>
+      </div>
+    );
+  },
+  (prev, next) => prev.part.text === next.part.text,
+);
 
-function ReasoningPartView({ part }: { part: Extract<Part, { type: "reasoning" }> }) {
+/** Memoized reasoning part with controlled open state to survive re-renders. */
+const ReasoningPartView = memo(function ReasoningPartView({
+  part,
+}: {
+  part: Extract<Part, { type: "reasoning" }>;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
   if (!part.text) return null;
   return (
-    <details className="group mt-1">
+    <details
+      className="group mt-1"
+      open={isOpen}
+      onToggle={(e) => setIsOpen((e.target as HTMLDetailsElement).open)}
+    >
       <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground">
         Reasoning
       </summary>
@@ -564,9 +692,13 @@ function ReasoningPartView({ part }: { part: Extract<Part, { type: "reasoning" }
       </div>
     </details>
   );
-}
+});
 
-function ToolPartView({ part }: { part: Extract<Part, { type: "tool" }> }) {
+const ToolPartView = memo(function ToolPartView({
+  part,
+}: {
+  part: Extract<Part, { type: "tool" }>;
+}) {
   const status = part.state.status;
   const input = part.state.input ?? {};
   const output = status === "completed" && "output" in part.state ? part.state.output : undefined;
@@ -615,7 +747,6 @@ function ToolPartView({ part }: { part: Extract<Part, { type: "tool" }> }) {
     <div
       className={`my-1 rounded-md border px-2.5 py-2 ${statusColors[status] ?? statusColors.pending}`}
     >
-      {/* Title bar - show the server-provided title if we have one and it's not a specialized renderer */}
       {title &&
         ![
           "bash",
@@ -638,13 +769,17 @@ function ToolPartView({ part }: { part: Extract<Part, { type: "tool" }> }) {
       )}
     </div>
   );
-}
+});
 
-function StepPartView() {
+const StepPartView = memo(function StepPartView() {
   return <div className="my-2 border-t border-stone-200" />;
-}
+});
 
-function StepFinishPartView({ part }: { part: Extract<Part, { type: "step-finish" }> }) {
+const StepFinishPartView = memo(function StepFinishPartView({
+  part,
+}: {
+  part: Extract<Part, { type: "step-finish" }>;
+}) {
   const { tokens, cost } = part;
   return (
     <div className="my-1 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
@@ -655,9 +790,13 @@ function StepFinishPartView({ part }: { part: Extract<Part, { type: "step-finish
       {tokens.cache.read > 0 && <span>{tokens.cache.read.toLocaleString()} cached</span>}
     </div>
   );
-}
+});
 
-function RetryPartView({ part }: { part: Extract<Part, { type: "retry" }> }) {
+const RetryPartView = memo(function RetryPartView({
+  part,
+}: {
+  part: Extract<Part, { type: "retry" }>;
+}) {
   return (
     <div className="my-1 flex items-center gap-1.5 rounded border border-amber-200 bg-amber-50/30 px-2.5 py-1.5 text-[11px] text-amber-700">
       <svg
@@ -679,9 +818,9 @@ function RetryPartView({ part }: { part: Extract<Part, { type: "retry" }> }) {
       )}
     </div>
   );
-}
+});
 
-function CompactionPartView() {
+const CompactionPartView = memo(function CompactionPartView() {
   return (
     <div className="my-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
       <svg
@@ -702,9 +841,14 @@ function CompactionPartView() {
       Context compacted
     </div>
   );
-}
+});
 
-function PartRenderer({ part }: { part: Part }) {
+/**
+ * Memoized part dispatcher. Each branch is itself memoized, so even when
+ * this component re-renders (because a sibling part changed), the actual
+ * DOM work is skipped if the part object is referentially equal.
+ */
+const PartRenderer = memo(function PartRenderer({ part }: { part: Part }) {
   switch (part.type) {
     case "text":
       return <TextPartView part={part} />;
@@ -726,11 +870,11 @@ function PartRenderer({ part }: { part: Part }) {
     default:
       return null;
   }
-}
+});
 
 // ── Inline todo panel ───────────────────────────────────────────────────
 
-function TodoPanel({ todos }: { todos: Todo[] }) {
+const TodoPanel = memo(function TodoPanel({ todos }: { todos: Todo[] }) {
   if (todos.length === 0) return null;
   const completed = todos.filter((t) => t.status === "completed").length;
   const total = todos.length;
@@ -804,7 +948,7 @@ function TodoPanel({ todos }: { todos: Todo[] }) {
       </div>
     </div>
   );
-}
+});
 
 // ── Question prompt ─────────────────────────────────────────────────────
 
@@ -949,49 +1093,66 @@ function PermissionPrompt({
 
 // ── Message bubble ─────────────────────────────────────────────────────
 
-function MessageBubble({ msg }: { msg: MessageWithParts }) {
-  const isUser = msg.info.role === "user";
+/**
+ * Memoized message bubble. Only re-renders when the message's parts array
+ * length changes OR when the last part is updated (streaming text). Prior
+ * messages whose content is settled will never re-render when a new part
+ * arrives on the latest message.
+ */
+const MessageBubble = memo(
+  function MessageBubble({ msg }: { msg: MessageWithParts }) {
+    const isUser = msg.info.role === "user";
 
-  return (
-    <div className={`animate-fade-in-up flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[85%] ${
-          isUser ? "rounded-2xl rounded-br-md bg-foreground px-3.5 py-2 text-background" : "w-full"
-        }`}
-      >
-        {isUser ? (
-          <div className="text-[13px] leading-relaxed">
-            {msg.parts
-              .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text")
-              .map((p) => (
-                <span key={p.id}>{p.text}</span>
+    return (
+      <div className={`animate-fade-in-up flex ${isUser ? "justify-end" : "justify-start"}`}>
+        <div
+          className={`max-w-[85%] ${
+            isUser
+              ? "rounded-2xl rounded-br-md bg-foreground px-3.5 py-2 text-background"
+              : "w-full"
+          }`}
+        >
+          {isUser ? (
+            <div className="text-[13px] leading-relaxed">
+              {msg.parts
+                .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text")
+                .map((p) => (
+                  <span key={p.id}>{p.text}</span>
+                ))}
+              {msg.parts.length === 0 && <span className="italic opacity-50">...</span>}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {msg.parts.length === 0 && <BloxBotThinking />}
+              {msg.parts.map((part) => (
+                <PartRenderer key={part.id} part={part} />
               ))}
-            {msg.parts.length === 0 && <span className="italic opacity-50">...</span>}
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {msg.parts.length === 0 && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-foreground" />
-                Thinking...
-              </div>
-            )}
-            {msg.parts.map((part) => (
-              <PartRenderer key={part.id} part={part} />
-            ))}
-            {"error" in msg.info && msg.info.error && (
-              <div className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600">
-                {msg.info.error.data && "message" in msg.info.error.data
-                  ? String(msg.info.error.data.message)
-                  : msg.info.error.name}
-              </div>
-            )}
-          </div>
-        )}
+              {"error" in msg.info && msg.info.error && (
+                <div className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600">
+                  {msg.info.error.data && "message" in msg.info.error.data
+                    ? String(msg.info.error.data.message)
+                    : msg.info.error.name}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  },
+  (prev, next) => {
+    // Same message ID with same parts count and same last-part content
+    // means nothing visible changed — skip re-render.
+    if (prev.msg.info.id !== next.msg.info.id) return false;
+    if (prev.msg.parts.length !== next.msg.parts.length) return false;
+    if (prev.msg.parts === next.msg.parts) return true;
+    // Check if the last part changed (the one being streamed)
+    const prevLast = prev.msg.parts[prev.msg.parts.length - 1];
+    const nextLast = next.msg.parts[next.msg.parts.length - 1];
+    if (prevLast === nextLast) return true;
+    return false;
+  },
+);
 
 // ── Main component ─────────────────────────────────────────────────────
 
@@ -1016,12 +1177,22 @@ function ChatMessages() {
     shouldAutoScroll.current = distanceFromBottom < 80;
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: store values are used as triggers, not inside the effect
+  // Stable reference for the last message's last part — used to trigger
+  // auto-scroll on streaming updates without depending on the entire
+  // messages array identity.
+  const lastPartId = useMemo(() => {
+    if (messages.length === 0) return null;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.parts.length === 0) return lastMsg.info.id;
+    return lastMsg.parts[lastMsg.parts.length - 1].id;
+  }, [messages]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: lastPartId is the scroll trigger
   useEffect(() => {
     if (shouldAutoScroll.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isBusy, todos, activeQuestion, activePermission]);
+  }, [lastPartId, isBusy, todos, activeQuestion, activePermission]);
 
   if (messages.length === 0 && !isBusy) {
     return (
@@ -1064,10 +1235,7 @@ function ChatMessages() {
 
         {/* Busy indicator when no assistant message is rendering yet */}
         {isBusy && messages.length > 0 && messages[messages.length - 1].info.role === "user" && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-foreground" />
-            Thinking...
-          </div>
+          <BloxBotThinking />
         )}
 
         <div ref={bottomRef} />

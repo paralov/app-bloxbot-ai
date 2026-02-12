@@ -1,0 +1,3 @@
+[submodule "src-tauri/resources/mcp-server"]
+	path = src-tauri/resources/mcp-server
+	url = https://github.com/boshyxd/robloxstudio-mcp.git

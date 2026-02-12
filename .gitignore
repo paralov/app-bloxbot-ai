@@ -22,7 +22,10 @@ dist-ssr
 
 # Bundled runtimes (downloaded/built during CI / dev setup, too large for git)
 src-tauri/resources/nodejs/
-src-tauri/resources/mcp-server/
+src-tauri/resources/mcp-server/node_modules/
+src-tauri/resources/mcp-server/dist/
+src-tauri/resources/launcher/node_modules/
+src-tauri/resources/launcher/dist/
 src-tauri/binaries/opencode*
 src-tauri/binaries/*.exe
 src-tauri/binaries/*.zip

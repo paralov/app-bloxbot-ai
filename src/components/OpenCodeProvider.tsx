@@ -141,14 +141,18 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
   }, [client, ready]);
 
   // ── Studio plugin status polling ──────────────────────────────────────
+  // Uses the OpenCode SDK (c.mcp.status) as the primary source, falling
+  // back to the HTTP health endpoint for plugin connection status.
+  // pollStudioStatus gracefully handles the case where the SDK client
+  // isn't ready yet (falls through to the health endpoint).
   useEffect(() => {
-    if (!client || !ready) return;
+    if (status !== "Running") return;
     useStore.getState().pollStudioStatus();
     const interval = setInterval(() => {
       useStore.getState().pollStudioStatus();
     }, STUDIO_POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [client, ready]);
+  }, [status]);
 
   // ── Disconnect / reconnect toasts ───────────────────────────────────
   useEffect(() => {
@@ -158,7 +162,7 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
 
     if (prev === "running" && label !== "running") {
       toast.error("Disconnected from OpenCode", {
-        description: "The server stopped unexpectedly. It will restart automatically.",
+        description: "The server stopped unexpectedly.",
         duration: Infinity,
       });
     }

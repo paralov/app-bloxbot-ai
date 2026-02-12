@@ -36,10 +36,20 @@ export type AuthMethods = Record<string, ProviderAuthMethod[]>;
 
 // ── Studio plugin connection status ──────────────────────────────────
 
-/** Possible states of the roblox-studio MCP server as reported by OpenCode. */
+/**
+ * Possible states of the roblox-studio MCP bridge.
+ *
+ * - `unknown`      – status not yet fetched
+ * - `connected`    – MCP server running AND Studio plugin connected
+ * - `disconnected` – MCP server running but Studio plugin not connected
+ * - `failed`       – MCP server failed to start or crashed (see studioError)
+ * - `disabled`     – MCP server disabled in config
+ * - `needs_auth`   – MCP server needs OAuth authentication
+ */
 export type StudioConnectionStatus =
   | "unknown"
   | "connected"
   | "disconnected"
   | "failed"
-  | "disabled";
+  | "disabled"
+  | "needs_auth";

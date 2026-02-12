@@ -28,10 +28,10 @@ import type {
 
 // ── Tauri persistent store ──────────────────────────────────────────────
 
+// ── Tauri persistent store (session data only) ──────────────────────────
+
 const STORE_KEY = "session-ids";
-const HIDDEN_MODELS_KEY = "hidden-models";
 const SESSION_MODELS_KEY = "session-models";
-const LAST_MODEL_KEY = "last-model";
 const tauriStore = new LazyStore("bloxbot-store.json");
 
 async function loadOwnSessionIds(): Promise<Set<string>> {
@@ -48,20 +48,6 @@ async function persistOwnSessionIds(ids: Set<string>): Promise<void> {
   await tauriStore.set(STORE_KEY, [...ids]);
 }
 
-async function loadHiddenModels(): Promise<Set<string>> {
-  try {
-    const raw = await tauriStore.get<string[]>(HIDDEN_MODELS_KEY);
-    if (raw) return new Set(raw);
-  } catch {
-    // Corrupted data, start fresh
-  }
-  return new Set();
-}
-
-async function persistHiddenModels(ids: Set<string>): Promise<void> {
-  await tauriStore.set(HIDDEN_MODELS_KEY, [...ids]);
-}
-
 async function loadSessionModels(): Promise<Record<string, string>> {
   try {
     const raw = await tauriStore.get<Record<string, string>>(SESSION_MODELS_KEY);
@@ -72,12 +58,22 @@ async function loadSessionModels(): Promise<Record<string, string>> {
   return {};
 }
 
-async function loadLastModel(): Promise<string | null> {
-  try {
-    return (await tauriStore.get<string>(LAST_MODEL_KEY)) ?? null;
-  } catch {
-    return null;
-  }
+// ── Rust-owned app config ───────────────────────────────────────────────
+// All user preferences are stored in a single config.json managed by the
+// Rust backend. The frontend reads/writes it through Tauri commands.
+
+interface AppConfig {
+  hasLaunched: boolean;
+  lastModel: string | null;
+  hiddenModels: string[];
+}
+
+async function loadConfig(): Promise<AppConfig> {
+  return invoke<AppConfig>("get_config");
+}
+
+async function patchConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
+  return invoke<AppConfig>("set_config", { patch });
 }
 
 // ── Retry helper ────────────────────────────────────────────────────────
@@ -149,6 +145,8 @@ interface OpenCodeState {
   studioStatus: StudioConnectionStatus;
   /** Error message when studioStatus is "failed". */
   studioError: string | null;
+  /** Auto-picked MCP bridge URL for the Studio plugin to connect to. */
+  mcpUrl: string | null;
 
   // ── User preferences ──────────────────────────────────────────────
   selectedModel: string | null;
@@ -167,9 +165,10 @@ interface OpenCodeState {
   setClient: (client: OpencodeClient | null) => void;
   /** Mark the welcome screen as dismissed. */
   dismissWelcome: () => void;
-  /** Poll the roblox-studio MCP server status via the health endpoint. */
+  /** Fetch the MCP server status from the OpenCode SDK (authoritative source).
+   *  If the MCP server is connected, also polls the health endpoint for plugin status. */
   pollStudioStatus: () => Promise<void>;
-  /** Kill stale processes on port 3002 and reconnect the MCP server. */
+  /** Disconnect then reconnect the MCP server via the OpenCode SDK. */
   restartMcpServer: () => Promise<void>;
   /** Check if the Studio plugin file is installed. */
   checkPluginInstalled: () => Promise<void>;
@@ -272,6 +271,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
     pluginInstalled: null,
     studioStatus: "unknown",
     studioError: null,
+    mcpUrl: null,
 
     selectedModel: null,
     sessionModels: {},
@@ -298,52 +298,41 @@ export const useStore = create<OpenCodeState>((set, get) => {
 
     dismissWelcome: () => {
       set({ hasLaunched: true });
-      tauriStore.set("has-launched", true);
+      patchConfig({ hasLaunched: true });
       capture("welcome_completed");
     },
 
     pollStudioStatus: async () => {
-      // Check the robloxstudio-mcp HTTP bridge directly.
-      // This is the source of truth for both the MCP server and
-      // the Studio plugin connection status.
       try {
-        const res = await fetch("http://localhost:3002/health", {
-          signal: AbortSignal.timeout(400),
-        });
-        if (!res.ok) {
-          set({ studioStatus: "failed", studioError: `HTTP ${res.status}` });
-          return;
-        }
-        const data = (await res.json()) as {
-          pluginConnected?: boolean;
-          mcpServerActive?: boolean;
-        };
-
-        if (data.pluginConnected) {
-          const wasConnected = get().studioStatus === "connected";
-          set({ studioStatus: "connected", studioError: null });
-          if (!wasConnected) {
-            capture("studio_connected");
-          }
-        } else {
-          set({ studioStatus: "disconnected", studioError: null });
+        const res = await invoke<{ status: string; error: string | null }>("poll_studio_status");
+        const status = res.status as StudioConnectionStatus;
+        const wasConnected = get().studioStatus === "connected";
+        set({ studioStatus: status, studioError: res.error });
+        if (status === "connected" && !wasConnected) {
+          capture("studio_connected");
         }
       } catch {
-        // Connection refused or timeout — MCP server not reachable
-        set({ studioStatus: "failed", studioError: null });
+        // Command failed (e.g. OpenCode not running yet)
       }
     },
 
     restartMcpServer: async () => {
+      const c = get().client;
+      if (!c) return;
+
       set({ studioStatus: "unknown", studioError: null });
+      // Shut down the MCP server process via the launcher control endpoint
+      // before asking OpenCode to disconnect, ensuring clean process cleanup.
+      await invoke("shutdown_mcp").catch(() => {});
       try {
-        // Kill anything holding port 3002
-        await invoke("kill_stale_mcp");
-        // Ask OpenCode to reconnect the MCP server
-        const c = get().client;
-        if (c) {
-          await c.mcp.connect({ name: "roblox-studio" });
-        }
+        await c.mcp.disconnect({ name: "roblox-studio" });
+      } catch {
+        // May already be disconnected — that's fine
+      }
+      try {
+        // Reconnect with the existing config — OpenCode will re-spawn
+        // the MCP server using the same config written at startup.
+        await c.mcp.connect({ name: "roblox-studio" });
       } catch (err) {
         console.error("Failed to restart MCP server:", err);
         set({ studioStatus: "failed", studioError: String(err) });
@@ -455,29 +444,28 @@ export const useStore = create<OpenCodeState>((set, get) => {
           }
 
           // Load persisted data + check plugin status
-          const [ownIds, hidden, hasLaunched, savedSessionModels, savedLastModel, pluginInstalled] =
-            await Promise.all([
-              loadOwnSessionIds(),
-              loadHiddenModels(),
-              tauriStore.get<boolean>("has-launched").catch(() => false),
-              loadSessionModels(),
-              loadLastModel(),
-              invoke<boolean>("check_plugin_installed").catch(() => false),
-            ]);
+          const [ownIds, savedSessionModels, pluginInstalled, cfg, mcpUrl] = await Promise.all([
+            loadOwnSessionIds(),
+            loadSessionModels(),
+            invoke<boolean>("check_plugin_installed").catch(() => false),
+            loadConfig(),
+            invoke<string>("get_mcp_url").catch(() => null),
+          ]);
           if (get().initGeneration !== generation) return;
           updates.ownSessionIds = ownIds;
-          updates.hiddenModels = hidden;
-          updates.hasLaunched = hasLaunched ?? false;
+          updates.hiddenModels = new Set(cfg.hiddenModels);
+          updates.hasLaunched = cfg.hasLaunched;
           updates.sessionModels = savedSessionModels;
           updates.pluginInstalled = pluginInstalled;
+          updates.mcpUrl = mcpUrl;
 
           // Model selection priority:
-          // 1. savedLastModel (if its provider is still connected)
+          // 1. cfg.lastModel (if its provider is still connected)
           // 2. providerDefaults[firstConnectedProvider]
           // 3. null (no model selected)
           const connected = updates.connectedProviders ?? get().connectedProviders;
-          if (savedLastModel && connected.includes(savedLastModel.split("/")[0])) {
-            updates.selectedModel = savedLastModel;
+          if (cfg.lastModel && connected.includes(cfg.lastModel.split("/")[0])) {
+            updates.selectedModel = cfg.lastModel;
           } else if (providerDefaults) {
             // Find the first default that belongs to a connected provider
             const entry = Object.entries(providerDefaults).find(([pid]) => connected.includes(pid));
@@ -862,7 +850,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
       set({ selectedModel: modelID });
 
       // Persist as global last-used model
-      tauriStore.set(LAST_MODEL_KEY, modelID);
+      patchConfig({ lastModel: modelID });
 
       // Persist per-session override
       const activeSession = get().activeSession;
@@ -882,7 +870,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
       } else {
         next.add(modelKey);
       }
-      persistHiddenModels(next);
+      patchConfig({ hiddenModels: [...next] });
       set({ hiddenModels: next });
     },
 

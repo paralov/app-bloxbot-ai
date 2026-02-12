@@ -162,8 +162,19 @@
   50%      { opacity: 0.8; }
 }
 
+/* Gentle side-to-side sway for inline thinking indicator */
+@keyframes bloxbot-think {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25%      { transform: translateY(-1px) rotate(-3deg); }
+  75%      { transform: translateY(-1px) rotate(3deg); }
+}
+
 .bloxbot-face {
   animation: bloxbot-float 2.5s ease-in-out infinite;
+}
+
+.bloxbot-face-think {
+  animation: bloxbot-think 1.8s ease-in-out infinite;
 }
 
 .bloxbot-eye {

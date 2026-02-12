@@ -8,22 +8,38 @@
 //! sidecar resolution, event-based stdout/stderr, and cross-platform
 //! process management (including hiding console windows on Windows).
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
 
-/// Preferred starting port for the OpenCode server.
-const DEFAULT_PORT: u16 = 4096;
-
-/// How many consecutive ports to try before giving up.
+/// BloxBot's reserved port ranges within the IANA dynamic/private range
+/// (49152-65535). Each block is 10 ports; the app binds to the first
+/// available port in each block.
+///
+/// 59200-59209: OpenCode server (HTTP API)
+/// 59210-59219: MCP bridge (Studio plugin ↔ MCP server)
+/// 59220-59229: MCP launcher control endpoint
+const OC_PORT_START: u16 = 59200;
+const MCP_PORT_START: u16 = 59210;
 const PORT_RANGE: u16 = 10;
 
-/// Default port for the MCP bridge (Studio plugin ↔ MCP server).
-const MCP_PORT: u16 = 3002;
+/// All servers bind to IPv4 loopback. Using `"localhost"` is **not**
+/// safe because macOS resolves it to `[::1]` (IPv6), causing our IPv4
+/// health checks to fail with "connection refused".
+pub const LOOPBACK: &str = "127.0.0.1";
 
-
+/// Shared HTTP client — reuses connections across poll calls.
+fn http_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(800))
+            .build()
+            .unwrap_or_default()
+    })
+}
 
 // ── Status ──────────────────────────────────────────────────────────────
 
@@ -47,6 +63,7 @@ pub struct StatusPayload {
 pub struct OpenCodeState {
     pub status: OpenCodeStatus,
     pub port: u16,
+    pub mcp_port: u16,
     pub(crate) child: Option<CommandChild>,
 }
 
@@ -54,7 +71,8 @@ impl Default for OpenCodeState {
     fn default() -> Self {
         Self {
             status: OpenCodeStatus::Stopped,
-            port: DEFAULT_PORT,
+            port: 0,
+            mcp_port: 0,
             child: None,
         }
     }
@@ -76,11 +94,7 @@ fn emit_status(app: &AppHandle, status: &OpenCodeStatus, port: u16) {
 }
 
 /// Update the state and emit the event in one step.
-async fn set_status(
-    state: &SharedOpenCodeState,
-    app: &AppHandle,
-    status: OpenCodeStatus,
-) {
+async fn set_status(state: &SharedOpenCodeState, app: &AppHandle, status: OpenCodeStatus) {
     let port;
     {
         let mut s = state.lock().await;
@@ -90,50 +104,18 @@ async fn set_status(
     emit_status(app, &status, port);
 }
 
-/// Kill any stale `opencode serve` processes left over from previous runs.
-async fn kill_stale_opencode_processes(app: &AppHandle) {
-    #[cfg(unix)]
-    {
-        let cmd = app
-            .shell()
-            .command("pkill")
-            .args(["-f", "opencode serve"]);
-        match cmd.status().await {
-            Ok(status) if status.success() => {
-                log::info!("Killed stale opencode process(es)");
-            }
-            _ => {} // No stale processes or pkill not found — fine
-        }
-    }
-    #[cfg(windows)]
-    {
-        // /T kills the entire process tree (opencode.exe + its child
-        // node.exe MCP server), preventing orphaned MCP processes from
-        // holding port 3002.
-        let cmd = app
-            .shell()
-            .command("taskkill")
-            .args(["/F", "/T", "/IM", "opencode.exe"]);
-        match cmd.status().await {
-            Ok(status) if status.success() => {
-                log::info!("Killed stale opencode process tree");
-            }
-            _ => {}
-        }
-    }
-    // Brief pause so the OS can release bound ports.
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-}
-
-/// Find the first available TCP port starting from `start`.
+/// Find the first available TCP port starting from `start`, trying
+/// up to `PORT_RANGE` consecutive ports. All servers bind to `LOOPBACK`
+/// (127.0.0.1), so we only need to probe that address.
 async fn find_available_port(start: u16) -> u16 {
     for port in start..start.saturating_add(PORT_RANGE) {
-        if tokio::net::TcpListener::bind(("127.0.0.1", port))
+        if tokio::net::TcpListener::bind((LOOPBACK, port))
             .await
             .is_ok()
         {
             return port;
         }
+        log::debug!("Port {port} unavailable, skipping");
     }
     start // fallback — let the spawn surface the real error
 }
@@ -178,24 +160,25 @@ pub async fn start_opencode_server(
 
     set_status(&state, &app, OpenCodeStatus::Starting).await;
 
-    // Clean up stale processes, then find a free port.
-    kill_stale_opencode_processes(&app).await;
-    let port = find_available_port(DEFAULT_PORT).await;
-    log::info!("Using port {port}");
+    let port = find_available_port(OC_PORT_START).await;
+    let mcp_port = find_available_port(MCP_PORT_START).await;
+    let control_port = mcp_port.wrapping_add(10); // 59220+ range
+    log::info!("OpenCode port: {port}, MCP bridge port: {mcp_port}, control port: {control_port}");
 
     {
         let mut s = state.lock().await;
         s.port = port;
+        s.mcp_port = mcp_port;
     }
 
     // Configure the MCP server to use our bundled copy (run directly with node).
     // This avoids npx download issues on Windows and ensures a known-good version.
-    let mcp_server_dir = crate::paths::bundled_mcp_server_dir().map_err(|e| {
-        log::error!("Failed to find MCP server: {e}");
+    let launcher_dir = crate::paths::bundled_launcher_dir().map_err(|e| {
+        log::error!("Failed to find MCP launcher: {e}");
         e
     })?;
-    let mcp_entry = mcp_server_dir.join("dist").join("index.js");
-    log::info!("MCP server: {}", mcp_entry.display());
+    let mcp_entry = launcher_dir.join("dist").join("launcher.js");
+    log::info!("MCP launcher: {}", mcp_entry.display());
 
     #[cfg(unix)]
     let node_cmd = "node";
@@ -211,6 +194,8 @@ pub async fn start_opencode_server(
     #[cfg(windows)]
     let mcp_entry_str = strip_win_prefix(&mcp_entry);
 
+    // mcp_port and control_port are already set above from the reserved range.
+
     let mcp_config = serde_json::json!({
         "plugin": [
             "opencode-gemini-auth@latest"
@@ -220,8 +205,10 @@ pub async fn start_opencode_server(
                 "type": "local",
                 "command": [node_cmd, &mcp_entry_str],
                 "enabled": true,
-                "env": {
-                    "ROBLOX_STUDIO_PORT": MCP_PORT.to_string()
+                "environment": {
+                    "ROBLOX_STUDIO_HOST": LOOPBACK,
+                    "ROBLOX_STUDIO_PORT": mcp_port.to_string(),
+                    "BLOXBOT_CONTROL_PORT": control_port.to_string()
                 }
             }
         },
@@ -258,7 +245,7 @@ pub async fn start_opencode_server(
             }
         }
     });
-    let config_content = serde_json::to_string(&mcp_config)
+    let config_content = serde_json::to_string_pretty(&mcp_config)
         .map_err(|e| format!("Failed to serialize OpenCode config: {e}"))?;
 
     log::debug!("Config: {config_content}");
@@ -281,6 +268,17 @@ pub async fn start_opencode_server(
                 .map_err(|e| format!("Failed to create directory {}: {e}", dir.display()))?;
         }
     }
+
+    // Write the config file that OpenCode actually reads on startup.
+    // OPENCODE_CONFIG_CONTENT env var is ignored — OpenCode loads from
+    // {XDG_CONFIG_HOME}/opencode/opencode.json instead.
+    let config_dir = xdg_config.join("opencode");
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create config dir: {e}"))?;
+    let config_file = config_dir.join("opencode.json");
+    std::fs::write(&config_file, &config_content)
+        .map_err(|e| format!("Failed to write OpenCode config: {e}"))?;
+    log::info!("Wrote OpenCode config to {}", config_file.display());
 
     // Build a minimal PATH with our bundled Node.js bin directory first,
     // then essential system paths. This ensures npx/npm use our bundled Node.js.
@@ -323,10 +321,13 @@ pub async fn start_opencode_server(
         })?
         .args([
             "serve",
-            "--port", &port.to_string(),
-            "--hostname", "127.0.0.1",
+            "--port",
+            &port.to_string(),
+            "--hostname",
+            LOOPBACK,
             "--print-logs",
-            "--log-level", "DEBUG",
+            "--log-level",
+            "DEBUG",
         ])
         .current_dir(&workspace)
         // Isolated XDG directories
@@ -334,8 +335,6 @@ pub async fn start_opencode_server(
         .env("XDG_CONFIG_HOME", &xdg_config)
         .env("XDG_CACHE_HOME", &xdg_cache)
         .env("XDG_STATE_HOME", &xdg_state)
-        // Config content (MCP servers, plugins)
-        .env("OPENCODE_CONFIG_CONTENT", &config_content)
         // Minimal PATH with bundled node/npm/npx first
         .env("PATH", &minimal_path)
         .spawn()
@@ -359,7 +358,7 @@ pub async fn start_opencode_server(
     spawn_event_handler(rx, Arc::clone(&state), app.clone());
 
     // Wait for the server to be ready by polling the health endpoint
-    let health_url = format!("http://127.0.0.1:{port}/global/health");
+    let health_url = format!("http://{LOOPBACK}:{port}/global/health");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()
@@ -509,54 +508,181 @@ pub async fn restart_opencode(
     start_opencode_server(state.inner().clone(), app).await
 }
 
-/// Attempt to clean up stale `robloxstudio-mcp` processes. Called by the
-/// frontend when it detects the MCP stdio connection has broken but the
-/// HTTP server on port 3002 is still alive (zombie process).
-///
-/// On Unix, `pkill -f` can target by command line, so this is safe and
-/// precise. On Windows, `taskkill` cannot filter by command line, so we
-/// only log a warning — the user may need to restart the app or kill the
-/// orphaned process manually.
+/// Combined studio status poll.  Queries both the OpenCode server (for
+/// MCP server state) and the MCP bridge health endpoint (for Studio
+/// plugin connectivity) in a single Tauri command, avoiding CORS issues.
 #[tauri::command]
-pub async fn kill_stale_mcp(app: AppHandle) -> Result<(), String> {
-    log::info!("Attempting to clean up stale MCP processes on port {MCP_PORT}");
+pub async fn poll_studio_status(
+    state: tauri::State<'_, SharedOpenCodeState>,
+) -> Result<StudioStatusResult, String> {
+    let (oc_port, mcp_port) = {
+        let s = state.lock().await;
+        // If OpenCode isn't running yet there's nothing to poll.
+        if !matches!(s.status, OpenCodeStatus::Running) {
+            return Ok(StudioStatusResult {
+                status: "unknown".into(),
+                error: None,
+            });
+        }
+        (s.port, s.mcp_port)
+    };
+    let workspace = crate::paths::workspace_dir()?;
+    let client = http_client();
 
-    #[cfg(unix)]
-    {
-        // pkill -f matches against the full command line, so this only
-        // kills node processes running the robloxstudio-mcp server.
-        let _ = app
-            .shell()
-            .command("pkill")
-            .args(["-f", "robloxstudio-mcp"])
-            .status()
-            .await;
-    }
-    #[cfg(windows)]
-    {
-        // On Windows we cannot safely identify the orphaned MCP process
-        // without risking killing unrelated node.exe instances. The /T
-        // tree-kill on opencode.exe (done at startup) should prevent most
-        // orphan scenarios. If we still get here, log so it's visible in
-        // debug logs.
-        log::warn!(
-            "Cannot safely kill orphaned MCP process on Windows. \
-             If port {MCP_PORT} is stuck, restart BloxBot."
-        );
-    }
+    // ── Step 1: ask OpenCode for the MCP server status ─────────────
+    let workspace_str = workspace.to_string_lossy().to_string();
+    let mcp_url = format!("http://{LOOPBACK}:{oc_port}/mcp");
+    let mut mcp_connected = false;
 
-    // Check whether the port was freed (applies to both platforms).
-    for _ in 0..10 {
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-        if tokio::net::TcpListener::bind(("127.0.0.1", MCP_PORT))
-            .await
-            .is_ok()
-        {
-            log::info!("Port {MCP_PORT} released");
-            return Ok(());
+    match client
+        .get(&mcp_url)
+        .header("x-opencode-directory", &workspace_str)
+        .query(&[("directory", &workspace_str)])
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                log::debug!("OpenCode /mcp response: {body}");
+                if let Some(rs) = body.get("roblox-studio") {
+                    let status_str = rs
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+
+                    match status_str {
+                        "failed" => {
+                            let err = rs.get("error").and_then(|v| v.as_str()).map(String::from);
+                            return Ok(StudioStatusResult {
+                                status: "failed".into(),
+                                error: err,
+                            });
+                        }
+                        "disabled" => {
+                            return Ok(StudioStatusResult {
+                                status: "disabled".into(),
+                                error: None,
+                            });
+                        }
+                        "needs_auth" | "needs_client_registration" => {
+                            return Ok(StudioStatusResult {
+                                status: "needs_auth".into(),
+                                error: None,
+                            });
+                        }
+                        "connected" => {
+                            mcp_connected = true;
+                        }
+                        other => {
+                            log::warn!("Unknown MCP status: {other}");
+                        }
+                    }
+                } else {
+                    log::debug!("No 'roblox-studio' key in /mcp response");
+                }
+            }
+        }
+        Ok(resp) => {
+            log::warn!("OpenCode /mcp returned HTTP {}", resp.status());
+        }
+        Err(e) => {
+            log::warn!("OpenCode /mcp request failed: {e}");
         }
     }
 
-    log::warn!("Port {MCP_PORT} still in use after cleanup attempt");
+    // Only check the health endpoint if OpenCode reports MCP as connected.
+    // Otherwise there's no point — the MCP server isn't running.
+    if !mcp_connected {
+        return Ok(StudioStatusResult {
+            status: "unknown".into(),
+            error: None,
+        });
+    }
+
+    // ── Step 2: poll the MCP bridge health endpoint ────────────────
+    let health_url = format!("http://{LOOPBACK}:{mcp_port}/health");
+    log::debug!("Checking MCP health at {health_url}");
+    match client.get(&health_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let body = resp
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or(serde_json::Value::Null);
+            log::debug!("MCP health response: {body}");
+            let plugin_connected = body
+                .get("pluginConnected")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(StudioStatusResult {
+                status: if plugin_connected {
+                    "connected"
+                } else {
+                    "disconnected"
+                }
+                .into(),
+                error: None,
+            })
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            log::warn!("MCP health returned HTTP {status}");
+            Ok(StudioStatusResult {
+                status: "failed".into(),
+                error: Some(format!("HTTP {status}")),
+            })
+        }
+        Err(e) => {
+            log::warn!("MCP health request failed: {e}");
+            Ok(StudioStatusResult {
+                status: "failed".into(),
+                error: None,
+            })
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StudioStatusResult {
+    pub status: String,
+    pub error: Option<String>,
+}
+
+/// Gracefully shut down the MCP server via the launcher's control endpoint.
+/// Called on app quit and before MCP restart to ensure clean process cleanup.
+pub async fn shutdown_mcp_server(mcp_port: u16) {
+    let control_port = mcp_port.wrapping_add(10);
+    let url = format!("http://{LOOPBACK}:{control_port}/shutdown");
+
+    match http_client().post(&url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            log::info!("MCP server shutdown requested via control port {control_port}");
+        }
+        Ok(resp) => {
+            log::warn!("MCP shutdown returned HTTP {}", resp.status());
+        }
+        Err(e) => {
+            // Launcher may not be running — that's fine
+            log::debug!("MCP shutdown request failed (may not be running): {e}");
+        }
+    }
+}
+
+/// Tauri command wrapper for shutdown_mcp_server.
+#[tauri::command]
+pub async fn shutdown_mcp(state: tauri::State<'_, SharedOpenCodeState>) -> Result<(), String> {
+    let mcp_port = state.lock().await.mcp_port;
+    shutdown_mcp_server(mcp_port).await;
     Ok(())
+}
+
+/// Return the auto-picked MCP bridge URL for the Studio plugin to connect to.
+#[tauri::command]
+pub async fn get_mcp_url(
+    state: tauri::State<'_, SharedOpenCodeState>,
+) -> Result<String, String> {
+    let mcp_port = state.lock().await.mcp_port;
+    if mcp_port == 0 {
+        return Err("MCP server not started yet".into());
+    }
+    Ok(format!("http://{LOOPBACK}:{mcp_port}"))
 }

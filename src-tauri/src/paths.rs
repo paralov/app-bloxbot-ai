@@ -89,39 +89,39 @@ pub fn bundled_nodejs_bin_dir() -> Result<PathBuf, String> {
     ))
 }
 
-/// Returns the path to the bundled MCP server directory.
-/// The entry point is `dist/index.js` inside this directory.
+/// Returns the path to the bundled MCP launcher directory.
+/// The entry point is `dist/launcher.js` inside this directory.
 ///
-/// Production macOS: `<App>/Contents/Resources/resources/mcp-server/`
-/// Production Windows: `<App>/resources/mcp-server/`
-/// Dev: `src-tauri/resources/mcp-server/`
-pub fn bundled_mcp_server_dir() -> Result<PathBuf, String> {
+/// Production macOS: `<App>/Contents/Resources/resources/launcher/`
+/// Production Windows: `<App>/resources/launcher/`
+/// Dev: `src-tauri/resources/launcher/`
+pub fn bundled_launcher_dir() -> Result<PathBuf, String> {
     let sidecar = sidecar_dir()?;
 
     #[cfg(target_os = "macos")]
     let prod_path = sidecar
         .parent()
-        .map(|p| p.join("Resources").join("resources").join("mcp-server"))
+        .map(|p| p.join("Resources").join("resources").join("launcher"))
         .unwrap_or_default();
     #[cfg(not(target_os = "macos"))]
-    let prod_path = sidecar.join("resources").join("mcp-server");
+    let prod_path = sidecar.join("resources").join("launcher");
 
-    if prod_path.join("dist").join("index.js").exists() {
+    if prod_path.join("dist").join("launcher.js").exists() {
         return Ok(prod_path);
     }
 
     let dev_path = sidecar
         .parent()
         .and_then(|p| p.parent())
-        .map(|p| p.join("resources").join("mcp-server"))
+        .map(|p| p.join("resources").join("launcher"))
         .unwrap_or_default();
 
-    if dev_path.join("dist").join("index.js").exists() {
+    if dev_path.join("dist").join("launcher.js").exists() {
         return Ok(dev_path);
     }
 
     Err(format!(
-        "Bundled MCP server not found. Checked:\n  {}\n  {}",
+        "Bundled launcher not found. Checked:\n  {}\n  {}",
         prod_path.display(),
         dev_path.display()
     ))

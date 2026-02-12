@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import Chat from "@/components/Chat";
+import ConnectionBanner from "@/components/ConnectionBanner";
 import OpenCodeProvider from "@/components/OpenCodeProvider";
 import StudioStatus from "@/components/StudioStatus";
 import UpdateBanner from "@/components/UpdateBanner";
@@ -34,6 +35,7 @@ function App() {
           />
         )}
         <Chat />
+        <ConnectionBanner />
         <Toaster />
       </main>
     </OpenCodeProvider>

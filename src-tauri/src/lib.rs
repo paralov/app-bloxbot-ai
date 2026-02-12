@@ -1,3 +1,4 @@
+mod config;
 mod logging;
 mod opencode;
 mod paths;
@@ -33,10 +34,14 @@ pub fn run() {
         ))
         .manage(opencode_state)
         .invoke_handler(tauri::generate_handler![
+            config::get_config,
+            config::set_config,
             logging::get_logs,
             opencode::get_opencode_status,
             opencode::restart_opencode,
-            opencode::kill_stale_mcp,
+            opencode::poll_studio_status,
+            opencode::shutdown_mcp,
+            opencode::get_mcp_url,
             paths::get_workspace_dir,
             paths::check_plugin_installed,
             paths::install_studio_plugin,
@@ -45,6 +50,12 @@ pub fn run() {
             // Give the logger access to the AppHandle so it can emit
             // events to webviews (the debug-logs window).
             logging::set_app_handle(app.handle().clone());
+
+            // Load app config from disk so it's available before the
+            // OpenCode server starts (e.g. for the MCP port).
+            if let Err(e) = config::load(app.handle()) {
+                log::error!("Failed to load config: {e}");
+            }
 
             // ── Application menu ──────────────────────────────────
             let app_submenu = SubmenuBuilder::new(app, "BloxBot")
@@ -69,9 +80,7 @@ pub fn run() {
                 .select_all()
                 .build()?;
 
-            let view_submenu = SubmenuBuilder::new(app, "View")
-                .fullscreen()
-                .build()?;
+            let view_submenu = SubmenuBuilder::new(app, "View").fullscreen().build()?;
 
             let window_submenu = SubmenuBuilder::new(app, "Window")
                 .minimize()
@@ -114,7 +123,7 @@ pub fn run() {
                             s.port
                         };
                         if port > 0 {
-                            let url = format!("http://127.0.0.1:{}", port);
+                            let url = format!("http://{}:{}", opencode::LOOPBACK, port);
                             let _ = handle.opener().open_url(&url, None::<&str>);
                         }
                     });
@@ -160,24 +169,24 @@ pub fn run() {
                 return;
             }
 
-            match event {
-                tauri::WindowEvent::CloseRequested { .. } => {
-                    // Kill the OpenCode child process before the app exits.
-                    let state = window
-                        .app_handle()
-                        .state::<SharedOpenCodeState>()
-                        .inner()
-                        .clone();
-                    tauri::async_runtime::block_on(async {
-                        let mut s = state.lock().await;
-                        if let Some(child) = s.child.take() {
-                            let _ = child.kill();
-                        }
-                    });
-                    // Exit the entire app (closes all windows including debug-logs).
-                    window.app_handle().exit(0);
-                }
-                _ => {}
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                // Shut down the MCP server via the launcher control endpoint,
+                // then kill the OpenCode child process before the app exits.
+                let state = window
+                    .app_handle()
+                    .state::<SharedOpenCodeState>()
+                    .inner()
+                    .clone();
+                tauri::async_runtime::block_on(async {
+                    let mcp_port = state.lock().await.mcp_port;
+                    opencode::shutdown_mcp_server(mcp_port).await;
+                    let mut s = state.lock().await;
+                    if let Some(child) = s.child.take() {
+                        let _ = child.kill();
+                    }
+                });
+                // Exit the entire app (closes all windows including debug-logs).
+                window.app_handle().exit(0);
             }
         })
         .run(tauri::generate_context!())

@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "bloxbot"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "dirs",
  "log",
@@ -298,6 +298,7 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "tokio",
+ "urlencoding",
 ]
 
 [[package]]
@@ -5075,6 +5076,12 @@ dependencies = [
  "serde",
  "serde_derive",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "urlpattern"
