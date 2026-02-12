@@ -117,6 +117,7 @@ async fn find_available_port(start: u16) -> u16 {
         }
         log::debug!("Port {port} unavailable, skipping");
     }
+    log::error!("All ports {start}-{} are unavailable!", start.saturating_add(PORT_RANGE - 1));
     start // fallback — let the spawn surface the real error
 }
 
@@ -127,6 +128,84 @@ async fn find_available_port(start: u16) -> u16 {
 fn strip_win_prefix(p: &std::path::Path) -> String {
     let s = p.to_string_lossy();
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+}
+
+// ── Startup cleanup ─────────────────────────────────────────────────────
+
+/// Kill any stale processes listening on our reserved port ranges
+/// (59200-59229). This handles the case where BloxBot crashed or was
+/// force-quit, leaving orphan processes holding ports.
+///
+/// Covers all three ranges:
+/// - 59200-59209: OpenCode server
+/// - 59210-59219: MCP bridge
+/// - 59220-59229: Launcher control endpoint
+///
+/// Uses platform-specific commands:
+/// - macOS/Linux: `lsof -ti tcp:PORT` to find PIDs, then `kill -9`
+/// - Windows: `netstat -ano` to find PIDs, then `taskkill /F /PID`
+pub fn cleanup_stale_processes() {
+    let start = OC_PORT_START; // 59200
+    let end = OC_PORT_START + PORT_RANGE * 3; // 59230 (covers 59200-59229)
+    log::info!("Checking for stale processes on ports {start}-{}", end - 1);
+
+    #[cfg(unix)]
+    {
+        let mut killed = 0u32;
+        for port in start..end {
+            let output = std::process::Command::new("lsof")
+                .args(["-ti", &format!("tcp:{port}")])
+                .output();
+
+            if let Ok(out) = output {
+                let pids = String::from_utf8_lossy(&out.stdout);
+                for pid_str in pids.split_whitespace() {
+                    if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                        log::info!("Killing stale process PID {pid} on port {port}");
+                        let _ = std::process::Command::new("kill")
+                            .args(["-9", &pid.to_string()])
+                            .output();
+                        killed += 1;
+                    }
+                }
+            }
+        }
+        if killed > 0 {
+            log::info!("Killed {killed} stale process(es)");
+        } else {
+            log::info!("No stale processes found");
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        // Parse netstat output to find PIDs listening on our ports.
+        let output = std::process::Command::new("netstat")
+            .args(["-ano", "-p", "TCP"])
+            .output();
+
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for port in start..end {
+                let needle = format!("{}:{}", LOOPBACK, port);
+                for line in text.lines() {
+                    if line.contains(&needle) && line.contains("LISTENING") {
+                        // Last column is the PID
+                        if let Some(pid_str) = line.split_whitespace().last() {
+                            if let Ok(pid) = pid_str.parse::<u32>() {
+                                if pid > 0 {
+                                    log::info!("Killing stale process PID {pid} on port {port}");
+                                    let _ = std::process::Command::new("taskkill")
+                                        .args(["/F", "/PID", &pid.to_string()])
+                                        .output();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── Core lifecycle ──────────────────────────────────────────────────────
@@ -159,6 +238,12 @@ pub async fn start_opencode_server(
     log::info!("Node.js bin: {}", nodejs_bin_dir.display());
 
     set_status(&state, &app, OpenCodeStatus::Starting).await;
+
+    // Kill any stale processes from a previous crash/force-quit before
+    // probing ports. This ensures find_available_port gets clean ports.
+    cleanup_stale_processes();
+    // Brief pause so the OS can release the TCP sockets after killing processes.
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
     let port = find_available_port(OC_PORT_START).await;
     let mcp_port = find_available_port(MCP_PORT_START).await;
@@ -457,33 +542,57 @@ async fn handle_process_exit(
         return;
     }
 
-    let msg = format!(
+    let raw_msg = format!(
         "Exited with code {:?} (signal {:?})",
         payload.code, payload.signal
     );
-    log::warn!("Process exited: {msg}");
-    s.status = OpenCodeStatus::Error(msg);
+    log::warn!("Process exited: {raw_msg}");
+
+    // Present a human-friendly message to the user; the raw details
+    // are already in the log for debugging.
+    let user_msg = match payload.code {
+        Some(code) => format!("The server exited unexpectedly (code {code})."),
+        None => match payload.signal {
+            Some(sig) => format!("The server was terminated by signal {sig}."),
+            None => "The server stopped unexpectedly.".to_string(),
+        },
+    };
+    s.status = OpenCodeStatus::Error(user_msg);
     emit_status(app, &s.status, s.port);
 }
 
-/// Stop the OpenCode server. Currently only used at window destroy
-/// (which kills the child directly), but kept for potential future use.
-#[allow(dead_code)]
-pub async fn stop_opencode_server(
-    state: SharedOpenCodeState,
-    app: &AppHandle,
-) -> Result<(), String> {
+/// Gracefully stop everything: MCP server (via launcher control endpoint),
+/// then the OpenCode sidecar. Waits briefly between the MCP shutdown
+/// request and killing the sidecar so the launcher has time to terminate
+/// its child process tree.
+pub async fn stop_all(state: &SharedOpenCodeState, app: &AppHandle) {
+    let (mcp_port, has_child) = {
+        let s = state.lock().await;
+        (s.mcp_port, s.child.is_some())
+    };
+
+    if !has_child && mcp_port == 0 {
+        return;
+    }
+
+    // Step 1: Ask the launcher to gracefully shut down the MCP server.
+    if mcp_port > 0 {
+        shutdown_mcp_server(mcp_port).await;
+        // Give the launcher time to SIGTERM the child and exit (it waits
+        // up to 2s internally before SIGKILL). 1.5s is enough in the
+        // happy path; the sidecar kill below is the final backstop.
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+    }
+
+    // Step 2: Kill the OpenCode sidecar process.
     let mut s = state.lock().await;
     if let Some(child) = s.child.take() {
-        child
-            .kill()
-            .map_err(|e| format!("Failed to kill OpenCode process: {e}"))?;
-        s.status = OpenCodeStatus::Stopped;
-        emit_status(app, &s.status, s.port);
-        Ok(())
-    } else {
-        Ok(()) // Already stopped
+        let _ = child.kill();
     }
+    s.status = OpenCodeStatus::Stopped;
+    s.port = 0;
+    s.mcp_port = 0;
+    emit_status(app, &s.status, 0);
 }
 
 // ── Tauri commands ──────────────────────────────────────────────────────
@@ -498,13 +607,20 @@ pub async fn get_opencode_status(
     Ok((s.status.clone(), s.port))
 }
 
-/// Manually restart the OpenCode server. Called by the frontend when the
-/// user clicks the retry button after a crash.
+/// Restart the OpenCode server. Gracefully tears down all processes
+/// (MCP + sidecar) then starts fresh. Called from the frontend retry button.
 #[tauri::command]
 pub async fn restart_opencode(
     state: tauri::State<'_, SharedOpenCodeState>,
     app: AppHandle,
 ) -> Result<u16, String> {
+    // Stop everything first (no-op if already stopped)
+    stop_all(state.inner(), &app).await;
+    // Clean up any orphans that survived
+    cleanup_stale_processes();
+    // Small delay for ports to be released by the OS
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    // Start fresh
     start_opencode_server(state.inner().clone(), app).await
 }
 

@@ -67,6 +67,8 @@ function CopyableUrl({ url }: { url: string }) {
 }
 
 function StudioStatus() {
+  const status = useStore((s) => s.status);
+  const ready = useStore((s) => s.ready);
   const studioStatus = useStore((s) => s.studioStatus);
   const studioError = useStore((s) => s.studioError);
   const mcpUrl = useStore((s) => s.mcpUrl);
@@ -119,6 +121,12 @@ function StudioStatus() {
     } finally {
       setRestarting(false);
     }
+  }
+
+  // Don't show Studio status until the user is inside the app
+  // (server running and SDK initialized).
+  if (status !== "Running" || !ready) {
+    return null;
   }
 
   return (

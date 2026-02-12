@@ -170,20 +170,16 @@ pub fn run() {
             }
 
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Shut down the MCP server via the launcher control endpoint,
-                // then kill the OpenCode child process before the app exits.
+                // Gracefully tear down the full process tree (MCP server →
+                // launcher → OpenCode sidecar) before exiting.
                 let state = window
                     .app_handle()
                     .state::<SharedOpenCodeState>()
                     .inner()
                     .clone();
+                let handle = window.app_handle().clone();
                 tauri::async_runtime::block_on(async {
-                    let mcp_port = state.lock().await.mcp_port;
-                    opencode::shutdown_mcp_server(mcp_port).await;
-                    let mut s = state.lock().await;
-                    if let Some(child) = s.child.take() {
-                        let _ = child.kill();
-                    }
+                    opencode::stop_all(&state, &handle).await;
                 });
                 // Exit the entire app (closes all windows including debug-logs).
                 window.app_handle().exit(0);

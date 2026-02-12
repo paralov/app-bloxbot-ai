@@ -26,6 +26,17 @@ function Chat() {
   const serverRunning = status === "Running";
   const isError = typeof status === "object" && "Error" in status;
 
+  async function handleRetry() {
+    setRestarting(true);
+    try {
+      await invoke("restart_opencode");
+    } catch (err) {
+      console.error("[chat] restart_opencode failed:", err);
+    } finally {
+      setRestarting(false);
+    }
+  }
+
   // ── Still loading persisted state from disk ─────────────────────────
   // hasLaunched is null until init() finishes reading the Tauri store.
   // Show the loading screen to avoid flashing the welcome screen.
@@ -44,20 +55,8 @@ function Chat() {
       <LoadingScreen
         message={isError ? "Something went wrong" : "Starting up..."}
         detail={isError ? status.Error : undefined}
-        onRetry={
-          isError
-            ? async () => {
-                setRestarting(true);
-                try {
-                  await invoke("restart_opencode");
-                } catch (err) {
-                  console.error("Failed to restart OpenCode:", err);
-                } finally {
-                  setRestarting(false);
-                }
-              }
-            : undefined
-        }
+        error={isError}
+        onRetry={isError ? handleRetry : undefined}
         retrying={restarting}
       />
     );

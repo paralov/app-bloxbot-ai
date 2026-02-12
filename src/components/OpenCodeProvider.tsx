@@ -29,6 +29,8 @@ interface OpenCodeProviderProps {
 
 function OpenCodeProvider({ children }: OpenCodeProviderProps) {
   const prevServerLabel = useRef<string>("stopped");
+  /** Track whether the server has been usably running (SDK ready). */
+  const hasBeenReady = useRef(false);
   const sseAbortRef = useRef<AbortController | null>(null);
 
   // Subscribe to store slices needed for side effects
@@ -154,13 +156,23 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
     return () => clearInterval(interval);
   }, [status]);
 
+  // ── Track whether the app has been fully usable ────────────────────
+  useEffect(() => {
+    if (ready) {
+      hasBeenReady.current = true;
+    }
+  }, [ready]);
+
   // ── Disconnect / reconnect toasts ───────────────────────────────────
   useEffect(() => {
     const label = serverStatusLabel(status);
     const prev = prevServerLabel.current;
     prevServerLabel.current = label;
 
-    if (prev === "running" && label !== "running") {
+    // Only show the disconnect toast if the server was previously usable
+    // (SDK was initialized). Startup failures are shown by the
+    // LoadingScreen error state — no need for a redundant toast.
+    if (prev === "running" && label !== "running" && hasBeenReady.current) {
       toast.error("Disconnected from OpenCode", {
         description: "The server stopped unexpectedly.",
         duration: Infinity,
