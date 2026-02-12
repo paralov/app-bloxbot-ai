@@ -33,14 +33,14 @@ jobs:
             ext: ""
             args: ""
 
-          - platform: macos-13
+          - platform: macos-latest
             target: x86_64-apple-darwin
             node_asset: node-v22.13.1-darwin-x64.tar.gz
             node_inner_dir: node-v22.13.1-darwin-x64
             opencode_asset: opencode-darwin-x64.zip
             opencode_bin: opencode
             ext: ""
-            args: ""
+            args: "--target x86_64-apple-darwin"
 
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
