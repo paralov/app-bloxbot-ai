@@ -73,8 +73,6 @@ function StudioStatus() {
   const studioError = useStore((s) => s.studioError);
   const mcpUrl = useStore((s) => s.mcpUrl);
   const pluginInstalled = useStore((s) => s.pluginInstalled);
-  const installPlugin = useStore((s) => s.installPlugin);
-  const restartMcpServer = useStore((s) => s.restartMcpServer);
   const [hovering, setHovering] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [restarting, setRestarting] = useState(false);
@@ -104,7 +102,7 @@ function StudioStatus() {
   async function handleInstall() {
     setInstalling(true);
     try {
-      await installPlugin();
+      await useStore.getState().installPlugin();
     } catch {
       // Error logged by store
     } finally {
@@ -115,7 +113,7 @@ function StudioStatus() {
   async function handleRestart() {
     setRestarting(true);
     try {
-      await restartMcpServer();
+      await useStore.getState().restartMcpServer();
     } catch {
       // Error logged by store
     } finally {

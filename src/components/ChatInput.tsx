@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { selectAvailableVariants, useStore } from "@/stores/opencode";
@@ -10,6 +10,72 @@ const PROVIDER_META: Record<string, { placeholder: string; helpUrl: string }> = 
   openai: { placeholder: "sk-...", helpUrl: "https://platform.openai.com/api-keys" },
   google: { placeholder: "AIza...", helpUrl: "https://aistudio.google.com/app/apikey" },
 };
+
+// ── Send/Abort button — isolated to avoid re-rendering the entire ChatInput ──
+
+/** Tiny component that subscribes to isBusy + studioStatus so the rest
+ *  of ChatInput (model picker, agent picker, auth UI) doesn't re-render
+ *  on every busy toggle or studio status poll. */
+const SendButton = memo(function SendButton({
+  text,
+  onSend,
+}: {
+  text: string;
+  onSend: () => void;
+}) {
+  const isBusy = useStore((s) => s.isBusy);
+  const studioStatus = useStore((s) => s.studioStatus);
+  const studioConnected = studioStatus === "connected";
+  const canSend = !isBusy && studioConnected;
+
+  return (
+    <>
+      {isBusy ? (
+        <button
+          onClick={() => useStore.getState().abort()}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          title="Stop"
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+          </svg>
+        </button>
+      ) : (
+        <button
+          onClick={onSend}
+          disabled={!text.trim() || !canSend}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background transition-opacity disabled:opacity-30"
+          title={studioConnected ? "Send" : "Roblox Studio is not connected"}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="12" y1="19" x2="12" y2="5" />
+            <polyline points="5 12 12 5 19 12" />
+          </svg>
+        </button>
+      )}
+    </>
+  );
+});
+
+const StatusHint = memo(function StatusHint() {
+  const studioStatus = useStore((s) => s.studioStatus);
+  return (
+    <div className="mt-1.5 text-center text-[10px] text-muted-foreground/50">
+      {studioStatus === "connected"
+        ? "Shift+Enter for new line"
+        : "Waiting for Roblox Studio to connect..."}
+    </div>
+  );
+});
 
 function ChatInput() {
   const allModels = useStore((s) => s.allModels);
@@ -24,13 +90,6 @@ function ChatInput() {
   const setSelectedVariant = useStore((s) => s.setSelectedVariant);
   const availableVariants = useStore(useShallow(selectAvailableVariants));
   const authMethods = useStore((s) => s.authMethods);
-  const isBusy = useStore((s) => s.isBusy);
-  const studioStatus = useStore((s) => s.studioStatus);
-  const storeSendMessage = useStore((s) => s.sendMessage);
-  const storeAbort = useStore((s) => s.abort);
-  const storeSetApiKey = useStore((s) => s.setApiKey);
-  const storeStartOAuth = useStore((s) => s.startOAuth);
-  const storeCompleteOAuth = useStore((s) => s.completeOAuth);
 
   const [text, setText] = useState("");
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -149,13 +208,12 @@ function ChatInput() {
     [agents],
   );
 
-  const studioConnected = studioStatus === "connected";
-  const canSend = !isBusy && studioConnected;
-
   function handleSubmit() {
     const trimmed = text.trim();
-    if (!trimmed || !canSend) return;
-    storeSendMessage(trimmed);
+    if (!trimmed) return;
+    const s = useStore.getState();
+    if (s.isBusy || s.studioStatus !== "connected") return;
+    s.sendMessage(trimmed);
     setText("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -165,7 +223,8 @@ function ChatInput() {
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!canSend) return;
+      const s = useStore.getState();
+      if (s.isBusy || s.studioStatus !== "connected") return;
       handleSubmit();
     }
   }
@@ -222,7 +281,7 @@ function ChatInput() {
     setAuthOauthCodeInput("");
     setAuthError(null);
     try {
-      const authResult = await storeStartOAuth(authProviderId, methodIndex);
+      const authResult = await useStore.getState().startOAuth(authProviderId, methodIndex);
       if (!authResult) {
         resetInlineOAuth();
         return;
@@ -237,7 +296,7 @@ function ChatInput() {
         const abort = new AbortController();
         oauthAbortRef.current = abort;
         try {
-          await storeCompleteOAuth(authProviderId, methodIndex);
+          await useStore.getState().completeOAuth(authProviderId, methodIndex);
           if (!abort.signal.aborted) {
             resetInlineOAuth();
             // The useEffect watching connectedProviders will auto-select the model
@@ -261,7 +320,9 @@ function ChatInput() {
     const methodIndex = getOAuthMethodIndex(authProviderId);
     if (methodIndex === null) return;
     try {
-      await storeCompleteOAuth(authProviderId, methodIndex, authOauthCodeInput.trim());
+      await useStore
+        .getState()
+        .completeOAuth(authProviderId, methodIndex, authOauthCodeInput.trim());
       resetInlineOAuth();
       // The useEffect watching connectedProviders will auto-select the model
     } catch {
@@ -275,7 +336,7 @@ function ChatInput() {
     setAuthSaving(true);
     setAuthError(null);
     try {
-      await storeSetApiKey(authProviderId, apiKeyInput.trim());
+      await useStore.getState().setApiKey(authProviderId, apiKeyInput.trim());
       // The useEffect watching connectedProviders will auto-select the model
     } catch {
       setAuthError("Invalid key or connection failed");
@@ -791,43 +852,10 @@ function ChatInput() {
           rows={1}
           className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none"
         />
-        {isBusy ? (
-          <button
-            onClick={storeAbort}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            title="Stop"
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="4" y="4" width="16" height="16" rx="2" />
-            </svg>
-          </button>
-        ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={!text.trim() || !canSend}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background transition-opacity disabled:opacity-30"
-            title={studioConnected ? "Send" : "Roblox Studio is not connected"}
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="12" y1="19" x2="12" y2="5" />
-              <polyline points="5 12 12 5 19 12" />
-            </svg>
-          </button>
-        )}
+        <SendButton text={text} onSend={handleSubmit} />
       </div>
 
-      <div className="mt-1.5 text-center text-[10px] text-muted-foreground/50">
-        {studioConnected ? "Shift+Enter for new line" : "Waiting for Roblox Studio to connect..."}
-      </div>
+      <StatusHint />
     </div>
   );
 }

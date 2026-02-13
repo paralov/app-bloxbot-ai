@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { selectSessions, useStore } from "@/stores/opencode";
 
@@ -38,16 +38,18 @@ function statusDot(status?: { type: string }): string {
   }
 }
 
-function ChatSidebar({ collapsed, onToggle, onSessionSelect, onOpenSettings }: ChatSidebarProps) {
+const ChatSidebar = memo(function ChatSidebar({
+  collapsed,
+  onToggle,
+  onSessionSelect,
+  onOpenSettings,
+}: ChatSidebarProps) {
   const sessions = useStore(useShallow(selectSessions));
   const activeSessionId = useStore((s) => s.activeSession?.id ?? null);
-  const sessionStatuses = useStore((s) => s.sessionStatuses);
+  // Subscribe to the full sessionStatuses object with useShallow so the
+  // component only re-renders when a status value actually changes.
+  const sessionStatuses = useStore(useShallow((s) => s.sessionStatuses));
   const showAllSessions = useStore((s) => s.showAllSessions);
-  const setShowAllSessions = useStore((s) => s.setShowAllSessions);
-  const storeSelectSession = useStore((s) => s.selectSession);
-  const storeCreateSession = useStore((s) => s.createSession);
-  const storeDeleteSession = useStore((s) => s.deleteSession);
-  const storeRenameSession = useStore((s) => s.renameSession);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -57,12 +59,12 @@ function ChatSidebar({ collapsed, onToggle, onSessionSelect, onOpenSettings }: C
 
   function handleSelect(id: string) {
     onSessionSelect();
-    storeSelectSession(id);
+    useStore.getState().selectSession(id);
   }
 
   function handleCreate() {
     onSessionSelect();
-    storeCreateSession();
+    useStore.getState().createSession();
   }
 
   useEffect(() => {
@@ -92,7 +94,7 @@ function ChatSidebar({ collapsed, onToggle, onSessionSelect, onOpenSettings }: C
 
   function commitRename() {
     if (editingId && editValue.trim()) {
-      storeRenameSession(editingId, editValue.trim());
+      useStore.getState().renameSession(editingId, editValue.trim());
     }
     setEditingId(null);
   }
@@ -202,7 +204,7 @@ function ChatSidebar({ collapsed, onToggle, onSessionSelect, onOpenSettings }: C
                   <div className="animate-scale-in absolute left-0 top-full z-50 mt-1 w-44 rounded-lg border bg-popover p-1 shadow-lg">
                     <button
                       onClick={() => {
-                        if (showAllSessions) setShowAllSessions(false);
+                        if (showAllSessions) useStore.getState().setShowAllSessions(false);
                         setShowFilter(false);
                       }}
                       className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
@@ -231,7 +233,7 @@ function ChatSidebar({ collapsed, onToggle, onSessionSelect, onOpenSettings }: C
                     </button>
                     <button
                       onClick={() => {
-                        if (!showAllSessions) setShowAllSessions(true);
+                        if (!showAllSessions) useStore.getState().setShowAllSessions(true);
                         setShowFilter(false);
                       }}
                       className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
@@ -389,7 +391,7 @@ function ChatSidebar({ collapsed, onToggle, onSessionSelect, onOpenSettings }: C
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            storeDeleteSession(session.id);
+                            useStore.getState().deleteSession(session.id);
                           }}
                           className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-destructive"
                           title="Delete"
@@ -442,6 +444,6 @@ function ChatSidebar({ collapsed, onToggle, onSessionSelect, onOpenSettings }: C
       )}
     </div>
   );
-}
+});
 
 export default ChatSidebar;

@@ -231,14 +231,37 @@ pub async fn start_opencode_server(
         }
     }
 
-    let nodejs_bin_dir = crate::paths::bundled_nodejs_bin_dir().map_err(|e| {
-        log::error!("Failed to find Node.js: {e}");
-        e
-    })?;
+    let nodejs_bin_dir = match crate::paths::bundled_nodejs_bin_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            log::error!("Failed to find Node.js: {e}");
+            set_status(&state, &app, OpenCodeStatus::Error(e.clone())).await;
+            return Err(e);
+        }
+    };
     log::info!("Node.js bin: {}", nodejs_bin_dir.display());
 
     set_status(&state, &app, OpenCodeStatus::Starting).await;
 
+    // Run the actual startup logic. If anything fails after this point,
+    // transition status to Error so the frontend can show a retry button
+    // instead of being stuck on "Starting up..." forever.
+    match do_start(&state, &app, &nodejs_bin_dir).await {
+        Ok(port) => Ok(port),
+        Err(e) => {
+            set_status(&state, &app, OpenCodeStatus::Error(e.clone())).await;
+            Err(e)
+        }
+    }
+}
+
+/// Inner startup logic extracted so that any `?` failure is caught by the
+/// caller and translated into an `Error` status transition.
+async fn do_start(
+    state: &SharedOpenCodeState,
+    app: &AppHandle,
+    nodejs_bin_dir: &std::path::Path,
+) -> Result<u16, String> {
     // Kill any stale processes from a previous crash/force-quit before
     // probing ports. This ensures find_available_port gets clean ports.
     cleanup_stale_processes();
@@ -313,6 +336,7 @@ pub async fn start_opencode_server(
                     "create and edit scripts, manipulate parts and models, manage properties, and more.\n\n",
                     "## Roblox Development Guidelines\n",
                     "- Write all game scripts in **Luau** (Roblox's typed Lua dialect). Use modern Luau features like type annotations, `if-then-else` expressions, and string interpolation where appropriate.\n",
+                    "- **Never use shorthand or abbreviated variable names.** Always use clear, descriptive names (e.g. `player` not `p`, `character` not `char`, `humanoid` not `hum`, `connection` not `conn`, `position` not `pos`). Code readability is more important than brevity.\n",
                     "- Follow Roblox conventions: use PascalCase for services, instances, and properties. Use camelCase for local variables and functions.\n",
                     "- Distinguish between **Script** (server-side, runs in ServerScriptService or Workspace), **LocalScript** (client-side, runs in StarterPlayerScripts, StarterCharacterScripts, or StarterGui), and **ModuleScript** (shared code in ReplicatedStorage or ServerStorage).\n",
                     "- Use the correct Roblox services: Players, Workspace, ReplicatedStorage, ServerStorage, ServerScriptService, StarterGui, StarterPlayerScripts, Lighting, TweenService, UserInputService, RunService, etc.\n",
@@ -376,7 +400,7 @@ pub async fn start_opencode_server(
     #[cfg(unix)]
     let nodejs_bin = nodejs_bin_dir.to_string_lossy().to_string();
     #[cfg(windows)]
-    let nodejs_bin = strip_win_prefix(&nodejs_bin_dir);
+    let nodejs_bin = strip_win_prefix(nodejs_bin_dir);
 
     #[cfg(unix)]
     let sidecar_path_str = sidecar_dir.to_string_lossy().to_string();
@@ -440,7 +464,7 @@ pub async fn start_opencode_server(
     // Spawn an event handler for stdout, stderr, and process exit.
     // This replaces both the BufReader capture tasks and the polling-based
     // spawn_exit_monitor from the old tokio::process implementation.
-    spawn_event_handler(rx, Arc::clone(&state), app.clone());
+    spawn_event_handler(rx, Arc::clone(state), app.clone());
 
     // Wait for the server to be ready by polling the health endpoint.
     // If the process exits (detected via the event handler setting the
@@ -472,7 +496,7 @@ pub async fn start_opencode_server(
                 let err = "OpenCode process exited before becoming healthy".to_string();
                 log::error!("{err}");
                 drop(s);
-                set_status(&state, &app, OpenCodeStatus::Error(err.clone())).await;
+                set_status(state, app, OpenCodeStatus::Error(err.clone())).await;
                 return Err(err);
             }
         }
@@ -487,7 +511,7 @@ pub async fn start_opencode_server(
 
     if healthy {
         log::info!("Server healthy on port {port}");
-        set_status(&state, &app, OpenCodeStatus::Running).await;
+        set_status(state, app, OpenCodeStatus::Running).await;
         Ok(port)
     } else {
         // One final check: the process may have died on the last iteration.
@@ -501,7 +525,7 @@ pub async fn start_opencode_server(
 
         let err = "OpenCode server started but health check timed out".to_string();
         log::error!("{err}");
-        set_status(&state, &app, OpenCodeStatus::Error(err.clone())).await;
+        set_status(state, app, OpenCodeStatus::Error(err.clone())).await;
         Err(err)
     }
 }
@@ -534,6 +558,44 @@ fn spawn_event_handler(
     });
 }
 
+/// Sidecar stderr lines matching these substrings are high-frequency
+/// noise (polling, per-request logs, bus events, tool registry chatter)
+/// that add no diagnostic value at normal log levels.
+const NOISY_PATTERNS: &[&str] = &[
+    "path=/mcp request",
+    "path=/global/health request",
+    "service=server method=",
+    "service=server status=",
+    "service=bus type=",
+    "service=tool.registry",
+    "service=permission",
+];
+
+/// Parse the sidecar's own log level from its structured output.
+/// Lines look like: `INFO  2026-02-12T... message` or `DEBUG ...`.
+/// Returns the extracted level and the original line (for logging).
+fn parse_sidecar_level(line: &str) -> log::Level {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("ERROR") {
+        log::Level::Error
+    } else if trimmed.starts_with("WARN") {
+        log::Level::Warn
+    } else if trimmed.starts_with("DEBUG") {
+        log::Level::Debug
+    } else if trimmed.starts_with("INFO") {
+        log::Level::Info
+    } else {
+        // Unstructured line (e.g. stack trace, raw output) — default to warn
+        log::Level::Warn
+    }
+}
+
+/// Returns `true` if the line is high-frequency noise that should be
+/// suppressed at normal verbosity.
+fn is_noisy_sidecar_line(line: &str) -> bool {
+    NOISY_PATTERNS.iter().any(|p| line.contains(p))
+}
+
 /// Process shell plugin events until the process terminates.
 async fn process_events(
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
@@ -544,11 +606,30 @@ async fn process_events(
         match event {
             CommandEvent::Stdout(line) => {
                 let text = String::from_utf8_lossy(&line);
-                log::info!(target: "opencode::stdout", "{}", text.trim_end());
+                let trimmed = text.trim_end();
+                if is_noisy_sidecar_line(trimmed) {
+                    log::trace!(target: "opencode::stdout", "{trimmed}");
+                } else {
+                    log::info!(target: "opencode::stdout", "{trimmed}");
+                }
             }
             CommandEvent::Stderr(line) => {
                 let text = String::from_utf8_lossy(&line);
-                log::warn!(target: "opencode::stderr", "{}", text.trim_end());
+                let trimmed = text.trim_end();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if is_noisy_sidecar_line(trimmed) {
+                    log::trace!(target: "opencode::stderr", "{trimmed}");
+                } else {
+                    match parse_sidecar_level(trimmed) {
+                        log::Level::Error => log::error!(target: "opencode::stderr", "{trimmed}"),
+                        log::Level::Warn => log::warn!(target: "opencode::stderr", "{trimmed}"),
+                        log::Level::Info => log::info!(target: "opencode::stderr", "{trimmed}"),
+                        log::Level::Debug => log::debug!(target: "opencode::stderr", "{trimmed}"),
+                        _ => log::debug!(target: "opencode::stderr", "{trimmed}"),
+                    }
+                }
             }
             CommandEvent::Terminated(payload) => {
                 handle_process_exit(state, app, &payload).await;
@@ -693,7 +774,7 @@ pub async fn poll_studio_status(
     {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
-                log::debug!("OpenCode /mcp response: {body}");
+                log::trace!("OpenCode /mcp response: {body}");
                 if let Some(rs) = body.get("roblox-studio") {
                     let status_str = rs
                         .get("status")
@@ -751,14 +832,14 @@ pub async fn poll_studio_status(
 
     // ── Step 2: poll the MCP bridge health endpoint ────────────────
     let health_url = format!("http://{LOOPBACK}:{mcp_port}/health");
-    log::debug!("Checking MCP health at {health_url}");
+    log::trace!("Checking MCP health at {health_url}");
     match client.get(&health_url).send().await {
         Ok(resp) if resp.status().is_success() => {
             let body = resp
                 .json::<serde_json::Value>()
                 .await
                 .unwrap_or(serde_json::Value::Null);
-            log::debug!("MCP health response: {body}");
+            log::trace!("MCP health response: {body}");
             let plugin_connected = body
                 .get("pluginConnected")
                 .and_then(|v| v.as_bool())

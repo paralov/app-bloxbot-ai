@@ -5,11 +5,15 @@ import type {
   QuestionRequest,
   Todo,
 } from "@opencode-ai/sdk/v2/client";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useStore } from "@/stores/opencode";
-import type { MessageWithParts } from "@/types";
+
+/** Module-level constant to avoid creating a new array on every render. */
+const REMARK_PLUGINS = [remarkGfm];
+
+import { useShallow } from "zustand/react/shallow";
+import { selectMessageById, useStore } from "@/stores/opencode";
 
 // ── Inline BloxBot thinking indicator ────────────────────────────────────
 
@@ -661,7 +665,7 @@ const TextPartView = memo(
   function TextPartView({ part }: { part: Extract<Part, { type: "text" }> }) {
     return (
       <div className="text-[13px] leading-relaxed">
-        <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        <Markdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
           {part.text}
         </Markdown>
       </div>
@@ -952,7 +956,7 @@ const TodoPanel = memo(function TodoPanel({ todos }: { todos: Todo[] }) {
 
 // ── Question prompt ─────────────────────────────────────────────────────
 
-function QuestionPrompt({
+const QuestionPrompt = memo(function QuestionPrompt({
   question,
   onAnswer,
   onReject,
@@ -1041,11 +1045,11 @@ function QuestionPrompt({
       </div>
     </div>
   );
-}
+});
 
 // ── Permission prompt ───────────────────────────────────────────────────
 
-function PermissionPrompt({
+const PermissionPrompt = memo(function PermissionPrompt({
   permission,
   onReply,
 }: {
@@ -1089,82 +1093,78 @@ function PermissionPrompt({
       </div>
     </div>
   );
-}
+});
 
 // ── Message bubble ─────────────────────────────────────────────────────
 
 /**
- * Memoized message bubble. Only re-renders when the message's parts array
- * length changes OR when the last part is updated (streaming text). Prior
- * messages whose content is settled will never re-render when a new part
- * arrives on the latest message.
+ * Each MessageBubble subscribes to its own message by ID via the normalized
+ * store. When a streaming update arrives, only the message that actually
+ * changed gets a new object reference — so only that bubble re-renders.
+ * All other bubbles are completely untouched.
  */
-const MessageBubble = memo(
-  function MessageBubble({ msg }: { msg: MessageWithParts }) {
-    const isUser = msg.info.role === "user";
+const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: string }) {
+  const msg = useStore(selectMessageById(messageId));
+  if (!msg) return null;
 
-    return (
-      <div className={`animate-fade-in-up flex ${isUser ? "justify-end" : "justify-start"}`}>
-        <div
-          className={`max-w-[85%] ${
-            isUser
-              ? "rounded-2xl rounded-br-md bg-foreground px-3.5 py-2 text-background"
-              : "w-full"
-          }`}
-        >
-          {isUser ? (
-            <div className="text-[13px] leading-relaxed">
-              {msg.parts
-                .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text")
-                .map((p) => (
-                  <span key={p.id}>{p.text}</span>
-                ))}
-              {msg.parts.length === 0 && <span className="italic opacity-50">...</span>}
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {msg.parts.length === 0 && <BloxBotThinking />}
-              {msg.parts.map((part) => (
-                <PartRenderer key={part.id} part={part} />
+  const isUser = msg.info.role === "user";
+
+  return (
+    <div className={`animate-fade-in-up flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[85%] ${
+          isUser ? "rounded-2xl rounded-br-md bg-foreground px-3.5 py-2 text-background" : "w-full"
+        }`}
+      >
+        {isUser ? (
+          <div className="text-[13px] leading-relaxed">
+            {msg.parts
+              .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text")
+              .map((p) => (
+                <span key={p.id}>{p.text}</span>
               ))}
-              {"error" in msg.info && msg.info.error && (
-                <div className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600">
-                  {msg.info.error.data && "message" in msg.info.error.data
-                    ? String(msg.info.error.data.message)
-                    : msg.info.error.name}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+            {msg.parts.length === 0 && <span className="italic opacity-50">...</span>}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {msg.parts.length === 0 && <BloxBotThinking />}
+            {msg.parts.map((part) => (
+              <PartRenderer key={part.id} part={part} />
+            ))}
+            {"error" in msg.info && msg.info.error && (
+              <div className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600">
+                {msg.info.error.data && "message" in msg.info.error.data
+                  ? String(msg.info.error.data.message)
+                  : msg.info.error.name}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-    );
-  },
-  (prev, next) => {
-    // Same message ID with same parts count and same last-part content
-    // means nothing visible changed — skip re-render.
-    if (prev.msg.info.id !== next.msg.info.id) return false;
-    if (prev.msg.parts.length !== next.msg.parts.length) return false;
-    if (prev.msg.parts === next.msg.parts) return true;
-    // Check if the last part changed (the one being streamed)
-    const prevLast = prev.msg.parts[prev.msg.parts.length - 1];
-    const nextLast = next.msg.parts[next.msg.parts.length - 1];
-    if (prevLast === nextLast) return true;
-    return false;
-  },
-);
+    </div>
+  );
+});
 
 // ── Main component ─────────────────────────────────────────────────────
 
+/** Subscribes to the last message to show the busy thinking indicator. */
+const BusyThinkingIndicator = memo(function BusyThinkingIndicator() {
+  const messageIds = useStore(useShallow((s) => s.messageIds));
+  const isBusy = useStore((s) => s.isBusy);
+  const lastId = messageIds.length > 0 ? messageIds[messageIds.length - 1] : null;
+  const lastMsg = useStore((s) => (lastId ? s.messagesById[lastId] : undefined));
+  if (!isBusy || !lastMsg || lastMsg.info.role !== "user") return null;
+  return <BloxBotThinking />;
+});
+
 function ChatMessages() {
-  const messages = useStore((s) => s.messages);
+  // messageIds is a lightweight string[] — only changes when messages are added/removed,
+  // NOT when a message's content (parts) is updated during streaming.
+  const messageIds = useStore(useShallow((s) => s.messageIds));
   const isBusy = useStore((s) => s.isBusy);
   const todos = useStore((s) => s.todos);
   const activeQuestion = useStore((s) => s.activeQuestion);
   const activePermission = useStore((s) => s.activePermission);
-  const answerQuestion = useStore((s) => s.answerQuestion);
-  const rejectQuestion = useStore((s) => s.rejectQuestion);
-  const replyPermission = useStore((s) => s.replyPermission);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1177,24 +1177,30 @@ function ChatMessages() {
     shouldAutoScroll.current = distanceFromBottom < 80;
   }, []);
 
-  // Stable reference for the last message's last part — used to trigger
-  // auto-scroll on streaming updates without depending on the entire
-  // messages array identity.
-  const lastPartId = useMemo(() => {
-    if (messages.length === 0) return null;
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg.parts.length === 0) return lastMsg.info.id;
-    return lastMsg.parts[lastMsg.parts.length - 1].id;
-  }, [messages]);
+  // Auto-scroll: use a MutationObserver on the scroll container to detect
+  // DOM changes (new parts, updated text) without subscribing to message content.
+  useEffect(() => {
+    const el = containerRef.current;
+    const anchor = bottomRef.current;
+    if (!el || !anchor) return;
+    const observer = new MutationObserver(() => {
+      if (shouldAutoScroll.current) {
+        anchor.scrollIntoView({ behavior: "smooth" });
+      }
+    });
+    observer.observe(el, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: lastPartId is the scroll trigger
+  // Also scroll when these reactive values change (new todos, questions, etc.)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional scroll triggers
   useEffect(() => {
     if (shouldAutoScroll.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [lastPartId, isBusy, todos, activeQuestion, activePermission]);
+  }, [isBusy, todos, activeQuestion, activePermission]);
 
-  if (messages.length === 0 && !isBusy) {
+  if (messageIds.length === 0 && !isBusy) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6">
         <div className="animate-fade-in-up text-center">
@@ -1212,8 +1218,8 @@ function ChatMessages() {
   return (
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-2xl space-y-4 px-4 py-4">
-        {messages.map((msg) => (
-          <MessageBubble key={msg.info.id} msg={msg} />
+        {messageIds.map((id) => (
+          <MessageBubble key={id} messageId={id} />
         ))}
 
         {/* Inline todo panel */}
@@ -1223,20 +1229,21 @@ function ChatMessages() {
         {activeQuestion && (
           <QuestionPrompt
             question={activeQuestion}
-            onAnswer={answerQuestion}
-            onReject={rejectQuestion}
+            onAnswer={useStore.getState().answerQuestion}
+            onReject={useStore.getState().rejectQuestion}
           />
         )}
 
         {/* Permission prompt */}
         {activePermission && (
-          <PermissionPrompt permission={activePermission} onReply={replyPermission} />
+          <PermissionPrompt
+            permission={activePermission}
+            onReply={useStore.getState().replyPermission}
+          />
         )}
 
-        {/* Busy indicator when no assistant message is rendering yet */}
-        {isBusy && messages.length > 0 && messages[messages.length - 1].info.role === "user" && (
-          <BloxBotThinking />
-        )}
+        {/* Busy indicator when last message is from user */}
+        <BusyThinkingIndicator />
 
         <div ref={bottomRef} />
       </div>

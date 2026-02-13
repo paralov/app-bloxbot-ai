@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
@@ -11,17 +11,21 @@ import { useStore } from "@/stores/opencode";
 
 function Chat() {
   const status = useStore((s) => s.status);
-  const activeSession = useStore((s) => s.activeSession);
+  const activeSessionTitle = useStore((s) => s.activeSession?.title ?? null);
+  const activeSessionId = useStore((s) => s.activeSession?.id ?? null);
   const isBusy = useStore((s) => s.isBusy);
   const ready = useStore((s) => s.ready);
   const connectedProviders = useStore((s) => s.connectedProviders);
   const initError = useStore((s) => s.initError);
   const hasLaunched = useStore((s) => s.hasLaunched);
-  const createSession = useStore((s) => s.createSession);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [restarting, setRestarting] = useState(false);
+
+  const handleToggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
+  const handleSessionSelect = useCallback(() => setShowSettings(false), []);
+  const handleOpenSettings = useCallback(() => setShowSettings(true), []);
 
   const serverRunning = status === "Running";
   const isError = typeof status === "object" && "Error" in status;
@@ -68,18 +72,18 @@ function Chat() {
       {/* Sidebar */}
       <ChatSidebar
         collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onSessionSelect={() => setShowSettings(false)}
-        onOpenSettings={() => setShowSettings(true)}
+        onToggle={handleToggleSidebar}
+        onSessionSelect={handleSessionSelect}
+        onOpenSettings={handleOpenSettings}
       />
 
       {/* Main area */}
       <div className="flex min-w-0 flex-1 flex-col">
         {showSettings ? (
-          <Settings onClose={() => setShowSettings(false)} />
+          <Settings onClose={handleSessionSelect} />
         ) : !ready ? (
           <LoadingScreen message="Initializing..." />
-        ) : !activeSession ? (
+        ) : !activeSessionId ? (
           // No session selected
           <div className="flex flex-1 flex-col items-center justify-center px-6">
             <div className="animate-fade-in-up text-center">
@@ -121,7 +125,7 @@ function Chat() {
                     off.
                   </p>
                   <button
-                    onClick={createSession}
+                    onClick={() => useStore.getState().createSession()}
                     className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90"
                   >
                     <svg
@@ -150,7 +154,7 @@ function Chat() {
             <div className="flex h-10 shrink-0 items-center justify-between border-b px-4">
               <div className="flex items-center gap-2">
                 <h3 className="truncate text-xs font-semibold">
-                  {activeSession.title || "Untitled"}
+                  {activeSessionTitle || "Untitled"}
                 </h3>
                 {isBusy && (
                   <span className="flex items-center gap-1 text-[10px] text-amber-600">
@@ -160,7 +164,7 @@ function Chat() {
                 )}
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {activeSession.id.slice(0, 8)}
+                {activeSessionId?.slice(0, 8)}
               </div>
             </div>
 

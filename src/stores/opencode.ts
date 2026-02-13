@@ -124,7 +124,10 @@ interface OpenCodeState {
   showAllSessions: boolean;
 
   // ── Messages ───────────────────────────────────────────────────────
-  messages: MessageWithParts[];
+  /** Ordered list of message IDs for the active session. */
+  messageIds: string[];
+  /** Message data keyed by ID — only the changed entry gets a new reference. */
+  messagesById: Record<string, MessageWithParts>;
   isBusy: boolean;
 
   // ── Todos / Questions / Permissions ────────────────────────────────
@@ -226,6 +229,11 @@ export function selectSessions(state: OpenCodeState): Session[] {
     : state.allSessions.filter((s) => state.ownSessionIds.has(s.id));
 }
 
+/** Select a single message by ID (stable reference if that message hasn't changed). */
+export function selectMessageById(id: string) {
+  return (state: OpenCodeState): MessageWithParts | undefined => state.messagesById[id];
+}
+
 /** Available variants for the currently selected model */
 export function selectAvailableVariants(state: OpenCodeState): string[] {
   if (!state.selectedModel) return [];
@@ -256,7 +264,8 @@ export const useStore = create<OpenCodeState>((set, get) => {
     ownSessionIds: new Set(),
     showAllSessions: false,
 
-    messages: [],
+    messageIds: [],
+    messagesById: {},
     isBusy: false,
 
     todos: [],
@@ -298,7 +307,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
 
     dismissWelcome: () => {
       set({ hasLaunched: true });
-      patchConfig({ hasLaunched: true });
+      patchConfig({ hasLaunched: true }).catch(() => {});
       capture("welcome_completed");
     },
 
@@ -306,10 +315,13 @@ export const useStore = create<OpenCodeState>((set, get) => {
       try {
         const res = await invoke<{ status: string; error: string | null }>("poll_studio_status");
         const status = res.status as StudioConnectionStatus;
-        const wasConnected = get().studioStatus === "connected";
-        set({ studioStatus: status, studioError: res.error });
-        if (status === "connected" && !wasConnected) {
-          capture("studio_connected");
+        const prev = get();
+        // Only update store if the values actually changed — avoids re-renders
+        if (status !== prev.studioStatus || res.error !== prev.studioError) {
+          set({ studioStatus: status, studioError: res.error });
+          if (status === "connected" && prev.studioStatus !== "connected") {
+            capture("studio_connected");
+          }
         }
       } catch {
         // Command failed (e.g. OpenCode not running yet)
@@ -363,7 +375,12 @@ export const useStore = create<OpenCodeState>((set, get) => {
     setClient: (client) => {
       set({ client });
       if (!client) {
-        set({ ready: false });
+        set({
+          ready: false,
+          isBusy: false,
+          activeQuestion: null,
+          activePermission: null,
+        });
       }
     },
 
@@ -504,7 +521,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
           if (currentModel) {
             const next = { ...get().sessionModels, [newSession.id]: currentModel };
             set({ sessionModels: next });
-            tauriStore.set(SESSION_MODELS_KEY, next);
+            tauriStore.set(SESSION_MODELS_KEY, next).catch(() => {});
           }
 
           set((state) => ({
@@ -513,7 +530,8 @@ export const useStore = create<OpenCodeState>((set, get) => {
               ? state.allSessions
               : [newSession, ...state.allSessions],
             activeSession: newSession,
-            messages: [],
+            messageIds: [],
+            messagesById: {},
             todos: [],
             activeQuestion: null,
             activePermission: null,
@@ -541,7 +559,14 @@ export const useStore = create<OpenCodeState>((set, get) => {
           updates.activeSession = sessionRes.data;
         }
         if (msgsRes.data) {
-          updates.messages = msgsRes.data;
+          const byId: Record<string, MessageWithParts> = {};
+          const ids: string[] = [];
+          for (const m of msgsRes.data) {
+            byId[m.info.id] = m;
+            ids.push(m.info.id);
+          }
+          updates.messagesById = byId;
+          updates.messageIds = ids;
         }
 
         // Fetch todos
@@ -601,7 +626,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
         // Clean up per-session model
         const { [sessionID]: _removed, ...restModels } = get().sessionModels;
         set({ sessionModels: restModels });
-        tauriStore.set(SESSION_MODELS_KEY, restModels);
+        tauriStore.set(SESSION_MODELS_KEY, restModels).catch(() => {});
 
         set((state) => ({
           ownSessionIds: ownIds,
@@ -609,7 +634,8 @@ export const useStore = create<OpenCodeState>((set, get) => {
           ...(state.activeSession?.id === sessionID
             ? {
                 activeSession: null,
-                messages: [],
+                messageIds: [],
+                messagesById: {},
                 todos: [],
                 activeQuestion: null,
                 activePermission: null,
@@ -646,7 +672,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
       const { client: c, activeSession, selectedModel, selectedAgent, selectedVariant } = get();
       if (!c || !activeSession) return;
 
-      set({ isBusy: true });
+      set({ isBusy: true, todos: [] });
 
       try {
         const opts: Record<string, unknown> = {
@@ -685,9 +711,10 @@ export const useStore = create<OpenCodeState>((set, get) => {
       if (!c || !activeSession) return;
       try {
         await c.session.abort({ sessionID: activeSession.id });
-        set({ isBusy: false });
       } catch (err) {
         console.error("Failed to abort:", err);
+      } finally {
+        set({ isBusy: false });
       }
     },
 
@@ -850,14 +877,14 @@ export const useStore = create<OpenCodeState>((set, get) => {
       set({ selectedModel: modelID });
 
       // Persist as global last-used model
-      patchConfig({ lastModel: modelID });
+      patchConfig({ lastModel: modelID }).catch(() => {});
 
       // Persist per-session override
       const activeSession = get().activeSession;
       if (activeSession) {
         const next = { ...get().sessionModels, [activeSession.id]: modelID };
         set({ sessionModels: next });
-        tauriStore.set(SESSION_MODELS_KEY, next);
+        tauriStore.set(SESSION_MODELS_KEY, next).catch(() => {});
       }
     },
     setSelectedAgent: (name) => set({ selectedAgent: name }),
@@ -870,7 +897,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
       } else {
         next.add(modelKey);
       }
-      patchConfig({ hiddenModels: [...next] });
+      patchConfig({ hiddenModels: [...next] }).catch(() => {});
       set({ hiddenModels: next });
     },
 
@@ -916,23 +943,36 @@ export const useStore = create<OpenCodeState>((set, get) => {
         case "session.status": {
           const { sessionID, status } = event.properties;
           if (sessionID && status) {
-            set((state) => ({
-              sessionStatuses: { ...state.sessionStatuses, [sessionID]: status },
-              isBusy: sessionID === currentSessionId ? status.type === "busy" : state.isBusy,
-            }));
+            set((state) => {
+              const prevStatus = state.sessionStatuses[sessionID];
+              const newBusy =
+                sessionID === currentSessionId ? status.type === "busy" : state.isBusy;
+              // Skip update if nothing actually changed
+              if (prevStatus?.type === status.type && state.isBusy === newBusy) return state;
+              return {
+                sessionStatuses: { ...state.sessionStatuses, [sessionID]: status },
+                isBusy: newBusy,
+              };
+            });
           }
           break;
         }
         case "session.idle": {
           const { sessionID } = event.properties;
           if (sessionID) {
-            set((state) => ({
-              sessionStatuses: {
-                ...state.sessionStatuses,
-                [sessionID]: { type: "idle" },
-              },
-              isBusy: sessionID === currentSessionId ? false : state.isBusy,
-            }));
+            set((state) => {
+              const prevStatus = state.sessionStatuses[sessionID];
+              const newBusy = sessionID === currentSessionId ? false : state.isBusy;
+              // Skip update if already idle
+              if (prevStatus?.type === "idle" && state.isBusy === newBusy) return state;
+              return {
+                sessionStatuses: {
+                  ...state.sessionStatuses,
+                  [sessionID]: { type: "idle" },
+                },
+                isBusy: newBusy,
+              };
+            });
           }
           break;
         }
@@ -940,13 +980,24 @@ export const useStore = create<OpenCodeState>((set, get) => {
           const info = event.properties.info as Message;
           if (info && info.sessionID === currentSessionId) {
             set((state) => {
-              const idx = state.messages.findIndex((m) => m.info.id === info.id);
-              if (idx >= 0) {
-                const updated = [...state.messages];
-                updated[idx] = { ...updated[idx], info };
-                return { messages: updated };
+              const existing = state.messagesById[info.id];
+              if (existing) {
+                // Update only this message entry — other entries keep their references
+                return {
+                  messagesById: {
+                    ...state.messagesById,
+                    [info.id]: { ...existing, info },
+                  },
+                };
               }
-              return { messages: [...state.messages, { info, parts: [] }] };
+              // New message
+              return {
+                messageIds: [...state.messageIds, info.id],
+                messagesById: {
+                  ...state.messagesById,
+                  [info.id]: { info, parts: [] },
+                },
+              };
             });
           }
           break;
@@ -954,43 +1005,57 @@ export const useStore = create<OpenCodeState>((set, get) => {
         case "message.part.updated": {
           const part = event.properties.part as Part;
           if (part && part.sessionID === currentSessionId) {
-            set((state) => ({
-              messages: state.messages.map((m) => {
-                if (m.info.id === part.messageID) {
-                  const partIdx = m.parts.findIndex((p) => p.id === part.id);
-                  if (partIdx >= 0) {
-                    const newParts = [...m.parts];
-                    newParts[partIdx] = part;
-                    return { ...m, parts: newParts };
-                  }
-                  return { ...m, parts: [...m.parts, part] };
-                }
-                return m;
-              }),
-            }));
+            set((state) => {
+              const msg = state.messagesById[part.messageID];
+              if (!msg) return state;
+              const partIdx = msg.parts.findIndex((p) => p.id === part.id);
+              let newParts: Part[];
+              if (partIdx >= 0) {
+                newParts = [...msg.parts];
+                newParts[partIdx] = part;
+              } else {
+                newParts = [...msg.parts, part];
+              }
+              // Only the one message entry gets a new reference
+              return {
+                messagesById: {
+                  ...state.messagesById,
+                  [part.messageID]: { ...msg, parts: newParts },
+                },
+              };
+            });
           }
           break;
         }
         case "message.removed": {
           const { sessionID, messageID } = event.properties;
           if (sessionID === currentSessionId && messageID) {
-            set((state) => ({
-              messages: state.messages.filter((m) => m.info.id !== messageID),
-            }));
+            set((state) => {
+              const { [messageID as string]: _removed, ...rest } = state.messagesById;
+              return {
+                messageIds: state.messageIds.filter((id) => id !== messageID),
+                messagesById: rest,
+              };
+            });
           }
           break;
         }
         case "message.part.removed": {
           const { sessionID, messageID, partID } = event.properties;
-          if (sessionID === currentSessionId) {
-            set((state) => ({
-              messages: state.messages.map((m) => {
-                if (m.info.id === messageID) {
-                  return { ...m, parts: m.parts.filter((p) => p.id !== partID) };
-                }
-                return m;
-              }),
-            }));
+          if (sessionID === currentSessionId && messageID) {
+            set((state) => {
+              const msg = state.messagesById[messageID as string];
+              if (!msg) return state;
+              return {
+                messagesById: {
+                  ...state.messagesById,
+                  [messageID as string]: {
+                    ...msg,
+                    parts: msg.parts.filter((p) => p.id !== partID),
+                  },
+                },
+              };
+            });
           }
           break;
         }

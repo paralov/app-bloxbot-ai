@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import Chat from "@/components/Chat";
 import ConnectionBanner from "@/components/ConnectionBanner";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import OpenCodeProvider from "@/components/OpenCodeProvider";
 import StudioStatus from "@/components/StudioStatus";
 import UpdateBanner from "@/components/UpdateBanner";
@@ -34,7 +35,9 @@ function App() {
             onDismiss={dismissUpdate}
           />
         )}
-        <Chat />
+        <ErrorBoundary>
+          <Chat />
+        </ErrorBoundary>
         <ConnectionBanner />
         <Toaster />
       </main>

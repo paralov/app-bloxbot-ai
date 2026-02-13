@@ -9,6 +9,8 @@ import { useStore } from "@/stores/opencode";
 import type { OpenCodeStatus } from "@/types";
 
 const SSE_RECONNECT_DELAY = 3000;
+/** After this many consecutive SSE failures, show a reconnect toast. */
+const SSE_FAILURE_THRESHOLD = 3;
 const STUDIO_POLL_INTERVAL = 500;
 
 interface StatusPayload {
@@ -60,22 +62,35 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
   // ── Client creation: when server becomes "Running", create SDK client ─
   useEffect(() => {
     if (status === "Running" && !client) {
-      console.debug("frontend", `Creating SDK client for port ${port}`);
-      invoke<string>("get_workspace_dir")
-        .then((dir) => {
-          console.debug("frontend", `Workspace dir: ${dir}`);
-          useStore.getState().setClient(
-            createOpencodeClient({
-              baseUrl: `http://127.0.0.1:${port}`,
-              directory: dir,
-            }),
-          );
-          console.debug("frontend", "SDK client created");
-        })
-        .catch((err) => {
-          console.debug("frontend", `Failed to get workspace dir: ${err}`);
-          console.error("Failed to get workspace directory:", err);
-        });
+      let cancelled = false;
+      let retryTimer: ReturnType<typeof setTimeout>;
+
+      const attempt = () => {
+        console.debug("frontend", `Creating SDK client for port ${port}`);
+        invoke<string>("get_workspace_dir")
+          .then((dir) => {
+            if (cancelled) return;
+            console.debug("frontend", `Workspace dir: ${dir}`);
+            useStore.getState().setClient(
+              createOpencodeClient({
+                baseUrl: `http://127.0.0.1:${port}`,
+                directory: dir,
+              }),
+            );
+            console.debug("frontend", "SDK client created");
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            console.error("Failed to get workspace directory:", err);
+            retryTimer = setTimeout(attempt, 2000);
+          });
+      };
+      attempt();
+
+      return () => {
+        cancelled = true;
+        clearTimeout(retryTimer);
+      };
     } else if (status !== "Running" && client) {
       console.debug("frontend", "Server no longer running, clearing client");
       useStore.getState().setClient(null);
@@ -84,7 +99,12 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
 
   // ── Init trigger: when client becomes available, run init with retry ─
   useEffect(() => {
-    if (client && !ready) {
+    if (!client || ready) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout>;
+
+    const attempt = () => {
       console.debug("frontend", "Client available, running init()");
       useStore
         .getState()
@@ -93,9 +113,17 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
           console.debug("frontend", "init() completed");
         })
         .catch((err) => {
-          console.debug("frontend", `init() failed: ${err}`);
+          if (cancelled) return;
+          console.debug("frontend", `init() failed: ${err}, retrying in 3s`);
+          retryTimer = setTimeout(attempt, 3000);
         });
-    }
+    };
+    attempt();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
   }, [client, ready]);
 
   // ── SSE subscription ────────────────────────────────────────────────
@@ -104,6 +132,34 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
 
     const abortController = new AbortController();
     sseAbortRef.current = abortController;
+    let consecutiveFailures = 0;
+    /** ID of the persistent reconnect toast so we can dismiss it. */
+    let reconnectToastId: string | number | undefined;
+
+    function showReconnectToast() {
+      // Only show once — avoid stacking toasts
+      if (reconnectToastId != null) return;
+      reconnectToastId = toast.error("Lost connection to OpenCode", {
+        description: "Events are no longer being received.",
+        duration: Infinity,
+        action: {
+          label: "Reconnect",
+          onClick: () => {
+            // Tear down the SDK client. This triggers the client-creation
+            // effect which rebuilds the client → init → SSE resubscription.
+            console.debug("frontend", "User triggered reconnect");
+            useStore.getState().setClient(null);
+          },
+        },
+      });
+    }
+
+    function dismissReconnectToast() {
+      if (reconnectToastId != null) {
+        toast.dismiss(reconnectToastId);
+        reconnectToastId = undefined;
+      }
+    }
 
     async function subscribe() {
       try {
@@ -114,19 +170,48 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
         const sseResult = await c.event.subscribe({});
         if (!sseResult?.stream) {
           console.debug("frontend", "SSE subscribe returned no stream");
+          // Treat as a failure — the server didn't give us a stream
+          consecutiveFailures++;
+          if (consecutiveFailures >= SSE_FAILURE_THRESHOLD) {
+            showReconnectToast();
+          }
+          if (!abortController.signal.aborted) {
+            setTimeout(() => {
+              if (!abortController.signal.aborted) subscribe();
+            }, SSE_RECONNECT_DELAY);
+          }
           return;
         }
         console.debug("frontend", "SSE stream connected");
+        // Successfully connected — reset failure counter and dismiss any toast
+        consecutiveFailures = 0;
+        dismissReconnectToast();
 
         for await (const event of sseResult.stream) {
           if (abortController.signal.aborted) break;
           useStore.getState().handleEvent(event);
         }
         console.debug("frontend", "SSE stream ended");
+
+        // Stream ended cleanly (not aborted by us). This typically means the
+        // OpenCode server closed the connection. Retry automatically.
+        if (!abortController.signal.aborted) {
+          consecutiveFailures++;
+          if (consecutiveFailures >= SSE_FAILURE_THRESHOLD) {
+            showReconnectToast();
+          }
+          setTimeout(() => {
+            if (!abortController.signal.aborted) subscribe();
+          }, SSE_RECONNECT_DELAY);
+        }
       } catch (err) {
         if (!abortController.signal.aborted) {
           console.debug("frontend", `SSE stream error: ${err}`);
           console.error("SSE stream error:", err);
+          consecutiveFailures++;
+          if (consecutiveFailures >= SSE_FAILURE_THRESHOLD) {
+            showReconnectToast();
+          }
           setTimeout(() => {
             if (!abortController.signal.aborted) subscribe();
           }, SSE_RECONNECT_DELAY);
@@ -139,6 +224,7 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
     return () => {
       abortController.abort();
       sseAbortRef.current = null;
+      dismissReconnectToast();
     };
   }, [client, ready]);
 
