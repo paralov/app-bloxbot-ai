@@ -1,8 +1,32 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { selectAvailableVariants, useStore } from "@/stores/opencode";
 import type { ModelInfo } from "@/types";
+
+// ── Image attachment helpers ────────────────────────────────────────────
+
+interface ImageAttachment {
+  id: string;
+  dataUrl: string;
+  mime: string;
+  filename: string;
+}
+
+const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_ATTACHMENTS = 5;
+
+let attachmentCounter = 0;
+
+function fileToDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
 
 // Known provider metadata for inline auth prompt
 const PROVIDER_META: Record<string, { placeholder: string; helpUrl: string }> = {
@@ -11,6 +35,136 @@ const PROVIDER_META: Record<string, { placeholder: string; helpUrl: string }> = 
   google: { placeholder: "AIza...", helpUrl: "https://aistudio.google.com/app/apikey" },
 };
 
+// ── Lightbox overlay — shared between ChatInput preview strip ────────────
+
+const LightboxOverlay = memo(function LightboxOverlay({
+  urls,
+  index,
+  slideDir,
+  animKey,
+  onClose,
+  onPrev,
+  onNext,
+}: {
+  urls: string[];
+  index: number;
+  slideDir: "left" | "right" | null;
+  animKey: number;
+  onClose: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const hasMultiple = urls.length > 1;
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+      if (hasMultiple && (e.key === "ArrowRight" || e.key === "ArrowDown")) onNext();
+      if (hasMultiple && (e.key === "ArrowLeft" || e.key === "ArrowUp")) onPrev();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose, onPrev, onNext, hasMultiple]);
+
+  const slideClass =
+    slideDir === "left"
+      ? "animate-lightbox-slide-left"
+      : slideDir === "right"
+        ? "animate-lightbox-slide-right"
+        : "animate-lightbox-image";
+
+  return (
+    <div
+      className="animate-lightbox-backdrop fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Close */}
+      <button
+        onClick={onClose}
+        className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+
+      {/* Previous */}
+      {hasMultiple && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPrev();
+          }}
+          className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:scale-110 hover:bg-white/20"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+      )}
+
+      {/* Image */}
+      <img
+        key={animKey}
+        src={urls[index]}
+        alt={`Attachment ${index + 1} of ${urls.length}`}
+        className={`max-h-[85vh] max-w-[90vw] rounded-lg object-contain shadow-2xl ${slideClass}`}
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      {/* Next */}
+      {hasMultiple && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNext();
+          }}
+          className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:scale-110 hover:bg-white/20"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      )}
+
+      {/* Counter pill */}
+      {hasMultiple && (
+        <div className="animate-fade-in-up absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur-sm">
+          {index + 1} / {urls.length}
+        </div>
+      )}
+    </div>
+  );
+});
+
 // ── Send/Abort button — isolated to avoid re-rendering the entire ChatInput ──
 
 /** Tiny component that subscribes to isBusy + studioStatus so the rest
@@ -18,9 +172,11 @@ const PROVIDER_META: Record<string, { placeholder: string; helpUrl: string }> = 
  *  on every busy toggle or studio status poll. */
 const SendButton = memo(function SendButton({
   text,
+  hasAttachments,
   onSend,
 }: {
   text: string;
+  hasAttachments: boolean;
   onSend: () => void;
 }) {
   const isBusy = useStore((s) => s.isBusy);
@@ -43,7 +199,7 @@ const SendButton = memo(function SendButton({
       ) : (
         <button
           onClick={onSend}
-          disabled={!text.trim() || !canSend}
+          disabled={(!text.trim() && !hasAttachments) || !canSend}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background transition-opacity disabled:opacity-30"
           title={studioConnected ? "Send" : "Roblox Studio is not connected"}
         >
@@ -102,21 +258,155 @@ function ChatInput() {
   const availableVariants = useStore(useShallow(selectAvailableVariants));
 
   const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lbSlideDir, setLbSlideDir] = useState<"left" | "right" | null>(null);
+  const [lbAnimKey, setLbAnimKey] = useState(0);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
+  const [rejectShake, setRejectShake] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const modelSearchRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const agentPickerRef = useRef<HTMLDivElement>(null);
   const oauthAbortRef = useRef<AbortController | null>(null);
+  const dragCounterRef = useRef(0);
+  const rejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Clean up OAuth on unmount
+  const triggerRejectShake = useCallback(() => {
+    setRejectShake(true);
+    clearTimeout(rejectTimerRef.current);
+    rejectTimerRef.current = setTimeout(() => setRejectShake(false), 600);
+  }, []);
+
+  // Clean up timers on unmount
   useEffect(() => {
     return () => {
       oauthAbortRef.current?.abort();
+      clearTimeout(rejectTimerRef.current);
     };
   }, []);
+
+  // ── Image attachment helpers ──────────────────────────────────────
+
+  const addImageFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const toAdd: File[] = [];
+      for (const file of Array.from(files)) {
+        if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+          toast.error(`That file isn't an image. Try a PNG, JPEG, GIF, or WebP instead.`);
+          triggerRejectShake();
+          continue;
+        }
+        if (file.size > MAX_IMAGE_SIZE) {
+          toast.error(`That image is too large. Please use one under 20 MB.`);
+          triggerRejectShake();
+          continue;
+        }
+        toAdd.push(file);
+      }
+      if (toAdd.length === 0) return;
+
+      // Read all files with allSettled — failed reads are skipped, not fatal
+      const results = await Promise.allSettled(
+        toAdd.map(async (file) => {
+          const dataUrl = await fileToDataURL(file);
+          return { dataUrl, mime: file.type, filename: file.name };
+        }),
+      );
+
+      const succeeded: { dataUrl: string; mime: string; filename: string }[] = [];
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          succeeded.push(r.value);
+        } else {
+          toast.error("Failed to read an image file");
+          triggerRejectShake();
+        }
+      }
+      if (succeeded.length === 0) return;
+
+      // Enforce cap inside the updater so concurrent adds can't exceed MAX_ATTACHMENTS
+      setAttachments((prev) => {
+        const remaining = MAX_ATTACHMENTS - prev.length;
+        if (remaining <= 0) {
+          toast.error(`Maximum ${MAX_ATTACHMENTS} images allowed`);
+          triggerRejectShake();
+          return prev;
+        }
+        const allowed = succeeded.slice(0, remaining);
+        if (succeeded.length > remaining) {
+          toast.error(`Only ${remaining} more image(s) allowed`);
+          triggerRejectShake();
+        }
+        // Generate IDs inside the updater so they're safe from strict-mode double-fire
+        return [
+          ...prev,
+          ...allowed.map((s) => ({
+            id: `img-${++attachmentCounter}`,
+            dataUrl: s.dataUrl,
+            mime: s.mime,
+            filename: s.filename,
+          })),
+        ];
+      });
+    },
+    [triggerRejectShake],
+  );
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const lightboxUrls = useMemo(() => attachments.map((a) => a.dataUrl), [attachments]);
+
+  // Stable lightbox callbacks — avoids breaking LightboxOverlay's memo
+  const closeLightbox = useCallback(() => setLightboxIndex(null), []);
+  const lightboxPrev = useCallback(() => {
+    setLbSlideDir("right");
+    setLbAnimKey((k) => k + 1);
+    setLightboxIndex((i) =>
+      i !== null ? (i - 1 + attachments.length) % attachments.length : null,
+    );
+  }, [attachments.length]);
+  const lightboxNext = useCallback(() => {
+    setLbSlideDir("left");
+    setLbAnimKey((k) => k + 1);
+    setLightboxIndex((i) => (i !== null ? (i + 1) % attachments.length : null));
+  }, [attachments.length]);
+
+  // Stable drag handlers — avoids recreating on every render
+  const onDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) setIsDragging(true);
+  }, []);
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setIsDragging(false);
+  }, []);
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+      if (e.dataTransfer.files.length > 0) {
+        addImageFiles(e.dataTransfer.files);
+      }
+    },
+    [addImageFiles],
+  );
 
   // Inline auth state (shown when user clicks an unconnected model)
   const [authProviderId, setAuthProviderId] = useState<string | null>(null);
@@ -218,17 +508,22 @@ function ChatInput() {
 
   function handleSubmit() {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && attachments.length === 0) return;
     const s = useStore.getState();
     if (s.isBusy || s.studioStatus !== "connected") return;
-    s.sendMessage(trimmed);
+    const images =
+      attachments.length > 0
+        ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
+        : undefined;
+    s.sendMessage(trimmed || " ", images);
     setText("");
+    setAttachments([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       const s = useStore.getState();
@@ -849,24 +1144,139 @@ function ChatInput() {
         )}
       </div>
 
-      {/* Input area */}
-      <div className="flex items-end gap-2 rounded-xl border bg-background px-3 py-2 ring-ring/20 transition-shadow focus-within:ring-2">
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            resizeTextarea(e.target);
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="Describe what you want to build..."
-          rows={1}
-          className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none"
-        />
-        <SendButton text={text} onSend={handleSubmit} />
+      {/* Hidden file input for click-to-attach */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) addImageFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
+      {/* Input area — drag-and-drop target */}
+      <div
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        className={`rounded-xl border bg-background transition-shadow focus-within:ring-2 ring-ring/20 ${
+          isDragging ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50/30" : ""
+        }`}
+      >
+        {/* Image preview strip */}
+        {attachments.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto px-3 pt-2 pb-1">
+            {attachments.map((a, idx) => (
+              <div key={a.id} className="group relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLightboxIndex(idx);
+                    setLbSlideDir(null);
+                    setLbAnimKey((k) => k + 1);
+                  }}
+                  className="block cursor-zoom-in overflow-hidden rounded-lg border transition-opacity hover:opacity-80"
+                >
+                  <img src={a.dataUrl} alt={a.filename} className="h-16 w-16 object-cover" />
+                </button>
+                <button
+                  onClick={() => removeAttachment(a.id)}
+                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover:opacity-100"
+                  title="Remove"
+                >
+                  <svg
+                    width="8"
+                    height="8"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+                <div className="mt-0.5 max-w-[64px] truncate text-center text-[9px] text-muted-foreground">
+                  {a.filename}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Text input row */}
+        <div className="flex items-center gap-1 px-3 py-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className={`shrink-0 p-0.5 transition-colors hover:text-foreground ${
+              rejectShake ? "animate-reject-shake text-red-500" : "text-muted-foreground/60"
+            }`}
+            title="Attach images"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
+
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              resizeTextarea(e.target);
+            }}
+            onKeyDown={handleKeyDown}
+            onPaste={(e) => {
+              const items = e.clipboardData.items;
+              const imageFiles: File[] = [];
+              for (const item of Array.from(items)) {
+                if (item.kind === "file" && ACCEPTED_IMAGE_TYPES.includes(item.type)) {
+                  const file = item.getAsFile();
+                  if (file) imageFiles.push(file);
+                }
+              }
+              if (imageFiles.length > 0) {
+                e.preventDefault();
+                addImageFiles(imageFiles);
+              }
+            }}
+            placeholder={isDragging ? "Drop images here..." : "Describe what you want to build..."}
+            rows={1}
+            className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none"
+          />
+          <SendButton text={text} hasAttachments={attachments.length > 0} onSend={handleSubmit} />
+        </div>
       </div>
 
       <StatusHint />
+
+      {/* Lightbox overlay — cycling through attachments */}
+      {lightboxIndex !== null && attachments[lightboxIndex] && (
+        <LightboxOverlay
+          urls={lightboxUrls}
+          index={lightboxIndex}
+          slideDir={lbSlideDir}
+          animKey={lbAnimKey}
+          onClose={closeLightbox}
+          onPrev={lightboxPrev}
+          onNext={lightboxNext}
+        />
+      )}
     </div>
   );
 }

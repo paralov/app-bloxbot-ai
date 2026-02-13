@@ -15,6 +15,172 @@ const REMARK_PLUGINS = [remarkGfm];
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "@/stores/opencode";
 
+// ── Image lightbox ───────────────────────────────────────────────────────
+
+interface LightboxState {
+  urls: string[];
+  index: number;
+}
+
+/** Module-level lightbox setter — avoids prop drilling through memoized bubbles. */
+let setLightboxState: ((state: LightboxState | null) => void) | null = null;
+
+function openLightbox(urls: string[], index: number) {
+  setLightboxState?.({ urls, index });
+}
+
+const ImageLightbox = memo(function ImageLightbox() {
+  const [state, setState] = useState<LightboxState | null>(null);
+  const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
+  const [animKey, setAnimKey] = useState(0);
+  const isOpen = state !== null;
+
+  useEffect(() => {
+    setLightboxState = setState;
+    return () => {
+      setLightboxState = null;
+    };
+  }, []);
+
+  // Keyboard navigation — keyed on open/closed only, handlers use updater form
+  // so they always read the latest state without re-registering the listener.
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setState(null);
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        setState((s) => {
+          if (!s || s.urls.length <= 1) return s;
+          setSlideDir("left");
+          setAnimKey((k) => k + 1);
+          return { ...s, index: (s.index + 1) % s.urls.length };
+        });
+      }
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        setState((s) => {
+          if (!s || s.urls.length <= 1) return s;
+          setSlideDir("right");
+          setAnimKey((k) => k + 1);
+          return { ...s, index: (s.index - 1 + s.urls.length) % s.urls.length };
+        });
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [isOpen]);
+
+  if (!state) return null;
+
+  const { urls, index } = state;
+  const hasMultiple = urls.length > 1;
+
+  function goNext(e: React.MouseEvent) {
+    e.stopPropagation();
+    setSlideDir("left");
+    setAnimKey((k) => k + 1);
+    setState((s) => s && { ...s, index: (s.index + 1) % s.urls.length });
+  }
+
+  function goPrev(e: React.MouseEvent) {
+    e.stopPropagation();
+    setSlideDir("right");
+    setAnimKey((k) => k + 1);
+    setState((s) => s && { ...s, index: (s.index - 1 + s.urls.length) % s.urls.length });
+  }
+
+  const slideClass =
+    slideDir === "left"
+      ? "animate-lightbox-slide-left"
+      : slideDir === "right"
+        ? "animate-lightbox-slide-right"
+        : "animate-lightbox-image";
+
+  return (
+    <div
+      className="animate-lightbox-backdrop fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={() => setState(null)}
+    >
+      {/* Close button */}
+      <button
+        onClick={() => setState(null)}
+        className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+
+      {/* Previous arrow */}
+      {hasMultiple && (
+        <button
+          onClick={goPrev}
+          className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:scale-110 hover:bg-white/20"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+      )}
+
+      {/* Image */}
+      <img
+        key={animKey}
+        src={urls[index]}
+        alt={`Attachment ${index + 1} of ${urls.length}`}
+        className={`max-h-[85vh] max-w-[90vw] rounded-lg object-contain shadow-2xl ${slideClass}`}
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      {/* Next arrow */}
+      {hasMultiple && (
+        <button
+          onClick={goNext}
+          className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:scale-110 hover:bg-white/20"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      )}
+
+      {/* Counter pill */}
+      {hasMultiple && (
+        <div className="animate-fade-in-up absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur-sm">
+          {index + 1} / {urls.length}
+        </div>
+      )}
+    </div>
+  );
+});
+
 // ── Inline BloxBot thinking indicator ────────────────────────────────────
 
 /** Tiny animated BloxBot face used as the "thinking" / "waiting" indicator. */
@@ -1096,6 +1262,53 @@ const PermissionPrompt = memo(function PermissionPrompt({
   );
 });
 
+// ── User message parts (images + text) — single pass over parts ────────
+
+/** Renders user message content: images (clickable for lightbox) then text.
+ *  Uses a single pass over `parts` to avoid repeated `.filter()` calls. */
+const UserPartsView = memo(
+  function UserPartsView({ parts }: { parts: Part[] }) {
+    const fileParts: Extract<Part, { type: "file" }>[] = [];
+    const textParts: Extract<Part, { type: "text" }>[] = [];
+    for (const p of parts) {
+      if (p.type === "file") fileParts.push(p as Extract<Part, { type: "file" }>);
+      else if (p.type === "text") textParts.push(p as Extract<Part, { type: "text" }>);
+    }
+    // Stable urls array — only recomputed when parts ref changes
+    const fileUrls = fileParts.map((p) => p.url);
+
+    return (
+      <div className="text-[13px] leading-relaxed">
+        {fileParts.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap gap-1.5">
+            {fileParts.map((p, i) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => openLightbox(fileUrls, i)}
+                className="block cursor-zoom-in overflow-hidden rounded-lg border border-white/20 transition-opacity hover:opacity-80"
+              >
+                <img
+                  src={p.url}
+                  alt={p.filename ?? "attachment"}
+                  className="max-h-32 max-w-[200px] object-cover"
+                />
+              </button>
+            ))}
+          </div>
+        )}
+        {textParts.map((p) => (
+          <span key={p.id} className="whitespace-pre-wrap">
+            {p.text}
+          </span>
+        ))}
+        {parts.length === 0 && <span className="italic opacity-50">...</span>}
+      </div>
+    );
+  },
+  (prev, next) => prev.parts === next.parts,
+);
+
 // ── Message bubble ─────────────────────────────────────────────────────
 
 /**
@@ -1118,14 +1331,7 @@ const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: st
         }`}
       >
         {isUser ? (
-          <div className="text-[13px] leading-relaxed">
-            {msg.parts
-              .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text")
-              .map((p) => (
-                <span key={p.id}>{p.text}</span>
-              ))}
-            {msg.parts.length === 0 && <span className="italic opacity-50">...</span>}
-          </div>
+          <UserPartsView parts={msg.parts} />
         ) : (
           <div className="space-y-1">
             {msg.parts.length === 0 && <BloxBotThinking />}
@@ -1180,17 +1386,30 @@ function ChatMessages() {
 
   // Auto-scroll: use a MutationObserver on the scroll container to detect
   // DOM changes (new parts, updated text) without subscribing to message content.
+  // We use rAF-throttled "instant" scroll during streaming to keep up with fast
+  // content updates, and "smooth" scroll for discrete events (new todos, questions).
   useEffect(() => {
     const el = containerRef.current;
     const anchor = bottomRef.current;
     if (!el || !anchor) return;
+    let rafId = 0;
     const observer = new MutationObserver(() => {
-      if (shouldAutoScroll.current) {
-        anchor.scrollIntoView({ behavior: "smooth" });
+      if (!shouldAutoScroll.current) return;
+      // Throttle to one scroll per animation frame — during streaming, mutations
+      // fire faster than the browser can paint. Using "instant" keeps up with the
+      // content instead of queuing smooth animations that fall behind.
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          anchor.scrollIntoView({ behavior: "instant" });
+        });
       }
     });
     observer.observe(el, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(rafId);
+    };
   }, []);
 
   // Also scroll when these reactive values change (new todos, questions, etc.)
@@ -1204,6 +1423,7 @@ function ChatMessages() {
   if (messageIds.length === 0 && !isBusy) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6">
+        <ImageLightbox />
         <div className="animate-fade-in-up text-center">
           <h2 className="font-serif text-2xl italic text-foreground">
             What would you like to build?
@@ -1218,6 +1438,7 @@ function ChatMessages() {
 
   return (
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+      <ImageLightbox />
       <div className="mx-auto max-w-2xl space-y-4 px-4 py-4">
         {messageIds.map((id) => (
           <MessageBubble key={id} messageId={id} />

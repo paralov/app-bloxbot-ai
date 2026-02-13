@@ -42,7 +42,7 @@ else ifeq ($(UNAME_S),Linux)
 endif
 
 MCP_SERVER_REPO := boshyxd/robloxstudio-mcp
-MCP_SERVER_VERSION := v1.9.0
+MCP_SERVER_VERSION := v2.3.0
 
 # ── Paths ────────────────────────────────────────────────────────────────
 NODEJS_BIN     := src-tauri/resources/nodejs/bin/node
