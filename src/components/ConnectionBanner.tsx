@@ -52,7 +52,7 @@ function ConnectionBanner() {
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-400" />
+            <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-red-400" />
             <span className="text-xs font-medium text-foreground">Connect Roblox Studio</span>
           </div>
           <button

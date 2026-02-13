@@ -1298,7 +1298,9 @@ const UserPartsView = memo(
           </div>
         )}
         {textParts.map((p) => (
-          <span key={p.id}>{p.text}</span>
+          <span key={p.id} className="whitespace-pre-wrap">
+            {p.text}
+          </span>
         ))}
         {parts.length === 0 && <span className="italic opacity-50">...</span>}
       </div>

@@ -266,6 +266,7 @@ function ChatInput() {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
+  const [rejectShake, setRejectShake] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelSearchRef = useRef<HTMLInputElement>(null);
@@ -273,11 +274,19 @@ function ChatInput() {
   const agentPickerRef = useRef<HTMLDivElement>(null);
   const oauthAbortRef = useRef<AbortController | null>(null);
   const dragCounterRef = useRef(0);
+  const rejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Clean up OAuth on unmount
+  const triggerRejectShake = useCallback(() => {
+    setRejectShake(true);
+    clearTimeout(rejectTimerRef.current);
+    rejectTimerRef.current = setTimeout(() => setRejectShake(false), 600);
+  }, []);
+
+  // Clean up timers on unmount
   useEffect(() => {
     return () => {
       oauthAbortRef.current?.abort();
+      clearTimeout(rejectTimerRef.current);
     };
   }, []);
 
@@ -288,45 +297,64 @@ function ChatInput() {
       const toAdd: File[] = [];
       for (const file of Array.from(files)) {
         if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-          toast.error(`${file.name}: unsupported type (use PNG, JPEG, GIF, or WebP)`);
+          toast.error(`That file isn't an image. Try a PNG, JPEG, GIF, or WebP instead.`);
+          triggerRejectShake();
           continue;
         }
         if (file.size > MAX_IMAGE_SIZE) {
-          toast.error(`${file.name}: too large (max 20 MB)`);
+          toast.error(`That image is too large. Please use one under 20 MB.`);
+          triggerRejectShake();
           continue;
         }
         toAdd.push(file);
       }
       if (toAdd.length === 0) return;
 
-      // Check capacity before doing async work
-      const currentCount = attachments.length;
-      const remaining = MAX_ATTACHMENTS - currentCount;
-      if (remaining <= 0) {
-        toast.error(`Maximum ${MAX_ATTACHMENTS} images allowed`);
-        return;
-      }
-      const batch = toAdd.slice(0, remaining);
-      if (toAdd.length > remaining) {
-        toast.error(`Only ${remaining} more image(s) allowed`);
-      }
-
-      // Read files outside the state updater to avoid double-fire in strict mode
-      const newAttachments = await Promise.all(
-        batch.map(async (file) => {
+      // Read all files with allSettled — failed reads are skipped, not fatal
+      const results = await Promise.allSettled(
+        toAdd.map(async (file) => {
           const dataUrl = await fileToDataURL(file);
-          return {
-            id: `img-${++attachmentCounter}`,
-            dataUrl,
-            mime: file.type,
-            filename: file.name,
-          } satisfies ImageAttachment;
+          return { dataUrl, mime: file.type, filename: file.name };
         }),
       );
 
-      setAttachments((prev) => [...prev, ...newAttachments]);
+      const succeeded: { dataUrl: string; mime: string; filename: string }[] = [];
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          succeeded.push(r.value);
+        } else {
+          toast.error("Failed to read an image file");
+          triggerRejectShake();
+        }
+      }
+      if (succeeded.length === 0) return;
+
+      // Enforce cap inside the updater so concurrent adds can't exceed MAX_ATTACHMENTS
+      setAttachments((prev) => {
+        const remaining = MAX_ATTACHMENTS - prev.length;
+        if (remaining <= 0) {
+          toast.error(`Maximum ${MAX_ATTACHMENTS} images allowed`);
+          triggerRejectShake();
+          return prev;
+        }
+        const allowed = succeeded.slice(0, remaining);
+        if (succeeded.length > remaining) {
+          toast.error(`Only ${remaining} more image(s) allowed`);
+          triggerRejectShake();
+        }
+        // Generate IDs inside the updater so they're safe from strict-mode double-fire
+        return [
+          ...prev,
+          ...allowed.map((s) => ({
+            id: `img-${++attachmentCounter}`,
+            dataUrl: s.dataUrl,
+            mime: s.mime,
+            filename: s.filename,
+          })),
+        ];
+      });
     },
-    [attachments.length],
+    [triggerRejectShake],
   );
 
   const removeAttachment = useCallback((id: string) => {
@@ -364,7 +392,7 @@ function ChatInput() {
   const onDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragCounterRef.current--;
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
     if (dragCounterRef.current === 0) setIsDragging(false);
   }, []);
   const onDrop = useCallback(
@@ -1186,7 +1214,9 @@ function ChatInput() {
         <div className="flex items-center gap-1 px-3 py-2">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="shrink-0 p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground"
+            className={`shrink-0 p-0.5 transition-colors hover:text-foreground ${
+              rejectShake ? "animate-reject-shake text-red-500" : "text-muted-foreground/60"
+            }`}
             title="Attach images"
           >
             <svg

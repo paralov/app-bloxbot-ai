@@ -32,6 +32,11 @@ and Studio plugin into a single installer for easy AI-assisted Roblox developmen
 | `pnpm tauri dev` | Run the full Tauri app in development mode |
 | `pnpm tauri build` | Build the production Tauri app bundle |
 
+> **Important:** After making UI or backend changes, run `pnpm tauri dev` to
+> launch the full app for manual testing. This starts both the Vite dev server
+> and the Rust backend with hot-reload. It is the primary way to verify changes
+> end-to-end.
+
 ### Rust Backend
 
 All Rust commands must be run from the `src-tauri/` directory.
