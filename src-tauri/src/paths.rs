@@ -219,6 +219,36 @@ pub fn check_plugin_installed() -> Result<bool, String> {
     Ok(dest.exists())
 }
 
+/// Returns true if the installed plugin differs from the bundled version
+/// (or is missing entirely), indicating an update is needed.
+/// Compares file sizes first, then byte content if sizes match.
+#[tauri::command]
+pub fn check_plugin_needs_update(app: tauri::AppHandle) -> Result<bool, String> {
+    let installed = roblox_plugins_dir()?.join(PLUGIN_FILENAME);
+    if !installed.exists() {
+        return Ok(true);
+    }
+    let bundled = bundled_plugin_path(&app)?;
+
+    let bundled_meta =
+        std::fs::metadata(&bundled).map_err(|e| format!("Cannot stat bundled plugin: {e}"))?;
+    let installed_meta =
+        std::fs::metadata(&installed).map_err(|e| format!("Cannot stat installed plugin: {e}"))?;
+
+    // Quick check: different sizes means definitely different.
+    if bundled_meta.len() != installed_meta.len() {
+        return Ok(true);
+    }
+
+    // Same size — compare contents.
+    let bundled_bytes =
+        std::fs::read(&bundled).map_err(|e| format!("Cannot read bundled plugin: {e}"))?;
+    let installed_bytes =
+        std::fs::read(&installed).map_err(|e| format!("Cannot read installed plugin: {e}"))?;
+
+    Ok(bundled_bytes != installed_bytes)
+}
+
 /// Copy the bundled MCPPlugin.rbxmx into the Roblox plugins directory.
 /// Creates the plugins directory if it does not exist.
 #[tauri::command]

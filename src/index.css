@@ -145,6 +145,44 @@
   animation: scale-in 200ms ease-out both;
 }
 
+/* ── Lightbox animations ─────────────────────────────────────────── */
+
+@keyframes lightbox-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes lightbox-image-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes lightbox-slide-left {
+  from { opacity: 0; transform: translateX(40px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes lightbox-slide-right {
+  from { opacity: 0; transform: translateX(-40px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.animate-lightbox-backdrop {
+  animation: lightbox-backdrop-in 200ms ease-out both;
+}
+
+.animate-lightbox-image {
+  animation: lightbox-image-in 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-lightbox-slide-left {
+  animation: lightbox-slide-left 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-lightbox-slide-right {
+  animation: lightbox-slide-right 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 /* ── BloxBot loading face ────────────────────────────────────────── */
 
 @keyframes bloxbot-float {

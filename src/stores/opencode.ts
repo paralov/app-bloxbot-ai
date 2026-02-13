@@ -189,7 +189,10 @@ interface OpenCodeState {
   setShowAllSessions: (show: boolean) => void;
 
   // ── Actions: messages ─────────────────────────────────────────────
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (
+    text: string,
+    images?: Array<{ mime: string; url: string; filename?: string }>,
+  ) => Promise<void>;
   abort: () => Promise<void>;
 
   // ── Actions: questions / permissions ───────────────────────────────
@@ -471,6 +474,19 @@ export const useStore = create<OpenCodeState>((set, get) => {
           updates.pluginInstalled = pluginInstalled;
           updates.mcpUrl = mcpUrl;
 
+          // Auto-update the Studio plugin if the bundled version is newer.
+          if (pluginInstalled) {
+            try {
+              const needsUpdate = await invoke<boolean>("check_plugin_needs_update");
+              if (needsUpdate) {
+                await invoke<string>("install_studio_plugin");
+                console.info("[init] Auto-updated Studio plugin to bundled version");
+              }
+            } catch (err) {
+              console.warn("[init] Failed to auto-update Studio plugin:", err);
+            }
+          }
+
           // Model selection priority:
           // 1. cfg.lastModel (if its provider is still connected)
           // 2. providerDefaults[firstConnectedProvider]
@@ -650,16 +666,22 @@ export const useStore = create<OpenCodeState>((set, get) => {
 
     // ── Message actions ─────────────────────────────────────────────
 
-    sendMessage: async (text) => {
+    sendMessage: async (text, images) => {
       const { client: c, activeSession, selectedModel, selectedAgent, selectedVariant } = get();
       if (!c || !activeSession) return;
 
       set({ isBusy: true, todos: [] });
 
       try {
+        const parts: Array<{ type: string; [k: string]: unknown }> = [{ type: "text", text }];
+        if (images) {
+          for (const img of images) {
+            parts.push({ type: "file", mime: img.mime, url: img.url, filename: img.filename });
+          }
+        }
         const opts: Record<string, unknown> = {
           sessionID: activeSession.id,
-          parts: [{ type: "text", text }],
+          parts,
         };
 
         if (selectedModel) {

@@ -44,6 +44,7 @@ pub fn run() {
             opencode::get_mcp_url,
             paths::get_workspace_dir,
             paths::check_plugin_installed,
+            paths::check_plugin_needs_update,
             paths::install_studio_plugin,
         ])
         .setup(|app| {
