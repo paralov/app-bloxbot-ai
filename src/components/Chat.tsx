@@ -1,23 +1,38 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
-import ChatSetup from "@/components/ChatSetup";
 import ChatSidebar from "@/components/ChatSidebar";
 import LoadingScreen from "@/components/LoadingScreen";
-import Settings from "@/components/Settings";
 import { useStore } from "@/stores/opencode";
 
+const Settings = lazy(() => import("@/components/Settings"));
+const ChatSetup = lazy(() => import("@/components/ChatSetup"));
+
 function Chat() {
-  const status = useStore((s) => s.status);
-  const activeSessionTitle = useStore((s) => s.activeSession?.title ?? null);
-  const activeSessionId = useStore((s) => s.activeSession?.id ?? null);
-  const isBusy = useStore((s) => s.isBusy);
-  const ready = useStore((s) => s.ready);
-  const connectedProviders = useStore((s) => s.connectedProviders);
-  const initError = useStore((s) => s.initError);
-  const hasLaunched = useStore((s) => s.hasLaunched);
+  const {
+    status,
+    activeSessionTitle,
+    activeSessionId,
+    isBusy,
+    ready,
+    connectedProviders,
+    initError,
+    hasLaunched,
+  } = useStore(
+    useShallow((s) => ({
+      status: s.status,
+      activeSessionTitle: s.activeSession?.title ?? null,
+      activeSessionId: s.activeSession?.id ?? null,
+      isBusy: s.isBusy,
+      ready: s.ready,
+      connectedProviders: s.connectedProviders,
+      initError: s.initError,
+      hasLaunched: s.hasLaunched,
+    })),
+  );
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -50,7 +65,11 @@ function Chat() {
 
   // ── First-run welcome screen ─────────────────────────────────────────
   if (hasLaunched === false) {
-    return <ChatSetup />;
+    return (
+      <Suspense fallback={<LoadingScreen message="Loading..." />}>
+        <ChatSetup />
+      </Suspense>
+    );
   }
 
   // ── Waiting for the backend to start OpenCode ────────────────────────
@@ -80,7 +99,9 @@ function Chat() {
       {/* Main area */}
       <div className="flex min-w-0 flex-1 flex-col">
         {showSettings ? (
-          <Settings onClose={handleSessionSelect} />
+          <Suspense fallback={<LoadingScreen message="Loading settings..." />}>
+            <Settings onClose={handleSessionSelect} />
+          </Suspense>
         ) : !ready ? (
           <LoadingScreen message="Initializing..." />
         ) : !activeSessionId ? (

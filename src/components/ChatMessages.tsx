@@ -13,7 +13,7 @@ import remarkGfm from "remark-gfm";
 const REMARK_PLUGINS = [remarkGfm];
 
 import { useShallow } from "zustand/react/shallow";
-import { selectMessageById, useStore } from "@/stores/opencode";
+import { useStore } from "@/stores/opencode";
 
 // ── Inline BloxBot thinking indicator ────────────────────────────────────
 
@@ -77,6 +77,17 @@ function BloxBotThinking({ label = "Thinking..." }: { label?: string }) {
     </div>
   );
 }
+
+// ── Constants ───────────────────────────────────────────────────────────
+
+/** CSS classes for each tool part status. Hoisted to module scope to avoid
+ *  re-creating the object on every render inside ToolPartView. */
+const TOOL_STATUS_COLORS: Record<string, string> = {
+  pending: "border-stone-200 bg-stone-50/50",
+  running: "border-amber-200 bg-amber-50/30",
+  completed: "border-stone-200 bg-white",
+  error: "border-red-200 bg-red-50/30",
+};
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -146,6 +157,42 @@ const BashToolView = memo(function BashToolView({
   );
 });
 
+/** Renders a split old/new diff block, splitting each string only once. */
+const DiffBlock = memo(function DiffBlock({ oldStr, newStr }: { oldStr: string; newStr: string }) {
+  const oldLines = oldStr ? oldStr.split("\n") : [];
+  const newLines = newStr ? newStr.split("\n") : [];
+  return (
+    <div className="mt-1.5 overflow-hidden rounded border text-[11px]">
+      {oldLines.length > 0 && (
+        <div className="border-b bg-red-50 px-2.5 py-1 font-mono">
+          {oldLines.slice(0, 20).map((line, i) => (
+            <div key={i} className="text-red-700">
+              <span className="mr-2 select-none text-red-400">-</span>
+              {line}
+            </div>
+          ))}
+          {oldLines.length > 20 && (
+            <div className="text-[10px] text-red-400">...{oldLines.length - 20} more lines</div>
+          )}
+        </div>
+      )}
+      {newLines.length > 0 && (
+        <div className="bg-emerald-50 px-2.5 py-1 font-mono">
+          {newLines.slice(0, 20).map((line, i) => (
+            <div key={i} className="text-emerald-700">
+              <span className="mr-2 select-none text-emerald-400">+</span>
+              {line}
+            </div>
+          ))}
+          {newLines.length > 20 && (
+            <div className="text-[10px] text-emerald-400">...{newLines.length - 20} more lines</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const EditToolView = memo(function EditToolView({
   input,
   output,
@@ -180,46 +227,7 @@ const EditToolView = memo(function EditToolView({
           {shortPath}
         </span>
       </div>
-      {(oldStr || newStr) && (
-        <div className="mt-1.5 overflow-hidden rounded border text-[11px]">
-          {oldStr && (
-            <div className="border-b bg-red-50 px-2.5 py-1 font-mono">
-              {oldStr
-                .split("\n")
-                .slice(0, 20)
-                .map((line, i) => (
-                  <div key={i} className="text-red-700">
-                    <span className="mr-2 select-none text-red-400">-</span>
-                    {line}
-                  </div>
-                ))}
-              {oldStr.split("\n").length > 20 && (
-                <div className="text-[10px] text-red-400">
-                  ...{oldStr.split("\n").length - 20} more lines
-                </div>
-              )}
-            </div>
-          )}
-          {newStr && (
-            <div className="bg-emerald-50 px-2.5 py-1 font-mono">
-              {newStr
-                .split("\n")
-                .slice(0, 20)
-                .map((line, i) => (
-                  <div key={i} className="text-emerald-700">
-                    <span className="mr-2 select-none text-emerald-400">+</span>
-                    {line}
-                  </div>
-                ))}
-              {newStr.split("\n").length > 20 && (
-                <div className="text-[10px] text-emerald-400">
-                  ...{newStr.split("\n").length - 20} more lines
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {(oldStr || newStr) && <DiffBlock oldStr={oldStr} newStr={newStr} />}
       {status === "completed" && output && (
         <div className="mt-1 text-[10px] text-emerald-600">{output}</div>
       )}
@@ -715,13 +723,6 @@ const ToolPartView = memo(function ToolPartView({
 
   const tool = baseToolName(part.tool);
 
-  const statusColors: Record<string, string> = {
-    pending: "border-stone-200 bg-stone-50/50",
-    running: "border-amber-200 bg-amber-50/30",
-    completed: "border-stone-200 bg-white",
-    error: "border-red-200 bg-red-50/30",
-  };
-
   function renderToolContent() {
     switch (tool) {
       case "bash":
@@ -749,7 +750,7 @@ const ToolPartView = memo(function ToolPartView({
 
   return (
     <div
-      className={`my-1 rounded-md border px-2.5 py-2 ${statusColors[status] ?? statusColors.pending}`}
+      className={`my-1 rounded-md border px-2.5 py-2 ${TOOL_STATUS_COLORS[status] ?? TOOL_STATUS_COLORS.pending}`}
     >
       {title &&
         ![
@@ -1104,7 +1105,7 @@ const PermissionPrompt = memo(function PermissionPrompt({
  * All other bubbles are completely untouched.
  */
 const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: string }) {
-  const msg = useStore(selectMessageById(messageId));
+  const msg = useStore(useCallback((s) => s.messagesById[messageId], [messageId]));
   if (!msg) return null;
 
   const isUser = msg.info.role === "user";

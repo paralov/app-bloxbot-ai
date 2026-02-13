@@ -52,6 +52,8 @@ function formatTimestamp(epochMs: number): string {
 }
 
 const MAX_ENTRIES = 5000;
+/** How often (ms) to flush batched log entries into React state. */
+const FLUSH_INTERVAL_MS = 100;
 
 // ── Component ───────────────────────────────────────────────────────────
 
@@ -63,38 +65,48 @@ function DebugLogs() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
 
-  // Convert a raw entry from Rust into our display format.
-  const toLogEntry = useCallback((raw: RawLogEntry): LogEntry => {
-    return {
-      id: idRef.current++,
-      timestamp: formatTimestamp(raw.timestamp),
-      level: raw.level,
-      message: raw.message,
-    };
-  }, []);
+  // Pending entries accumulated between flush cycles to avoid per-event
+  // setState + render. Flushed every FLUSH_INTERVAL_MS.
+  const pendingRef = useRef<LogEntry[]>([]);
 
   // On mount: fetch the full buffer, then subscribe to new events.
+  // Real-time events are batched into pendingRef and flushed on an interval.
   useEffect(() => {
     let cancelled = false;
 
+    function toEntry(raw: RawLogEntry): LogEntry {
+      return {
+        id: idRef.current++,
+        timestamp: formatTimestamp(raw.timestamp),
+        level: raw.level,
+        message: raw.message,
+      };
+    }
+
     // 1. Start real-time listener immediately so nothing is missed.
+    //    Entries are accumulated in the pending buffer, not flushed per-event.
     const unlistenPromise = listen<RawLogEntry>("log-entry", (event) => {
       if (cancelled) return;
-      const entry = toLogEntry(event.payload);
-      setLogs((prev) => {
-        const next = [...prev, entry];
-        return next.length > MAX_ENTRIES ? next.slice(-MAX_ENTRIES) : next;
-      });
+      pendingRef.current.push(toEntry(event.payload));
     });
 
-    // 2. Fetch history from the ring buffer and prepend.
+    // 2. Flush pending entries into state at a controlled cadence.
+    const flushInterval = setInterval(() => {
+      if (pendingRef.current.length === 0) return;
+      const batch = pendingRef.current;
+      pendingRef.current = [];
+      setLogs((prev) => {
+        const merged = [...prev, ...batch];
+        return merged.length > MAX_ENTRIES ? merged.slice(-MAX_ENTRIES) : merged;
+      });
+    }, FLUSH_INTERVAL_MS);
+
+    // 3. Fetch history from the ring buffer and prepend.
     invoke<RawLogEntry[]>("get_logs")
       .then((history) => {
         if (cancelled) return;
-        const entries = history.map((r) => toLogEntry(r));
+        const entries = history.map((r) => toEntry(r));
         setLogs((prev) => {
-          // Merge: history first, then any real-time entries that arrived
-          // while invoke was in flight.
           const merged = [...entries, ...prev];
           return merged.length > MAX_ENTRIES ? merged.slice(-MAX_ENTRIES) : merged;
         });
@@ -103,16 +115,22 @@ function DebugLogs() {
 
     return () => {
       cancelled = true;
+      clearInterval(flushInterval);
       unlistenPromise.then((fn) => fn());
     };
-  }, [toLogEntry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Auto-scroll to bottom when new logs arrive.
+  // Auto-scroll via rAF — avoids synchronous layout thrash on every state update.
   // biome-ignore lint/correctness/useExhaustiveDependencies: logs used as trigger
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (!autoScroll || !scrollRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
   }, [logs, autoScroll]);
 
   // Detect manual scroll to disable auto-scroll.
@@ -125,30 +143,19 @@ function DebugLogs() {
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
-  // Filtered view + counts (memoized).
-  const filtered = useMemo(
-    () =>
-      logs.filter((entry) => {
-        if (filter !== null && entry.level !== filter) return false;
-        if (search && !entry.message.toLowerCase().includes(search.toLowerCase())) {
-          return false;
-        }
-        return true;
-      }),
-    [logs, filter, search],
-  );
-
-  const counts = useMemo(
-    () =>
-      logs.reduce(
-        (acc, e) => {
-          acc[e.level] = (acc[e.level] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
-      ),
-    [logs],
-  );
+  // Filtered view + level counts computed in a single pass over the log array.
+  const { filtered, counts } = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const filtered: LogEntry[] = [];
+    const query = search.toLowerCase();
+    for (const entry of logs) {
+      counts[entry.level] = (counts[entry.level] || 0) + 1;
+      if (filter !== null && entry.level !== filter) continue;
+      if (query && !entry.message.toLowerCase().includes(query)) continue;
+      filtered.push(entry);
+    }
+    return { filtered, counts };
+  }, [logs, filter, search]);
 
   // ── Render ──────────────────────────────────────────────────────────
 

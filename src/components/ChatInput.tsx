@@ -78,18 +78,28 @@ const StatusHint = memo(function StatusHint() {
 });
 
 function ChatInput() {
-  const allModels = useStore((s) => s.allModels);
-  const connectedProviders = useStore((s) => s.connectedProviders);
-  const hiddenModels = useStore((s) => s.hiddenModels);
-  const selectedModel = useStore((s) => s.selectedModel);
-  const setSelectedModel = useStore((s) => s.setSelectedModel);
-  const agents = useStore((s) => s.agents);
-  const selectedAgent = useStore((s) => s.selectedAgent);
-  const setSelectedAgent = useStore((s) => s.setSelectedAgent);
-  const selectedVariant = useStore((s) => s.selectedVariant);
-  const setSelectedVariant = useStore((s) => s.setSelectedVariant);
+  const {
+    allModels,
+    connectedProviders,
+    hiddenModels,
+    selectedModel,
+    selectedAgent,
+    selectedVariant,
+    agents,
+    authMethods,
+  } = useStore(
+    useShallow((s) => ({
+      allModels: s.allModels,
+      connectedProviders: s.connectedProviders,
+      hiddenModels: s.hiddenModels,
+      selectedModel: s.selectedModel,
+      selectedAgent: s.selectedAgent,
+      selectedVariant: s.selectedVariant,
+      agents: s.agents,
+      authMethods: s.authMethods,
+    })),
+  );
   const availableVariants = useStore(useShallow(selectAvailableVariants));
-  const authMethods = useStore((s) => s.authMethods);
 
   const [text, setText] = useState("");
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -120,14 +130,12 @@ function ChatInput() {
   const [authOauthCodeInput, setAuthOauthCodeInput] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Auto-resize textarea
-  // biome-ignore lint/correctness/useExhaustiveDependencies: text triggers resize
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
+  // Auto-resize textarea — done imperatively in the onChange handler
+  // to avoid an extra render cycle from a useEffect.
+  function resizeTextarea(el: HTMLTextAreaElement) {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, [text]);
+  }
 
   // Close pickers on outside click
   useEffect(() => {
@@ -151,7 +159,7 @@ function ChatInput() {
   useEffect(() => {
     if (authProviderId && connectedProviders.includes(authProviderId) && pendingModelId) {
       // Provider just connected -- select the model and close auth prompt
-      setSelectedModel(pendingModelId);
+      useStore.getState().setSelectedModel(pendingModelId);
       setAuthProviderId(null);
       setPendingModelId(null);
       setApiKeyInput("");
@@ -161,7 +169,7 @@ function ChatInput() {
       setModelSearch("");
       setShowModelPicker(false);
     }
-  }, [connectedProviders, authProviderId, pendingModelId, setSelectedModel]);
+  }, [connectedProviders, authProviderId, pendingModelId]);
 
   // All models grouped by provider (connected + unconnected), filtered by search
   const modelsByProvider = useMemo(() => {
@@ -234,7 +242,7 @@ function ChatInput() {
     const isConnected = connectedProviders.includes(model.providerId);
 
     if (isConnected) {
-      setSelectedModel(fullId);
+      useStore.getState().setSelectedModel(fullId);
       setShowModelPicker(false);
       setModelSearch("");
       setAuthProviderId(null);
@@ -794,7 +802,7 @@ function ChatInput() {
                     <button
                       key={agent.name}
                       onClick={() => {
-                        setSelectedAgent(agent.name);
+                        useStore.getState().setSelectedAgent(agent.name);
                         setShowAgentPicker(false);
                       }}
                       className={`flex w-full flex-col rounded-md px-2 py-1.5 text-left transition-colors ${
@@ -823,13 +831,13 @@ function ChatInput() {
             onClick={() => {
               // Cycle: default -> variant[0] -> ... -> variant[N-1] -> default
               if (!selectedVariant) {
-                setSelectedVariant(availableVariants[0]);
+                useStore.getState().setSelectedVariant(availableVariants[0]);
               } else {
                 const idx = availableVariants.indexOf(selectedVariant);
                 if (idx === -1 || idx === availableVariants.length - 1) {
-                  setSelectedVariant(null);
+                  useStore.getState().setSelectedVariant(null);
                 } else {
-                  setSelectedVariant(availableVariants[idx + 1]);
+                  useStore.getState().setSelectedVariant(availableVariants[idx + 1]);
                 }
               }
             }}
@@ -846,7 +854,10 @@ function ChatInput() {
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            resizeTextarea(e.target);
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Describe what you want to build..."
           rows={1}

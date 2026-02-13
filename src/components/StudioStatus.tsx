@@ -41,12 +41,16 @@ const STATUS_CONFIG: Record<
 
 function CopyableUrl({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard API may fail in some contexts
     }

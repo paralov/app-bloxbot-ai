@@ -229,11 +229,6 @@ export function selectSessions(state: OpenCodeState): Session[] {
     : state.allSessions.filter((s) => state.ownSessionIds.has(s.id));
 }
 
-/** Select a single message by ID (stable reference if that message hasn't changed). */
-export function selectMessageById(id: string) {
-  return (state: OpenCodeState): MessageWithParts | undefined => state.messagesById[id];
-}
-
 /** Available variants for the currently selected model */
 export function selectAvailableVariants(state: OpenCodeState): string[] {
   if (!state.selectedModel) return [];
@@ -569,35 +564,22 @@ export const useStore = create<OpenCodeState>((set, get) => {
           updates.messageIds = ids;
         }
 
-        // Fetch todos
-        try {
-          const todoRes = await c.session.todo({ sessionID });
-          updates.todos = todoRes.data ?? [];
-        } catch {
-          updates.todos = [];
-        }
+        // Fetch todos, questions, and permissions in parallel
+        const [todoRes, qRes, pRes] = await Promise.allSettled([
+          c.session.todo({ sessionID }),
+          c.question.list({}),
+          c.permission.list({}),
+        ]);
 
-        // Check for pending questions
-        try {
-          const qRes = await c.question.list({});
-          if (qRes.data) {
-            const pending = qRes.data.find((q: QuestionRequest) => q.sessionID === sessionID);
-            updates.activeQuestion = pending ?? null;
-          }
-        } catch {
-          updates.activeQuestion = null;
-        }
-
-        // Check for pending permissions
-        try {
-          const pRes = await c.permission.list({});
-          if (pRes.data) {
-            const pending = pRes.data.find((p: PermissionRequest) => p.sessionID === sessionID);
-            updates.activePermission = pending ?? null;
-          }
-        } catch {
-          updates.activePermission = null;
-        }
+        updates.todos = todoRes.status === "fulfilled" ? (todoRes.value.data ?? []) : [];
+        updates.activeQuestion =
+          qRes.status === "fulfilled" && qRes.value.data
+            ? (qRes.value.data.find((q: QuestionRequest) => q.sessionID === sessionID) ?? null)
+            : null;
+        updates.activePermission =
+          pRes.status === "fulfilled" && pRes.value.data
+            ? (pRes.value.data.find((p: PermissionRequest) => p.sessionID === sessionID) ?? null)
+            : null;
 
         const status = get().sessionStatuses[sessionID];
         updates.isBusy = status?.type === "busy";

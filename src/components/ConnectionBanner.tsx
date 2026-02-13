@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/stores/opencode";
 
 /**
@@ -13,21 +13,24 @@ function ConnectionBanner() {
   const studioStatus = useStore((s) => s.studioStatus);
   const mcpUrl = useStore((s) => s.mcpUrl);
   const [dismissed, setDismissed] = useState(false);
-  const [everConnected, setEverConnected] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Once Studio connects, mark as "ever connected" so the banner stays hidden
-  useEffect(() => {
-    if (studioStatus === "connected") {
-      setEverConnected(true);
-    }
-  }, [studioStatus]);
+  // Track "ever connected" via a ref — no re-render needed since
+  // studioStatus already triggers the re-render that checks this.
+  const everConnectedRef = useRef(false);
+  if (studioStatus === "connected") {
+    everConnectedRef.current = true;
+  }
+
+  // Clean up copy timeout on unmount
+  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
   // Don't show if:
   // - no URL available yet
   // - user manually dismissed
   // - Studio has connected at least once this session
-  if (!mcpUrl || dismissed || everConnected) {
+  if (!mcpUrl || dismissed || everConnectedRef.current) {
     return null;
   }
 
@@ -36,7 +39,8 @@ function ConnectionBanner() {
     try {
       await navigator.clipboard.writeText(mcpUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard API may fail
     }

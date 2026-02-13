@@ -11,7 +11,9 @@ import type { OpenCodeStatus } from "@/types";
 const SSE_RECONNECT_DELAY = 3000;
 /** After this many consecutive SSE failures, show a reconnect toast. */
 const SSE_FAILURE_THRESHOLD = 3;
-const STUDIO_POLL_INTERVAL = 500;
+/** Poll fast while waiting for Studio to connect, slow down once connected. */
+const STUDIO_POLL_FAST = 500;
+const STUDIO_POLL_SLOW = 5000;
 
 interface StatusPayload {
   status: OpenCodeStatus;
@@ -235,11 +237,16 @@ function OpenCodeProvider({ children }: OpenCodeProviderProps) {
   // isn't ready yet (falls through to the health endpoint).
   useEffect(() => {
     if (status !== "Running") return;
-    useStore.getState().pollStudioStatus();
-    const interval = setInterval(() => {
+    let timer: ReturnType<typeof setTimeout>;
+
+    function poll() {
       useStore.getState().pollStudioStatus();
-    }, STUDIO_POLL_INTERVAL);
-    return () => clearInterval(interval);
+      const isConnected = useStore.getState().studioStatus === "connected";
+      timer = setTimeout(poll, isConnected ? STUDIO_POLL_SLOW : STUDIO_POLL_FAST);
+    }
+    poll();
+
+    return () => clearTimeout(timer);
   }, [status]);
 
   // ── Track whether the app has been fully usable ────────────────────

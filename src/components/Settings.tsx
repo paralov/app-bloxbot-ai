@@ -42,6 +42,15 @@ const PROVIDER_META: Record<string, { placeholder?: string; helpUrl?: string }> 
   },
 };
 
+const TECHNOLOGIES = [
+  { name: "OpenCode", url: "https://opencode.ai", description: "AI coding engine" },
+  {
+    name: "Roblox Studio MCP",
+    url: "https://github.com/boshyxd/robloxstudio-mcp",
+    description: "Studio bridge server",
+  },
+];
+
 type SettingsTab = "providers" | "models" | "studio" | "about";
 
 interface SettingsProps {
@@ -951,12 +960,16 @@ function StudioTab() {
   const [restarting, setRestarting] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
   async function handleCopyUrl() {
     if (!mcpUrl) return;
     await navigator.clipboard.writeText(mcpUrl);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
   async function handleRestart() {
@@ -1216,15 +1229,6 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
       setUpdateStatus("error");
     }
   }
-
-  const TECHNOLOGIES = [
-    { name: "OpenCode", url: "https://opencode.ai", description: "AI coding engine" },
-    {
-      name: "Roblox Studio MCP",
-      url: "https://github.com/boshyxd/robloxstudio-mcp",
-      description: "Studio bridge server",
-    },
-  ];
 
   return (
     <div className="mx-auto w-full max-w-md px-6 py-8">
