@@ -144,6 +144,8 @@ interface OpenCodeState {
   // ── Studio plugin ───────────────────────────────────────────────────
   /** Whether the .rbxmx plugin file is installed in Roblox's Plugins dir. null = not yet checked. */
   pluginInstalled: boolean | null;
+  /** Whether the old MCPPlugin.rbxmx still exists alongside BloxBotPlugin.rbxmx. */
+  legacyPluginExists: boolean;
   /** Status of the roblox-studio MCP server (polled via SDK). */
   studioStatus: StudioConnectionStatus;
   /** Error message when studioStatus is "failed". */
@@ -276,6 +278,7 @@ export const useStore = create<OpenCodeState>((set, get) => {
     authMethods: {},
 
     pluginInstalled: null,
+    legacyPluginExists: false,
     studioStatus: "unknown",
     studioError: null,
     mcpUrl: null,
@@ -459,19 +462,22 @@ export const useStore = create<OpenCodeState>((set, get) => {
           }
 
           // Load persisted data + check plugin status
-          const [ownIds, savedSessionModels, pluginInstalled, cfg, mcpUrl] = await Promise.all([
-            loadOwnSessionIds(),
-            loadSessionModels(),
-            invoke<boolean>("check_plugin_installed").catch(() => false),
-            loadConfig(),
-            invoke<string>("get_mcp_url").catch(() => null),
-          ]);
+          const [ownIds, savedSessionModels, pluginInstalled, legacyPluginExists, cfg, mcpUrl] =
+            await Promise.all([
+              loadOwnSessionIds(),
+              loadSessionModels(),
+              invoke<boolean>("check_plugin_installed").catch(() => false),
+              invoke<boolean>("check_legacy_plugin_exists").catch(() => false),
+              loadConfig(),
+              invoke<string>("get_mcp_url").catch(() => null),
+            ]);
           if (get().initGeneration !== generation) return;
           updates.ownSessionIds = ownIds;
           updates.hiddenModels = new Set(cfg.hiddenModels);
           updates.hasLaunched = cfg.hasLaunched;
           updates.sessionModels = savedSessionModels;
           updates.pluginInstalled = pluginInstalled;
+          updates.legacyPluginExists = legacyPluginExists;
           updates.mcpUrl = mcpUrl;
 
           // Auto-update the Studio plugin if the bundled version is newer.

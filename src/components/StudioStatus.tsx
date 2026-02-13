@@ -131,6 +131,35 @@ function StudioStatus() {
     return null;
   }
 
+  // ── Plugin not installed: show install button ──────────────────────
+  if (pluginInstalled === false) {
+    return (
+      <button
+        type="button"
+        onClick={handleInstall}
+        disabled={installing}
+        className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1 text-[11px] font-medium text-background transition-opacity hover:opacity-90 active:scale-[0.97] disabled:opacity-50"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        {installing ? "Installing..." : "Install Studio Plugin"}
+      </button>
+    );
+  }
+
+  // ── Plugin installed: show connection status ───────────────────────
   return (
     <div className="relative" onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
       {/* Indicator row */}
@@ -174,27 +203,16 @@ function StudioStatus() {
           )}
           {studioStatus === "disconnected" && (
             <div className="mt-2">
-              {pluginInstalled === false ? (
-                <button
-                  type="button"
-                  onClick={handleInstall}
-                  disabled={installing}
-                  className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-md bg-foreground text-[11px] font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  {installing ? "Installing..." : "Install Studio Plugin"}
-                </button>
-              ) : (
-                <ol className="space-y-1 text-[10px] text-muted-foreground">
-                  <li>1. Open Roblox Studio</li>
-                  <li>2. Open or create a place file</li>
-                  <li>
-                    3. Click the <strong>Plugins</strong> tab
-                  </li>
-                  <li>
-                    4. Open the MCP plugin and click <strong>Connect</strong>
-                  </li>
-                </ol>
-              )}
+              <ol className="space-y-1 text-[10px] text-muted-foreground">
+                <li>1. Open Roblox Studio</li>
+                <li>2. Open or create a place file</li>
+                <li>
+                  3. Click the <strong>Plugins</strong> tab
+                </li>
+                <li>
+                  4. Open the BloxBot plugin and click <strong>Connect</strong>
+                </li>
+              </ol>
             </div>
           )}
         </div>

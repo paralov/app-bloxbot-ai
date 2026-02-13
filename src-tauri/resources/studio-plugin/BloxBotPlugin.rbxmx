@@ -2,7 +2,7 @@
 <roblox version="4">
   <Item class="Script" referent="0">
     <Properties>
-      <string name="Name">MCPPlugin</string>
+      <string name="Name">BloxBotPlugin</string>
       <token name="RunContext">0</token>
       <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
 local TS = require(script.include.RuntimeLib)
@@ -11,8 +11,8 @@ local UI = TS.import(script, script, "modules", "UI")
 local Communication = TS.import(script, script, "modules", "Communication")
 UI.init(plugin)
 local elements = UI.getElements()
-local toolbar = plugin:CreateToolbar("MCP Integration")
-local button = toolbar:CreateButton("MCP Server", "Connect to MCP Server for AI Integration", "rbxassetid://10734944444")
+local toolbar = plugin:CreateToolbar("BloxBot")
+local button = toolbar:CreateButton("BloxBot", "Open BloxBot Companion", "rbxassetid://72863917376096")
 elements.connectButton.Activated:Connect(function()
 	local conn = State.getActiveConnection()
 	if conn and conn.isActive then
@@ -46,6 +46,7 @@ local RunService = _services.RunService
 local State = TS.import(script, script.Parent, "State")
 local Utils = TS.import(script, script.Parent, "Utils")
 local UI = TS.import(script, script.Parent, "UI")
+local C = { green = Color3.fromRGB(52, 211, 153), red = Color3.fromRGB(248, 113, 113), yellow = Color3.fromRGB(251, 191, 36) }
 local QueryHandlers = TS.import(script, script.Parent, "handlers", "QueryHandlers")
 local PropertyHandlers = TS.import(script, script.Parent, "handlers", "PropertyHandlers")
 local InstanceHandlers = TS.import(script, script.Parent, "handlers", "InstanceHandlers")
@@ -163,7 +164,7 @@ local function pollForRequests(connIndex)
 		conn.lastHttpOk = true
 		if connIndex == State.getActiveTabIndex() then
 			local el = ui
-			el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+			el.step1Dot.BackgroundColor3 = C.green
 			el.step1Label.Text = "HTTP server (OK)"
 			local _condition = mcpConnected
 			if _condition then
@@ -172,30 +173,30 @@ local function pollForRequests(connIndex)
 			end
 			if _condition then
 				el.statusLabel.Text = "Connected"
-				el.statusLabel.TextColor3 = Color3.fromRGB(34, 197, 94)
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+				el.statusLabel.TextColor3 = C.green
+				el.statusIndicator.BackgroundColor3 = C.green
+				el.statusPulse.BackgroundColor3 = C.green
 				el.statusText.Text = "ONLINE"
 				el.detailStatusLabel.Text = "HTTP: OK  MCP: OK"
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(34, 197, 94)
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+				el.detailStatusLabel.TextColor3 = C.green
+				el.step2Dot.BackgroundColor3 = C.green
 				el.step2Label.Text = "MCP bridge (OK)"
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+				el.step3Dot.BackgroundColor3 = C.green
 				el.step3Label.Text = "Commands (OK)"
 				conn.mcpWaitStartTime = nil
 				el.troubleshootLabel.Visible = false
 				UI.stopPulseAnimation()
 			elseif not mcpConnected then
 				el.statusLabel.Text = "Waiting for MCP server"
-				el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.statusLabel.TextColor3 = C.yellow
+				el.statusIndicator.BackgroundColor3 = C.yellow
+				el.statusPulse.BackgroundColor3 = C.yellow
 				el.statusText.Text = "WAITING"
 				el.detailStatusLabel.Text = "HTTP: OK  MCP: ..."
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.detailStatusLabel.TextColor3 = C.yellow
+				el.step2Dot.BackgroundColor3 = C.yellow
 				el.step2Label.Text = "MCP bridge (waiting...)"
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.step3Dot.BackgroundColor3 = C.yellow
 				el.step3Label.Text = "Commands (waiting...)"
 				if conn.mcpWaitStartTime == nil then
 					conn.mcpWaitStartTime = tick()
@@ -233,17 +234,17 @@ local function pollForRequests(connIndex)
 			local el = ui
 			if conn.consecutiveFailures >= conn.maxFailuresBeforeError then
 				el.statusLabel.Text = "Server unavailable"
-				el.statusLabel.TextColor3 = Color3.fromRGB(239, 68, 68)
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+				el.statusLabel.TextColor3 = C.red
+				el.statusIndicator.BackgroundColor3 = C.red
+				el.statusPulse.BackgroundColor3 = C.red
 				el.statusText.Text = "ERROR"
 				el.detailStatusLabel.Text = "HTTP: X  MCP: X"
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(239, 68, 68)
-				el.step1Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+				el.detailStatusLabel.TextColor3 = C.red
+				el.step1Dot.BackgroundColor3 = C.red
 				el.step1Label.Text = "HTTP server (error)"
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+				el.step2Dot.BackgroundColor3 = C.red
 				el.step2Label.Text = "MCP bridge (error)"
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+				el.step3Dot.BackgroundColor3 = C.red
 				el.step3Label.Text = "Commands (error)"
 				conn.mcpWaitStartTime = nil
 				el.troubleshootLabel.Visible = false
@@ -251,34 +252,34 @@ local function pollForRequests(connIndex)
 			elseif conn.consecutiveFailures > 5 then
 				local waitTime = math.ceil(conn.currentRetryDelay)
 				el.statusLabel.Text = `Retrying ({waitTime}s)`
-				el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.statusLabel.TextColor3 = C.yellow
+				el.statusIndicator.BackgroundColor3 = C.yellow
+				el.statusPulse.BackgroundColor3 = C.yellow
 				el.statusText.Text = "RETRY"
 				el.detailStatusLabel.Text = "HTTP: ...  MCP: ..."
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-				el.step1Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.detailStatusLabel.TextColor3 = C.yellow
+				el.step1Dot.BackgroundColor3 = C.yellow
 				el.step1Label.Text = "HTTP server (retrying...)"
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.step2Dot.BackgroundColor3 = C.yellow
 				el.step2Label.Text = "MCP bridge (retrying...)"
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.step3Dot.BackgroundColor3 = C.yellow
 				el.step3Label.Text = "Commands (retrying...)"
 				conn.mcpWaitStartTime = nil
 				el.troubleshootLabel.Visible = false
 				UI.startPulseAnimation()
 			elseif conn.consecutiveFailures > 1 then
 				el.statusLabel.Text = `Connecting (attempt {conn.consecutiveFailures})`
-				el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.statusLabel.TextColor3 = C.yellow
+				el.statusIndicator.BackgroundColor3 = C.yellow
+				el.statusPulse.BackgroundColor3 = C.yellow
 				el.statusText.Text = "CONNECTING"
 				el.detailStatusLabel.Text = "HTTP: ...  MCP: ..."
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-				el.step1Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.detailStatusLabel.TextColor3 = C.yellow
+				el.step1Dot.BackgroundColor3 = C.yellow
 				el.step1Label.Text = "HTTP server (connecting...)"
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.step2Dot.BackgroundColor3 = C.yellow
 				el.step2Label.Text = "MCP bridge (connecting...)"
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+				el.step3Dot.BackgroundColor3 = C.yellow
 				el.step3Label.Text = "Commands (connecting...)"
 				conn.mcpWaitStartTime = nil
 				el.troubleshootLabel.Visible = false
@@ -440,7 +441,7 @@ local function checkForUpdates()
 				local latestVersion = data.version
 				if Utils.compareVersions(State.CURRENT_VERSION, latestVersion) < 0 then
 					local ui = UI.getElements()
-					ui.updateBannerText.Text = `v{latestVersion} available - github.com/boshyxd/robloxstudio-mcp`
+					ui.updateBannerText.Text = `v{latestVersion} available - update BloxBot to get the latest plugin`
 					ui.updateBanner.Visible = true
 					ui.contentFrame.Position = UDim2.new(0, 8, 0, 92)
 					ui.contentFrame.Size = UDim2.new(1, -16, 1, -100)
@@ -3473,8 +3474,8 @@ local function updateTabDot(connIndex)
 end
 local function init(pluginRef)
 	local CURRENT_VERSION = State.CURRENT_VERSION
-	local screenGui = pluginRef:CreateDockWidgetPluginGuiAsync("MCPServerInterface", DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, false, 300, 260, 260, 200))
-	screenGui.Title = `MCP Server v{CURRENT_VERSION}`
+	local screenGui = pluginRef:CreateDockWidgetPluginGuiAsync("BloxBotInterface", DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, false, 300, 260, 260, 200))
+	screenGui.Title = `BloxBot Companion v{CURRENT_VERSION}`
 	local mainFrame = Instance.new("Frame")
 	mainFrame.Size = UDim2.new(1, 0, 1, 0)
 	mainFrame.BackgroundColor3 = C.bg
@@ -3496,23 +3497,23 @@ local function init(pluginRef)
 	titleLabel.Position = UDim2.new(0, 10, 0, 2)
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.RichText = true
-	titleLabel.Text = `<font color="#F0F0F0">MCP</font> <font color="#646464">v{CURRENT_VERSION}</font>`
+	titleLabel.Text = `<font color="#F0F0F0">BloxBot Companion</font> <font color="#646464">v{CURRENT_VERSION}</font>`
 	titleLabel.TextColor3 = C.white
 	titleLabel.TextSize = 12
 	titleLabel.Font = Enum.Font.GothamBold
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.Parent = header
 	local creditsLabel = Instance.new("TextLabel")
-	creditsLabel.Size = UDim2.new(1, -20, 0, 12)
-	creditsLabel.Position = UDim2.new(0, 10, 0, 23)
+	creditsLabel.Size = UDim2.new(1, -16, 0, 12)
+	creditsLabel.Position = UDim2.new(0, 8, 1, -16)
 	creditsLabel.BackgroundTransparency = 1
 	creditsLabel.RichText = true
-	creditsLabel.Text = '<font color="#999999">by</font> <font color="#CCCCCC">@BoshyDx</font> <font color="#666666">|</font> <font color="#999999">discord</font> <font color="#CCCCCC">boshyz</font>'
+	creditsLabel.Text = '<font color="#555555">Based on robloxstudio-mcp by</font> <font color="#888888">boshyxd</font>'
 	creditsLabel.TextColor3 = C.muted
 	creditsLabel.TextSize = 8
-	creditsLabel.Font = Enum.Font.GothamMedium
-	creditsLabel.TextXAlignment = Enum.TextXAlignment.Left
-	creditsLabel.Parent = header
+	creditsLabel.Font = Enum.Font.Gotham
+	creditsLabel.TextXAlignment = Enum.TextXAlignment.Right
+	creditsLabel.Parent = mainFrame
 	local statusContainer = Instance.new("Frame")
 	statusContainer.Size = UDim2.new(0, 20, 0, 22)
 	statusContainer.Position = UDim2.new(1, -26, 0, 2)
@@ -3650,7 +3651,7 @@ local function init(pluginRef)
 	urlInput.Size = UDim2.new(1, 0, 0, 26)
 	urlInput.BackgroundColor3 = C.bg
 	urlInput.BorderSizePixel = 0
-	urlInput.Text = "http://localhost:58741"
+	urlInput.Text = "http://127.0.0.1:59210"
 	urlInput.TextColor3 = C.label
 	urlInput.TextSize = 11
 	urlInput.Font = Enum.Font.GothamMedium

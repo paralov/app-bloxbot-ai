@@ -12,6 +12,7 @@ import { useStore } from "@/stores/opencode";
 function ConnectionBanner() {
   const studioStatus = useStore((s) => s.studioStatus);
   const mcpUrl = useStore((s) => s.mcpUrl);
+  const pluginInstalled = useStore((s) => s.pluginInstalled);
   const [dismissed, setDismissed] = useState(false);
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -27,10 +28,11 @@ function ConnectionBanner() {
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
   // Don't show if:
+  // - plugin isn't installed yet (install button shown in title bar instead)
   // - no URL available yet
   // - user manually dismissed
   // - Studio has connected at least once this session
-  if (!mcpUrl || dismissed || everConnectedRef.current) {
+  if (!pluginInstalled || !mcpUrl || dismissed || everConnectedRef.current) {
     return null;
   }
 
@@ -52,7 +54,7 @@ function ConnectionBanner() {
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-red-400" />
+            <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-red-400" />
             <span className="text-xs font-medium text-foreground">Connect Roblox Studio</span>
           </div>
           <button

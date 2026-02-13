@@ -147,7 +147,7 @@ pub fn workspace_dir() -> Result<PathBuf, String> {
 
 // ── Studio plugin ────────────────────────────────────────────────────────
 
-const PLUGIN_FILENAME: &str = "MCPPlugin.rbxmx";
+const PLUGIN_FILENAME: &str = "BloxBotPlugin.rbxmx";
 
 /// Returns the Roblox Studio plugins directory for the current platform.
 ///   macOS:   ~/Documents/Roblox/Plugins
@@ -171,19 +171,19 @@ fn roblox_plugins_dir() -> Result<PathBuf, String> {
     }
 }
 
-/// Returns the path to the bundled MCPPlugin.rbxmx inside the app resources.
+/// Returns the path to the bundled BloxBotPlugin.rbxmx inside the app resources.
 ///
 /// With the Tauri array-format `"resources/studio-plugin"`, the directory is
-/// placed at `<resource_dir>/resources/studio-plugin/MCPPlugin.rbxmx` in
+/// placed at `<resource_dir>/resources/studio-plugin/BloxBotPlugin.rbxmx` in
 /// production. During `cargo tauri dev` the resource dir points to `src-tauri/`
-/// so it lives at `src-tauri/resources/studio-plugin/MCPPlugin.rbxmx`.
+/// so it lives at `src-tauri/resources/studio-plugin/BloxBotPlugin.rbxmx`.
 fn bundled_plugin_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let resource_dir = app
         .path()
         .resource_dir()
         .map_err(|e| format!("Could not determine resource directory: {e}"))?;
 
-    // Both production and dev: resources/studio-plugin/MCPPlugin.rbxmx
+    // Both production and dev: resources/studio-plugin/BloxBotPlugin.rbxmx
     let path = resource_dir
         .join("resources")
         .join("studio-plugin")
@@ -212,7 +212,7 @@ pub fn get_workspace_dir() -> Result<String, String> {
     workspace_dir().map(|p| p.to_string_lossy().to_string())
 }
 
-/// Check whether the MCPPlugin.rbxmx file exists in the Roblox plugins dir.
+/// Check whether the BloxBotPlugin.rbxmx file exists in the Roblox plugins dir.
 #[tauri::command]
 pub fn check_plugin_installed() -> Result<bool, String> {
     let dest = roblox_plugins_dir()?.join(PLUGIN_FILENAME);
@@ -249,7 +249,28 @@ pub fn check_plugin_needs_update(app: tauri::AppHandle) -> Result<bool, String> 
     Ok(bundled_bytes != installed_bytes)
 }
 
-/// Copy the bundled MCPPlugin.rbxmx into the Roblox plugins directory.
+/// Check whether the legacy `MCPPlugin.rbxmx` exists in the Roblox plugins
+/// directory. If so, the frontend can prompt the user to remove it.
+#[tauri::command]
+pub fn check_legacy_plugin_exists() -> Result<bool, String> {
+    let legacy = roblox_plugins_dir()?.join("MCPPlugin.rbxmx");
+    Ok(legacy.exists())
+}
+
+/// Delete the legacy `MCPPlugin.rbxmx` from the Roblox plugins directory.
+/// Called explicitly by the user via the legacy-plugin banner.
+#[tauri::command]
+pub fn remove_legacy_plugin() -> Result<(), String> {
+    let legacy = roblox_plugins_dir()?.join("MCPPlugin.rbxmx");
+    if legacy.exists() {
+        std::fs::remove_file(&legacy)
+            .map_err(|e| format!("Failed to remove legacy plugin: {e}"))?;
+        log::info!("Removed legacy plugin: {}", legacy.display());
+    }
+    Ok(())
+}
+
+/// Copy the bundled BloxBotPlugin.rbxmx into the Roblox plugins directory.
 /// Creates the plugins directory if it does not exist.
 #[tauri::command]
 pub fn install_studio_plugin(app: tauri::AppHandle) -> Result<String, String> {

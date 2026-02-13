@@ -94,7 +94,7 @@ function ChatSetup() {
               Plugin installed
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Open Roblox Studio, go to the <strong>Plugins</strong> tab, open the MCP plugin
+              Open Roblox Studio, go to the <strong>Plugins</strong> tab, open the BloxBot plugin
               window, and click <strong>Connect</strong>.
             </p>
             <button

@@ -1038,7 +1038,7 @@ function StudioTab() {
                   <li>1. Open Roblox Studio</li>
                   <li>2. Open or create a place file</li>
                   <li>
-                    3. Click the <strong>Plugins</strong> tab and open the MCP plugin
+                    3. Click the <strong>Plugins</strong> tab and open the BloxBot plugin
                   </li>
                   <li>
                     4. Paste the connection URL and click <strong>Connect</strong>
@@ -1058,7 +1058,7 @@ function StudioTab() {
           </div>
           <div className="rounded-lg border bg-card p-3.5">
             <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
-              Copy this URL into the Roblox Studio MCP plugin to connect.
+              Copy this URL into the Roblox Studio BloxBot plugin to connect.
             </p>
             <button
               onClick={handleCopyUrl}

@@ -1,17 +1,21 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import Chat from "@/components/Chat";
 import ConnectionBanner from "@/components/ConnectionBanner";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import LegacyPluginBanner from "@/components/LegacyPluginBanner";
 import OpenCodeProvider from "@/components/OpenCodeProvider";
 import StudioStatus from "@/components/StudioStatus";
 import UpdateBanner from "@/components/UpdateBanner";
 import { Toaster } from "@/components/ui/sonner";
 import { useUpdater } from "@/hooks/useUpdater";
 import { capture } from "@/lib/telemetry";
+import { useStore } from "@/stores/opencode";
 
 function App() {
   const { status, pendingUpdate, installUpdate, dismissUpdate } = useUpdater();
+  const legacyPluginExists = useStore((s) => s.legacyPluginExists);
+  const [legacyDismissed, setLegacyDismissed] = useState(false);
 
   useEffect(() => {
     capture("app_launched");
@@ -34,6 +38,9 @@ function App() {
             onInstall={installUpdate}
             onDismiss={dismissUpdate}
           />
+        )}
+        {legacyPluginExists && !legacyDismissed && (
+          <LegacyPluginBanner onDismiss={() => setLegacyDismissed(true)} />
         )}
         <ErrorBoundary>
           <Chat />

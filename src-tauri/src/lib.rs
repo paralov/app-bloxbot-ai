@@ -45,6 +45,8 @@ pub fn run() {
             paths::get_workspace_dir,
             paths::check_plugin_installed,
             paths::check_plugin_needs_update,
+            paths::check_legacy_plugin_exists,
+            paths::remove_legacy_plugin,
             paths::install_studio_plugin,
         ])
         .setup(|app| {
