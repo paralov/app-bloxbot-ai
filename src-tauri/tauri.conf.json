@@ -30,7 +30,7 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "macOS": {
-      "signingIdentity": "-",
+      "signingIdentity": "Developer ID Application: Halland Technologies AS (7947Y5HVQ2)",
       "entitlements": "entitlements.plist"
     },
     "icon": [
