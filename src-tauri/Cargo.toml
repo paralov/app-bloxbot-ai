@@ -1,6 +1,6 @@
 [package]
 name = "bloxbot"
-version = "0.2.5"
+version = "0.3.0"
 description = "AI-assisted Roblox development made easy"
 authors = ["BloxBot"]
 license = "MIT"
