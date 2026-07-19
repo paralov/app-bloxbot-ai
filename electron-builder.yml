@@ -8,11 +8,6 @@ files:
   - package.json
   - "!node_modules/**"
 npmRebuild: false
-extraResources:
-  - from: resources/bin
-    to: bin
-    filter:
-      - opencode-*
 asar: true
 mac:
   category: public.app-category.developer-tools

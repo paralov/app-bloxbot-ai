@@ -12,9 +12,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
-env:
-  OPENCODE_VERSION: "1.2.27"
-
 jobs:
   build:
     permissions:
@@ -25,30 +22,18 @@ jobs:
         include:
           - platform: macos-latest
             target: aarch64-apple-darwin
-            opencode_asset: opencode-darwin-arm64.zip
-            opencode_sha256: fa680fa79086c7509d3a2c21e49c9264b803da7c0f1b7807ed842b8e37325597
-            opencode_bin: opencode
             builder_args: --mac --arm64
 
           - platform: macos-latest
             target: x86_64-apple-darwin
-            opencode_asset: opencode-darwin-x64.zip
-            opencode_sha256: fc719db27acbc817ff2a4df2bbaa788e02976ddc26a96c84de4fdbe663714b8c
-            opencode_bin: opencode
             builder_args: --mac --x64
 
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-            opencode_asset: opencode-windows-x64.zip
-            opencode_sha256: 9e2e43568e6f952e8c7cb77b934fbff53f454f0213688f24f3c3769b69703e84
-            opencode_bin: opencode.exe
             builder_args: --win --x64
 
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            opencode_asset: opencode-linux-x64.tar.gz
-            opencode_sha256: 6fe3820b145857f7ff507d2826058b7acf1fce8258def1498468dd43809e69e8
-            opencode_bin: opencode
             builder_args: --linux deb --x64
 
     runs-on: ${{ matrix.platform }}
@@ -75,25 +60,6 @@ jobs:
 
       - name: Type-check
         run: pnpm typecheck
-
-      - name: Download OpenCode
-        shell: bash
-        run: |
-          mkdir -p resources/bin /tmp/bloxbot-deps
-          curl -fSL --retry 3 --retry-delay 5 \
-            "https://github.com/anomalyco/opencode/releases/download/v${{ env.OPENCODE_VERSION }}/${{ matrix.opencode_asset }}" \
-            -o "/tmp/bloxbot-deps/${{ matrix.opencode_asset }}"
-          printf '%s  %s\n' \
-            "${{ matrix.opencode_sha256 }}" \
-            "/tmp/bloxbot-deps/${{ matrix.opencode_asset }}" \
-            | shasum -a 256 -c -
-          case "${{ matrix.opencode_asset }}" in
-            *.tar.gz) tar -xzf "/tmp/bloxbot-deps/${{ matrix.opencode_asset }}" -C /tmp/bloxbot-deps ;;
-            *.zip) unzip -o "/tmp/bloxbot-deps/${{ matrix.opencode_asset }}" -d /tmp/bloxbot-deps ;;
-          esac
-          mv "/tmp/bloxbot-deps/${{ matrix.opencode_bin }}" \
-            "resources/bin/opencode-${{ matrix.target }}${{ matrix.platform == 'windows-latest' && '.exe' || '' }}"
-          chmod +x resources/bin/opencode-* 2>/dev/null || true
 
       - name: Build application
         run: pnpm build

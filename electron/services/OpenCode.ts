@@ -7,6 +7,7 @@ import { Context, Data, Effect, Layer } from "effect";
 
 import type { OpenCodeInfo } from "../../src/types/desktop";
 import { createOpenCodeConfig } from "../opencodeConfig";
+import { ensureOpenCodeBinary } from "./OpenCodeBinary";
 
 const LOOPBACK = "127.0.0.1";
 const PORT_START = 59200;
@@ -23,9 +24,7 @@ interface OpenCodeResource extends OpenCodeInfo {
 }
 
 export interface OpenCodeOptions {
-  isPackaged: boolean;
-  projectRoot: string;
-  resourcesPath: string;
+  binaryCacheDirectory: string;
   workspace: string;
 }
 
@@ -49,23 +48,6 @@ async function findAvailablePort(): Promise<number> {
     if (await canListen(port)) return port;
   }
   throw new Error(`No available port in ${PORT_START}-${PORT_START + PORT_COUNT - 1}`);
-}
-
-function platformTarget(): string {
-  if (process.platform === "darwin") {
-    return process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
-  }
-  if (process.platform === "win32") return "x86_64-pc-windows-msvc.exe";
-  return "x86_64-unknown-linux-gnu";
-}
-
-function resolveRuntimePaths(options: OpenCodeOptions) {
-  const base = options.isPackaged ? options.resourcesPath : options.projectRoot;
-  const binaryDirectory = options.isPackaged ? join(base, "bin") : join(base, "resources", "bin");
-
-  return {
-    executable: join(binaryDirectory, `opencode-${platformTarget()}`),
-  };
 }
 
 async function waitForSpawn(child: ChildProcessWithoutNullStreams): Promise<void> {
@@ -99,7 +81,10 @@ async function waitForHealth(child: ChildProcessWithoutNullStreams, port: number
 
 async function startOpenCode(options: OpenCodeOptions): Promise<OpenCodeResource> {
   const port = await findAvailablePort();
-  const { executable } = resolveRuntimePaths(options);
+  const { executable, version } = await ensureOpenCodeBinary({
+    cacheDirectory: options.binaryCacheDirectory,
+  });
+  console.info(`[opencode] Starting v${version}`);
   const opencodeHome = join(options.workspace, ".opencode");
   const xdgData = join(opencodeHome, "data");
   const xdgConfig = join(opencodeHome, "config");
@@ -171,7 +156,7 @@ function acquire(options: OpenCodeOptions) {
         message:
           cause instanceof Error
             ? cause.message
-            : "OpenCode failed to start. Run `make deps` and try again.",
+            : "OpenCode failed to download or start.",
         cause,
       }),
   });

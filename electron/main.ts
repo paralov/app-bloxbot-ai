@@ -11,7 +11,6 @@ import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
-const projectRoot = join(currentDirectory, "..", "..");
 const defaultConfig: AppConfig = { lastModel: null, hiddenModels: [] };
 
 let mainWindow: BrowserWindow | null = null;
@@ -19,9 +18,7 @@ let quitting = false;
 
 const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
-    isPackaged: app.isPackaged,
-    projectRoot,
-    resourcesPath: process.resourcesPath,
+    binaryCacheDirectory: join(app.getPath("userData"), "opencode"),
     workspace: join(app.getPath("home"), "BloxBot"),
   }),
 );

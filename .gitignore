@@ -22,9 +22,6 @@ release
 *.p12
 *.pfx
 
-# Bundled runtimes (downloaded/built during CI / dev setup, too large for git)
-resources/bin/
-
 # Internal docs (not for public repo)
 PLAN.md
 

@@ -57,12 +57,14 @@ Download the installer for your platform from the [releases page](https://github
 # Install frontend dependencies
 pnpm install
 
-# Download bundled runtimes (Node.js + OpenCode sidecar)
-make deps
-
 # Run in development mode
 make dev
 ```
+
+On first launch, BloxBot downloads the newest compatible OpenCode `1.x.x`
+release and verifies its SHA-256 digest. Later launches check for compatible
+minor and patch updates and can fall back to the newest verified cached copy
+when offline.
 
 ### Project structure
 
@@ -76,8 +78,8 @@ src/                    # React/TypeScript frontend
 electron/               # Electron main process and preload bridge
   icons/                #   Desktop installer icons
   main.ts               #   Secure window, IPC, updates, and lifecycle
+  services/OpenCodeBinary.ts # Runtime download and verified per-user cache
   services/OpenCode.ts  #   Effect-scoped OpenCode process lifecycle
-resources/bin/           # Downloaded, checksum-verified OpenCode server
 ```
 
 ### Key commands
