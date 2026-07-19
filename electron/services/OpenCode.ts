@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { join } from "node:path";
 
 import { Context, Data, Effect, Layer } from "effect";
@@ -10,9 +10,8 @@ import { createOpenCodeConfig } from "../opencodeConfig";
 import { ensureOpenCodeBinary } from "./OpenCodeBinary";
 
 const LOOPBACK = "127.0.0.1";
-const PORT_START = 59200;
-const PORT_COUNT = 10;
 const STARTUP_TIMEOUT_MS = 60_000;
+const SERVER_USERNAME = "opencode";
 
 export class OpenCodeError extends Data.TaggedError("OpenCodeError")<{
   message: string;
@@ -34,30 +33,55 @@ export interface OpenCodeService {
 
 export class OpenCode extends Context.Tag("@bloxbot/OpenCode")<OpenCode, OpenCodeService>() {}
 
-async function canListen(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = createServer();
-    server.once("error", () => resolve(false));
-    server.listen(port, LOOPBACK, () => server.close(() => resolve(true)));
+export function parseOpenCodeListeningPort(output: string): number | null {
+  const match = output.match(/opencode server listening on http:\/\/127\.0\.0\.1:(\d+)/);
+  if (!match) return null;
+
+  const port = Number(match[1]);
+  return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : null;
+}
+
+async function waitForListeningPort(child: ChildProcessWithoutNullStreams): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let output = "";
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      child.stdout.off("data", onData);
+      child.off("error", onError);
+      child.off("exit", onExit);
+    };
+    const fail = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onData = (data: Buffer) => {
+      output += data.toString();
+      const port = parseOpenCodeListeningPort(output);
+      if (port !== null) {
+        cleanup();
+        resolve(port);
+      }
+    };
+    const onError = (error: Error) => fail(error);
+    const onExit = (code: number | null) =>
+      fail(new Error(`OpenCode exited during startup with code ${code}`));
+    const timeout = setTimeout(
+      () => fail(new Error("OpenCode did not report a listening port within 60 seconds")),
+      STARTUP_TIMEOUT_MS,
+    );
+
+    child.stdout.on("data", onData);
+    child.once("error", onError);
+    child.once("exit", onExit);
   });
 }
 
-async function findAvailablePort(): Promise<number> {
-  for (let offset = 0; offset < PORT_COUNT; offset++) {
-    const port = PORT_START + offset;
-    if (await canListen(port)) return port;
-  }
-  throw new Error(`No available port in ${PORT_START}-${PORT_START + PORT_COUNT - 1}`);
-}
-
-async function waitForSpawn(child: ChildProcessWithoutNullStreams): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
-  });
-}
-
-async function waitForHealth(child: ChildProcessWithoutNullStreams, port: number): Promise<void> {
+async function waitForHealth(
+  child: ChildProcessWithoutNullStreams,
+  port: number,
+  authorization: string,
+): Promise<void> {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
   const healthUrl = `http://${LOOPBACK}:${port}/global/health`;
 
@@ -67,7 +91,10 @@ async function waitForHealth(child: ChildProcessWithoutNullStreams, port: number
     }
 
     try {
-      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(2_000) });
+      const response = await fetch(healthUrl, {
+        headers: { Authorization: authorization },
+        signal: AbortSignal.timeout(2_000),
+      });
       if (response.ok) return;
     } catch {
       // The server is still starting. Retry until the explicit deadline.
@@ -80,7 +107,6 @@ async function waitForHealth(child: ChildProcessWithoutNullStreams, port: number
 }
 
 async function startOpenCode(options: OpenCodeOptions): Promise<OpenCodeResource> {
-  const port = await findAvailablePort();
   const { executable, version } = await ensureOpenCodeBinary({
     cacheDirectory: options.binaryCacheDirectory,
   });
@@ -102,9 +128,12 @@ async function startOpenCode(options: OpenCodeOptions): Promise<OpenCodeResource
     JSON.stringify(createOpenCodeConfig(), null, 2),
   );
 
+  const password = randomBytes(32).toString("base64url");
+  const authorization = `Basic ${Buffer.from(`${SERVER_USERNAME}:${password}`).toString("base64")}`;
+
   const child = spawn(
     executable,
-    ["serve", "--port", String(port), "--hostname", LOOPBACK, "--print-logs", "--log-level", "INFO"],
+    ["serve", "--port", "0", "--hostname", LOOPBACK, "--print-logs", "--log-level", "INFO"],
     {
       cwd: options.workspace,
       env: {
@@ -113,6 +142,8 @@ async function startOpenCode(options: OpenCodeOptions): Promise<OpenCodeResource
         XDG_CONFIG_HOME: xdgConfig,
         XDG_DATA_HOME: xdgData,
         XDG_STATE_HOME: xdgState,
+        OPENCODE_SERVER_PASSWORD: password,
+        OPENCODE_SERVER_USERNAME: SERVER_USERNAME,
       },
       stdio: "pipe",
       windowsHide: true,
@@ -123,14 +154,13 @@ async function startOpenCode(options: OpenCodeOptions): Promise<OpenCodeResource
   child.stderr.on("data", (data: Buffer) => console.error(`[opencode] ${data.toString().trimEnd()}`));
 
   try {
-    await waitForSpawn(child);
-    await waitForHealth(child, port);
+    const listeningPort = await waitForListeningPort(child);
+    await waitForHealth(child, listeningPort, authorization);
+    return { authorization, child, port: listeningPort, workspace: options.workspace };
   } catch (error) {
     child.kill("SIGKILL");
     throw error;
   }
-
-  return { child, port, workspace: options.workspace };
 }
 
 async function stopOpenCode(resource: OpenCodeResource): Promise<void> {
@@ -179,7 +209,11 @@ export function makeOpenCodeLayer(options: OpenCodeOptions) {
               }),
             );
           }
-          return Effect.succeed({ port: resource.port, workspace: resource.workspace });
+          return Effect.succeed({
+            authorization: resource.authorization,
+            port: resource.port,
+            workspace: resource.workspace,
+          });
         }),
       })),
     ),

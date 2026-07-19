@@ -57,16 +57,16 @@ export function OpenCodeClientProvider({
     let retryTimer: ReturnType<typeof setTimeout>;
 
     // The desktop service owns startup, its deadline, and process cleanup.
-    async function waitForPort(): Promise<[number, string]> {
-      const info = await desktop.getOpenCodeInfo();
-      return [info.port, info.workspace];
+    async function getServerInfo() {
+      return desktop.getOpenCodeInfo();
     }
 
     // Step 2: Poll the HTTP server until it responds.
-    async function waitForServer(baseUrl: string): Promise<void> {
+    async function waitForServer(baseUrl: string, authorization: string): Promise<void> {
       while (!cancelled) {
         try {
           const res = await fetch(`${baseUrl}/session`, {
+            headers: { Authorization: authorization },
             method: "GET",
             signal: AbortSignal.timeout(3000),
           });
@@ -83,14 +83,18 @@ export function OpenCodeClientProvider({
 
     async function init() {
       try {
-        const [ocPort, workspace] = await waitForPort();
+        const { port: ocPort, workspace, authorization } = await getServerInfo();
         if (cancelled) return;
 
         const baseUrl = `http://127.0.0.1:${ocPort}`;
-        await waitForServer(baseUrl);
+        await waitForServer(baseUrl, authorization);
         if (cancelled) return;
 
-        const newClient = createOpencodeClient({ baseUrl, directory: workspace });
+        const newClient = createOpencodeClient({
+          baseUrl,
+          directory: workspace,
+          headers: { Authorization: authorization },
+        });
         await prefetchServerState(newClient, queryClient);
         if (cancelled) return;
 

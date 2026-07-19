@@ -7,6 +7,7 @@ import { autoUpdater } from "electron-updater";
 import { Effect, ManagedRuntime } from "effect";
 
 import type { AppConfig } from "../src/types/desktop";
+import { shouldQuitAfterLastWindowCloses } from "./appLifecycle";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 
@@ -131,7 +132,7 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (shouldQuitAfterLastWindowCloses(process.platform, app.isPackaged)) app.quit();
 });
 
 app.on("before-quit", (event) => {

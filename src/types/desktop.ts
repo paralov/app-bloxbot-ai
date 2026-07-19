@@ -4,6 +4,7 @@ export interface AppConfig {
 }
 
 export interface OpenCodeInfo {
+  authorization: string;
   port: number;
   workspace: string;
 }
