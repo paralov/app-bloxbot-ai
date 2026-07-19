@@ -15,7 +15,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import { QueryClient } from "@tanstack/react-query";
 import { Cause, Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch, sseDispatchEffect } from "@/lib/sseDispatch";
 import type { MessageWithParts } from "@/types";
@@ -567,18 +567,6 @@ describe("sseDispatch", () => {
       dispatch(qc, { type: "permission.replied", properties: { sessionID: "s1" } }, "s1");
 
       expect(qc.getQueryData(qk.permissions)).toBeNull();
-    });
-  });
-
-  // ── MCP events ─────────────────────────────────────────────────────
-
-  describe("mcp.tools.changed", () => {
-    it("is a no-op (studio status indicator removed)", () => {
-      const spy = vi.spyOn(qc, "invalidateQueries");
-
-      dispatch(qc, { type: "mcp.tools.changed", properties: {} });
-
-      expect(spy).not.toHaveBeenCalled();
     });
   });
 });

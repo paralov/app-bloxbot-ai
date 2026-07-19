@@ -10,10 +10,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { qk } from "@/lib/queryKeys";
-import type { MessagesCache } from "@/lib/sseDispatch";
 import ChatInput from "@/components/ChatInput";
 import { Toaster } from "@/components/ui/sonner";
+import { qk } from "@/lib/queryKeys";
+import type { MessagesCache } from "@/lib/sseDispatch";
 import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
@@ -21,7 +21,13 @@ import { PreferencesProvider } from "@/providers/PreferencesProvider";
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function makeSession(id: string, title: string): Session {
-  return { id, title, time: { created: Date.now(), updated: Date.now() }, version: 1, parentID: "" } as Session;
+  return {
+    id,
+    title,
+    time: { created: Date.now(), updated: Date.now() },
+    version: 1,
+    parentID: "",
+  } as Session;
 }
 
 function createClient(overrides: Record<string, unknown> = {}) {
@@ -43,7 +49,14 @@ function createClient(overrides: Record<string, unknown> = {}) {
       list: vi.fn().mockResolvedValue({
         data: {
           all: [
-            { id: "anthropic", name: "Anthropic", env: [], models: { "claude-3.5-sonnet": { id: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet" } } },
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              env: [],
+              models: {
+                "claude-3.5-sonnet": { id: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet" },
+              },
+            },
           ],
           connected: ["anthropic"],
           default: { anthropic: "claude-3.5-sonnet" },
@@ -74,7 +87,12 @@ function seedState(qc: QueryClient, session: Session) {
   qc.setQueryData(qk.agents, []);
   qc.setQueryData(qk.providers, {
     all: [
-      { id: "anthropic", name: "Anthropic", env: [], models: { "claude-3.5-sonnet": { id: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet" } } },
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        env: [],
+        models: { "claude-3.5-sonnet": { id: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet" } },
+      },
     ],
     connected: ["anthropic"],
     default: { anthropic: "claude-3.5-sonnet" },
@@ -111,7 +129,13 @@ function TestChatInput({
   return (
     <QueryClientProvider client={queryClient}>
       <OpenCodeClientContext.Provider
-        value={{ client: client as never, status: clientStatus as "waiting" | "ready" | "error", port: 4096, ready: clientStatus === "ready", initError: null }}
+        value={{
+          client: client as never,
+          status: clientStatus as "waiting" | "ready" | "error",
+          port: 4096,
+          ready: clientStatus === "ready",
+          initError: null,
+        }}
       >
         <ActiveSessionContext.Provider
           value={{
@@ -144,17 +168,6 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("ChatInput", () => {
-  it("renders the textarea and send button", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    const textarea = await screen.findByPlaceholderText("Describe what you want to build...");
-    expect(textarea).toBeInTheDocument();
-    expect(screen.getByTitle("Send")).toBeInTheDocument();
-  });
-
   it("sends a text message on submit", async () => {
     const client = createClient();
     const qc = createQueryClient();
@@ -226,7 +239,9 @@ describe("ChatInput", () => {
 
     render(<TestChatInput client={client} queryClient={qc} />);
 
-    const textarea = await screen.findByPlaceholderText("Describe what you want to build...") as HTMLTextAreaElement;
+    const textarea = (await screen.findByPlaceholderText(
+      "Describe what you want to build...",
+    )) as HTMLTextAreaElement;
 
     await act(async () => {
       fireEvent.change(textarea, { target: { value: "Test message" } });
@@ -316,12 +331,40 @@ describe("ChatInput", () => {
     });
   });
 
-  it("has an attach images button", async () => {
+  it("attaches an image to the submitted message", async () => {
     const client = createClient();
     const qc = createQueryClient();
 
-    render(<TestChatInput client={client} queryClient={qc} />);
+    const { container } = render(<TestChatInput client={client} queryClient={qc} />);
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+    if (!fileInput) throw new Error("Image file input was not rendered");
 
-    expect(await screen.findByTitle("Attach images")).toBeInTheDocument();
+    const image = new File(["image contents"], "reference.png", { type: "image/png" });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [image] } });
+    });
+
+    expect(await screen.findByText("reference.png")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce());
+    expect(client.session.promptAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionID: "s1",
+        parts: [
+          { type: "text", text: " " },
+          {
+            type: "file",
+            mime: "image/png",
+            url: expect.stringMatching(/^data:image\/png;base64,/),
+            filename: "reference.png",
+          },
+        ],
+      }),
+    );
   });
 });

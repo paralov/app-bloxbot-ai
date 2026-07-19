@@ -1,18 +1,30 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldQuitAfterLastWindowCloses } from "../../electron/appLifecycle";
+import { handleLastWindowClosed } from "../../electron/appLifecycle";
 
 describe("app lifecycle", () => {
-  it("quits when the last development window closes on macOS", () => {
-    expect(shouldQuitAfterLastWindowCloses("darwin", false)).toBe(true);
+  it("hides the Dock icon before quitting on macOS", () => {
+    const actions: string[] = [];
+
+    handleLastWindowClosed("darwin", {
+      hideDock: () => actions.push("hide Dock"),
+      quit: () => actions.push("quit"),
+    });
+
+    expect(actions).toEqual(["hide Dock", "quit"]);
   });
 
-  it("keeps the native macOS lifecycle for packaged builds", () => {
-    expect(shouldQuitAfterLastWindowCloses("darwin", true)).toBe(false);
-  });
+  it.each([
+    "linux",
+    "win32",
+  ] as const)("quits without trying to hide a Dock icon on %s", (platform) => {
+    const actions: string[] = [];
 
-  it("quits when the last window closes on other platforms", () => {
-    expect(shouldQuitAfterLastWindowCloses("linux", true)).toBe(true);
-    expect(shouldQuitAfterLastWindowCloses("win32", true)).toBe(true);
+    handleLastWindowClosed(platform, {
+      hideDock: () => actions.push("hide Dock"),
+      quit: () => actions.push("quit"),
+    });
+
+    expect(actions).toEqual(["quit"]);
   });
 });

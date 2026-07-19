@@ -11,7 +11,7 @@ import {
   AppConfigPatchSchema,
   AppConfigSchema,
 } from "../src/types/desktop";
-import { shouldQuitAfterLastWindowCloses } from "./appLifecycle";
+import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 
@@ -249,7 +249,10 @@ const registerAppLifecycle = Effect.sync(() => {
   app.on("window-all-closed", () =>
     Effect.runSync(
       Effect.sync(() => {
-        if (shouldQuitAfterLastWindowCloses(process.platform, app.isPackaged)) app.quit();
+        handleLastWindowClosed(process.platform, {
+          hideDock: () => app.dock?.hide(),
+          quit: () => app.quit(),
+        });
       }),
     ),
   );

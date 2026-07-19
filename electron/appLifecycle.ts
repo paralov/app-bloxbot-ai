@@ -1,6 +1,12 @@
-export function shouldQuitAfterLastWindowCloses(
+interface LastWindowCloseActions {
+  readonly hideDock: () => void;
+  readonly quit: () => void;
+}
+
+export function handleLastWindowClosed(
   platform: NodeJS.Platform,
-  isPackaged: boolean,
-): boolean {
-  return platform !== "darwin" || !isPackaged;
+  actions: LastWindowCloseActions,
+): void {
+  if (platform === "darwin") actions.hideDock();
+  actions.quit();
 }
