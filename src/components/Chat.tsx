@@ -1,12 +1,14 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
 import ChatSidebar from "@/components/ChatSidebar";
 import LoadingScreen from "@/components/LoadingScreen";
+import StudioSetup from "@/components/StudioSetup";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
+import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
@@ -18,12 +20,18 @@ function Chat() {
   const isBusy = useIsBusy(activeSessionId);
   const createSession = useCreateSession();
   const { data: allSessions } = useSessions();
+  const studioConnection = useStudioConnection();
 
   // Get active session title from the sessions list
   const activeSessionTitle = allSessions?.find((s) => s.id === activeSessionId)?.title ?? null;
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showStudioSetup, setShowStudioSetup] = useState(false);
+
+  useEffect(() => {
+    if (studioConnection.state === "waiting") setShowStudioSetup(true);
+  }, [studioConnection.state]);
 
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
@@ -40,7 +48,16 @@ function Chat() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {showSettings ? (
+        {showStudioSetup || studioConnection.state === "waiting" ? (
+          <StudioSetup
+            connected={studioConnection.state === "connected"}
+            checking={studioConnection.checking}
+            onCheck={() => studioConnection.checkAgain()}
+            onContinue={() => setShowStudioSetup(false)}
+          />
+        ) : studioConnection.state === "checking" ? (
+          <LoadingScreen message="Finding Roblox Studio" animation="dots" />
+        ) : showSettings ? (
           <Suspense fallback={<LoadingScreen message="Loading settings..." />}>
             <Settings onClose={handleSessionSelect} />
           </Suspense>
@@ -53,8 +70,7 @@ function Chat() {
                 What would you like to build?
               </h2>
               <p className="mt-2 max-w-md text-xs text-muted-foreground">
-                Create a new session or pick one from the sidebar to continue where you left
-                off.
+                Create a new session or pick one from the sidebar to continue where you left off.
               </p>
               <button
                 onClick={() => createSession.mutate()}

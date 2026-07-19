@@ -9,4 +9,5 @@ export const qk = {
   questions: ["questions"] as const,
   permissions: ["permissions"] as const,
   config: ["config"] as const,
+  studioConnection: ["studio-connection"] as const,
 };

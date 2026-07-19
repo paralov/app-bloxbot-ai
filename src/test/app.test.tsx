@@ -147,7 +147,13 @@ function createClient(overrides: Record<string, unknown> = {}) {
     },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
     app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
-    mcp: { connect: vi.fn(), disconnect: vi.fn() },
+    mcp: {
+      status: vi.fn().mockResolvedValue({
+        data: { "roblox-studio": { status: "connected" } },
+      }),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    },
     instance: { dispose: vi.fn() },
   };
 }
@@ -165,10 +171,7 @@ function createQueryClient() {
 }
 
 /** Seed the query cache with the minimum state the app needs to be "ready" */
-function seedReadyState(
-  queryClient: QueryClient,
-  opts: { sessions?: Session[] } = {},
-) {
+function seedReadyState(queryClient: QueryClient, opts: { sessions?: Session[] } = {}) {
   const sessions = opts.sessions ?? [];
 
   queryClient.setQueryData(qk.sessions, sessions);
@@ -207,6 +210,30 @@ afterEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("User journeys", () => {
+  it("guides the user until Roblox Studio connects", async () => {
+    const client = createClient();
+    const studioStatus = vi
+      .fn()
+      .mockResolvedValue({ data: { "roblox-studio": { status: "failed" } } });
+    client.mcp.status = studioStatus;
+    client.mcp.connect = vi.fn().mockResolvedValue({});
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient);
+
+    render(<TestApp client={client} queryClient={queryClient} />);
+
+    expect(await screen.findByRole("heading", { name: "Let's connect Studio" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    studioStatus.mockResolvedValue({
+      data: { "roblox-studio": { status: "connected" } },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+
+    expect(await screen.findByRole("heading", { name: "Studio connected" })).toBeVisible();
+  });
+
   it("creates a session and shows the chat interface", async () => {
     const newSession = makeSession("s1", "New Session");
     const client = createClient({
