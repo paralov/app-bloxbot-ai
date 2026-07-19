@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import {
   chmod,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
   rename,
@@ -12,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 
+import { Data, Effect, Schema } from "effect";
 import extractZip from "extract-zip";
 import { x as extractTar } from "tar";
 
@@ -22,18 +24,27 @@ const RELEASES_PER_PAGE = 100;
 const LOOKUP_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
-interface GitHubAsset {
-  name: string;
-  browser_download_url: string;
-  digest?: string | null;
-}
+const GitHubAssetSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    browser_download_url: Schema.String,
+    digest: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+);
 
-export interface GitHubRelease {
-  tag_name: string;
-  draft: boolean;
-  prerelease: boolean;
-  assets: GitHubAsset[];
-}
+const GitHubReleaseSchema = Schema.mutable(
+  Schema.Struct({
+    tag_name: Schema.String,
+    draft: Schema.Boolean,
+    prerelease: Schema.Boolean,
+    assets: Schema.mutable(Schema.Array(GitHubAssetSchema)),
+  }),
+);
+
+const GitHubReleasesSchema = Schema.mutable(Schema.Array(GitHubReleaseSchema));
+
+export type GitHubRelease = typeof GitHubReleaseSchema.Type;
+type GitHubAsset = typeof GitHubAssetSchema.Type;
 
 interface Version {
   major: number;
@@ -54,20 +65,29 @@ interface CompatibleRelease {
   archiveSha256: string;
 }
 
-interface CacheMetadata {
-  schemaVersion: 1;
-  version: string;
-  platform: NodeJS.Platform;
-  arch: string;
-  assetName: string;
-  archiveSha256: string;
-  binarySha256: string;
-}
+const CacheMetadataSchema = Schema.mutable(
+  Schema.Struct({
+    schemaVersion: Schema.Literal(1),
+    version: Schema.String,
+    platform: Schema.String,
+    arch: Schema.String,
+    assetName: Schema.String,
+    archiveSha256: Schema.String,
+    binarySha256: Schema.String,
+  }),
+);
+
+type CacheMetadata = typeof CacheMetadataSchema.Type;
 
 export interface OpenCodeBinary {
   executable: string;
   version: string;
 }
+
+export class OpenCodeBinaryError extends Data.TaggedError("OpenCodeBinaryError")<{
+  message: string;
+  cause?: unknown;
+}> {}
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type ExtractArchive = (
@@ -83,6 +103,15 @@ export interface OpenCodeBinaryOptions {
   fetch?: Fetch;
   extractArchive?: ExtractArchive;
 }
+
+const fail = (message: string, cause?: unknown) =>
+  Effect.fail(new OpenCodeBinaryError({ message, cause }));
+
+const tryPromise = <A>(message: string, evaluate: (signal: AbortSignal) => PromiseLike<A>) =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new OpenCodeBinaryError({ message, cause }),
+  });
 
 function parseVersion(tag: string): Version | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(tag);
@@ -101,36 +130,39 @@ function compareVersions(left: Version, right: Version): number {
   return left.major - right.major || left.minor - right.minor || left.patch - right.patch;
 }
 
-export function getOpenCodeAssetSpec(platform: NodeJS.Platform, arch: string): AssetSpec {
+export function getOpenCodeAssetSpec(
+  platform: NodeJS.Platform,
+  arch: string,
+): Effect.Effect<AssetSpec, OpenCodeBinaryError> {
   if (platform === "darwin" && arch === "arm64") {
-    return {
+    return Effect.succeed({
       archiveName: "opencode-darwin-arm64.zip",
       executableName: "opencode",
       format: "zip",
-    };
+    });
   }
   if (platform === "darwin" && arch === "x64") {
-    return {
+    return Effect.succeed({
       archiveName: "opencode-darwin-x64.zip",
       executableName: "opencode",
       format: "zip",
-    };
+    });
   }
   if (platform === "win32" && arch === "x64") {
-    return {
+    return Effect.succeed({
       archiveName: "opencode-windows-x64.zip",
       executableName: "opencode.exe",
       format: "zip",
-    };
+    });
   }
   if (platform === "linux" && arch === "x64") {
-    return {
+    return Effect.succeed({
       archiveName: "opencode-linux-x64.tar.gz",
       executableName: "opencode",
       format: "tar.gz",
-    };
+    });
   }
-  throw new Error(`OpenCode does not provide a supported binary for ${platform}/${arch}`);
+  return fail(`OpenCode does not provide a supported binary for ${platform}/${arch}`);
 }
 
 export function selectCompatibleRelease(
@@ -153,69 +185,101 @@ export function selectCompatibleRelease(
   return candidates.sort((left, right) => compareVersions(right.version, left.version))[0] ?? null;
 }
 
-async function findCompatibleRelease(fetchFn: Fetch, archiveName: string): Promise<CompatibleRelease> {
-  for (let page = 1; page <= 10; page++) {
-    const response = await fetchFn(
-      `${OPEN_CODE_API}?per_page=${RELEASES_PER_PAGE}&page=${page}`,
-      {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "User-Agent": "BloxBot",
-          "X-GitHub-Api-Version": "2022-11-28",
+function findCompatibleRelease(fetchFn: Fetch, archiveName: string) {
+  return Effect.gen(function* () {
+    for (let page = 1; page <= 10; page++) {
+      const { releasesJson, response } = yield* tryPromise(
+        "GitHub release lookup failed",
+        async (signal) => {
+          const response = await fetchFn(`${OPEN_CODE_API}?per_page=${RELEASES_PER_PAGE}&page=${page}`, {
+          headers: {
+            Accept: "application/vnd.github+json",
+            "User-Agent": "BloxBot",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+          signal: AbortSignal.any([signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]),
+          });
+          return {
+            releasesJson: response.ok ? await response.json() : undefined,
+            response,
+          };
         },
-        signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`GitHub release lookup failed with HTTP ${response.status}`);
+      );
+      if (!response.ok) {
+        return yield* fail(`GitHub release lookup failed with HTTP ${response.status}`);
+      }
+
+      const releases = yield* Schema.decodeUnknown(GitHubReleasesSchema)(releasesJson).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OpenCodeBinaryError({ message: "GitHub returned an invalid release list", cause }),
+        ),
+      );
+
+      const release = selectCompatibleRelease(releases, archiveName);
+      if (release) return release;
+      if (releases.length < RELEASES_PER_PAGE) break;
     }
 
-    const releases = (await response.json()) as GitHubRelease[];
-    if (!Array.isArray(releases)) throw new Error("GitHub returned an invalid release list");
-    const release = selectCompatibleRelease(releases, archiveName);
-    if (release) return release;
-    if (releases.length < RELEASES_PER_PAGE) break;
-  }
-
-  throw new Error(`No stable OpenCode ${SUPPORTED_MAJOR}.x.x release is available for ${archiveName}`);
-}
-
-async function sha256File(path: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash("sha256");
-    const stream = createReadStream(path);
-    stream.on("error", reject);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("hex")));
+    return yield* fail(
+      `No stable OpenCode ${SUPPORTED_MAJOR}.x.x release is available for ${archiveName}`,
+    );
   });
 }
 
-function isCacheMetadata(value: unknown): value is CacheMetadata {
-  if (!value || typeof value !== "object") return false;
-  const metadata = value as Partial<CacheMetadata>;
-  return (
-    metadata.schemaVersion === 1 &&
-    typeof metadata.version === "string" &&
-    typeof metadata.platform === "string" &&
-    typeof metadata.arch === "string" &&
-    typeof metadata.assetName === "string" &&
-    typeof metadata.archiveSha256 === "string" &&
-    typeof metadata.binarySha256 === "string"
-  );
+function sha256File(path: string): Effect.Effect<string, OpenCodeBinaryError> {
+  return Effect.async<string, OpenCodeBinaryError>((resume) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    const cleanup = () => {
+      stream.off("error", onError);
+      stream.off("data", onData);
+      stream.off("end", onEnd);
+    };
+    const onError = (cause: Error) => {
+      cleanup();
+      resume(Effect.fail(new OpenCodeBinaryError({ message: `Failed to hash ${path}`, cause })));
+    };
+    const onData = (chunk: Buffer) => hash.update(chunk);
+    const onEnd = () => {
+      cleanup();
+      resume(Effect.succeed(hash.digest("hex")));
+    };
+
+    stream.once("error", onError);
+    stream.on("data", onData);
+    stream.once("end", onEnd);
+
+    return Effect.sync(() => {
+      cleanup();
+      stream.destroy();
+    });
+  });
 }
 
-async function readValidCachedBinary(
+function readValidCachedBinary(
   versionDirectory: string,
   platform: NodeJS.Platform,
   arch: string,
   spec: AssetSpec,
   expected?: CompatibleRelease,
-): Promise<OpenCodeBinary | null> {
-  try {
-    const metadata = JSON.parse(
-      await readFile(join(versionDirectory, "metadata.json"), "utf8"),
-    ) as unknown;
-    if (!isCacheMetadata(metadata) || !parseVersion(metadata.version)) return null;
+): Effect.Effect<OpenCodeBinary | null, never> {
+  return Effect.gen(function* () {
+    const contents = yield* tryPromise("Failed to read cached OpenCode metadata", () =>
+      readFile(join(versionDirectory, "metadata.json"), "utf8"),
+    );
+    const metadataJson = yield* Effect.try({
+      try: () => JSON.parse(contents) as unknown,
+      catch: (cause) =>
+        new OpenCodeBinaryError({ message: "Cached OpenCode metadata is invalid JSON", cause }),
+    });
+    const metadata = yield* Schema.decodeUnknown(CacheMetadataSchema)(metadataJson).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OpenCodeBinaryError({ message: "Cached OpenCode metadata is invalid", cause }),
+      ),
+    );
+    if (!parseVersion(metadata.version)) return null;
     if (metadata.platform !== platform || metadata.arch !== arch) return null;
     if (metadata.assetName !== spec.archiveName) return null;
     if (
@@ -227,59 +291,55 @@ async function readValidCachedBinary(
     }
 
     const executable = join(versionDirectory, spec.executableName);
-    if (!(await stat(executable)).isFile()) return null;
-    if ((await sha256File(executable)) !== metadata.binarySha256) return null;
-    if (platform !== "win32") await chmod(executable, 0o755);
+    const executableStat = yield* tryPromise("Failed to inspect cached OpenCode binary", () =>
+      stat(executable),
+    );
+    if (!executableStat.isFile()) return null;
+    if ((yield* sha256File(executable)) !== metadata.binarySha256) return null;
+    if (platform !== "win32") {
+      yield* tryPromise("Failed to make the cached OpenCode binary executable", () =>
+        chmod(executable, 0o755),
+      );
+    }
     return { executable, version: metadata.version };
-  } catch {
-    return null;
-  }
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
-async function findNewestCachedBinary(
+function findNewestCachedBinary(
   platformDirectory: string,
   platform: NodeJS.Platform,
   arch: string,
   spec: AssetSpec,
-): Promise<OpenCodeBinary | null> {
-  let entries;
-  try {
-    entries = await readdir(platformDirectory, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-
-  const versions = entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => parseVersion(entry.name))
-    .filter((version): version is Version => version !== null)
-    .sort((left, right) => compareVersions(right, left));
-
-  for (const version of versions) {
-    const cached = await readValidCachedBinary(
-      join(platformDirectory, version.value),
-      platform,
-      arch,
-      spec,
+): Effect.Effect<OpenCodeBinary | null, never> {
+  return Effect.gen(function* () {
+    const entries = yield* tryPromise("Failed to inspect the OpenCode cache", () =>
+      readdir(platformDirectory, { withFileTypes: true }),
     );
-    if (cached) return cached;
-  }
-  return null;
+    const versions = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => parseVersion(entry.name))
+      .filter((version): version is Version => version !== null)
+      .sort((left, right) => compareVersions(right, left));
+
+    for (const version of versions) {
+      const cached = yield* readValidCachedBinary(
+        join(platformDirectory, version.value),
+        platform,
+        arch,
+        spec,
+      );
+      if (cached) return cached;
+    }
+    return null;
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
-async function defaultExtractArchive(
-  archivePath: string,
-  destination: string,
-  format: AssetSpec["format"],
-): Promise<void> {
-  if (format === "zip") {
-    await extractZip(archivePath, { dir: destination });
-    return;
-  }
-  await extractTar({ file: archivePath, cwd: destination, strict: true });
-}
+const defaultExtractArchive: ExtractArchive = (archivePath, destination, format) =>
+  format === "zip"
+    ? extractZip(archivePath, { dir: destination })
+    : extractTar({ file: archivePath, cwd: destination, strict: true });
 
-async function installRelease(
+function installRelease(
   platformDirectory: string,
   platform: NodeJS.Platform,
   arch: string,
@@ -287,114 +347,186 @@ async function installRelease(
   release: CompatibleRelease,
   fetchFn: Fetch,
   extractArchive: ExtractArchive,
-): Promise<OpenCodeBinary> {
-  const temporaryDirectory = join(
-    platformDirectory,
-    `.download-${process.pid}-${Date.now()}`,
-  );
-  const installDirectory = join(temporaryDirectory, "install");
-  const archivePath = join(temporaryDirectory, spec.archiveName);
-  const versionDirectory = join(platformDirectory, release.version.value);
-
-  await mkdir(installDirectory, { recursive: true });
-  try {
-    const response = await fetchFn(release.asset.browser_download_url, {
-      headers: { "User-Agent": "BloxBot" },
-      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-    });
-    if (!response.ok) throw new Error(`OpenCode download failed with HTTP ${response.status}`);
-
-    const archive = Buffer.from(await response.arrayBuffer());
-    const archiveSha256 = createHash("sha256").update(archive).digest("hex");
-    if (archiveSha256 !== release.archiveSha256) {
-      throw new Error("The downloaded OpenCode archive failed SHA-256 verification");
-    }
-    await writeFile(archivePath, archive);
-    await extractArchive(archivePath, installDirectory, spec.format);
-
-    const executable = join(installDirectory, spec.executableName);
-    if (!(await stat(executable)).isFile()) {
-      throw new Error(`The OpenCode archive did not contain ${spec.executableName}`);
-    }
-    if (platform !== "win32") await chmod(executable, 0o755);
-
-    const metadata: CacheMetadata = {
-      schemaVersion: 1,
-      version: release.version.value,
-      platform,
-      arch,
-      assetName: spec.archiveName,
-      archiveSha256,
-      binarySha256: await sha256File(executable),
-    };
-    await writeFile(join(installDirectory, "metadata.json"), JSON.stringify(metadata, null, 2));
-
-    await rm(versionDirectory, { recursive: true, force: true });
-    await rename(installDirectory, versionDirectory);
-    return { executable: join(versionDirectory, spec.executableName), version: release.version.value };
-  } finally {
-    await rm(temporaryDirectory, { recursive: true, force: true });
-  }
-}
-
-async function pruneCache(platformDirectory: string, keep = 2): Promise<void> {
-  const entries = await readdir(platformDirectory, { withFileTypes: true });
-  const versions = entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => parseVersion(entry.name))
-    .filter((version): version is Version => version !== null)
-    .sort((left, right) => compareVersions(right, left));
-
-  await Promise.all(
-    versions.slice(keep).map((version) =>
-      rm(join(platformDirectory, version.value), { recursive: true, force: true }),
+): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
+  return Effect.acquireUseRelease(
+    tryPromise(
+      "Failed to create a temporary OpenCode directory",
+      () => mkdtemp(join(platformDirectory, ".download-")),
     ),
+    (temporaryDirectory) => {
+      const installDirectory = join(temporaryDirectory, "install");
+      const archivePath = join(temporaryDirectory, spec.archiveName);
+      const versionDirectory = join(platformDirectory, release.version.value);
+
+      return Effect.gen(function* () {
+        yield* tryPromise("Failed to create the OpenCode installation directory", () =>
+          mkdir(installDirectory, { recursive: true }),
+        );
+        const { archiveBuffer, response } = yield* tryPromise(
+          "OpenCode download failed",
+          async (signal) => {
+            const response = await fetchFn(release.asset.browser_download_url, {
+              headers: { "User-Agent": "BloxBot" },
+              signal: AbortSignal.any([signal, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)]),
+            });
+            return {
+              archiveBuffer: response.ok ? await response.arrayBuffer() : undefined,
+              response,
+            };
+          },
+        );
+        if (!response.ok) {
+          return yield* fail(`OpenCode download failed with HTTP ${response.status}`);
+        }
+        if (archiveBuffer === undefined) {
+          return yield* fail("OpenCode returned an unreadable download");
+        }
+
+        const archive = Buffer.from(archiveBuffer);
+        const archiveSha256 = createHash("sha256").update(archive).digest("hex");
+        if (archiveSha256 !== release.archiveSha256) {
+          return yield* fail("The downloaded OpenCode archive failed SHA-256 verification");
+        }
+
+        // Node filesystem and archive APIs do not accept AbortSignal. Mask this
+        // publish phase so interruption cannot race cleanup against in-flight writes.
+        return yield* Effect.uninterruptible(
+          Effect.gen(function* () {
+            yield* tryPromise("Failed to write the OpenCode archive", () =>
+              writeFile(archivePath, archive),
+            );
+            yield* tryPromise("Failed to extract the OpenCode archive", () =>
+              extractArchive(archivePath, installDirectory, spec.format),
+            );
+
+            const executable = join(installDirectory, spec.executableName);
+            const executableStat = yield* tryPromise(
+              "Failed to inspect the extracted OpenCode binary",
+              () => stat(executable),
+            );
+            if (!executableStat.isFile()) {
+              return yield* fail(`The OpenCode archive did not contain ${spec.executableName}`);
+            }
+            if (platform !== "win32") {
+              yield* tryPromise("Failed to make the OpenCode binary executable", () =>
+                chmod(executable, 0o755),
+              );
+            }
+
+            const metadata: CacheMetadata = {
+              schemaVersion: 1,
+              version: release.version.value,
+              platform,
+              arch,
+              assetName: spec.archiveName,
+              archiveSha256,
+              binarySha256: yield* sha256File(executable),
+            };
+            yield* tryPromise("Failed to write OpenCode cache metadata", () =>
+              writeFile(
+                join(installDirectory, "metadata.json"),
+                JSON.stringify(metadata, null, 2),
+              ),
+            );
+            yield* tryPromise("Failed to replace the cached OpenCode version", () =>
+              rm(versionDirectory, { recursive: true, force: true }),
+            );
+            yield* tryPromise("Failed to publish the OpenCode installation", () =>
+              rename(installDirectory, versionDirectory),
+            );
+            return {
+              executable: join(versionDirectory, spec.executableName),
+              version: release.version.value,
+            };
+          }),
+        );
+      });
+    },
+    (temporaryDirectory) =>
+      tryPromise("Failed to remove the temporary OpenCode directory", () =>
+        rm(temporaryDirectory, { recursive: true, force: true }),
+      ).pipe(Effect.catchAll((error) => Effect.logWarning(error.message, error.cause))),
   );
 }
 
-export async function ensureOpenCodeBinary(
+function pruneCache(platformDirectory: string, keep = 2) {
+  return Effect.gen(function* () {
+    const entries = yield* tryPromise("Failed to inspect the OpenCode cache", () =>
+      readdir(platformDirectory, { withFileTypes: true }),
+    );
+    const versions = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => parseVersion(entry.name))
+      .filter((version): version is Version => version !== null)
+      .sort((left, right) => compareVersions(right, left));
+
+    yield* Effect.all(
+      versions.slice(keep).map((version) =>
+        tryPromise(`Failed to prune cached OpenCode v${version.value}`, () =>
+          rm(join(platformDirectory, version.value), { recursive: true, force: true }),
+        ),
+      ),
+      { concurrency: 4, discard: true },
+    );
+  });
+}
+
+export function ensureOpenCodeBinary(
   options: OpenCodeBinaryOptions,
-): Promise<OpenCodeBinary> {
+): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
   const fetchFn = options.fetch ?? fetch;
   const extractArchive = options.extractArchive ?? defaultExtractArchive;
-  const spec = getOpenCodeAssetSpec(platform, arch);
   const platformDirectory = join(options.cacheDirectory, `${platform}-${arch}`);
-  await mkdir(platformDirectory, { recursive: true });
 
-  try {
-    const release = await findCompatibleRelease(fetchFn, spec.archiveName);
-    const versionDirectory = join(platformDirectory, release.version.value);
-    const cached = await readValidCachedBinary(
-      versionDirectory,
-      platform,
-      arch,
-      spec,
-      release,
+  return Effect.gen(function* () {
+    const spec = yield* getOpenCodeAssetSpec(platform, arch);
+    yield* tryPromise("Failed to create the OpenCode cache directory", () =>
+      mkdir(platformDirectory, { recursive: true }),
     );
-    const binary =
-      cached ??
-      (await installRelease(
-        platformDirectory,
+
+    const onlineInstall = Effect.gen(function* () {
+      const release = yield* findCompatibleRelease(fetchFn, spec.archiveName);
+      const versionDirectory = join(platformDirectory, release.version.value);
+      const cached = yield* readValidCachedBinary(
+        versionDirectory,
         platform,
         arch,
         spec,
         release,
-        fetchFn,
-        extractArchive,
-      ));
-    await pruneCache(platformDirectory);
-    return binary;
-  } catch (cause) {
-    const cached = await findNewestCachedBinary(platformDirectory, platform, arch, spec);
-    if (cached) {
-      console.warn(`[opencode] Update check failed; using cached v${cached.version}`, cause);
-      return cached;
-    }
-    throw new Error(
-      `Unable to download a verified OpenCode ${SUPPORTED_MAJOR}.x.x release and no cached copy is available`,
-      { cause },
+      );
+      const binary =
+        cached ??
+        (yield* installRelease(
+          platformDirectory,
+          platform,
+          arch,
+          spec,
+          release,
+          fetchFn,
+          extractArchive,
+        ));
+      yield* pruneCache(platformDirectory);
+      return binary;
+    });
+
+    return yield* onlineInstall.pipe(
+      Effect.catchAll((cause) =>
+        findNewestCachedBinary(platformDirectory, platform, arch, spec).pipe(
+          Effect.flatMap((cached) =>
+            cached
+              ? Effect.logWarning(
+                  `[opencode] Update check failed; using cached v${cached.version}`,
+                  cause,
+                ).pipe(Effect.as(cached))
+              : fail(
+                  `Unable to download a verified OpenCode ${SUPPORTED_MAJOR}.x.x release and no cached copy is available`,
+                  cause,
+                ),
+          ),
+        ),
+      ),
     );
-  }
+  });
 }

@@ -1,25 +1,25 @@
 import { join } from "node:path";
 
-function studioMcpCommand(): string[] {
-  if (process.platform === "darwin") {
+function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): string[] {
+  if (platform === "darwin") {
     return ["/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP"];
   }
 
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA ?? "C:\\Users\\Default\\AppData\\Local";
-    return ["cmd.exe", "/c", join(localAppData, "Roblox", "mcp.bat")];
+  if (platform === "win32") {
+    const dataDirectory = localAppData ?? "C:\\Users\\Default\\AppData\\Local";
+    return ["cmd.exe", "/c", join(dataDirectory, "Roblox", "mcp.bat")];
   }
 
   return ["studio-mcp"];
 }
 
-export function createOpenCodeConfig() {
+export function createOpenCodeConfig(platform: NodeJS.Platform, localAppData?: string) {
   return {
     plugin: ["opencode-gemini-auth@latest"],
     mcp: {
       "roblox-studio": {
         type: "local",
-        command: studioMcpCommand(),
+        command: studioMcpCommand(platform, localAppData),
         enabled: true,
       },
     },

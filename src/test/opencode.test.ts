@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { findOpenCodeListeningPort } from "../../electron/services/OpenCode";
@@ -12,19 +13,34 @@ describe("OpenCode server startup", () => {
   };
 
   it("finds the loopback TCP listener owned by the OpenCode process", () => {
-    expect(findOpenCodeListeningPort([connection], 1234)).toBe(54321);
+    expect(Effect.runSync(findOpenCodeListeningPort([connection], 1234))).toBe(54321);
   });
 
   it("ignores connections that do not belong to the OpenCode listener", () => {
     expect(
-      findOpenCodeListeningPort(
-        [
-          { ...connection, pid: 9999 },
-          { ...connection, state: "ESTABLISHED" },
-          { ...connection, localAddress: "0.0.0.0" },
-        ],
-        1234,
+      Effect.runSync(
+        findOpenCodeListeningPort(
+          [
+            { ...connection, pid: 9999 },
+            { ...connection, state: "ESTABLISHED" },
+            { ...connection, localAddress: "0.0.0.0" },
+          ],
+          1234,
+        ),
       ),
     ).toBeNull();
+  });
+
+  it("fails with a typed Effect error when the process owns multiple listeners", () => {
+    const result = Effect.runSync(
+      Effect.either(
+        findOpenCodeListeningPort([connection, { ...connection, localPort: "54322" }], 1234),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: { _tag: "OpenCodeError", message: expect.stringContaining("multiple loopback ports") },
+    });
   });
 });

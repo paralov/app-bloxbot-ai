@@ -7,6 +7,7 @@ import type {
   Todo,
 } from "@opencode-ai/sdk/v2/client";
 import type { QueryClient } from "@tanstack/react-query";
+import { Data, Effect, Schema } from "effect";
 
 import { qk } from "@/lib/queryKeys";
 import type { MessageWithParts } from "@/types";
@@ -16,20 +17,62 @@ export interface MessagesCache {
   messagesById: Record<string, MessageWithParts>;
 }
 
+export class SseDispatchError extends Data.TaggedError("SseDispatchError")<{
+  eventType: string;
+  cause: unknown;
+}> {}
+
+const SseEventEnvelopeSchema = Schema.Struct({
+  type: Schema.String,
+  properties: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+});
+
 /**
  * Maps an SSE Event to query cache updates.
  * `activeSessionIdRef` is a ref so we can read it without restarting the SSE loop.
  */
 export function sseDispatch(
   queryClient: QueryClient,
+  event: unknown,
+  activeSessionIdRef: { current: string | null },
+): void {
+  Effect.runSync(
+    sseDispatchEffect(queryClient, event, activeSessionIdRef).pipe(
+      Effect.catchAll((error) =>
+        Effect.logWarning(`sseDispatch: malformed ${error.eventType} event, skipping`, error.cause),
+      ),
+    ),
+  );
+}
+
+export function sseDispatchEffect(
+  queryClient: QueryClient,
+  event: unknown,
+  activeSessionIdRef: { current: string | null },
+): Effect.Effect<void, SseDispatchError> {
+  if (!event || typeof event !== "object" || !("type" in event)) return Effect.void;
+
+  return Schema.decodeUnknown(SseEventEnvelopeSchema)(event).pipe(
+    Effect.mapError(
+      (cause) =>
+        new SseDispatchError({
+          eventType: "type" in event && typeof event.type === "string" ? event.type : "unknown",
+          cause,
+        }),
+    ),
+    Effect.flatMap((envelope) =>
+      Effect.sync(() => dispatchEvent(queryClient, envelope as Event, activeSessionIdRef)),
+    ),
+  );
+}
+
+function dispatchEvent(
+  queryClient: QueryClient,
   event: Event,
   activeSessionIdRef: { current: string | null },
-) {
-  if (!event || !event.type) return;
-
+): void {
   const currentSessionId = activeSessionIdRef.current;
 
-  try {
   switch (event.type) {
     case "session.created": {
       const { info } = event.properties;
@@ -101,9 +144,7 @@ export function sseDispatch(
         if (!msg) return prev;
         const partIdx = msg.parts.findIndex((p) => p.id === part.id);
         const newParts =
-          partIdx >= 0
-            ? msg.parts.map((p, i) => (i === partIdx ? part : p))
-            : [...msg.parts, part];
+          partIdx >= 0 ? msg.parts.map((p, i) => (i === partIdx ? part : p)) : [...msg.parts, part];
         return {
           ...prev,
           messagesById: {
@@ -203,8 +244,5 @@ export function sseDispatch(
       }
       break;
     }
-  }
-  } catch (err) {
-    console.warn("sseDispatch: malformed event, skipping", event.type, err);
   }
 }

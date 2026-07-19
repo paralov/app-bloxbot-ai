@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import { Effect, Fiber, Logger, LogLevel } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -51,11 +51,20 @@ afterEach(async () => {
 
 describe("OpenCode binary releases", () => {
   it("maps every packaged platform to its official archive", () => {
-    expect(getOpenCodeAssetSpec("darwin", "arm64").archiveName).toBe("opencode-darwin-arm64.zip");
-    expect(getOpenCodeAssetSpec("darwin", "x64").archiveName).toBe("opencode-darwin-x64.zip");
-    expect(getOpenCodeAssetSpec("win32", "x64").executableName).toBe("opencode.exe");
-    expect(getOpenCodeAssetSpec("linux", "x64").format).toBe("tar.gz");
-    expect(() => getOpenCodeAssetSpec("win32", "arm64")).toThrow("win32/arm64");
+    expect(Effect.runSync(getOpenCodeAssetSpec("darwin", "arm64")).archiveName).toBe(
+      "opencode-darwin-arm64.zip",
+    );
+    expect(Effect.runSync(getOpenCodeAssetSpec("darwin", "x64")).archiveName).toBe(
+      "opencode-darwin-x64.zip",
+    );
+    expect(Effect.runSync(getOpenCodeAssetSpec("win32", "x64")).executableName).toBe(
+      "opencode.exe",
+    );
+    expect(Effect.runSync(getOpenCodeAssetSpec("linux", "x64")).format).toBe("tar.gz");
+    expect(Effect.runSync(Effect.either(getOpenCodeAssetSpec("win32", "arm64")))).toMatchObject({
+      _tag: "Left",
+      left: { _tag: "OpenCodeBinaryError", message: expect.stringContaining("win32/arm64") },
+    });
   });
 
   it("selects the newest verified stable 1.x.x release and rejects other majors", () => {
@@ -91,27 +100,30 @@ describe("OpenCode binary releases", () => {
       await writeFile(join(destination, "opencode"), "runtime binary");
     });
 
-    const installed = await ensureOpenCodeBinary({
-      cacheDirectory,
-      platform: "darwin",
-      arch: "arm64",
-      fetch,
-      extractArchive,
-    });
+    const installed = await Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive,
+      }),
+    );
 
     expect(installed.version).toBe("1.4.2");
     expect(installed.executable).toBe(join(cacheDirectory, "darwin-arm64", "1.4.2", "opencode"));
     await expect(readFile(installed.executable, "utf8")).resolves.toBe("runtime binary");
     expect(fetch).toHaveBeenCalledTimes(2);
 
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const cached = await ensureOpenCodeBinary({
-      cacheDirectory,
-      platform: "darwin",
-      arch: "arm64",
-      fetch: vi.fn().mockRejectedValue(new Error("offline")),
-      extractArchive,
-    });
+    const cached = await Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch: vi.fn().mockRejectedValue(new Error("offline")),
+        extractArchive,
+      }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+    );
 
     expect(cached).toEqual(installed);
     expect(extractArchive).toHaveBeenCalledTimes(1);
@@ -127,32 +139,137 @@ describe("OpenCode binary releases", () => {
       )
       .mockResolvedValueOnce(new Response("tampered archive"));
 
-    await expect(
-      ensureOpenCodeBinary({
-        cacheDirectory,
-        platform: "linux",
-        arch: "x64",
-        fetch,
-        extractArchive: vi.fn(),
-      }),
-    ).rejects.toThrow("no cached copy is available");
+    const result = await Effect.runPromise(
+      Effect.either(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "linux",
+          arch: "x64",
+          fetch,
+          extractArchive: vi.fn(),
+        }),
+      ),
+    );
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        _tag: "OpenCodeBinaryError",
+        message: expect.stringContaining("no cached copy is available"),
+      },
+    });
   });
 
   it("fails closed when only a new major release exists", async () => {
     const cacheDirectory = await makeTemporaryDirectory();
     const assetName = "opencode-windows-x64.zip";
 
-    await expect(
+    const result = await Effect.runPromise(
+      Effect.either(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "win32",
+          arch: "x64",
+          fetch: vi
+            .fn()
+            .mockResolvedValue(
+              Response.json([release("v2.0.0", assetName, `sha256:${"c".repeat(64)}`)]),
+            ),
+        }),
+      ),
+    );
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        _tag: "OpenCodeBinaryError",
+        message: expect.stringContaining("no cached copy is available"),
+      },
+    });
+  });
+
+  it("aborts an in-flight download and cleans its temporary directory", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const assetName = "opencode-darwin-arm64.zip";
+    const releases = [release("v1.4.2", assetName, `sha256:${"a".repeat(64)}`)];
+    let downloadSignal: AbortSignal | undefined;
+    let markDownloadStarted: (() => void) | undefined;
+    const downloadStarted = new Promise<void>((resolve) => {
+      markDownloadStarted = resolve;
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(releases))
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => {
+        downloadSignal = init?.signal ?? undefined;
+        markDownloadStarted?.();
+        return new Promise<Response>((_resolve, reject) => {
+          downloadSignal?.addEventListener("abort", () => reject(downloadSignal?.reason), {
+            once: true,
+          });
+        });
+      });
+    const fiber = Effect.runFork(
       ensureOpenCodeBinary({
         cacheDirectory,
-        platform: "win32",
-        arch: "x64",
-        fetch: vi
-          .fn()
-          .mockResolvedValue(
-            Response.json([release("v2.0.0", assetName, `sha256:${"c".repeat(64)}`)]),
-          ),
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive: vi.fn(),
       }),
-    ).rejects.toThrow("no cached copy is available");
+    );
+
+    await downloadStarted;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(downloadSignal?.aborted).toBe(true);
+    const entries = await readdir(join(cacheDirectory, "darwin-arm64"));
+    expect(entries.some((entry) => entry.startsWith(".download-"))).toBe(false);
+  });
+
+  it("waits for non-cancellable extraction before cleaning up on interruption", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("verified archive");
+    const digest = createHash("sha256").update(archive).digest("hex");
+    const assetName = "opencode-darwin-arm64.zip";
+    const releases = [release("v1.4.2", assetName, `sha256:${digest}`)];
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(releases))
+      .mockResolvedValueOnce(new Response(archive));
+    let markExtractionStarted: (() => void) | undefined;
+    const extractionStarted = new Promise<void>((resolve) => {
+      markExtractionStarted = resolve;
+    });
+    let finishExtraction: (() => Promise<void>) | undefined;
+    const extractArchive = vi.fn(
+      (_archivePath: string, destination: string) =>
+        new Promise<void>((resolve) => {
+          finishExtraction = async () => {
+            await writeFile(join(destination, "opencode"), "runtime binary");
+            resolve();
+          };
+          markExtractionStarted?.();
+        }),
+    );
+    const fiber = Effect.runFork(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive,
+      }),
+    );
+
+    await extractionStarted;
+    const interruption = Effect.runPromise(Fiber.interrupt(fiber));
+    const entriesDuringExtraction = await readdir(join(cacheDirectory, "darwin-arm64"));
+    expect(entriesDuringExtraction.some((entry) => entry.startsWith(".download-"))).toBe(true);
+
+    expect(finishExtraction).toBeTypeOf("function");
+    await finishExtraction?.();
+    await interruption;
+
+    const entriesAfterInterruption = await readdir(join(cacheDirectory, "darwin-arm64"));
+    expect(entriesAfterInterruption.some((entry) => entry.startsWith(".download-"))).toBe(false);
   });
 });

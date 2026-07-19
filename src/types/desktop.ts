@@ -1,18 +1,36 @@
-export interface AppConfig {
-  lastModel: string | null;
-  hiddenModels: string[];
-}
+import { Schema } from "effect";
 
-export interface OpenCodeInfo {
-  authorization: string;
-  port: number;
-  workspace: string;
-}
+const MutableStrings = Schema.mutable(Schema.Array(Schema.String));
 
-export interface UpdateInfo {
-  version: string;
-  body: string | null;
-}
+export const AppConfigSchema = Schema.mutable(
+  Schema.Struct({
+    lastModel: Schema.NullOr(Schema.String),
+    hiddenModels: MutableStrings,
+  }),
+);
+
+export type AppConfig = typeof AppConfigSchema.Type;
+
+export const AppConfigPatchSchema = Schema.partial(AppConfigSchema);
+
+export const OpenCodeInfoSchema = Schema.mutable(
+  Schema.Struct({
+    authorization: Schema.String,
+    port: Schema.Number.pipe(Schema.int(), Schema.between(1, 65_535)),
+    workspace: Schema.String,
+  }),
+);
+
+export type OpenCodeInfo = typeof OpenCodeInfoSchema.Type;
+
+export const UpdateInfoSchema = Schema.mutable(
+  Schema.Struct({
+    version: Schema.String,
+    body: Schema.NullOr(Schema.String),
+  }),
+);
+
+export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
 export interface DesktopApi {
   getOpenCodeInfo(): Promise<OpenCodeInfo>;

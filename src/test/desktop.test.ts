@@ -25,4 +25,17 @@ describe("browser desktop fallback", () => {
       hiddenModels: [],
     });
   });
+
+  it("rejects malformed persisted values through the config schema", async () => {
+    window.localStorage.setItem(
+      "bloxbot-config",
+      JSON.stringify({ lastModel: 42, hiddenModels: "not-an-array" }),
+    );
+    const { desktop } = await import("@/lib/desktop");
+
+    await expect(desktop.loadConfig()).resolves.toEqual({
+      lastModel: null,
+      hiddenModels: [],
+    });
+  });
 });

@@ -5,11 +5,19 @@
  * and assertions on the cache state after dispatching events.
  */
 
-import type { Event, PermissionRequest, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
+import type {
+  Event,
+  PermissionRequest,
+  QuestionRequest,
+  Session,
+  SessionStatus,
+  Todo,
+} from "@opencode-ai/sdk/v2/client";
 import { QueryClient } from "@tanstack/react-query";
+import { Cause, Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { qk } from "@/lib/queryKeys";
-import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
+import { type MessagesCache, sseDispatch, sseDispatchEffect } from "@/lib/sseDispatch";
 import type { MessageWithParts } from "@/types";
 
 function makeQC() {
@@ -19,7 +27,13 @@ function makeQC() {
 }
 
 function makeSession(id: string, title: string): Session {
-  return { id, title, time: { created: Date.now(), updated: Date.now() }, version: 1, parentID: "" } as Session;
+  return {
+    id,
+    title,
+    time: { created: Date.now(), updated: Date.now() },
+    version: 1,
+    parentID: "",
+  } as Session;
 }
 
 function dispatch(qc: QueryClient, event: Partial<Event>, activeSessionId: string | null = null) {
@@ -43,6 +57,42 @@ describe("sseDispatch", () => {
 
   it("ignores events with no type", () => {
     dispatch(qc, { properties: {} } as never);
+  });
+
+  it("rejects an invalid SSE envelope in the typed error channel", () => {
+    const result = Effect.runSync(
+      Effect.either(
+        sseDispatchEffect(qc, { type: "session.created", properties: null }, { current: null }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: { _tag: "SseDispatchError", eventType: "session.created" },
+    });
+  });
+
+  it("keeps cache programming errors as defects", () => {
+    const brokenClient = {
+      setQueryData: () => {
+        throw new Error("cache programming bug");
+      },
+    } as unknown as QueryClient;
+    const exit = Effect.runSyncExit(
+      sseDispatchEffect(
+        brokenClient,
+        { type: "session.created", properties: { info: makeSession("s1", "One") } },
+        { current: null },
+      ),
+    );
+
+    expect(exit._tag).toBe("Failure");
+    if (exit._tag === "Failure") {
+      expect(Cause.dieOption(exit.cause)).toMatchObject({
+        _tag: "Some",
+        value: expect.objectContaining({ message: "cache programming bug" }),
+      });
+    }
   });
 
   // ── Session events ─────────────────────────────────────────────────
@@ -80,7 +130,6 @@ describe("sseDispatch", () => {
       const sessions = qc.getQueryData<Session[]>(qk.sessions)!;
       expect(sessions).toHaveLength(1);
     });
-
   });
 
   describe("session.updated", () => {
@@ -351,7 +400,8 @@ describe("sseDispatch", () => {
         "s1",
       );
 
-      const part = qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1.parts[0] as any;
+      const part = qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1
+        .parts[0] as any;
       expect(part.output).toBe("out+more");
       expect(part.text).toBe("base"); // unchanged
     });
@@ -372,7 +422,9 @@ describe("sseDispatch", () => {
       );
 
       // Should not throw, cache unchanged
-      expect(qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1.parts).toHaveLength(0);
+      expect(qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1.parts).toHaveLength(
+        0,
+      );
     });
   });
 
@@ -405,10 +457,7 @@ describe("sseDispatch", () => {
         messagesById: {
           m1: {
             info: { id: "m1" } as any,
-            parts: [
-              { id: "p1", type: "text" } as any,
-              { id: "p2", type: "text" } as any,
-            ],
+            parts: [{ id: "p1", type: "text" } as any, { id: "p2", type: "text" } as any],
           },
         },
       });
@@ -479,11 +528,7 @@ describe("sseDispatch", () => {
     it("clears the question on reply", () => {
       qc.setQueryData(qk.questions, { id: "q1", sessionID: "s1" });
 
-      dispatch(
-        qc,
-        { type: "question.replied", properties: { sessionID: "s1" } },
-        "s1",
-      );
+      dispatch(qc, { type: "question.replied", properties: { sessionID: "s1" } }, "s1");
 
       expect(qc.getQueryData(qk.questions)).toBeNull();
     });
@@ -491,11 +536,7 @@ describe("sseDispatch", () => {
     it("clears the question on reject", () => {
       qc.setQueryData(qk.questions, { id: "q1", sessionID: "s1" });
 
-      dispatch(
-        qc,
-        { type: "question.rejected", properties: { sessionID: "s1" } },
-        "s1",
-      );
+      dispatch(qc, { type: "question.rejected", properties: { sessionID: "s1" } }, "s1");
 
       expect(qc.getQueryData(qk.questions)).toBeNull();
     });
@@ -523,11 +564,7 @@ describe("sseDispatch", () => {
     it("clears the permission request", () => {
       qc.setQueryData(qk.permissions, { id: "p1", sessionID: "s1" });
 
-      dispatch(
-        qc,
-        { type: "permission.replied", properties: { sessionID: "s1" } },
-        "s1",
-      );
+      dispatch(qc, { type: "permission.replied", properties: { sessionID: "s1" } }, "s1");
 
       expect(qc.getQueryData(qk.permissions)).toBeNull();
     });
