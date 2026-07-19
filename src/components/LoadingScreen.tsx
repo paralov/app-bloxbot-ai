@@ -6,12 +6,21 @@ import type { UpdateInfo } from "@/types/desktop";
 interface LoadingScreenProps {
   message?: string;
   detail?: string;
+  steps?: readonly LoadingStep[];
+  note?: string;
   /** When true, shows the error state with help actions instead of the dot loader. */
   error?: boolean;
   /** Called when the user clicks "Try Again". */
   onRetry?: () => void;
   /** When true, shows a spinner on the retry button. */
   retrying?: boolean;
+}
+
+export interface LoadingStep {
+  id: string;
+  title: string;
+  description: string;
+  status: "complete" | "active" | "pending";
 }
 
 type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up-to-date" | "error";
@@ -26,6 +35,8 @@ type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up
 function LoadingScreen({
   message = "Starting up...",
   detail,
+  steps,
+  note,
   error,
   onRetry,
   retrying,
@@ -65,7 +76,7 @@ function LoadingScreen({
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center px-6">
-      <div className="animate-fade-in flex flex-col items-center">
+      <div className="animate-fade-in flex w-full max-w-sm flex-col items-center">
         {/* BloxBot face  - inline SVG so we can animate individual parts */}
         <svg
           width="80"
@@ -128,9 +139,15 @@ function LoadingScreen({
         </svg>
 
         {/* Status text */}
-        <p className="mt-5 text-sm font-medium text-foreground/70">{message}</p>
+        <h1 className="mt-5 text-sm font-semibold text-foreground/80">{message}</h1>
 
-        {detail && <p className="mt-1.5 max-w-xs text-center text-xs text-destructive">{detail}</p>}
+        {detail && (
+          <p
+            className={`mt-1.5 max-w-sm text-center text-xs leading-relaxed ${error ? "text-destructive" : "text-muted-foreground"}`}
+          >
+            {detail}
+          </p>
+        )}
 
         {/* Error state: help actions */}
         {error ? (
@@ -257,8 +274,64 @@ function LoadingScreen({
               </a>
             </div>
           </div>
+        ) : steps?.length ? (
+          <>
+            <ol className="mt-6 w-full rounded-xl border bg-card/70 p-4 shadow-sm">
+              {steps.map((step) => (
+                <li
+                  key={step.id}
+                  aria-current={step.status === "active" ? "step" : undefined}
+                  className="flex gap-3 border-b py-3 first:pt-0 last:border-0 last:pb-0"
+                >
+                  <div
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                      step.status === "complete"
+                        ? "border-foreground bg-foreground text-background"
+                        : step.status === "active"
+                          ? "border-foreground/40 bg-foreground/5"
+                          : "border-border bg-background"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {step.status === "complete" ? (
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : step.status === "active" ? (
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-foreground/70" />
+                    ) : (
+                      <span className="h-1 w-1 rounded-full bg-foreground/20" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p
+                      className={`text-xs font-medium ${
+                        step.status === "pending" ? "text-muted-foreground/60" : "text-foreground"
+                      }`}
+                    >
+                      {step.title}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                      {step.description}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            {note && (
+              <p className="mt-3 text-center text-[10px] text-muted-foreground/70">{note}</p>
+            )}
+          </>
         ) : (
-          /* Loading state: dot animation */
           <div className="mt-4 flex gap-1">
             <span className="bloxbot-dot h-1 w-1 rounded-full bg-foreground/25" />
             <span className="bloxbot-dot h-1 w-1 rounded-full bg-foreground/25 [animation-delay:150ms]" />

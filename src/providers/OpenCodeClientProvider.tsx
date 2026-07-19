@@ -2,7 +2,7 @@ import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/c
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import LoadingScreen from "@/components/LoadingScreen";
+import LoadingScreen, { type LoadingStep } from "@/components/LoadingScreen";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { sseDispatch } from "@/lib/sseDispatch";
@@ -11,6 +11,56 @@ const SSE_RECONNECT_DELAY = 3000;
 const SSE_FAILURE_THRESHOLD = 3;
 
 type AppStatus = "waiting" | "ready" | "error";
+export type StartupPhase = "engine" | "connection" | "workspace";
+
+const STARTUP_STEPS = [
+  {
+    id: "engine",
+    title: "Prepare OpenCode",
+    description: "Verify the runtime and start the private local service.",
+  },
+  {
+    id: "connection",
+    title: "Confirm local connection",
+    description: "Wait for the engine to become healthy on this device.",
+  },
+  {
+    id: "workspace",
+    title: "Restore workspace",
+    description: "Load sessions, providers, models, agents, and status.",
+  },
+] as const;
+
+const STARTUP_COPY: Record<StartupPhase, { message: string; detail: string }> = {
+  engine: {
+    message: "Preparing the AI engine",
+    detail:
+      "Checking for a verified OpenCode runtime and starting it securely. The first launch may take a little longer.",
+  },
+  connection: {
+    message: "Connecting to the AI engine",
+    detail: "OpenCode is running. BloxBot is confirming the private local connection.",
+  },
+  workspace: {
+    message: "Loading your workspace",
+    detail: "Restoring the data BloxBot needs before opening your chat.",
+  },
+};
+
+export function getStartupPresentation(phase: StartupPhase): {
+  message: string;
+  detail: string;
+  steps: LoadingStep[];
+} {
+  const activeIndex = STARTUP_STEPS.findIndex((step) => step.id === phase);
+  return {
+    ...STARTUP_COPY[phase],
+    steps: STARTUP_STEPS.map((step, index) => ({
+      ...step,
+      status: index < activeIndex ? "complete" : index === activeIndex ? "active" : "pending",
+    })),
+  };
+}
 
 interface OpenCodeClientContextValue {
   client: OpencodeClient | null;
@@ -42,6 +92,7 @@ export function OpenCodeClientProvider({
   const queryClient = useQueryClient();
 
   const [status, setStatus] = useState<AppStatus>("waiting");
+  const [startupPhase, setStartupPhase] = useState<StartupPhase>("engine");
   const [port, setPort] = useState(0);
   const [client, setClient] = useState<OpencodeClient | null>(null);
   const [ready, setReady] = useState(false);
@@ -83,9 +134,13 @@ export function OpenCodeClientProvider({
 
     async function init() {
       try {
+        setStatus("waiting");
+        setInitError(null);
+        setStartupPhase("engine");
         const { port: ocPort, workspace, authorization } = await getServerInfo();
         if (cancelled) return;
 
+        setStartupPhase("connection");
         const baseUrl = `http://127.0.0.1:${ocPort}`;
         await waitForServer(baseUrl, authorization);
         if (cancelled) return;
@@ -95,6 +150,7 @@ export function OpenCodeClientProvider({
           directory: workspace,
           headers: { Authorization: authorization },
         });
+        setStartupPhase("workspace");
         await prefetchServerState(newClient, queryClient);
         if (cancelled) return;
 
@@ -106,6 +162,7 @@ export function OpenCodeClientProvider({
       } catch (err) {
         if (cancelled) return;
         console.error("Failed to initialize OpenCode:", err);
+        setStatus("error");
         setInitError(String(err));
       }
     }
@@ -205,11 +262,14 @@ export function OpenCodeClientProvider({
   };
 
   if (!ready) {
+    const startup = getStartupPresentation(startupPhase);
     return (
       <OpenCodeClientContext.Provider value={value}>
         <LoadingScreen
-          message={initError ? "Failed to connect to OpenCode" : "Starting up..."}
-          detail={initError ?? undefined}
+          message={initError ? "Failed to connect to OpenCode" : startup.message}
+          detail={initError ?? startup.detail}
+          steps={initError ? undefined : startup.steps}
+          note="OpenCode starts as a private service that only listens on this device."
           error={!!initError}
           onRetry={initError ? () => desktop.relaunch() : undefined}
         />
