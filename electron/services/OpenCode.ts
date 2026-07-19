@@ -53,7 +53,7 @@ export function findOpenCodeListeningPort(
           connection.state === "LISTEN",
       )
       .map((connection) => Number(connection.localPort))
-      .filter((port) => Number.isInteger(port) && port > 0 && port <= 65_535),
+      .filter(Number.isInteger),
   );
 
   if (ports.size > 1) {
