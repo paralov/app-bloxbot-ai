@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { Context, Data, Effect, Layer } from "effect";
+import { networkConnections, type Systeminformation } from "systeminformation";
 
 import type { OpenCodeInfo } from "../../src/types/desktop";
 import { createOpenCodeConfig } from "../opencodeConfig";
@@ -33,48 +34,69 @@ export interface OpenCodeService {
 
 export class OpenCode extends Context.Tag("@bloxbot/OpenCode")<OpenCode, OpenCodeService>() {}
 
-export function parseOpenCodeListeningPort(output: string): number | null {
-  const match = output.match(/opencode server listening on http:\/\/127\.0\.0\.1:(\d+)/);
-  if (!match) return null;
+type NetworkConnection = Pick<
+  Systeminformation.NetworkConnectionsData,
+  "localAddress" | "localPort" | "pid" | "protocol" | "state"
+>;
 
-  const port = Number(match[1]);
-  return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : null;
+export function findOpenCodeListeningPort(
+  connections: readonly NetworkConnection[],
+  pid: number,
+): number | null {
+  const ports = new Set(
+    connections
+      .filter(
+        (connection) =>
+          connection.pid === pid &&
+          connection.protocol.startsWith("tcp") &&
+          connection.localAddress === LOOPBACK &&
+          connection.state === "LISTEN",
+      )
+      .map((connection) => Number(connection.localPort))
+      .filter((port) => Number.isInteger(port) && port > 0 && port <= 65_535),
+  );
+
+  if (ports.size > 1) {
+    throw new Error(`OpenCode is listening on multiple loopback ports: ${[...ports].join(", ")}`);
+  }
+  return ports.values().next().value ?? null;
 }
 
-async function waitForListeningPort(child: ChildProcessWithoutNullStreams): Promise<number> {
-  return new Promise((resolve, reject) => {
-    let output = "";
-
+async function waitForSpawn(child: ChildProcessWithoutNullStreams): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
-      clearTimeout(timeout);
-      child.stdout.off("data", onData);
+      child.off("spawn", onSpawn);
       child.off("error", onError);
-      child.off("exit", onExit);
     };
-    const fail = (error: Error) => {
+    const onSpawn = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
       cleanup();
       reject(error);
     };
-    const onData = (data: Buffer) => {
-      output += data.toString();
-      const port = parseOpenCodeListeningPort(output);
-      if (port !== null) {
-        cleanup();
-        resolve(port);
-      }
-    };
-    const onError = (error: Error) => fail(error);
-    const onExit = (code: number | null) =>
-      fail(new Error(`OpenCode exited during startup with code ${code}`));
-    const timeout = setTimeout(
-      () => fail(new Error("OpenCode did not report a listening port within 60 seconds")),
-      STARTUP_TIMEOUT_MS,
-    );
 
-    child.stdout.on("data", onData);
+    child.once("spawn", onSpawn);
     child.once("error", onError);
-    child.once("exit", onExit);
   });
+}
+
+async function waitForListeningPort(child: ChildProcessWithoutNullStreams): Promise<number> {
+  if (child.pid === undefined) throw new Error("OpenCode started without a process ID");
+
+  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`OpenCode exited during startup with code ${child.exitCode}`);
+    }
+
+    const port = findOpenCodeListeningPort(await networkConnections(), child.pid);
+    if (port !== null) return port;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error("OpenCode did not open a listening port within 60 seconds");
 }
 
 async function waitForHealth(
@@ -154,6 +176,7 @@ async function startOpenCode(options: OpenCodeOptions): Promise<OpenCodeResource
   child.stderr.on("data", (data: Buffer) => console.error(`[opencode] ${data.toString().trimEnd()}`));
 
   try {
+    await waitForSpawn(child);
     const listeningPort = await waitForListeningPort(child);
     await waitForHealth(child, listeningPort, authorization);
     return { authorization, child, port: listeningPort, workspace: options.workspace };

@@ -1,20 +1,30 @@
 import { describe, expect, it } from "vitest";
 
-import { parseOpenCodeListeningPort } from "../../electron/services/OpenCode";
+import { findOpenCodeListeningPort } from "../../electron/services/OpenCode";
 
 describe("OpenCode server startup", () => {
-  it("reads an OS-assigned loopback port from the startup message", () => {
-    expect(
-      parseOpenCodeListeningPort(
-        "logs before\nopencode server listening on http://127.0.0.1:54321\n",
-      ),
-    ).toBe(54321);
+  const connection = {
+    localAddress: "127.0.0.1",
+    localPort: "54321",
+    pid: 1234,
+    protocol: "tcp4",
+    state: "LISTEN",
+  };
+
+  it("finds the loopback TCP listener owned by the OpenCode process", () => {
+    expect(findOpenCodeListeningPort([connection], 1234)).toBe(54321);
   });
 
-  it("rejects missing and invalid ports", () => {
-    expect(parseOpenCodeListeningPort("starting")).toBeNull();
+  it("ignores connections that do not belong to the OpenCode listener", () => {
     expect(
-      parseOpenCodeListeningPort("opencode server listening on http://127.0.0.1:70000"),
+      findOpenCodeListeningPort(
+        [
+          { ...connection, pid: 9999 },
+          { ...connection, state: "ESTABLISHED" },
+          { ...connection, localAddress: "0.0.0.0" },
+        ],
+        1234,
+      ),
     ).toBeNull();
   });
 });
