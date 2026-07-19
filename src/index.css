@@ -244,6 +244,121 @@
   animation: bloxbot-dot-pulse 1.2s ease-in-out infinite;
 }
 
+/* ── Playful startup progress ───────────────────────────────────── */
+
+@keyframes startup-sparkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.55) rotate(0deg); }
+  50%      { opacity: 0.9; transform: scale(1) rotate(90deg); }
+}
+
+.startup-sparkles {
+  position: relative;
+  width: 68px;
+  height: 20px;
+}
+
+.startup-sparkles span {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  animation: startup-sparkle 1.2s ease-in-out infinite;
+}
+
+.startup-sparkles span:nth-child(1) { left: 0; top: 6px; }
+.startup-sparkles span:nth-child(2) { left: 28px; top: 0; animation-delay: 200ms; }
+.startup-sparkles span:nth-child(3) { right: 0; top: 7px; animation-delay: 400ms; }
+
+@keyframes startup-dot-travel {
+  0%   { opacity: 0; transform: translateX(0); }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(62px); }
+}
+
+@keyframes startup-dot-pop {
+  0%, 100% { transform: scale(0.75); }
+  50%      { transform: scale(1.15); }
+}
+
+.startup-connecting {
+  position: relative;
+  display: flex;
+  width: 72px;
+  height: 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.startup-connecting::before {
+  position: absolute;
+  right: 5px;
+  left: 5px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  opacity: 0.15;
+}
+
+.startup-connecting::after {
+  position: absolute;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  animation: startup-dot-travel 1.4s ease-in-out infinite;
+}
+
+.startup-connecting span {
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  background: var(--background);
+  animation: startup-dot-pop 1.4s ease-in-out infinite;
+}
+
+.startup-connecting span:nth-child(2) { animation-delay: 200ms; }
+.startup-connecting span:nth-child(3) { animation-delay: 400ms; }
+
+@keyframes startup-block-drop {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  45%      { transform: translateY(-8px) rotate(-8deg); }
+  65%      { transform: translateY(1px) rotate(2deg); }
+}
+
+.startup-blocks {
+  display: flex;
+  height: 22px;
+  align-items: end;
+  gap: 5px;
+}
+
+.startup-blocks span {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  background: currentColor;
+  animation: startup-block-drop 1.2s ease-in-out infinite;
+}
+
+.startup-blocks span:nth-child(2) { animation-delay: 160ms; }
+.startup-blocks span:nth-child(3) { animation-delay: 320ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-sparkles span,
+  .startup-connecting::after,
+  .startup-connecting span,
+  .startup-blocks span {
+    animation: none;
+  }
+}
+
 /* ── Toast styles ────────────────────────────────────────────────── */
 /* NOTE: Sonner v2 owns ::before (swipe hit-area) and ::after (expanded
    gap). We use inset box-shadow for the left accent bar instead. */

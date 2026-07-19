@@ -2,7 +2,7 @@ import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/c
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import LoadingScreen, { type LoadingStep } from "@/components/LoadingScreen";
+import LoadingScreen, { type StartupAnimation } from "@/components/LoadingScreen";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { sseDispatch } from "@/lib/sseDispatch";
@@ -13,53 +13,26 @@ const SSE_FAILURE_THRESHOLD = 3;
 type AppStatus = "waiting" | "ready" | "error";
 export type StartupPhase = "engine" | "connection" | "workspace";
 
-const STARTUP_STEPS = [
-  {
-    id: "engine",
-    title: "Prepare OpenCode",
-    description: "Verify the runtime and start the private local service.",
-  },
-  {
-    id: "connection",
-    title: "Confirm local connection",
-    description: "Wait for the engine to become healthy on this device.",
-  },
-  {
-    id: "workspace",
-    title: "Restore workspace",
-    description: "Load sessions, providers, models, agents, and status.",
-  },
-] as const;
-
-const STARTUP_COPY: Record<StartupPhase, { message: string; detail: string }> = {
+const STARTUP_COPY: Record<StartupPhase, { message: string; animation: StartupAnimation }> = {
   engine: {
-    message: "Preparing the AI engine",
-    detail:
-      "Checking for a verified OpenCode runtime and starting it securely. The first launch may take a little longer.",
+    message: "Waking things up",
+    animation: "sparkles",
   },
   connection: {
-    message: "Connecting to the AI engine",
-    detail: "OpenCode is running. BloxBot is confirming the private local connection.",
+    message: "Connecting the dots",
+    animation: "dots",
   },
   workspace: {
-    message: "Loading your workspace",
-    detail: "Restoring the data BloxBot needs before opening your chat.",
+    message: "Setting the stage",
+    animation: "blocks",
   },
 };
 
 export function getStartupPresentation(phase: StartupPhase): {
   message: string;
-  detail: string;
-  steps: LoadingStep[];
+  animation: StartupAnimation;
 } {
-  const activeIndex = STARTUP_STEPS.findIndex((step) => step.id === phase);
-  return {
-    ...STARTUP_COPY[phase],
-    steps: STARTUP_STEPS.map((step, index) => ({
-      ...step,
-      status: index < activeIndex ? "complete" : index === activeIndex ? "active" : "pending",
-    })),
-  };
+  return STARTUP_COPY[phase];
 }
 
 interface OpenCodeClientContextValue {
@@ -267,9 +240,8 @@ export function OpenCodeClientProvider({
       <OpenCodeClientContext.Provider value={value}>
         <LoadingScreen
           message={initError ? "Failed to connect to OpenCode" : startup.message}
-          detail={initError ?? startup.detail}
-          steps={initError ? undefined : startup.steps}
-          note="OpenCode starts as a private service that only listens on this device."
+          detail={initError ?? undefined}
+          animation={initError ? undefined : startup.animation}
           error={!!initError}
           onRetry={initError ? () => desktop.relaunch() : undefined}
         />

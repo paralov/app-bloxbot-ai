@@ -6,8 +6,7 @@ import type { UpdateInfo } from "@/types/desktop";
 interface LoadingScreenProps {
   message?: string;
   detail?: string;
-  steps?: readonly LoadingStep[];
-  note?: string;
+  animation?: StartupAnimation;
   /** When true, shows the error state with help actions instead of the dot loader. */
   error?: boolean;
   /** Called when the user clicks "Try Again". */
@@ -16,12 +15,7 @@ interface LoadingScreenProps {
   retrying?: boolean;
 }
 
-export interface LoadingStep {
-  id: string;
-  title: string;
-  description: string;
-  status: "complete" | "active" | "pending";
-}
+export type StartupAnimation = "sparkles" | "dots" | "blocks";
 
 type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up-to-date" | "error";
 
@@ -35,8 +29,7 @@ type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up
 function LoadingScreen({
   message = "Starting up...",
   detail,
-  steps,
-  note,
+  animation,
   error,
   onRetry,
   retrying,
@@ -274,63 +267,8 @@ function LoadingScreen({
               </a>
             </div>
           </div>
-        ) : steps?.length ? (
-          <>
-            <ol className="mt-6 w-full rounded-xl border bg-card/70 p-4 shadow-sm">
-              {steps.map((step) => (
-                <li
-                  key={step.id}
-                  aria-current={step.status === "active" ? "step" : undefined}
-                  className="flex gap-3 border-b py-3 first:pt-0 last:border-0 last:pb-0"
-                >
-                  <div
-                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                      step.status === "complete"
-                        ? "border-foreground bg-foreground text-background"
-                        : step.status === "active"
-                          ? "border-foreground/40 bg-foreground/5"
-                          : "border-border bg-background"
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {step.status === "complete" ? (
-                      <svg
-                        width="11"
-                        height="11"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    ) : step.status === "active" ? (
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-foreground/70" />
-                    ) : (
-                      <span className="h-1 w-1 rounded-full bg-foreground/20" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <p
-                      className={`text-xs font-medium ${
-                        step.status === "pending" ? "text-muted-foreground/60" : "text-foreground"
-                      }`}
-                    >
-                      {step.title}
-                    </p>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                      {step.description}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-            {note && (
-              <p className="mt-3 text-center text-[10px] text-muted-foreground/70">{note}</p>
-            )}
-          </>
+        ) : animation ? (
+          <StartupAnimationGraphic animation={animation} />
         ) : (
           <div className="mt-4 flex gap-1">
             <span className="bloxbot-dot h-1 w-1 rounded-full bg-foreground/25" />
@@ -339,6 +277,36 @@ function LoadingScreen({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function StartupAnimationGraphic({ animation }: { animation: StartupAnimation }) {
+  if (animation === "sparkles") {
+    return (
+      <div className="startup-sparkles mt-5" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+    );
+  }
+
+  if (animation === "dots") {
+    return (
+      <div className="startup-connecting mt-5" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+    );
+  }
+
+  return (
+    <div className="startup-blocks mt-5" aria-hidden="true">
+      <span />
+      <span />
+      <span />
     </div>
   );
 }
