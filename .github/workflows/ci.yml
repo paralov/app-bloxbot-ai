@@ -32,7 +32,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             builder_args: --win --x64
 
-          - platform: ubuntu-22.04
+          - platform: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             builder_args: --linux deb --x64
 
