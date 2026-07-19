@@ -6,7 +6,10 @@
   "type": "module",
   "main": "dist-electron/main/main.js",
   "license": "MIT",
-  "author": "BloxBot",
+  "author": {
+    "name": "OscarWoHA",
+    "email": "3245494+OscarWoHA@users.noreply.github.com"
+  },
   "homepage": "https://bloxbot.ai",
   "repository": {
     "type": "git",
