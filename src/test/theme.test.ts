@@ -32,4 +32,10 @@ describe("theme helpers", () => {
     applyThemeClass("light");
     expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
+
+  it("falls back to light when matchMedia is unavailable", () => {
+    vi.stubGlobal("matchMedia", undefined);
+
+    expect(resolveTheme("system")).toBe("light");
+  });
 });

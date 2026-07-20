@@ -5,7 +5,12 @@ import { useConnectedProviders } from "@/hooks/useProviders";
 import { type AppConfig, loadConfig, patchConfig } from "@/lib/config";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
-import { applyThemeClass, resolveTheme, type ThemePreference } from "@/lib/theme";
+import {
+  applyThemeClass,
+  type ResolvedTheme,
+  resolveTheme,
+  type ThemePreference,
+} from "@/lib/theme";
 
 interface PreferencesContextValue {
   selectedModel: string | null;
@@ -13,6 +18,7 @@ interface PreferencesContextValue {
   selectedVariant: string | null;
   hiddenModels: Set<string>;
   theme: ThemePreference;
+  resolvedTheme: ResolvedTheme;
   setSelectedModel: (modelID: string) => void;
   setSelectedAgent: (name: string) => void;
   setSelectedVariant: (variant: string | null) => void;
@@ -37,6 +43,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [selectedVariant, setSelectedVariantState] = useState<string | null>(null);
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(new Set());
   const [theme, setThemeState] = useState<ThemePreference>("system");
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme("system"));
 
   const connectedProviders = useConnectedProviders();
 
@@ -47,16 +54,22 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setThemeState(configData.theme);
   }, [configData]);
 
-  // Apply resolved theme class and follow OS preference when theme is "system"
+  // Apply resolved theme class and follow OS preference when theme is "system".
+  // Keep resolvedTheme in React state so consumers (e.g. Sonner) re-render on OS changes.
   useEffect(() => {
-    applyThemeClass(resolveTheme(theme));
+    const syncResolvedTheme = () => {
+      const resolved = resolveTheme(theme);
+      setResolvedTheme(resolved);
+      applyThemeClass(resolved);
+    };
+
+    syncResolvedTheme();
 
     if (theme !== "system" || typeof window.matchMedia !== "function") return;
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => applyThemeClass(resolveTheme("system"));
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
+    media.addEventListener("change", syncResolvedTheme);
+    return () => media.removeEventListener("change", syncResolvedTheme);
   }, [theme]);
 
   // Restore last used model if its provider is still connected
@@ -105,8 +118,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setTheme = useCallback((next: ThemePreference) => {
+    const resolved = resolveTheme(next);
     setThemeState(next);
-    applyThemeClass(resolveTheme(next));
+    setResolvedTheme(resolved);
+    applyThemeClass(resolved);
     patchConfig({ theme: next }).catch(() => {});
   }, []);
 
@@ -116,6 +131,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     selectedVariant,
     hiddenModels,
     theme,
+    resolvedTheme,
     setSelectedModel,
     setSelectedAgent,
     setSelectedVariant,
