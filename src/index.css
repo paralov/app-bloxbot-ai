@@ -471,7 +471,7 @@
   color: var(--primary-foreground);
   border: none;
   cursor: pointer;
-  transition: background 150ms ease, transform 100ms ease;
+  transition: opacity 150ms ease, transform 100ms ease;
 }
 
 [data-sonner-toaster] [data-sonner-toast] [data-button]:hover {
