@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { applyThemeClass, resolveTheme } from "@/lib/theme";
+import { applyThemeClass, resolveTheme, subscribePrefersColorScheme } from "@/lib/theme";
 
 describe("theme helpers", () => {
   afterEach(() => {
@@ -37,5 +37,49 @@ describe("theme helpers", () => {
     vi.stubGlobal("matchMedia", undefined);
 
     expect(resolveTheme("system")).toBe("light");
+  });
+
+  it("subscribes with addEventListener when available", () => {
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    vi.stubGlobal(
+      "matchMedia",
+      () =>
+        ({
+          matches: false,
+          media: "(prefers-color-scheme: dark)",
+          addEventListener,
+          removeEventListener,
+        }) as unknown as MediaQueryList,
+    );
+
+    const onChange = vi.fn();
+    const unsubscribe = subscribePrefersColorScheme(onChange);
+    expect(addEventListener).toHaveBeenCalledWith("change", onChange);
+
+    unsubscribe();
+    expect(removeEventListener).toHaveBeenCalledWith("change", onChange);
+  });
+
+  it("falls back to addListener on legacy MediaQueryList", () => {
+    const addListener = vi.fn();
+    const removeListener = vi.fn();
+    vi.stubGlobal(
+      "matchMedia",
+      () =>
+        ({
+          matches: false,
+          media: "(prefers-color-scheme: dark)",
+          addListener,
+          removeListener,
+        }) as unknown as MediaQueryList,
+    );
+
+    const onChange = vi.fn();
+    const unsubscribe = subscribePrefersColorScheme(onChange);
+    expect(addListener).toHaveBeenCalledWith(onChange);
+
+    unsubscribe();
+    expect(removeListener).toHaveBeenCalledWith(onChange);
   });
 });

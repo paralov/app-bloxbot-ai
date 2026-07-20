@@ -9,6 +9,7 @@ import {
   applyThemeClass,
   type ResolvedTheme,
   resolveTheme,
+  subscribePrefersColorScheme,
   type ThemePreference,
 } from "@/lib/theme";
 
@@ -65,11 +66,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
     syncResolvedTheme();
 
-    if (theme !== "system" || typeof window.matchMedia !== "function") return;
+    if (theme !== "system") return;
 
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    media.addEventListener("change", syncResolvedTheme);
-    return () => media.removeEventListener("change", syncResolvedTheme);
+    return subscribePrefersColorScheme(syncResolvedTheme);
   }, [theme]);
 
   // Restore last used model if its provider is still connected

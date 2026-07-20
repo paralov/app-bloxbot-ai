@@ -950,7 +950,7 @@ function AppearanceTab() {
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setTheme(option.value as ThemePreference)}
+                onClick={() => setTheme(option.value)}
                 aria-pressed={selected}
                 className={`rounded-lg border px-3 py-3 text-center transition-colors ${
                   selected
