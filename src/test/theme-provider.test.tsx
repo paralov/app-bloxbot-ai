@@ -5,6 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { qk } from "@/lib/queryKeys";
 
+function makeQueryClient() {
+  return new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, gcTime: Infinity, retry: false } },
+  });
+}
+
 function ThemeProbe() {
   const { theme, resolvedTheme, setTheme } = useTheme();
   return (
@@ -46,9 +52,7 @@ describe("ThemeProvider", () => {
   });
 
   it("applies the dark class and persists preference via AppConfig", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+    const queryClient = makeQueryClient();
     queryClient.setQueryData(qk.config, {
       lastModel: null,
       hiddenModels: [],
@@ -70,9 +74,7 @@ describe("ThemeProvider", () => {
   });
 
   it("hydrates from persisted AppConfig theme", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+    const queryClient = makeQueryClient();
     queryClient.setQueryData(qk.config, {
       lastModel: null,
       hiddenModels: [],
@@ -104,9 +106,7 @@ describe("ThemeProvider", () => {
         }) as unknown as MediaQueryList,
     );
 
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+    const queryClient = makeQueryClient();
     queryClient.setQueryData(qk.config, {
       lastModel: null,
       hiddenModels: [],
