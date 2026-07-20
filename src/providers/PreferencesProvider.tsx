@@ -44,7 +44,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [selectedVariant, setSelectedVariantState] = useState<string | null>(null);
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(new Set());
   const [theme, setThemeState] = useState<ThemePreference>("system");
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme("system"));
+  // Match any class already applied by theme-boot.js until persisted config loads.
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    document.documentElement.classList.contains("dark") ? "dark" : "light",
+  );
+  const [themeHydrated, setThemeHydrated] = useState(false);
 
   const connectedProviders = useConnectedProviders();
 
@@ -53,11 +57,14 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (!configData) return;
     setHiddenModels(new Set(configData.hiddenModels));
     setThemeState(configData.theme);
+    setThemeHydrated(true);
   }, [configData]);
 
-  // Apply resolved theme class and follow OS preference when theme is "system".
-  // Keep resolvedTheme in React state so consumers (e.g. Sonner) re-render on OS changes.
+  // Apply resolved theme only after config hydration so we don't briefly force
+  // "system" over a persisted light/dark preference (or theme-boot's early class).
   useEffect(() => {
+    if (!themeHydrated) return;
+
     const syncResolvedTheme = () => {
       const resolved = resolveTheme(theme);
       setResolvedTheme(resolved);
@@ -69,7 +76,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (theme !== "system") return;
 
     return subscribePrefersColorScheme(syncResolvedTheme);
-  }, [theme]);
+  }, [theme, themeHydrated]);
 
   // Restore last used model if its provider is still connected
   useEffect(() => {
@@ -120,6 +127,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     const resolved = resolveTheme(next);
     setThemeState(next);
     setResolvedTheme(resolved);
+    setThemeHydrated(true);
     applyThemeClass(resolved);
     patchConfig({ theme: next }).catch(() => {});
   }, []);
