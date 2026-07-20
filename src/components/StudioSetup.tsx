@@ -1,27 +1,17 @@
 import { useState } from "react";
 
-import findMcpImage from "@/assets/studio-setup/find-mcp.jpg";
-import flipSwitchImage from "@/assets/studio-setup/flip-switch.jpg";
-import openPlaceImage from "@/assets/studio-setup/open-place.jpg";
-
 const STEPS = [
   {
     title: "Open a place",
     description: "Open any project in Roblox Studio.",
-    image: openPlaceImage,
-    alt: "An open place in Roblox Studio",
   },
   {
     title: "Find MCP Servers",
     description: "Open Assistant, tap the three dots, then choose Manage MCP Servers.",
-    image: findMcpImage,
-    alt: "The Manage MCP Servers option in Roblox Studio Assistant",
   },
   {
     title: "Flip the switch",
     description: "Turn on Studio as MCP server. BloxBot will spot it automatically.",
-    image: flipSwitchImage,
-    alt: "The Studio as MCP server switch turned on",
   },
 ] as const;
 
@@ -106,12 +96,7 @@ function StudioSetup({ connected, checking, onCheck, onContinue }: StudioSetupPr
             </div>
           </div>
 
-          <img
-            key={step.image}
-            src={step.image}
-            alt={step.alt}
-            className="animate-fade-in aspect-[16/9] w-full object-cover object-top"
-          />
+          <StudioIllustration step={stepIndex} />
 
           <div className="flex items-center justify-between gap-4 border-t px-5 py-3.5">
             <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
@@ -155,6 +140,139 @@ function StudioSetup({ connected, checking, onCheck, onContinue }: StudioSetupPr
         </div>
       </section>
     </div>
+  );
+}
+
+function StudioIllustration({ step }: { step: number }) {
+  return (
+    <div
+      className="studio-demo"
+      role="img"
+      aria-label={
+        step === 0
+          ? "A playful representation of an open Roblox Studio project"
+          : step === 1
+            ? "The Assistant menu zoomed in with MCP Servers highlighted"
+            : "The Studio connection switch zoomed in and turned on"
+      }
+    >
+      <div key={step} className={`studio-demo-camera studio-demo-camera--${step}`}>
+        <div className="studio-demo-window">
+          <div className="studio-demo-toolbar">
+            <div className="flex items-center gap-1.5">
+              <span className="studio-demo-window-dot" />
+              <span className="studio-demo-window-dot" />
+              <span className="studio-demo-window-dot" />
+            </div>
+            <div className="studio-demo-tabs">
+              <span className="studio-demo-tab studio-demo-tab--active">Home</span>
+              <span>Avatar</span>
+              <span>UI</span>
+              <span>Script</span>
+              <span>Model</span>
+            </div>
+            <div className="studio-demo-assistant-pill">
+              <MiniFace />
+              Assistant
+            </div>
+          </div>
+
+          <div className="studio-demo-tools">
+            {["Select", "Move", "Scale", "Rotate", "Build"].map((tool, index) => (
+              <div key={tool} className="studio-demo-tool">
+                <span className={`studio-demo-tool-icon studio-demo-tool-icon--${index}`} />
+                {tool}
+              </div>
+            ))}
+          </div>
+
+          <div className="studio-demo-body">
+            <aside className="studio-demo-sidebar">
+              <p className="studio-demo-label">Explorer</p>
+              {["Workspace", "Players", "Lighting", "StarterGui"].map((item, index) => (
+                <div key={item} className="studio-demo-tree-row">
+                  <span className={`studio-demo-tree-icon studio-demo-tree-icon--${index}`} />
+                  {item}
+                </div>
+              ))}
+            </aside>
+
+            <div className="studio-demo-canvas">
+              <div className="studio-demo-cloud studio-demo-cloud--one" />
+              <div className="studio-demo-cloud studio-demo-cloud--two" />
+              <div className="studio-demo-platform">
+                <span className="studio-demo-block studio-demo-block--one" />
+                <span className="studio-demo-block studio-demo-block--two" />
+                <span className="studio-demo-block studio-demo-block--three" />
+                <span className="studio-demo-block studio-demo-block--four" />
+              </div>
+              <div className="studio-demo-axis">Y</div>
+            </div>
+
+            <aside className="studio-demo-properties">
+              <p className="studio-demo-label">Properties</p>
+              <div className="studio-demo-property" />
+              <div className="studio-demo-property studio-demo-property--short" />
+              <div className="studio-demo-property" />
+            </aside>
+          </div>
+
+          {step >= 1 && (
+            <div className="studio-demo-assistant">
+              <div className="studio-demo-assistant-header">
+                <span>Assistant</span>
+                <span className="studio-demo-more">•••</span>
+              </div>
+              <div className="studio-demo-chat-bubble">What should we build?</div>
+              <div className="studio-demo-menu">
+                <div>Preferences</div>
+                <div className="studio-demo-menu-active">
+                  <span className="studio-demo-plug">⌁</span>
+                  Manage MCP Servers
+                </div>
+                <div>Skills</div>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="studio-demo-settings">
+              <div className="studio-demo-settings-nav">
+                <MiniFace />
+                <span>Assistant</span>
+                <strong>MCP Servers</strong>
+                <span>Skills</span>
+              </div>
+              <div className="studio-demo-settings-content">
+                <span className="studio-demo-kicker">One last switch</span>
+                <h3>Connect BloxBot</h3>
+                <p>Let BloxBot build alongside you.</p>
+                <div className="studio-demo-switch-row">
+                  <div>
+                    <strong>Studio connection</strong>
+                    <span>Ready for BloxBot</span>
+                  </div>
+                  <span className="studio-demo-switch">
+                    <span />
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      <div key={`focus-${step}`} className={`studio-demo-focus studio-demo-focus--${step}`} />
+    </div>
+  );
+}
+
+function MiniFace() {
+  return (
+    <span className="studio-demo-face" aria-hidden="true">
+      <i />
+      <i />
+      <b />
+    </span>
   );
 }
 
