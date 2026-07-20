@@ -70,7 +70,9 @@ describe("ThemeProvider", () => {
     expect(document.documentElement.classList.contains("dark")).toBe(true);
 
     const { desktop } = await import("@/lib/desktop");
-    await expect(desktop.loadConfig()).resolves.toMatchObject({ theme: "dark" });
+    await waitFor(async () => {
+      await expect(desktop.loadConfig()).resolves.toMatchObject({ theme: "dark" });
+    });
   });
 
   it("hydrates from persisted AppConfig theme", async () => {
