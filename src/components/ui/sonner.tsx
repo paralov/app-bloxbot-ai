@@ -1,6 +1,6 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
-import { usePreferences } from "@/providers/PreferencesProvider";
+import { useTheme } from "@/components/theme-provider";
 
 /* ── Custom toast icons ──────────────────────────────────────────── */
 
@@ -76,7 +76,7 @@ function WarningIcon() {
 /* ── Toaster component ───────────────────────────────────────────── */
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { resolvedTheme } = usePreferences();
+  const { resolvedTheme } = useTheme();
 
   return (
     <Sonner

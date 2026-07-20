@@ -5,26 +5,16 @@ import { useConnectedProviders } from "@/hooks/useProviders";
 import { type AppConfig, loadConfig, patchConfig } from "@/lib/config";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
-import {
-  applyThemeClass,
-  type ResolvedTheme,
-  resolveTheme,
-  subscribePrefersColorScheme,
-  type ThemePreference,
-} from "@/lib/theme";
 
 interface PreferencesContextValue {
   selectedModel: string | null;
   selectedAgent: string | null;
   selectedVariant: string | null;
   hiddenModels: Set<string>;
-  theme: ThemePreference;
-  resolvedTheme: ResolvedTheme;
   setSelectedModel: (modelID: string) => void;
   setSelectedAgent: (name: string) => void;
   setSelectedVariant: (variant: string | null) => void;
   toggleModelVisibility: (modelKey: string) => void;
-  setTheme: (theme: ThemePreference) => void;
 }
 
 export const PreferencesContext = createContext<PreferencesContextValue>(null!);
@@ -43,12 +33,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [selectedAgent, setSelectedAgentState] = useState<string | null>(null);
   const [selectedVariant, setSelectedVariantState] = useState<string | null>(null);
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(new Set());
-  const [theme, setThemeState] = useState<ThemePreference>("system");
-  // Match any class already applied by theme-boot.js until persisted config loads.
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
-    document.documentElement.classList.contains("dark") ? "dark" : "light",
-  );
-  const [themeHydrated, setThemeHydrated] = useState(false);
 
   const connectedProviders = useConnectedProviders();
 
@@ -56,27 +40,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!configData) return;
     setHiddenModels(new Set(configData.hiddenModels));
-    setThemeState(configData.theme);
-    setThemeHydrated(true);
   }, [configData]);
-
-  // Apply resolved theme only after config hydration so we don't briefly force
-  // "system" over a persisted light/dark preference (or theme-boot's early class).
-  useEffect(() => {
-    if (!themeHydrated) return;
-
-    const syncResolvedTheme = () => {
-      const resolved = resolveTheme(theme);
-      setResolvedTheme(resolved);
-      applyThemeClass(resolved);
-    };
-
-    syncResolvedTheme();
-
-    if (theme !== "system") return;
-
-    return subscribePrefersColorScheme(syncResolvedTheme);
-  }, [theme, themeHydrated]);
 
   // Restore last used model if its provider is still connected
   useEffect(() => {
@@ -123,27 +87,15 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const setTheme = useCallback((next: ThemePreference) => {
-    const resolved = resolveTheme(next);
-    setThemeState(next);
-    setResolvedTheme(resolved);
-    setThemeHydrated(true);
-    applyThemeClass(resolved);
-    patchConfig({ theme: next }).catch(() => {});
-  }, []);
-
   const value: PreferencesContextValue = {
     selectedModel,
     selectedAgent,
     selectedVariant,
     hiddenModels,
-    theme,
-    resolvedTheme,
     setSelectedModel,
     setSelectedAgent,
     setSelectedVariant,
     toggleModelVisibility,
-    setTheme,
   };
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;

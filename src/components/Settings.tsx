@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { THEME_OPTIONS, type Theme, useTheme } from "@/components/theme-provider";
 import { useCompleteOAuth, useStartOAuth } from "@/hooks/mutations/useOAuth";
 import { useDisconnectProvider, useSetApiKey } from "@/hooks/mutations/useSetApiKey";
 import {
@@ -9,7 +10,6 @@ import {
   useConnectedProviders,
 } from "@/hooks/useProviders";
 import { desktop } from "@/lib/desktop";
-import { THEME_OPTIONS, type ThemePreference } from "@/lib/theme";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
 import type { UpdateInfo } from "@/types/desktop";
@@ -930,7 +930,7 @@ function ModelsTab() {
 // ═══════════════════════════════════════════════════════════════════════
 
 function AppearanceTab() {
-  const { theme, setTheme } = usePreferences();
+  const { theme, setTheme } = useTheme();
 
   return (
     <div className="mx-auto w-full max-w-md px-6 py-8">
@@ -969,7 +969,7 @@ function AppearanceTab() {
   );
 }
 
-function ThemePreview({ swatch }: { swatch: ThemePreference }) {
+function ThemePreview({ swatch }: { swatch: Theme }) {
   if (swatch === "light") {
     return (
       <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-stone-200">

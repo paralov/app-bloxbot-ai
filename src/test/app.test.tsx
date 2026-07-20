@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ThemeProvider } from "@/components/theme-provider";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
@@ -65,21 +66,23 @@ function TestApp({
 
   return (
     <QueryClientProvider client={queryClient}>
-      <OpenCodeClientContext.Provider
-        value={{
-          client: client as never,
-          status: "ready",
-          port: 4096,
-          ready: true,
-          initError: null,
-        }}
-      >
-        <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
-          <PreferencesProvider>
-            <ChatWithSonner />
-          </PreferencesProvider>
-        </ActiveSessionProvider>
-      </OpenCodeClientContext.Provider>
+      <ThemeProvider>
+        <OpenCodeClientContext.Provider
+          value={{
+            client: client as never,
+            status: "ready",
+            port: 4096,
+            ready: true,
+            initError: null,
+          }}
+        >
+          <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
+            <PreferencesProvider>
+              <ChatWithSonner />
+            </PreferencesProvider>
+          </ActiveSessionProvider>
+        </OpenCodeClientContext.Provider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

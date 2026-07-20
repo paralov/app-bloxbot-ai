@@ -2,6 +2,7 @@ import { useRef } from "react";
 
 import Chat from "@/components/Chat";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { useUpdater } from "@/hooks/useUpdater";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
@@ -28,13 +29,15 @@ function App() {
 
   return (
     <QueryProvider>
-      <OpenCodeClientProvider activeSessionIdRef={activeSessionIdRef}>
-        <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
-          <PreferencesProvider>
-            <AppInner />
-          </PreferencesProvider>
-        </ActiveSessionProvider>
-      </OpenCodeClientProvider>
+      <ThemeProvider>
+        <OpenCodeClientProvider activeSessionIdRef={activeSessionIdRef}>
+          <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
+            <PreferencesProvider>
+              <AppInner />
+            </PreferencesProvider>
+          </ActiveSessionProvider>
+        </OpenCodeClientProvider>
+      </ThemeProvider>
     </QueryProvider>
   );
 }
