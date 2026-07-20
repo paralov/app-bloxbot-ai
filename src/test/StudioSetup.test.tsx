@@ -17,12 +17,19 @@ describe("StudioSetup", () => {
     ).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("heading", { name: "Find MCP Servers" })).toBeVisible();
-    expect(screen.getByText("Manage MCP Servers")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Assistant" })).toBeVisible();
+    expect(
+      screen.getByRole("img", { name: "The Assistant window open in Roblox Studio" }),
+    ).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("heading", { name: "Flip the switch" })).toBeVisible();
-    expect(screen.getByText("Studio connection")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Manage MCP Servers" })).toBeVisible();
+    expect(screen.getAllByText("Manage MCP Servers")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("heading", { name: "Enable Studio as MCP server" })).toBeVisible();
+    expect(screen.getAllByText("Enable Studio as MCP server")).toHaveLength(2);
+    expect(screen.getByText("● No clients connected")).toBeVisible();
     expect(screen.getByRole("button", { name: "Check again" })).toBeVisible();
     expect(document.querySelector("img")).not.toBeInTheDocument();
   });

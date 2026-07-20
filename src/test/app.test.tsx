@@ -225,6 +225,7 @@ describe("User journeys", () => {
     expect(await screen.findByRole("heading", { name: "Let's connect Studio" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     studioStatus.mockResolvedValue({
       data: { "roblox-studio": { status: "connected" } },

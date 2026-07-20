@@ -3,15 +3,19 @@ import { useState } from "react";
 const STEPS = [
   {
     title: "Open a place",
-    description: "Open any project in Roblox Studio.",
+    description: "Open any place in Roblox Studio.",
   },
   {
-    title: "Find MCP Servers",
-    description: "Open Assistant, tap the three dots, then choose Manage MCP Servers.",
+    title: "Assistant",
+    description: "Click Assistant in the top-right corner.",
   },
   {
-    title: "Flip the switch",
-    description: "Turn on Studio as MCP server. BloxBot will spot it automatically.",
+    title: "Manage MCP Servers",
+    description: "Open the ••• menu, then click Manage MCP Servers.",
+  },
+  {
+    title: "Enable Studio as MCP server",
+    description: "Turn on Enable Studio as MCP server.",
   },
 ] as const;
 
@@ -152,8 +156,10 @@ function StudioIllustration({ step }: { step: number }) {
         step === 0
           ? "A playful representation of an open Roblox Studio project"
           : step === 1
-            ? "The Assistant menu zoomed in with MCP Servers highlighted"
-            : "The Studio connection switch zoomed in and turned on"
+            ? "The Assistant window open in Roblox Studio"
+            : step === 2
+              ? "The Assistant menu zoomed in with Manage MCP Servers highlighted"
+              : "Assistant Settings zoomed in with Enable Studio as MCP server turned on"
       }
     >
       <div key={step} className={`studio-demo-camera studio-demo-camera--${step}`}>
@@ -170,6 +176,7 @@ function StudioIllustration({ step }: { step: number }) {
               <span>UI</span>
               <span>Script</span>
               <span>Model</span>
+              <span>Plugins</span>
             </div>
             <div className="studio-demo-assistant-pill">
               <MiniFace />
@@ -178,7 +185,7 @@ function StudioIllustration({ step }: { step: number }) {
           </div>
 
           <div className="studio-demo-tools">
-            {["Select", "Move", "Scale", "Rotate", "Build"].map((tool, index) => (
+            {["Select", "Move", "Scale", "Rotate", "Part"].map((tool, index) => (
               <div key={tool} className="studio-demo-tool">
                 <span className={`studio-demo-tool-icon studio-demo-tool-icon--${index}`} />
                 {tool}
@@ -217,44 +224,73 @@ function StudioIllustration({ step }: { step: number }) {
             </aside>
           </div>
 
-          {step >= 1 && (
+          {step >= 1 && step < 3 && (
             <div className="studio-demo-assistant">
               <div className="studio-demo-assistant-header">
-                <span>Assistant</span>
+                <span>New chat⌄</span>
                 <span className="studio-demo-more">•••</span>
               </div>
-              <div className="studio-demo-chat-bubble">What should we build?</div>
-              <div className="studio-demo-menu">
-                <div>Preferences</div>
-                <div className="studio-demo-menu-active">
-                  <span className="studio-demo-plug">⌁</span>
-                  Manage MCP Servers
+              <div className="studio-demo-chat-bubble">Hi there! What can I help you build?</div>
+              <div className="studio-demo-prompt">Ask Assistant</div>
+              {step === 2 && (
+                <div className="studio-demo-menu">
+                  <div>Manage API Keys</div>
+                  <div className="studio-demo-menu-subtle">Roblox Default ›</div>
+                  <div className="studio-demo-menu-active">
+                    <span className="studio-demo-plug">⌁</span>
+                    Manage MCP Servers
+                  </div>
+                  <div>Manage Skills</div>
                 </div>
-                <div>Skills</div>
-              </div>
+              )}
             </div>
           )}
 
-          {step === 2 && (
+          {step === 3 && (
             <div className="studio-demo-settings">
+              <div className="studio-demo-settings-title">Assistant Settings</div>
               <div className="studio-demo-settings-nav">
-                <MiniFace />
-                <span>Assistant</span>
+                <span>API Keys</span>
                 <strong>MCP Servers</strong>
                 <span>Skills</span>
               </div>
               <div className="studio-demo-settings-content">
-                <span className="studio-demo-kicker">One last switch</span>
-                <h3>Connect BloxBot</h3>
-                <p>Let BloxBot build alongside you.</p>
+                <div className="studio-demo-settings-notice">
+                  Connecting a third-party LLM to Roblox Studio shares your data with that provider.
+                  Review their privacy practices, terms, and age limits before proceeding. Roblox is
+                  not responsible for third-party model output.
+                </div>
                 <div className="studio-demo-switch-row">
                   <div>
-                    <strong>Studio connection</strong>
-                    <span>Ready for BloxBot</span>
+                    <strong>Enable Studio as MCP server</strong>
+                    <span>● No clients connected</span>
                   </div>
                   <span className="studio-demo-switch">
                     <span />
                   </span>
+                </div>
+                <div className="studio-demo-quick-connect">⌄&nbsp;&nbsp; Quick connect</div>
+                <div className="studio-demo-client-row">
+                  <span>Claude Code CLI</span>
+                  <span>›</span>
+                </div>
+                <div className="studio-demo-client-row">
+                  <span>Codex</span>
+                  <span className="studio-demo-small-switch" />
+                </div>
+                <div className="studio-demo-client-row">
+                  <span>Cursor</span>
+                  <span className="studio-demo-small-switch" />
+                </div>
+                <div className="studio-demo-client-row">
+                  <span>Gemini CLI</span>
+                  <span>›</span>
+                </div>
+                <div className="studio-demo-setup-instructions">
+                  ›&nbsp;&nbsp; Setup Instructions
+                </div>
+                <div className="studio-demo-documentation">
+                  For detailed instructions see documentation
                 </div>
               </div>
             </div>
