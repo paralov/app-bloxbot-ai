@@ -227,7 +227,9 @@ function StudioIllustration({ step }: { step: number }) {
           {step >= 1 && step < 3 && (
             <div className="studio-demo-assistant">
               <div className="studio-demo-assistant-header">
-                <span>New chat⌄</span>
+                <span>
+                  New chat <i aria-hidden="true">⌄</i>
+                </span>
                 <span className="studio-demo-more">•••</span>
               </div>
               <div className="studio-demo-chat-bubble">Hi there! What can I help you build?</div>
@@ -235,7 +237,9 @@ function StudioIllustration({ step }: { step: number }) {
               {step === 2 && (
                 <div className="studio-demo-menu">
                   <div>Manage API Keys</div>
-                  <div className="studio-demo-menu-subtle">Roblox Default ›</div>
+                  <div className="studio-demo-menu-subtle">
+                    Roblox Default <span aria-hidden="true">›</span>
+                  </div>
                   <div className="studio-demo-menu-active">
                     <span className="studio-demo-plug">⌁</span>
                     Manage MCP Servers
@@ -263,13 +267,17 @@ function StudioIllustration({ step }: { step: number }) {
                 <div className="studio-demo-switch-row">
                   <div>
                     <strong>Enable Studio as MCP server</strong>
-                    <span>● No clients connected</span>
+                    <span>
+                      <i aria-hidden="true">●</i> No clients connected
+                    </span>
                   </div>
                   <span className="studio-demo-switch">
                     <span />
                   </span>
                 </div>
-                <div className="studio-demo-quick-connect">⌄&nbsp;&nbsp; Quick connect</div>
+                <div className="studio-demo-quick-connect">
+                  <span aria-hidden="true">⌄</span>&nbsp;&nbsp; Quick connect
+                </div>
                 <div className="studio-demo-client-row">
                   <span>Claude Code CLI</span>
                   <span>›</span>
@@ -287,7 +295,7 @@ function StudioIllustration({ step }: { step: number }) {
                   <span>›</span>
                 </div>
                 <div className="studio-demo-setup-instructions">
-                  ›&nbsp;&nbsp; Setup Instructions
+                  <span aria-hidden="true">›</span>&nbsp;&nbsp; Setup Instructions
                 </div>
                 <div className="studio-demo-documentation">
                   For detailed instructions see documentation
