@@ -9,6 +9,7 @@ import {
   useConnectedProviders,
 } from "@/hooks/useProviders";
 import { desktop } from "@/lib/desktop";
+import { THEME_OPTIONS, type ThemePreference } from "@/lib/theme";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
 import type { UpdateInfo } from "@/types/desktop";
@@ -57,7 +58,7 @@ const TECHNOLOGIES = [
   },
 ];
 
-type SettingsTab = "providers" | "models" | "about";
+type SettingsTab = "providers" | "models" | "appearance" | "about";
 
 interface SettingsProps {
   onClose: () => void;
@@ -156,6 +157,29 @@ function Settings({ onClose }: SettingsProps) {
             App
           </div>
           <button
+            onClick={() => setTab("appearance")}
+            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+              tab === "appearance"
+                ? "bg-accent font-medium text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="5" />
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            </svg>
+            Appearance
+          </button>
+          <button
             onClick={() => setTab("about")}
             className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
               tab === "about"
@@ -185,7 +209,7 @@ function Settings({ onClose }: SettingsProps) {
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {tab === "providers" && <ProvidersTab />}
           {tab === "models" && <ModelsTab />}
-
+          {tab === "appearance" && <AppearanceTab />}
           {tab === "about" && <AboutTab appVersion={appVersion} />}
         </div>
       </div>
@@ -902,6 +926,75 @@ function ModelsTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Appearance Tab
+// ═══════════════════════════════════════════════════════════════════════
+
+function AppearanceTab() {
+  const { theme, setTheme } = usePreferences();
+
+  return (
+    <div className="mx-auto w-full max-w-md px-6 py-8">
+      <h4 className="font-serif text-lg italic text-foreground">Appearance</h4>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Choose how BloxBot looks. System follows your OS preference.
+      </p>
+
+      <div className="mt-6">
+        <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Theme
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {THEME_OPTIONS.map((option) => {
+            const selected = theme === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setTheme(option.value as ThemePreference)}
+                aria-pressed={selected}
+                className={`rounded-lg border px-3 py-3 text-center transition-colors ${
+                  selected
+                    ? "border-foreground bg-accent font-medium text-foreground"
+                    : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                }`}
+              >
+                <ThemePreview swatch={option.value} />
+                <span className="mt-2 block text-xs">{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThemePreview({ swatch }: { swatch: ThemePreference }) {
+  if (swatch === "light") {
+    return (
+      <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-stone-200">
+        <div className="w-1/3 bg-stone-100" />
+        <div className="flex-1 bg-stone-50" />
+      </div>
+    );
+  }
+  if (swatch === "dark") {
+    return (
+      <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-stone-700">
+        <div className="w-1/3 bg-stone-800" />
+        <div className="flex-1 bg-stone-950" />
+      </div>
+    );
+  }
+  return (
+    <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-border">
+      <div className="w-1/2 bg-stone-50" />
+      <div className="w-1/2 bg-stone-950" />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // About Tab
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1054,7 +1147,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
           {/* Error */}
           {updateStatus === "error" && updateError && (
             <div className="mt-3">
-              <p className="rounded-md bg-red-50 px-2 py-1 text-[11px] text-red-600">
+              <p className="rounded-md bg-red-50 px-2 py-1 text-[11px] text-red-600 dark:bg-red-950/40 dark:text-red-400">
                 {updateError}
               </p>
               <button

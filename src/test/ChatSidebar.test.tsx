@@ -10,8 +10,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { qk } from "@/lib/queryKeys";
 import ChatSidebar from "@/components/ChatSidebar";
+import { qk } from "@/lib/queryKeys";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
@@ -19,7 +19,13 @@ import { PreferencesProvider } from "@/providers/PreferencesProvider";
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function makeSession(id: string, title: string, createdAt = Date.now()): Session {
-  return { id, title, time: { created: createdAt, updated: createdAt }, version: 1, parentID: "" } as Session;
+  return {
+    id,
+    title,
+    time: { created: createdAt, updated: createdAt },
+    version: 1,
+    parentID: "",
+  } as Session;
 }
 
 function createClient(overrides: Record<string, unknown> = {}) {
@@ -58,10 +64,7 @@ function createQueryClient() {
   });
 }
 
-function seedState(
-  qc: QueryClient,
-  opts: { sessions?: Session[] } = {},
-) {
+function seedState(qc: QueryClient, opts: { sessions?: Session[] } = {}) {
   const sessions = opts.sessions ?? [];
 
   qc.setQueryData(qk.sessions, sessions);
@@ -71,6 +74,7 @@ function seedState(
   qc.setQueryData(qk.config, {
     lastModel: null,
     hiddenModels: [],
+    theme: "system",
   });
 }
 
@@ -93,7 +97,13 @@ function TestSidebar({
   return (
     <QueryClientProvider client={queryClient}>
       <OpenCodeClientContext.Provider
-        value={{ client: client as never, status: "ready", port: 4096, ready: true, initError: null }}
+        value={{
+          client: client as never,
+          status: "ready",
+          port: 4096,
+          ready: true,
+          initError: null,
+        }}
       >
         <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
           <PreferencesProvider>
@@ -126,7 +136,9 @@ describe("ChatSidebar", () => {
   it("renders session list", async () => {
     const client = createClient();
     const qc = createQueryClient();
-    seedState(qc, { sessions: [makeSession("s1", "Session Alpha"), makeSession("s2", "Session Beta")] });
+    seedState(qc, {
+      sessions: [makeSession("s1", "Session Alpha"), makeSession("s2", "Session Beta")],
+    });
 
     render(<TestSidebar client={client} queryClient={qc} />);
 

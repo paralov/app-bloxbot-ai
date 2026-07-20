@@ -16,7 +16,7 @@ import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
-const defaultConfig: AppConfig = { lastModel: null, hiddenModels: [] };
+const defaultConfig: AppConfig = { lastModel: null, hiddenModels: [], theme: "system" };
 const configMutex = Effect.unsafeMakeSemaphore(1);
 
 let mainWindow: BrowserWindow | null = null;

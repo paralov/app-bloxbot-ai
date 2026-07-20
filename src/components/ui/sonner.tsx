@@ -1,5 +1,8 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
+import { resolveTheme } from "@/lib/theme";
+import { usePreferences } from "@/providers/PreferencesProvider";
+
 /* ── Custom toast icons ──────────────────────────────────────────── */
 
 function ErrorIcon() {
@@ -74,9 +77,12 @@ function WarningIcon() {
 /* ── Toaster component ───────────────────────────────────────────── */
 
 const Toaster = ({ ...props }: ToasterProps) => {
+  const { theme } = usePreferences();
+  const resolved = resolveTheme(theme);
+
   return (
     <Sonner
-      theme="light"
+      theme={resolved}
       className="toaster group"
       position="top-right"
       closeButton

@@ -53,8 +53,7 @@ function Chat() {
                 What would you like to build?
               </h2>
               <p className="mt-2 max-w-md text-xs text-muted-foreground">
-                Create a new session or pick one from the sidebar to continue where you left
-                off.
+                Create a new session or pick one from the sidebar to continue where you left off.
               </p>
               <button
                 onClick={() => createSession.mutate()}
@@ -85,7 +84,7 @@ function Chat() {
                   {activeSessionTitle || "Untitled"}
                 </h3>
                 {isBusy && (
-                  <span className="flex items-center gap-1 text-[10px] text-amber-600">
+                  <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
                     <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
                     Working
                   </span>
@@ -99,7 +98,7 @@ function Chat() {
         )}
 
         {initError && (
-          <div className="shrink-0 border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
+          <div className="shrink-0 border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
             {initError}
           </div>
         )}

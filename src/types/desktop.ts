@@ -2,10 +2,15 @@ import { Schema } from "effect";
 
 const MutableStrings = Schema.mutable(Schema.Array(Schema.String));
 
+export const ThemePreferenceSchema = Schema.Literal("light", "dark", "system");
+
+export type ThemePreference = typeof ThemePreferenceSchema.Type;
+
 export const AppConfigSchema = Schema.mutable(
   Schema.Struct({
     lastModel: Schema.NullOr(Schema.String),
     hiddenModels: MutableStrings,
+    theme: ThemePreferenceSchema,
   }),
 );
 

@@ -242,10 +242,10 @@ function BloxBotThinking({ label = "Thinking..." }: { label?: string }) {
 // ── Constants ───────────────────────────────────────────────────────────
 
 const TOOL_STATUS_COLORS: Record<string, string> = {
-  pending: "border-stone-200 bg-stone-50/50",
-  running: "border-amber-200 bg-amber-50/30",
-  completed: "border-stone-200 bg-white",
-  error: "border-red-200 bg-red-50/30",
+  pending: "border-border bg-muted/50",
+  running: "border-amber-200 bg-amber-50/30 dark:border-amber-900 dark:bg-amber-950/30",
+  completed: "border-border bg-card",
+  error: "border-red-200 bg-red-50/30 dark:border-red-900 dark:bg-red-950/30",
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -297,13 +297,13 @@ const BashToolView = memo(function BashToolView({
           <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
             Output ({output.split("\n").length} lines)
           </summary>
-          <pre className="mt-1 max-h-48 overflow-auto rounded bg-stone-50 p-2 font-mono text-[10px] leading-tight text-stone-700">
+          <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[10px] leading-tight text-foreground">
             {output.slice(0, 3000)}
           </pre>
         </details>
       )}
       {status === "running" && (
-        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-amber-600">
+        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
           <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-amber-400" />
           Running...
         </div>
@@ -318,9 +318,9 @@ const DiffBlock = memo(function DiffBlock({ oldStr, newStr }: { oldStr: string; 
   return (
     <div className="mt-1.5 overflow-hidden rounded border text-[11px]">
       {oldLines.length > 0 && (
-        <div className="border-b bg-red-50 px-2.5 py-1 font-mono">
+        <div className="border-b bg-red-50 px-2.5 py-1 font-mono dark:bg-red-950/40">
           {oldLines.slice(0, 20).map((line, i) => (
-            <div key={i} className="text-red-700">
+            <div key={i} className="text-red-700 dark:text-red-400">
               <span className="mr-2 select-none text-red-400">-</span>
               {line}
             </div>
@@ -331,9 +331,9 @@ const DiffBlock = memo(function DiffBlock({ oldStr, newStr }: { oldStr: string; 
         </div>
       )}
       {newLines.length > 0 && (
-        <div className="bg-emerald-50 px-2.5 py-1 font-mono">
+        <div className="bg-emerald-50 px-2.5 py-1 font-mono dark:bg-emerald-950/40">
           {newLines.slice(0, 20).map((line, i) => (
-            <div key={i} className="text-emerald-700">
+            <div key={i} className="text-emerald-700 dark:text-emerald-400">
               <span className="mr-2 select-none text-emerald-400">+</span>
               {line}
             </div>
@@ -646,13 +646,13 @@ const TodoWriteToolView = memo(function TodoWriteToolView({
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="text-stone-400"
+                className="text-muted-foreground"
               >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             ) : (
-              <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-stone-300" />
+              <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-muted-foreground/40" />
             )}
           </span>
           <span
@@ -703,7 +703,7 @@ const DefaultToolView = memo(function DefaultToolView({
           <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
             Output
           </summary>
-          <pre className="mt-1 max-h-32 overflow-auto rounded bg-stone-50 p-2 font-mono text-[10px] leading-tight text-stone-600">
+          <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted p-2 font-mono text-[10px] leading-tight text-muted-foreground">
             {typeof output === "string"
               ? output.slice(0, 2000)
               : JSON.stringify(output, null, 2).slice(0, 2000)}
@@ -761,22 +761,22 @@ const markdownComponents: Components = {
   },
   blockquote({ children }) {
     return (
-      <blockquote className="mb-2 border-l-2 border-stone-300 pl-3 text-muted-foreground last:mb-0">
+      <blockquote className="mb-2 border-l-2 border-border pl-3 text-muted-foreground last:mb-0">
         {children}
       </blockquote>
     );
   },
   hr() {
-    return <hr className="my-3 border-stone-200" />;
+    return <hr className="my-3 border-border" />;
   },
   code({ className, children }) {
     const isBlock = className?.includes("language-");
     if (isBlock) {
       const lang = className?.replace("language-", "") ?? "";
       return (
-        <div className="mb-2 overflow-hidden rounded-md border border-stone-200 last:mb-0">
+        <div className="mb-2 overflow-hidden rounded-md border border-border last:mb-0">
           {lang && (
-            <div className="border-b border-stone-200 bg-stone-100 px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+            <div className="border-b border-border bg-muted px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
               {lang}
             </div>
           )}
@@ -787,7 +787,7 @@ const markdownComponents: Components = {
       );
     }
     return (
-      <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-[11.5px] text-stone-800">
+      <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11.5px] text-foreground">
         {children}
       </code>
     );
@@ -803,13 +803,13 @@ const markdownComponents: Components = {
     );
   },
   thead({ children }) {
-    return <thead className="border-b border-stone-200 bg-stone-50">{children}</thead>;
+    return <thead className="border-b border-border bg-muted">{children}</thead>;
   },
   th({ children }) {
     return <th className="px-2 py-1 text-left font-semibold text-foreground">{children}</th>;
   },
   td({ children }) {
-    return <td className="border-t border-stone-100 px-2 py-1 text-foreground">{children}</td>;
+    return <td className="border-t border-border px-2 py-1 text-foreground">{children}</td>;
   },
 };
 
@@ -842,7 +842,7 @@ const ReasoningPartView = memo(function ReasoningPartView({
       <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground">
         Reasoning
       </summary>
-      <div className="mt-1 border-l-2 border-stone-200 pl-3 text-[12px] leading-relaxed text-muted-foreground">
+      <div className="mt-1 border-l-2 border-border pl-3 text-[12px] leading-relaxed text-muted-foreground">
         {part.text}
       </div>
     </details>
@@ -910,7 +910,7 @@ const ToolPartView = memo(function ToolPartView({
         )}
       {renderToolContent()}
       {errorMsg && (
-        <div className="mt-1.5 rounded bg-red-50 px-2 py-1 text-[11px] text-red-600">
+        <div className="mt-1.5 rounded bg-red-50 px-2 py-1 text-[11px] text-red-600 dark:bg-red-950/40 dark:text-red-400">
           {errorMsg}
         </div>
       )}
@@ -919,7 +919,7 @@ const ToolPartView = memo(function ToolPartView({
 });
 
 const StepPartView = memo(function StepPartView() {
-  return <div className="my-2 border-t border-stone-200" />;
+  return <div className="my-2 border-t border-border" />;
 });
 
 const StepFinishPartView = memo(function StepFinishPartView({
@@ -945,7 +945,7 @@ const RetryPartView = memo(function RetryPartView({
   part: Extract<Part, { type: "retry" }>;
 }) {
   return (
-    <div className="my-1 flex items-center gap-1.5 rounded border border-amber-200 bg-amber-50/30 px-2.5 py-1.5 text-[11px] text-amber-700">
+    <div className="my-1 flex items-center gap-1.5 rounded border border-amber-200 bg-amber-50/30 px-2.5 py-1.5 text-[11px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
       <svg
         width="10"
         height="10"
@@ -961,7 +961,10 @@ const RetryPartView = memo(function RetryPartView({
       </svg>
       Retrying (attempt {part.attempt})
       {"error" in part && part.error?.data && "message" in part.error.data && (
-        <span className="text-[10px] text-amber-600"> - {String(part.error.data.message)}</span>
+        <span className="text-[10px] text-amber-600 dark:text-amber-400">
+          {" "}
+          - {String(part.error.data.message)}
+        </span>
       )}
     </div>
   );
@@ -1028,7 +1031,7 @@ const TodoPanel = memo(function TodoPanel({ todos }: { todos: Todo[] }) {
           {completed}/{total}
         </span>
       </div>
-      <div className="h-1 overflow-hidden rounded-full bg-stone-100">
+      <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full bg-emerald-500 transition-all duration-300"
           style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
@@ -1064,13 +1067,13 @@ const TodoPanel = memo(function TodoPanel({ todos }: { todos: Todo[] }) {
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="text-stone-400"
+                  className="text-muted-foreground"
                 >
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
               ) : (
-                <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-stone-300" />
+                <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-muted-foreground/40" />
               )}
             </span>
             <span
@@ -1143,7 +1146,7 @@ const QuestionPrompt = memo(function QuestionPrompt({
                 <button
                   key={opt.label}
                   onClick={() => toggleOption(qIdx, opt.label, q.multiple)}
-                  className={`rounded-md border px-2.5 py-1 text-[11px] transition-colors ${isSelected ? "border-blue-400 bg-blue-100 text-blue-800" : "border-stone-200 bg-white text-foreground hover:border-blue-300 hover:bg-blue-50"}`}
+                  className={`rounded-md border px-2.5 py-1 text-[11px] transition-colors ${isSelected ? "border-blue-400 bg-blue-100 text-blue-800 dark:border-blue-500 dark:bg-blue-950/50 dark:text-blue-300" : "border-border bg-card text-foreground hover:border-blue-300 hover:bg-blue-50 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"}`}
                   title={opt.description}
                 >
                   {opt.label}
@@ -1157,7 +1160,7 @@ const QuestionPrompt = memo(function QuestionPrompt({
               placeholder="Type your own answer..."
               value={customInputs[qIdx] ?? ""}
               onChange={(e) => setCustomInputs((prev) => ({ ...prev, [qIdx]: e.target.value }))}
-              className="mt-2 w-full rounded border bg-white px-2 py-1 text-[11px] placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-blue-300"
+              className="mt-2 w-full rounded border border-border bg-background px-2 py-1 text-[11px] placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-blue-300"
             />
           )}
         </div>
@@ -1190,10 +1193,12 @@ const PermissionPrompt = memo(function PermissionPrompt({
   onReply: (requestID: string, reply: "once" | "always" | "reject") => void;
 }) {
   return (
-    <div className="animate-fade-in-up my-2 rounded-lg border border-amber-200 bg-amber-50/30 px-3 py-3">
+    <div className="animate-fade-in-up my-2 rounded-lg border border-amber-200 bg-amber-50/30 px-3 py-3 dark:border-amber-900 dark:bg-amber-950/30">
       <div className="text-[11px] font-semibold text-foreground">Permission Required</div>
       <div className="mt-1 text-[12px] text-foreground">
-        <span className="font-mono text-amber-700">{permission.permission}</span>
+        <span className="font-mono text-amber-700 dark:text-amber-400">
+          {permission.permission}
+        </span>
       </div>
       {permission.patterns.length > 0 && (
         <div className="mt-1 space-y-0.5">
@@ -1293,7 +1298,7 @@ const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: st
               <PartRenderer key={part.id} part={part} />
             ))}
             {"error" in msg.info && msg.info.error && (
-              <div className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600">
+              <div className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-950/40 dark:text-red-400">
                 {msg.info.error.data && "message" in msg.info.error.data
                   ? String(msg.info.error.data.message)
                   : msg.info.error.name}

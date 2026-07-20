@@ -95,6 +95,42 @@
   --sidebar-ring: oklch(0.553 0.013 58.071);
 }
 
+/* ── Stone palette (dark) ────────────────────────────────────────── */
+
+.dark {
+  --background: oklch(0.147 0.004 49.25);       /* stone-950 */
+  --foreground: oklch(0.985 0.001 106.424);     /* stone-50 */
+  --card: oklch(0.216 0.006 56.043);            /* stone-900 */
+  --card-foreground: oklch(0.985 0.001 106.424);
+  --popover: oklch(0.216 0.006 56.043);
+  --popover-foreground: oklch(0.985 0.001 106.424);
+  --primary: oklch(0.985 0.001 106.424);
+  --primary-foreground: oklch(0.216 0.006 56.043);
+  --secondary: oklch(0.268 0.007 34.298);       /* stone-800 */
+  --secondary-foreground: oklch(0.985 0.001 106.424);
+  --muted: oklch(0.268 0.007 34.298);
+  --muted-foreground: oklch(0.709 0.01 56.259); /* stone-400 */
+  --accent: oklch(0.268 0.007 34.298);
+  --accent-foreground: oklch(0.985 0.001 106.424);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.553 0.013 58.071);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.216 0.006 56.043);
+  --sidebar-foreground: oklch(0.985 0.001 106.424);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0.001 106.424);
+  --sidebar-accent: oklch(0.268 0.007 34.298);
+  --sidebar-accent-foreground: oklch(0.985 0.001 106.424);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.553 0.013 58.071);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -367,8 +403,8 @@
 [data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
   --toast-accent: oklch(0.553 0.013 58.071);
   font-family: "DM Sans", system-ui, -apple-system, sans-serif;
-  background: oklch(1 0 0);
-  border: 1px solid oklch(0.923 0.003 48.717);
+  background: var(--popover);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow:
     inset 3px 0 0 0 var(--toast-accent),
@@ -376,6 +412,14 @@
     0 4px 12px oklch(0.147 0.004 49.25 / 0.06),
     0 8px 24px oklch(0.147 0.004 49.25 / 0.03);
   padding: 14px 16px 14px 18px;
+}
+
+.dark [data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  box-shadow:
+    inset 3px 0 0 0 var(--toast-accent),
+    0 1px 3px oklch(0 0 0 / 0.25),
+    0 4px 12px oklch(0 0 0 / 0.35),
+    0 8px 24px oklch(0 0 0 / 0.25);
 }
 
 /* Error accent: warm red */
@@ -404,7 +448,7 @@
   font-size: 13.5px;
   line-height: 1.35;
   letter-spacing: -0.01em;
-  color: oklch(0.147 0.004 49.25);
+  color: var(--foreground);
 }
 
 /* Toast description */
@@ -412,7 +456,7 @@
   font-weight: 400;
   font-size: 12.5px;
   line-height: 1.4;
-  color: oklch(0.553 0.013 58.071);
+  color: var(--muted-foreground);
   margin-top: 2px;
 }
 
@@ -423,15 +467,15 @@
   font-size: 12.5px;
   padding: 5px 12px;
   border-radius: 6px;
-  background: oklch(0.147 0.004 49.25);
-  color: oklch(0.985 0.001 106.424);
+  background: var(--primary);
+  color: var(--primary-foreground);
   border: none;
   cursor: pointer;
   transition: background 150ms ease, transform 100ms ease;
 }
 
 [data-sonner-toaster] [data-sonner-toast] [data-button]:hover {
-  background: oklch(0.28 0.006 49.25);
+  opacity: 0.9;
 }
 
 [data-sonner-toaster] [data-sonner-toast] [data-button]:active {
@@ -441,15 +485,15 @@
 /* Toast close button  - restyle Sonner's default circle */
 [data-sonner-toaster] [data-sonner-toast] [data-close-button] {
   border-radius: 6px !important;
-  border: 1px solid oklch(0.923 0.003 48.717) !important;
-  background: oklch(0.97 0.001 106.424) !important;
-  color: oklch(0.553 0.013 58.071) !important;
+  border: 1px solid var(--border) !important;
+  background: var(--muted) !important;
+  color: var(--muted-foreground) !important;
   transition: opacity 150ms ease, background 120ms ease, color 120ms ease;
 }
 
 [data-sonner-toaster] [data-sonner-toast] [data-close-button]:hover {
-  background: oklch(0.923 0.003 48.717) !important;
-  color: oklch(0.147 0.004 49.25) !important;
+  background: var(--accent) !important;
+  color: var(--foreground) !important;
 }
 
 /* Toast icon container */

@@ -30,14 +30,14 @@ function formatTime(timestamp: number): string {
 }
 
 function statusDot(status?: { type: string }): string {
-  if (!status) return "bg-stone-300";
+  if (!status) return "bg-muted-foreground/35";
   switch (status.type) {
     case "busy":
       return "bg-amber-400 animate-pulse";
     case "idle":
-      return "bg-stone-300";
+      return "bg-muted-foreground/35";
     default:
-      return "bg-stone-300";
+      return "bg-muted-foreground/35";
   }
 }
 
@@ -74,7 +74,6 @@ const ChatSidebar = memo(function ChatSidebar({
       editRef.current.select();
     }
   }, [editingId]);
-
 
   function startRename(session: { id: string; title?: string }) {
     setEditingId(session.id);

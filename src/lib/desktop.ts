@@ -11,7 +11,7 @@ import {
 } from "@/types/desktop";
 
 const CONFIG_KEY = "bloxbot-config";
-const DEFAULT_CONFIG: AppConfig = { lastModel: null, hiddenModels: [] };
+const DEFAULT_CONFIG: AppConfig = { lastModel: null, hiddenModels: [], theme: "system" };
 
 export class DesktopError extends Data.TaggedError("DesktopError")<{
   message: string;

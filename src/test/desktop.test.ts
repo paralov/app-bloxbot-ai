@@ -23,6 +23,7 @@ describe("browser desktop fallback", () => {
     await expect(desktop.loadConfig()).resolves.toEqual({
       lastModel: "openai/gpt-5",
       hiddenModels: [],
+      theme: "system",
     });
   });
 
@@ -36,6 +37,19 @@ describe("browser desktop fallback", () => {
     await expect(desktop.loadConfig()).resolves.toEqual({
       lastModel: null,
       hiddenModels: [],
+      theme: "system",
+    });
+  });
+
+  it("persists the appearance theme preference", async () => {
+    const { desktop } = await import("@/lib/desktop");
+
+    await desktop.patchConfig({ theme: "dark" });
+
+    await expect(desktop.loadConfig()).resolves.toEqual({
+      lastModel: null,
+      hiddenModels: [],
+      theme: "dark",
     });
   });
 });
