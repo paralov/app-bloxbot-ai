@@ -12,39 +12,35 @@ describe("StudioSetup", () => {
     expect(screen.getByRole("heading", { name: "Open a place" })).toBeVisible();
     expect(
       screen.getByRole("img", {
-        name: "A playful representation of an open Roblox Studio project",
+        name: "The Baseplate template on the Roblox Studio home screen",
       }),
     ).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("heading", { name: "Assistant" })).toBeVisible();
     expect(
-      screen.getByRole("img", { name: "The Assistant window open in Roblox Studio" }),
+      screen.getByRole("img", {
+        name: "An open Roblox Studio place with the Assistant button in the top-right corner",
+      }),
     ).toBeVisible();
-    expect(screen.getByText(/^New chat/)).toBeVisible();
-    expect(screen.getByText("Hi there! What can I help you build?")).toBeVisible();
-    expect(screen.getByText("Ask Assistant")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("heading", { name: "Manage MCP Servers" })).toBeVisible();
-    expect(screen.getAllByText("Manage MCP Servers")).toHaveLength(2);
-    expect(screen.getByText("Manage API Keys")).toBeVisible();
-    expect(screen.getByText(/^Roblox Default/)).toBeVisible();
-    expect(screen.getByText("Manage Skills")).toBeVisible();
+    expect(
+      screen.getByRole("img", {
+        name: "The Roblox Studio Assistant menu with Manage MCP Servers selected",
+      }),
+    ).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("heading", { name: "Enable Studio as MCP server" })).toBeVisible();
-    expect(screen.getAllByText("Enable Studio as MCP server")).toHaveLength(2);
-    expect(screen.getByText("Assistant Settings")).toBeVisible();
-    expect(screen.getByText(/No clients connected/)).toBeVisible();
-    expect(screen.getByText(/Quick connect/)).toBeVisible();
-    expect(screen.getByText("Claude Code CLI")).toBeVisible();
-    expect(screen.getByText("Codex")).toBeVisible();
-    expect(screen.getByText("Cursor")).toBeVisible();
-    expect(screen.getByText("Gemini CLI")).toBeVisible();
-    expect(screen.getByText(/Setup Instructions/)).toBeVisible();
+    expect(
+      screen.getByRole("img", {
+        name: "Roblox Studio Assistant Settings with Enable Studio as MCP server turned on",
+      }),
+    ).toBeVisible();
     expect(screen.getByRole("button", { name: "Check again" })).toBeVisible();
-    expect(document.querySelector("img")).not.toBeInTheDocument();
+    expect(document.querySelectorAll("img")).toHaveLength(1);
     expect(screen.queryByText(/Connect BloxBot|Studio connection|Ready for BloxBot/)).toBeNull();
   });
 

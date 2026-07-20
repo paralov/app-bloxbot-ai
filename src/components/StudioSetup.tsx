@@ -1,21 +1,34 @@
 import { useState } from "react";
 
+import findMcpImage from "@/assets/studio-setup/find-mcp.jpg";
+import flipSwitchImage from "@/assets/studio-setup/flip-switch.jpg";
+import openAssistantImage from "@/assets/studio-setup/open-assistant.jpg";
+import openPlaceImage from "@/assets/studio-setup/open-place.jpg";
+
 const STEPS = [
   {
     title: "Open a place",
     description: "Open any place in Roblox Studio.",
+    image: openPlaceImage,
+    alt: "The Baseplate template on the Roblox Studio home screen",
   },
   {
     title: "Assistant",
     description: "Click Assistant in the top-right corner.",
+    image: openAssistantImage,
+    alt: "An open Roblox Studio place with the Assistant button in the top-right corner",
   },
   {
     title: "Manage MCP Servers",
     description: "Open the ••• menu, then click Manage MCP Servers.",
+    image: findMcpImage,
+    alt: "The Roblox Studio Assistant menu with Manage MCP Servers selected",
   },
   {
     title: "Enable Studio as MCP server",
     description: "Turn on Enable Studio as MCP server.",
+    image: flipSwitchImage,
+    alt: "Roblox Studio Assistant Settings with Enable Studio as MCP server turned on",
   },
 ] as const;
 
@@ -100,7 +113,7 @@ function StudioSetup({ connected, checking, onCheck, onContinue }: StudioSetupPr
             </div>
           </div>
 
-          <StudioIllustration step={stepIndex} />
+          <StudioScreenshot step={stepIndex} image={step.image} alt={step.alt} />
 
           <div className="flex items-center justify-between gap-4 border-t px-5 py-3.5">
             <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
@@ -147,176 +160,25 @@ function StudioSetup({ connected, checking, onCheck, onContinue }: StudioSetupPr
   );
 }
 
-function StudioIllustration({ step }: { step: number }) {
+function StudioScreenshot({ step, image, alt }: { step: number; image: string; alt: string }) {
   return (
-    <div
-      className="studio-demo"
-      role="img"
-      aria-label={
-        step === 0
-          ? "A playful representation of an open Roblox Studio project"
-          : step === 1
-            ? "The Assistant window open in Roblox Studio"
-            : step === 2
-              ? "The Assistant menu zoomed in with Manage MCP Servers highlighted"
-              : "Assistant Settings zoomed in with Enable Studio as MCP server turned on"
-      }
-    >
-      <div key={step} className={`studio-demo-camera studio-demo-camera--${step}`}>
-        <div className="studio-demo-window">
-          <div className="studio-demo-toolbar">
-            <div className="flex items-center gap-1.5">
-              <span className="studio-demo-window-dot" />
-              <span className="studio-demo-window-dot" />
-              <span className="studio-demo-window-dot" />
-            </div>
-            <div className="studio-demo-tabs">
-              <span className="studio-demo-tab studio-demo-tab--active">Home</span>
-              <span>Avatar</span>
-              <span>UI</span>
-              <span>Script</span>
-              <span>Model</span>
-              <span>Plugins</span>
-            </div>
-            <div className="studio-demo-assistant-pill">
-              <MiniFace />
-              Assistant
-            </div>
-          </div>
-
-          <div className="studio-demo-tools">
-            {["Select", "Move", "Scale", "Rotate", "Part"].map((tool, index) => (
-              <div key={tool} className="studio-demo-tool">
-                <span className={`studio-demo-tool-icon studio-demo-tool-icon--${index}`} />
-                {tool}
-              </div>
-            ))}
-          </div>
-
-          <div className="studio-demo-body">
-            <aside className="studio-demo-sidebar">
-              <p className="studio-demo-label">Explorer</p>
-              {["Workspace", "Players", "Lighting", "StarterGui"].map((item, index) => (
-                <div key={item} className="studio-demo-tree-row">
-                  <span className={`studio-demo-tree-icon studio-demo-tree-icon--${index}`} />
-                  {item}
-                </div>
-              ))}
-            </aside>
-
-            <div className="studio-demo-canvas">
-              <div className="studio-demo-cloud studio-demo-cloud--one" />
-              <div className="studio-demo-cloud studio-demo-cloud--two" />
-              <div className="studio-demo-platform">
-                <span className="studio-demo-block studio-demo-block--one" />
-                <span className="studio-demo-block studio-demo-block--two" />
-                <span className="studio-demo-block studio-demo-block--three" />
-                <span className="studio-demo-block studio-demo-block--four" />
-              </div>
-              <div className="studio-demo-axis">Y</div>
-            </div>
-
-            <aside className="studio-demo-properties">
-              <p className="studio-demo-label">Properties</p>
-              <div className="studio-demo-property" />
-              <div className="studio-demo-property studio-demo-property--short" />
-              <div className="studio-demo-property" />
-            </aside>
-          </div>
-
-          {step >= 1 && step < 3 && (
-            <div className="studio-demo-assistant">
-              <div className="studio-demo-assistant-header">
-                <span>
-                  New chat <i aria-hidden="true">⌄</i>
-                </span>
-                <span className="studio-demo-more">•••</span>
-              </div>
-              <div className="studio-demo-chat-bubble">Hi there! What can I help you build?</div>
-              <div className="studio-demo-prompt">Ask Assistant</div>
-              {step === 2 && (
-                <div className="studio-demo-menu">
-                  <div>Manage API Keys</div>
-                  <div className="studio-demo-menu-subtle">
-                    Roblox Default <span aria-hidden="true">›</span>
-                  </div>
-                  <div className="studio-demo-menu-active">
-                    <span className="studio-demo-plug">⌁</span>
-                    Manage MCP Servers
-                  </div>
-                  <div>Manage Skills</div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="studio-demo-settings">
-              <div className="studio-demo-settings-title">Assistant Settings</div>
-              <div className="studio-demo-settings-nav">
-                <span>API Keys</span>
-                <strong>MCP Servers</strong>
-                <span>Skills</span>
-              </div>
-              <div className="studio-demo-settings-content">
-                <div className="studio-demo-settings-notice">
-                  Connecting a third-party LLM to Roblox Studio shares your data with that provider.
-                  Review their privacy practices, terms, and age limits before proceeding. Roblox is
-                  not responsible for third-party model output.
-                </div>
-                <div className="studio-demo-switch-row">
-                  <div>
-                    <strong>Enable Studio as MCP server</strong>
-                    <span>
-                      <i aria-hidden="true">●</i> No clients connected
-                    </span>
-                  </div>
-                  <span className="studio-demo-switch">
-                    <span />
-                  </span>
-                </div>
-                <div className="studio-demo-quick-connect">
-                  <span aria-hidden="true">⌄</span>&nbsp;&nbsp; Quick connect
-                </div>
-                <div className="studio-demo-client-row">
-                  <span>Claude Code CLI</span>
-                  <span>›</span>
-                </div>
-                <div className="studio-demo-client-row">
-                  <span>Codex</span>
-                  <span className="studio-demo-small-switch" />
-                </div>
-                <div className="studio-demo-client-row">
-                  <span>Cursor</span>
-                  <span className="studio-demo-small-switch" />
-                </div>
-                <div className="studio-demo-client-row">
-                  <span>Gemini CLI</span>
-                  <span>›</span>
-                </div>
-                <div className="studio-demo-setup-instructions">
-                  <span aria-hidden="true">›</span>&nbsp;&nbsp; Setup Instructions
-                </div>
-                <div className="studio-demo-documentation">
-                  For detailed instructions see documentation
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+    <div className={`studio-screenshot studio-screenshot--${step}`}>
+      <div key={image} className="studio-screenshot-camera">
+        <img src={image} alt={alt} />
       </div>
-      <div key={`focus-${step}`} className={`studio-demo-focus studio-demo-focus--${step}`} />
+      <span key={`cursor-${image}`} className="studio-screenshot-cursor" aria-hidden="true">
+        <i />
+        <svg width="22" height="26" viewBox="0 0 22 26" fill="none">
+          <path
+            d="M2.3 1.9 19.2 15c.8.6.4 1.9-.6 2l-7 .7-3.4 6.1c-.5.9-1.8.7-2-.3L.6 3.1c-.3-1.1.8-1.9 1.7-1.2Z"
+            fill="white"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
     </div>
-  );
-}
-
-function MiniFace() {
-  return (
-    <span className="studio-demo-face" aria-hidden="true">
-      <i />
-      <i />
-      <b />
-    </span>
   );
 }
 
