@@ -11,7 +11,8 @@ export function useSessionStatuses() {
   return useQuery<Record<string, SessionStatus>>({
     queryKey: qk.statuses,
     queryFn: async () => {
-      const res = await client!.session.status({});
+      if (!client) return {};
+      const res = await client.session.status({}, { throwOnError: true });
       return res.data ?? {};
     },
     enabled: ready && !!client,
@@ -19,20 +20,24 @@ export function useSessionStatuses() {
 }
 
 export function useIsBusy(sessionId: string | null): boolean {
+  const status = useSessionStatus(sessionId);
+  return status !== undefined && status.type !== "idle";
+}
+
+export function useSessionStatus(sessionId: string | null): SessionStatus | undefined {
   const { client, ready } = useOpenCodeClient();
 
-  return (
-    useQuery<Record<string, SessionStatus>, Error, boolean>({
-      queryKey: qk.statuses,
-      queryFn: async () => {
-        const res = await client!.session.status({});
-        return res.data ?? {};
-      },
-      enabled: ready && !!client,
-      select: useCallback(
-        (d: Record<string, SessionStatus>) => (sessionId ? d[sessionId]?.type === "busy" : false),
-        [sessionId],
-      ),
-    }).data ?? false
-  );
+  return useQuery<Record<string, SessionStatus>, Error, SessionStatus | undefined>({
+    queryKey: qk.statuses,
+    queryFn: async () => {
+      if (!client) return {};
+      const res = await client.session.status({}, { throwOnError: true });
+      return res.data ?? {};
+    },
+    enabled: ready && !!client,
+    select: useCallback(
+      (statuses: Record<string, SessionStatus>) => (sessionId ? statuses[sessionId] : undefined),
+      [sessionId],
+    ),
+  }).data;
 }

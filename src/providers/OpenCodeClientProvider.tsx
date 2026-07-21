@@ -1,7 +1,15 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { usePostHog } from "@posthog/react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import LoadingScreen, { type StartupAnimation } from "@/components/LoadingScreen";
 import { captureDetailedAnalytics } from "@/lib/analytics";
@@ -159,6 +167,7 @@ export function OpenCodeClientProvider({
     sseAbortRef.current = abortController;
     let consecutiveFailures = 0;
     let reconnectToastId: string | number | undefined;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
     function showReconnectToast() {
       if (reconnectToastId != null) return;
@@ -179,20 +188,24 @@ export function OpenCodeClientProvider({
       }
     }
 
+    function scheduleReconnect() {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        if (!abortController.signal.aborted) void subscribe();
+      }, SSE_RECONNECT_DELAY);
+    }
+
     async function subscribe() {
       try {
         if (!client) return;
-        const sseResult = await client.event.subscribe({});
+        const sseResult = await client.event.subscribe({}, { throwOnError: true });
         if (!sseResult?.stream) {
           consecutiveFailures++;
           if (consecutiveFailures >= SSE_FAILURE_THRESHOLD) showReconnectToast();
-          if (!abortController.signal.aborted) {
-            setTimeout(() => {
-              if (!abortController.signal.aborted) subscribe();
-            }, SSE_RECONNECT_DELAY);
-          }
+          if (!abortController.signal.aborted) scheduleReconnect();
           return;
         }
+        await reconcileServerState(queryClient, activeSessionIdRef.current);
         consecutiveFailures = 0;
         dismissReconnectToast();
 
@@ -206,18 +219,14 @@ export function OpenCodeClientProvider({
         if (!abortController.signal.aborted) {
           consecutiveFailures++;
           if (consecutiveFailures >= SSE_FAILURE_THRESHOLD) showReconnectToast();
-          setTimeout(() => {
-            if (!abortController.signal.aborted) subscribe();
-          }, SSE_RECONNECT_DELAY);
+          scheduleReconnect();
         }
       } catch (err) {
         if (!abortController.signal.aborted) {
           console.error("SSE stream error:", err);
           consecutiveFailures++;
           if (consecutiveFailures >= SSE_FAILURE_THRESHOLD) showReconnectToast();
-          setTimeout(() => {
-            if (!abortController.signal.aborted) subscribe();
-          }, SSE_RECONNECT_DELAY);
+          scheduleReconnect();
         }
       }
     }
@@ -226,18 +235,16 @@ export function OpenCodeClientProvider({
 
     return () => {
       abortController.abort();
+      clearTimeout(reconnectTimer);
       sseAbortRef.current = null;
       dismissReconnectToast();
     };
   }, [client, ready, queryClient, activeSessionIdRef, posthog]);
 
-  const value: OpenCodeClientContextValue = {
-    client,
-    status,
-    port,
-    ready,
-    initError,
-  };
+  const value = useMemo<OpenCodeClientContextValue>(
+    () => ({ client, status, port, ready, initError }),
+    [client, status, port, ready, initError],
+  );
 
   if (!ready) {
     const startup = getStartupPresentation(startupPhase);
@@ -261,32 +268,67 @@ export function OpenCodeClientProvider({
 // Hooks have their own queryFn as fallback, but seeding the cache here
 // avoids extra round-trips on first render.
 
-async function prefetchServerState(client: OpencodeClient, queryClient: QueryClient) {
-  const [sessionRes, providerRes, statusRes, agentsRes, authRes] = await Promise.all([
-    client.session.list({}),
-    client.provider.list({}),
-    client.session.status({}),
-    client.app.agents({}).catch(() => ({ data: undefined })),
-    client.provider.auth({}).catch(() => ({ data: undefined })),
+export async function prefetchServerState(client: OpencodeClient, queryClient: QueryClient) {
+  const results = await Promise.allSettled([
+    client.session.list({}, { throwOnError: true }),
+    client.provider.list({}, { throwOnError: true }),
+    client.session.status({}, { throwOnError: true }),
+    client.app.agents({}, { throwOnError: true }),
+    client.provider.auth({}, { throwOnError: true }),
   ]);
+  if (results.every((result) => result.status === "rejected")) {
+    throw new Error("OpenCode server state is unavailable");
+  }
+  const [sessionResult, providerResult, statusResult, agentsResult, authResult] = results;
+  const sessionRes = sessionResult.status === "fulfilled" ? sessionResult.value : undefined;
+  const providerRes = providerResult.status === "fulfilled" ? providerResult.value : undefined;
+  const statusRes = statusResult.status === "fulfilled" ? statusResult.value : undefined;
+  const agentsRes = agentsResult.status === "fulfilled" ? agentsResult.value : undefined;
+  const authRes = authResult.status === "fulfilled" ? authResult.value : undefined;
 
-  if (sessionRes.data) {
+  if (sessionRes?.data) {
     const sorted = [...sessionRes.data].sort((a, b) => b.time.created - a.time.created);
     queryClient.setQueryData(qk.sessions, sorted);
   }
 
-  if (statusRes.data) {
+  if (statusRes?.data) {
     queryClient.setQueryData(qk.statuses, statusRes.data);
   }
 
-  if (agentsRes.data && Array.isArray(agentsRes.data)) {
+  if (agentsRes?.data && Array.isArray(agentsRes.data)) {
     queryClient.setQueryData(qk.agents, agentsRes.data);
   }
 
-  if (providerRes.data) {
-    const providerData = authRes.data
+  if (providerRes?.data) {
+    const providerData = authRes?.data
       ? { ...providerRes.data, authMethods: authRes.data }
       : providerRes.data;
     queryClient.setQueryData(qk.providers, providerData);
   }
+}
+
+export async function reconcileServerState(
+  queryClient: QueryClient,
+  activeSessionId: string | null,
+) {
+  const queryKeys: readonly (readonly unknown[])[] = [
+    qk.sessions,
+    qk.statuses,
+    qk.providers,
+    qk.agents,
+    ...(activeSessionId
+      ? [
+          qk.messages(activeSessionId),
+          qk.todos(activeSessionId),
+          qk.questions(activeSessionId),
+          qk.permissions(activeSessionId),
+        ]
+      : []),
+  ];
+
+  await Promise.all(
+    queryKeys.map((queryKey) =>
+      queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "active" }),
+    ),
+  );
 }

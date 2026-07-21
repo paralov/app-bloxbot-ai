@@ -13,18 +13,17 @@ export function useSetApiKey() {
   return useMutation({
     mutationFn: async ({ providerID, key }: { providerID: string; key: string }) => {
       if (!client) throw new Error("No client");
-      await client.auth.set({ providerID, auth: { type: "api", key } });
-      await client.instance.dispose();
+      await client.auth.set({ providerID, auth: { type: "api", key } }, { throwOnError: true });
+      await client.instance.dispose({}, { throwOnError: true });
       // First call after dispose triggers server reinitialization; may return stale data
-      await client.provider.list({});
+      await client.provider.list({}, { throwOnError: true });
       const [provRes, authRes] = await Promise.all([
-        client.provider.list({}),
-        client.provider.auth({}).catch(() => ({ data: undefined })),
+        client.provider.list({}, { throwOnError: true }),
+        client.provider.auth({}, { throwOnError: true }).catch(() => ({ data: undefined })),
       ]);
-      if (provRes.data) {
-        const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
-        queryClient.setQueryData(qk.providers, merged);
-      }
+      if (!provRes.data) throw new Error("No provider data after setting API key");
+      const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
+      queryClient.setQueryData(qk.providers, merged);
       posthog.capture("provider_connected", {
         method: "api_key",
         ...detailedAnalyticsProperties({ provider: providerID }),
@@ -41,17 +40,16 @@ export function useDisconnectProvider() {
   return useMutation({
     mutationFn: async (providerID: string) => {
       if (!client) throw new Error("No client");
-      await client.auth.remove({ providerID });
-      await client.instance.dispose();
-      await client.provider.list({});
+      await client.auth.remove({ providerID }, { throwOnError: true });
+      await client.instance.dispose({}, { throwOnError: true });
+      await client.provider.list({}, { throwOnError: true });
       const [provRes, authRes] = await Promise.all([
-        client.provider.list({}),
-        client.provider.auth({}).catch(() => ({ data: undefined })),
+        client.provider.list({}, { throwOnError: true }),
+        client.provider.auth({}, { throwOnError: true }).catch(() => ({ data: undefined })),
       ]);
-      if (provRes.data) {
-        const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
-        queryClient.setQueryData(qk.providers, merged);
-      }
+      if (!provRes.data) throw new Error("No provider data after disconnecting provider");
+      const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
+      queryClient.setQueryData(qk.providers, merged);
       posthog.capture(
         "provider_disconnected",
         detailedAnalyticsProperties({ provider: providerID }),

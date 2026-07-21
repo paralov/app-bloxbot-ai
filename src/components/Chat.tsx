@@ -6,7 +6,7 @@ import ChatSidebar from "@/components/ChatSidebar";
 import LoadingScreen from "@/components/LoadingScreen";
 import StudioSetup from "@/components/StudioSetup";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
-import { useIsBusy } from "@/hooks/useSessionStatuses";
+import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
@@ -16,8 +16,9 @@ const Settings = lazy(() => import("@/components/Settings"));
 
 function Chat() {
   const { ready, initError } = useOpenCodeClient();
-  const { activeSessionId } = useActiveSession();
-  const isBusy = useIsBusy(activeSessionId);
+  const { activeSessionId, clearSession } = useActiveSession();
+  const sessionStatus = useSessionStatus(activeSessionId);
+  const isBusy = sessionStatus !== undefined && sessionStatus.type !== "idle";
   const createSession = useCreateSession();
   const { data: allSessions } = useSessions();
   const studioConnection = useStudioConnection();
@@ -32,6 +33,16 @@ function Chat() {
   useEffect(() => {
     if (studioConnection.state === "waiting") setShowStudioSetup(true);
   }, [studioConnection.state]);
+
+  useEffect(() => {
+    if (
+      activeSessionId &&
+      allSessions &&
+      !allSessions.some((session) => session.id === activeSessionId)
+    ) {
+      clearSession();
+    }
+  }, [activeSessionId, allSessions, clearSession]);
 
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
@@ -103,7 +114,7 @@ function Chat() {
                 {isBusy && (
                   <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
                     <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                    Working
+                    {sessionStatus?.type === "retry" ? "Waiting to retry" : "Working"}
                   </span>
                 )}
               </div>

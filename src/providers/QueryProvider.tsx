@@ -5,8 +5,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: Number.POSITIVE_INFINITY, // SSE keeps data fresh
-      gcTime: Number.POSITIVE_INFINITY,
-      retry: false,
+      gcTime: 30 * 60 * 1000,
+      retry: 1,
+      retryDelay: 500,
       refetchOnWindowFocus: false,
     },
   },

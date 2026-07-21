@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -29,10 +30,12 @@ interface PreferencesContextValue {
   setDetailedAnalyticsEnabled: (enabled: boolean) => void;
 }
 
-export const PreferencesContext = createContext<PreferencesContextValue>(null!);
+export const PreferencesContext = createContext<PreferencesContextValue | undefined>(undefined);
 
 export function usePreferences() {
-  return useContext(PreferencesContext);
+  const context = useContext(PreferencesContext);
+  if (!context) throw new Error("usePreferences must be used within a PreferencesProvider");
+  return context;
 }
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
@@ -89,16 +92,22 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }
   }, [configData, setDetailedAnalyticsEnabled]);
 
-  // Restore last used model if its provider is still connected
+  // Restore a valid last-used model and clear selections whose provider disconnected.
   useEffect(() => {
-    if (!configData || connectedProviders.length === 0) return;
+    if (!configData) return;
+    if (selectedModel && !connectedProviders.includes(splitModelKey(selectedModel)[0])) {
+      setSelectedModelState(null);
+      setSelectedVariantState(null);
+      return;
+    }
     if (
+      !selectedModel &&
       configData.lastModel &&
       connectedProviders.includes(splitModelKey(configData.lastModel)[0])
     ) {
       setSelectedModelState(configData.lastModel);
     }
-  }, [configData, connectedProviders]);
+  }, [configData, connectedProviders, selectedModel]);
 
   // Auto-select first agent
   const agents = useAgents();
@@ -121,31 +130,46 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setSelectedVariantState(variant);
   }, []);
 
-  const toggleModelVisibility = useCallback((modelKey: string) => {
-    setHiddenModels((prev) => {
-      const next = new Set(prev);
+  const toggleModelVisibility = useCallback(
+    (modelKey: string) => {
+      const next = new Set(hiddenModels);
       if (next.has(modelKey)) {
         next.delete(modelKey);
       } else {
         next.add(modelKey);
       }
+      setHiddenModels(next);
       patchConfig({ hiddenModels: [...next] }).catch(() => {});
-      return next;
-    });
-  }, []);
+    },
+    [hiddenModels],
+  );
 
-  const value: PreferencesContextValue = {
-    selectedModel,
-    selectedAgent,
-    selectedVariant,
-    hiddenModels,
-    detailedAnalyticsEnabled,
-    setSelectedModel,
-    setSelectedAgent,
-    setSelectedVariant,
-    toggleModelVisibility,
-    setDetailedAnalyticsEnabled,
-  };
+  const value = useMemo<PreferencesContextValue>(
+    () => ({
+      selectedModel,
+      selectedAgent,
+      selectedVariant,
+      hiddenModels,
+      detailedAnalyticsEnabled,
+      setSelectedModel,
+      setSelectedAgent,
+      setSelectedVariant,
+      toggleModelVisibility,
+      setDetailedAnalyticsEnabled,
+    }),
+    [
+      selectedModel,
+      selectedAgent,
+      selectedVariant,
+      hiddenModels,
+      detailedAnalyticsEnabled,
+      setSelectedModel,
+      setSelectedAgent,
+      setSelectedVariant,
+      toggleModelVisibility,
+      setDetailedAnalyticsEnabled,
+    ],
+  );
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
 }

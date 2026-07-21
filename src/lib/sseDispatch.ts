@@ -8,7 +8,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import type { QueryClient } from "@tanstack/react-query";
 import { Data, Effect, Schema } from "effect";
-
+import type { ModelError } from "@/lib/modelError";
 import { qk } from "@/lib/queryKeys";
 import type { MessageWithParts } from "@/types";
 
@@ -113,14 +113,49 @@ function dispatchEvent(
         if (!prev) return prev;
         return prev.filter((s) => s.id !== info.id);
       });
+      queryClient.removeQueries({ queryKey: qk.session(info.id) });
+      queryClient.setQueryData<Record<string, SessionStatus>>(qk.statuses, (prev) => {
+        if (!prev?.[info.id]) return prev;
+        const { [info.id]: _deleted, ...remaining } = prev;
+        return remaining;
+      });
       break;
     }
     case "session.status": {
       const { sessionID, status } = event.properties;
+      if (status.type !== "idle") {
+        queryClient.setQueryData<ModelError | null>(qk.sessionError(sessionID), null);
+      }
       queryClient.setQueryData<Record<string, SessionStatus>>(qk.statuses, (prev) => {
-        if (prev?.[sessionID]?.type === status.type) return prev;
         return { ...prev, [sessionID]: status };
       });
+      break;
+    }
+    case "session.compacted": {
+      const { sessionID } = event.properties;
+      if (sessionID === currentSessionId) {
+        void queryClient.invalidateQueries({ queryKey: qk.messages(sessionID) });
+      }
+      break;
+    }
+    case "session.error": {
+      const sessionID = event.properties.sessionID ?? currentSessionId;
+      if (!sessionID) break;
+
+      queryClient.setQueryData<Record<string, SessionStatus>>(qk.statuses, (prev) => ({
+        ...prev,
+        [sessionID]: { type: "idle" } as SessionStatus,
+      }));
+      if (
+        sessionID === currentSessionId &&
+        event.properties.error &&
+        event.properties.error.name !== "MessageAbortedError"
+      ) {
+        queryClient.setQueryData<ModelError | null>(
+          qk.sessionError(sessionID),
+          event.properties.error,
+        );
+      }
       break;
     }
     case "session.idle": {
@@ -256,7 +291,7 @@ function dispatchEvent(
     case "question.asked": {
       const props = event.properties;
       if (props.sessionID === currentSessionId) {
-        queryClient.setQueryData<QuestionRequest | null>(qk.questions, props);
+        queryClient.setQueryData<QuestionRequest | null>(qk.questions(props.sessionID), props);
       }
       break;
     }
@@ -264,21 +299,21 @@ function dispatchEvent(
     case "question.rejected": {
       const { sessionID } = event.properties;
       if (sessionID === currentSessionId) {
-        queryClient.setQueryData<QuestionRequest | null>(qk.questions, null);
+        queryClient.setQueryData<QuestionRequest | null>(qk.questions(sessionID), null);
       }
       break;
     }
     case "permission.asked": {
       const props = event.properties;
       if (props.sessionID === currentSessionId) {
-        queryClient.setQueryData<PermissionRequest | null>(qk.permissions, props);
+        queryClient.setQueryData<PermissionRequest | null>(qk.permissions(props.sessionID), props);
       }
       break;
     }
     case "permission.replied": {
       const { sessionID } = event.properties;
       if (sessionID === currentSessionId) {
-        queryClient.setQueryData<PermissionRequest | null>(qk.permissions, null);
+        queryClient.setQueryData<PermissionRequest | null>(qk.permissions(sessionID), null);
       }
       break;
     }

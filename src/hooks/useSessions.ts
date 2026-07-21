@@ -11,7 +11,7 @@ export function useSessions() {
     queryKey: qk.sessions,
     queryFn: async () => {
       if (!client) return [];
-      const res = await client.session.list({});
+      const res = await client.session.list({}, { throwOnError: true });
       if (!res.data) return [];
       return [...res.data].sort((a, b) => b.time.created - a.time.created);
     },

@@ -1,9 +1,6 @@
-import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useCallback, useContext, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { qk } from "@/lib/queryKeys";
-import type { MessagesCache } from "@/lib/sseDispatch";
-import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
 interface ActiveSessionContextValue {
   activeSessionId: string | null;
@@ -32,81 +29,39 @@ export function ActiveSessionProvider({
   activeSessionIdRef: React.MutableRefObject<string | null>;
 }) {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const { client } = useOpenCodeClient();
   const queryClient = useQueryClient();
 
   const selectSession = useCallback(
     async (sessionID: string) => {
-      if (!client) return;
-      try {
-        const [_sessionRes, msgsRes] = await Promise.all([
-          client.session.get({ sessionID }),
-          client.session.messages({ sessionID }),
-        ]);
+      activeSessionIdRef.current = sessionID;
+      setActiveSessionId(sessionID);
+      queryClient.setQueryData(qk.sessionError(sessionID), null);
 
-        if (msgsRes.data) {
-          const byId: Record<
-            string,
-            {
-              info: (typeof msgsRes.data)[number]["info"];
-              parts: (typeof msgsRes.data)[number]["parts"];
-            }
-          > = {};
-          const ids: string[] = [];
-          for (const m of msgsRes.data) {
-            byId[m.info.id] = m;
-            ids.push(m.info.id);
-          }
-          queryClient.setQueryData<MessagesCache>(qk.messages(sessionID), {
-            messageIds: ids,
-            messagesById: byId,
-          });
-        }
-
-        // Fetch todos, questions, and permissions in parallel
-        const [todoRes, qRes, pRes] = await Promise.allSettled([
-          client.session.todo({ sessionID }),
-          client.question.list({}),
-          client.permission.list({}),
-        ]);
-
-        queryClient.setQueryData<Todo[]>(
+      // Mark every session-owned snapshot stale. The newly mounted observers fetch
+      // them once, while switching remains immediate and cannot race an older click.
+      await Promise.all(
+        [
+          qk.messages(sessionID),
           qk.todos(sessionID),
-          todoRes.status === "fulfilled" ? (todoRes.value.data ?? []) : [],
-        );
-
-        const activeQ =
-          qRes.status === "fulfilled" && qRes.value.data
-            ? (qRes.value.data.find((q: QuestionRequest) => q.sessionID === sessionID) ?? null)
-            : null;
-        queryClient.setQueryData<QuestionRequest | null>(qk.questions, activeQ);
-
-        const activeP =
-          pRes.status === "fulfilled" && pRes.value.data
-            ? (pRes.value.data.find((p: PermissionRequest) => p.sessionID === sessionID) ?? null)
-            : null;
-        queryClient.setQueryData<PermissionRequest | null>(qk.permissions, activeP);
-
-        activeSessionIdRef.current = sessionID;
-        setActiveSessionId(sessionID);
-      } catch (err) {
-        console.error("Failed to select session:", err);
-      }
+          qk.questions(sessionID),
+          qk.permissions(sessionID),
+        ].map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" }),
+        ),
+      );
     },
-    [client, queryClient],
+    [queryClient, activeSessionIdRef],
   );
 
   const clearSession = useCallback(() => {
     activeSessionIdRef.current = null;
     setActiveSessionId(null);
-  }, []);
+  }, [activeSessionIdRef]);
 
-  const value: ActiveSessionContextValue = {
-    activeSessionId,
-    selectSession,
-    clearSession,
-    activeSessionIdRef,
-  };
+  const value = useMemo<ActiveSessionContextValue>(
+    () => ({ activeSessionId, selectSession, clearSession, activeSessionIdRef }),
+    [activeSessionId, selectSession, clearSession, activeSessionIdRef],
+  );
 
   return <ActiveSessionContext.Provider value={value}>{children}</ActiveSessionContext.Provider>;
 }

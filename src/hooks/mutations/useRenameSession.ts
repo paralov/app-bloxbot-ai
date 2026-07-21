@@ -11,7 +11,7 @@ export function useRenameSession() {
   return useMutation({
     mutationFn: async ({ sessionID, title }: { sessionID: string; title: string }) => {
       if (!client) throw new Error("No client");
-      const res = await client.session.update({ sessionID, title });
+      const res = await client.session.update({ sessionID, title }, { throwOnError: true });
       if (!res.data) throw new Error("No data");
       return res.data;
     },

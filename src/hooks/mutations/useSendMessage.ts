@@ -1,7 +1,9 @@
+import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { usePostHog } from "@posthog/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { detailedAnalyticsProperties } from "@/lib/analytics";
+import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -12,13 +14,19 @@ interface SendMessageInput {
   images?: Array<{ mime: string; url: string; filename?: string }>;
 }
 
+interface SendMessageContext {
+  sessionID: string;
+  previousStatus: SessionStatus | undefined;
+}
+
 export function useSendMessage() {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
   const { selectedModel, selectedAgent, selectedVariant } = usePreferences();
   const posthog = usePostHog();
+  const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<void, Error, SendMessageInput, SendMessageContext | undefined>({
     mutationFn: async ({ text, images }: SendMessageInput) => {
       if (!client || !activeSessionId) throw new Error("No client or session");
 
@@ -47,7 +55,9 @@ export function useSendMessage() {
       if (selectedAgent) opts.agent = selectedAgent;
       if (selectedVariant) opts.variant = selectedVariant;
 
-      await client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0]);
+      await client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0], {
+        throwOnError: true,
+      });
       posthog.capture(
         "message_sent",
         detailedAnalyticsProperties({
@@ -55,6 +65,32 @@ export function useSendMessage() {
           model,
         }),
       );
+    },
+    onMutate: () => {
+      if (!activeSessionId) return undefined;
+      const statuses = queryClient.getQueryData<Record<string, SessionStatus>>(qk.statuses);
+      const context: SendMessageContext = {
+        sessionID: activeSessionId,
+        previousStatus: statuses?.[activeSessionId],
+      };
+      queryClient.setQueryData<Record<string, SessionStatus>>(qk.statuses, (previous) => ({
+        ...previous,
+        [activeSessionId]: { type: "busy" },
+      }));
+      return context;
+    },
+    onError: (_error, _input, context) => {
+      if (!context) return;
+      queryClient.setQueryData<Record<string, SessionStatus>>(qk.statuses, (previous) => {
+        if (previous?.[context.sessionID]?.type !== "busy") return previous;
+        const next = { ...previous };
+        if (context.previousStatus) {
+          next[context.sessionID] = context.previousStatus;
+        } else {
+          delete next[context.sessionID];
+        }
+        return next;
+      });
     },
   });
 }

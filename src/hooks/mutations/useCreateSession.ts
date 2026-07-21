@@ -15,7 +15,7 @@ export function useCreateSession() {
   return useMutation({
     mutationFn: async () => {
       if (!client) throw new Error("No client");
-      const res = await client.session.create({});
+      const res = await client.session.create({}, { throwOnError: true });
       if (!res.data) throw new Error("No data");
       return res.data;
     },
@@ -32,8 +32,8 @@ export function useCreateSession() {
         messagesById: {},
       });
       queryClient.setQueryData(qk.todos(newSession.id), []);
-      queryClient.setQueryData(qk.questions, null);
-      queryClient.setQueryData(qk.permissions, null);
+      queryClient.setQueryData(qk.questions(newSession.id), null);
+      queryClient.setQueryData(qk.permissions(newSession.id), null);
 
       selectSession(newSession.id);
       posthog.capture("session_created");

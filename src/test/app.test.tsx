@@ -108,9 +108,9 @@ function createClient(overrides: Record<string, unknown> = {}) {
       list: vi.fn().mockResolvedValue({ data: [] }),
       get: vi.fn().mockResolvedValue({ data: null }),
       create: vi.fn().mockResolvedValue({ data: null }),
-      delete: vi.fn().mockResolvedValue({}),
+      delete: vi.fn().mockResolvedValue({ data: true }),
       update: vi.fn().mockResolvedValue({ data: null }),
-      abort: vi.fn().mockResolvedValue({}),
+      abort: vi.fn().mockResolvedValue({ data: true }),
       messages: vi.fn().mockResolvedValue({ data: [] }),
       status: vi.fn().mockResolvedValue({ data: {} }),
       todo: vi.fn().mockResolvedValue({ data: [] }),
@@ -298,6 +298,30 @@ describe("User journeys", () => {
     });
   });
 
+  it("switches to the latest session immediately without waiting for older requests", async () => {
+    const first = makeSession("s1", "First Session");
+    const second = makeSession("s2", "Second Session");
+    const never = new Promise<never>(() => {});
+    const client = createClient({
+      get: vi.fn().mockReturnValue(never),
+      messages: vi.fn().mockReturnValue(never),
+      todo: vi.fn().mockReturnValue(never),
+    });
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { sessions: [first, second] });
+
+    render(<TestApp client={client} queryClient={queryClient} />);
+
+    const firstTitle = await screen.findByText("First Session");
+    await act(async () => {
+      fireEvent.click(firstTitle);
+      fireEvent.click(screen.getByText("Second Session"));
+    });
+
+    expect(await screen.findByRole("heading", { name: "Second Session" })).toBeVisible();
+    expect(client.session.get).not.toHaveBeenCalled();
+  });
+
   it("sends a message and shows the assistant response via SSE", async () => {
     const session = makeSession("s1", "My Session");
     const client = createClient({
@@ -315,8 +339,8 @@ describe("User journeys", () => {
       messagesById: {},
     });
     queryClient.setQueryData(qk.todos("s1"), []);
-    queryClient.setQueryData(qk.questions, null);
-    queryClient.setQueryData(qk.permissions, null);
+    queryClient.setQueryData(qk.questions("s1"), null);
+    queryClient.setQueryData(qk.permissions("s1"), null);
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
@@ -438,25 +462,28 @@ describe("User journeys", () => {
       fireEvent.click(allowBtn);
     });
 
-    expect(client.permission.reply).toHaveBeenCalledWith({
-      requestID: "perm_1",
-      reply: "once",
-    });
+    expect(client.permission.reply).toHaveBeenCalledWith(
+      {
+        requestID: "perm_1",
+        reply: "once",
+      },
+      { throwOnError: true },
+    );
   });
 
   it("deletes a session and it disappears from the sidebar", async () => {
     const s1 = makeSession("s1", "Session One");
     const s2 = makeSession("s2", "Session Two");
     const client = createClient({
-      delete: vi.fn().mockResolvedValue({}),
+      delete: vi.fn().mockResolvedValue({ data: true }),
       get: vi.fn().mockResolvedValue({ data: s1 }),
       messages: vi.fn().mockResolvedValue({ data: [] }),
     });
     const queryClient = createQueryClient();
     seedReadyState(queryClient, { sessions: [s1, s2] });
     queryClient.setQueryData(qk.todos("s1"), []);
-    queryClient.setQueryData(qk.questions, null);
-    queryClient.setQueryData(qk.permissions, null);
+    queryClient.setQueryData(qk.questions("s1"), null);
+    queryClient.setQueryData(qk.permissions("s1"), null);
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
@@ -464,17 +491,13 @@ describe("User journeys", () => {
     expect(await screen.findByText("Session One")).toBeInTheDocument();
     expect(screen.getByText("Session Two")).toBeInTheDocument();
 
-    // Hover over Session One to reveal the delete button, then click it
-    const sessionOneEl = screen.getByText("Session One").closest("[class*='cursor-pointer']");
-    expect(sessionOneEl).toBeTruthy();
-
     // Find the delete button (title="Delete") within the session row
     const deleteButtons = screen.getAllByTitle("Delete");
     await act(async () => {
       fireEvent.click(deleteButtons[0]);
     });
 
-    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "s1" });
+    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "s1" }, { throwOnError: true });
 
     // Session One should be gone from the sidebar
     await waitFor(() => {
@@ -546,10 +569,13 @@ describe("User journeys", () => {
       fireEvent.click(screen.getByText("Submit"));
     });
 
-    expect(client.question.reply).toHaveBeenCalledWith({
-      requestID: "q1",
-      answers: [["Overwrite"]],
-    });
+    expect(client.question.reply).toHaveBeenCalledWith(
+      {
+        requestID: "q1",
+        answers: [["Overwrite"]],
+      },
+      { throwOnError: true },
+    );
   });
 
   it("streams tool use (bash command) and shows it in the UI", async () => {
@@ -566,8 +592,8 @@ describe("User journeys", () => {
       messagesById: {},
     });
     queryClient.setQueryData(qk.todos("s1"), []);
-    queryClient.setQueryData(qk.questions, null);
-    queryClient.setQueryData(qk.permissions, null);
+    queryClient.setQueryData(qk.questions("s1"), null);
+    queryClient.setQueryData(qk.permissions("s1"), null);
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
@@ -660,6 +686,78 @@ describe("User journeys", () => {
     await waitFor(() => {
       expect(screen.queryByText("Running...")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows OpenCode's structured free-tier action while waiting to retry", async () => {
+    const session = makeSession("s1", "Quota Session");
+    const client = createClient({
+      get: vi.fn().mockResolvedValue({ data: session }),
+      messages: vi.fn().mockResolvedValue({ data: [] }),
+    });
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { sessions: [session] });
+
+    render(<TestApp client={client} queryClient={queryClient} />);
+    await act(async () => {
+      fireEvent.click(await screen.findByText("Quota Session"));
+    });
+    await screen.findByPlaceholderText("Describe what you want to build...");
+
+    const activeRef = { current: "s1" };
+    act(() => {
+      sseDispatch(
+        queryClient,
+        {
+          type: "session.status",
+          properties: { sessionID: "s1", status: { type: "busy" } },
+        },
+        activeRef,
+      );
+    });
+    expect(await screen.findByText("Working")).toBeInTheDocument();
+
+    act(() => {
+      sseDispatch(
+        queryClient,
+        {
+          type: "session.status",
+          properties: {
+            sessionID: "s1",
+            status: {
+              type: "retry",
+              attempt: 1,
+              message: "Free usage exceeded, subscribe to Go",
+              next: Date.now() + 60_000,
+              action: {
+                provider: "opencode",
+                reason: "free_tier_limit",
+                title: "Free limit reached",
+                message:
+                  "Subscribe to OpenCode Go for reliable access to the best open-source models.",
+                label: "Subscribe",
+                link: "https://opencode.ai/go",
+              },
+            },
+          },
+        },
+        activeRef,
+      );
+    });
+
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Free limit reached");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Subscribe to OpenCode Go");
+    expect(screen.getByRole("link", { name: "Subscribe" })).toHaveAttribute(
+      "href",
+      "https://opencode.ai/go",
+    );
+    expect(screen.getByRole("button", { name: "Don't show again" })).toBeInTheDocument();
+    expect(screen.queryByText("Working")).not.toBeInTheDocument();
+    expect(screen.getByText("Waiting to retry")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Don't show again" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("bloxbot:usage-limit:free-tier:hidden")).toBe("true");
   });
 
   it("SSE session.created adds a new session to the sidebar", async () => {

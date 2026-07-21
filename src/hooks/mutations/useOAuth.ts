@@ -18,7 +18,10 @@ export function useStartOAuth() {
       methodIndex: number;
     }) => {
       if (!client) throw new Error("No client");
-      const res = await client.provider.oauth.authorize({ providerID, method: methodIndex });
+      const res = await client.provider.oauth.authorize(
+        { providerID, method: methodIndex },
+        { throwOnError: true },
+      );
       if (!res.data) return undefined;
       // The sidecar cannot open a browser itself, so use the safe desktop bridge.
       if (res.data.url) {
@@ -45,22 +48,24 @@ export function useCompleteOAuth() {
       code?: string;
     }) => {
       if (!client) throw new Error("No client");
-      const res = await client.provider.oauth.callback({
-        providerID,
-        method: methodIndex,
-        ...(code ? { code } : {}),
-      });
-      await client.instance.dispose();
+      const res = await client.provider.oauth.callback(
+        {
+          providerID,
+          method: methodIndex,
+          ...(code ? { code } : {}),
+        },
+        { throwOnError: true },
+      );
+      await client.instance.dispose({}, { throwOnError: true });
 
-      await client.provider.list({});
+      await client.provider.list({}, { throwOnError: true });
       const [provRes, authRes] = await Promise.all([
-        client.provider.list({}),
-        client.provider.auth({}).catch(() => ({ data: undefined })),
+        client.provider.list({}, { throwOnError: true }),
+        client.provider.auth({}, { throwOnError: true }).catch(() => ({ data: undefined })),
       ]);
-      if (provRes.data) {
-        const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
-        queryClient.setQueryData(qk.providers, merged);
-      }
+      if (!provRes.data) throw new Error("No provider data after OAuth");
+      const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
+      queryClient.setQueryData(qk.providers, merged);
 
       if (res.data === true) {
         posthog.capture("provider_connected", {

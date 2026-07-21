@@ -161,6 +161,9 @@ describe("sseDispatch", () => {
   describe("session.deleted", () => {
     it("removes the session from cache", () => {
       qc.setQueryData(qk.sessions, [makeSession("s1", "One"), makeSession("s2", "Two")]);
+      qc.setQueryData(qk.statuses, { s1: { type: "idle" }, s2: { type: "busy" } });
+      qc.setQueryData(qk.messages("s1"), { messageIds: [], messagesById: {} });
+      qc.setQueryData(qk.todos("s1"), []);
 
       dispatch(qc, {
         type: "session.deleted",
@@ -170,6 +173,9 @@ describe("sseDispatch", () => {
       const sessions = qc.getQueryData<Session[]>(qk.sessions)!;
       expect(sessions).toHaveLength(1);
       expect(sessions[0].id).toBe("s2");
+      expect(qc.getQueryData(qk.messages("s1"))).toBeUndefined();
+      expect(qc.getQueryData(qk.todos("s1"))).toBeUndefined();
+      expect(qc.getQueryData(qk.statuses)).toEqual({ s2: { type: "busy" } });
     });
   });
 
@@ -188,17 +194,35 @@ describe("sseDispatch", () => {
       expect(statuses.s1.type).toBe("busy");
     });
 
-    it("skips update when status type is unchanged", () => {
-      const initial = { s1: { type: "busy" } as SessionStatus };
-      qc.setQueryData(qk.statuses, initial);
+    it("keeps structured retry actions from OpenCode", () => {
+      qc.setQueryData(qk.statuses, { s1: { type: "busy" } as SessionStatus });
 
       dispatch(qc, {
         type: "session.status",
-        properties: { sessionID: "s1", status: { type: "busy" } },
+        properties: {
+          sessionID: "s1",
+          status: {
+            type: "retry",
+            attempt: 1,
+            message: "Free usage exceeded, subscribe to Go",
+            next: Date.now() + 60_000,
+            action: {
+              provider: "opencode",
+              reason: "free_tier_limit",
+              title: "Free limit reached",
+              message: "Subscribe to OpenCode Go for reliable access.",
+              label: "Subscribe",
+              link: "https://opencode.ai/go",
+            },
+          },
+        },
       });
 
-      // Should return the same reference (no unnecessary update)
-      expect(qc.getQueryData(qk.statuses)).toBe(initial);
+      const status = qc.getQueryData<Record<string, SessionStatus>>(qk.statuses)?.s1;
+      expect(status).toMatchObject({
+        type: "retry",
+        action: { provider: "opencode", reason: "free_tier_limit" },
+      });
     });
   });
 
@@ -219,6 +243,51 @@ describe("sseDispatch", () => {
       dispatch(qc, { type: "session.idle", properties: { sessionID: "s1" } });
 
       expect(qc.getQueryData(qk.statuses)).toBe(initial);
+    });
+  });
+
+  describe("session.error", () => {
+    it("stops the busy state and stores the active session error", () => {
+      qc.setQueryData(qk.statuses, { s1: { type: "busy" } as SessionStatus });
+      const error = {
+        name: "APIError" as const,
+        data: {
+          message: "Provider request failed",
+          statusCode: 400,
+          isRetryable: false,
+        },
+      };
+
+      dispatch(qc, { type: "session.error", properties: { sessionID: "s1", error } }, "s1");
+
+      expect(qc.getQueryData<Record<string, SessionStatus>>(qk.statuses)?.s1.type).toBe("idle");
+      expect(qc.getQueryData(qk.sessionError("s1"))).toEqual(error);
+    });
+
+    it("does not show another session's error in the active chat", () => {
+      dispatch(
+        qc,
+        {
+          type: "session.error",
+          properties: {
+            sessionID: "s2",
+            error: { name: "UnknownError", data: { message: "failed" } },
+          },
+        },
+        "s1",
+      );
+
+      expect(qc.getQueryData(qk.sessionError("s1"))).toBeUndefined();
+    });
+  });
+
+  describe("session.compacted", () => {
+    it("invalidates active-session messages so the compacted history is refreshed", () => {
+      qc.setQueryData(qk.messages("s1"), { messageIds: [], messagesById: {} });
+
+      dispatch(qc, { type: "session.compacted", properties: { sessionID: "s1" } }, "s1");
+
+      expect(qc.getQueryState(qk.messages("s1"))?.isInvalidated).toBe(true);
     });
   });
 
@@ -563,26 +632,26 @@ describe("sseDispatch", () => {
         "s1",
       );
 
-      const q = qc.getQueryData<QuestionRequest | null>(qk.questions);
+      const q = qc.getQueryData<QuestionRequest | null>(qk.questions("s1"));
       expect((q as any).id).toBe("q1");
     });
   });
 
   describe("question.replied / question.rejected", () => {
     it("clears the question on reply", () => {
-      qc.setQueryData(qk.questions, { id: "q1", sessionID: "s1" });
+      qc.setQueryData(qk.questions("s1"), { id: "q1", sessionID: "s1" });
 
       dispatch(qc, { type: "question.replied", properties: { sessionID: "s1" } }, "s1");
 
-      expect(qc.getQueryData(qk.questions)).toBeNull();
+      expect(qc.getQueryData(qk.questions("s1"))).toBeNull();
     });
 
     it("clears the question on reject", () => {
-      qc.setQueryData(qk.questions, { id: "q1", sessionID: "s1" });
+      qc.setQueryData(qk.questions("s1"), { id: "q1", sessionID: "s1" });
 
       dispatch(qc, { type: "question.rejected", properties: { sessionID: "s1" } }, "s1");
 
-      expect(qc.getQueryData(qk.questions)).toBeNull();
+      expect(qc.getQueryData(qk.questions("s1"))).toBeNull();
     });
   });
 
@@ -599,18 +668,18 @@ describe("sseDispatch", () => {
         "s1",
       );
 
-      const p = qc.getQueryData<PermissionRequest | null>(qk.permissions);
+      const p = qc.getQueryData<PermissionRequest | null>(qk.permissions("s1"));
       expect((p as any).id).toBe("p1");
     });
   });
 
   describe("permission.replied", () => {
     it("clears the permission request", () => {
-      qc.setQueryData(qk.permissions, { id: "p1", sessionID: "s1" });
+      qc.setQueryData(qk.permissions("s1"), { id: "p1", sessionID: "s1" });
 
       dispatch(qc, { type: "permission.replied", properties: { sessionID: "s1" } }, "s1");
 
-      expect(qc.getQueryData(qk.permissions)).toBeNull();
+      expect(qc.getQueryData(qk.permissions("s1"))).toBeNull();
     });
   });
 });

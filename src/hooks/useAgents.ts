@@ -13,7 +13,7 @@ export function useAgents(): Agent[] {
     queryKey: qk.agents,
     queryFn: async () => {
       if (!client) return [];
-      const res = await client.app.agents({});
+      const res = await client.app.agents({}, { throwOnError: true });
       return Array.isArray(res.data) ? res.data : [];
     },
     enabled: ready && !!client,

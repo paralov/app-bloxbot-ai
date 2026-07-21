@@ -221,49 +221,65 @@ const ChatSidebar = memo(function ChatSidebar({
                   style={{ animationDelay: `${index * 30}ms` }}
                 >
                   <div
-                    className={`group relative mx-1 flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors duration-150 ${
+                    className={`group relative mx-1 rounded-md transition-colors duration-150 ${
                       isActive
                         ? "bg-accent text-foreground"
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                     }`}
-                    onClick={() => !isEditing && handleSelect(session.id)}
                   >
-                    <div
-                      className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
-                    />
-                    <div className="min-w-0 flex-1">
-                      {isEditing ? (
-                        <input
-                          ref={editRef}
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={commitRename}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") commitRename();
-                            if (e.key === "Escape") setEditingId(null);
-                          }}
-                          className="w-full rounded bg-background px-1 text-xs outline-none ring-1 ring-ring"
-                          onClick={(e) => e.stopPropagation()}
+                    {isEditing ? (
+                      <div className="flex items-start gap-2 px-2 py-1.5">
+                        <div
+                          className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
                         />
-                      ) : (
-                        <div className="truncate text-xs font-medium leading-snug">
-                          {session.title || "Untitled"}
+                        <div className="min-w-0 flex-1">
+                          <input
+                            ref={editRef}
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={commitRename}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitRename();
+                              if (e.key === "Escape") setEditingId(null);
+                            }}
+                            className="w-full rounded bg-background px-1 text-xs outline-none ring-1 ring-ring"
+                          />
+                          <div className="mt-0.5 text-[10px] text-muted-foreground">
+                            {formatTime(session.time.updated)}
+                          </div>
                         </div>
-                      )}
-                      <div className="mt-0.5 text-[10px] text-muted-foreground">
-                        {formatTime(session.time.updated)}
                       </div>
-                    </div>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-current={isActive ? "page" : undefined}
+                        className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left"
+                        onClick={() => handleSelect(session.id)}
+                      >
+                        <div
+                          className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-medium leading-snug">
+                            {session.title || "Untitled"}
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-muted-foreground">
+                            {formatTime(session.time.updated)}
+                          </div>
+                        </div>
+                      </button>
+                    )}
 
                     {!isEditing && (
                       <div
-                        className={`absolute inset-y-0 right-0 flex items-center gap-0.5 rounded-r-md pl-4 pr-1.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 ${
+                        className={`absolute inset-y-0 right-0 flex items-center gap-0.5 rounded-r-md pl-4 pr-1.5 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 ${
                           isActive
                             ? "bg-gradient-to-l from-accent from-60% to-transparent"
                             : "bg-gradient-to-l from-card from-60% to-transparent group-hover:from-accent/50"
                         }`}
                       >
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             startRename(session);
@@ -285,6 +301,7 @@ const ChatSidebar = memo(function ChatSidebar({
                           </svg>
                         </button>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             deleteSession.mutate(session.id);

@@ -21,9 +21,9 @@ function useProvidersQuery() {
     queryFn: async () => {
       if (!client) throw new Error("No client");
       const [provRes, authRes] = await Promise.all([
-        client.provider.list({}),
+        client.provider.list({}, { throwOnError: true }),
         client.provider
-          .auth({})
+          .auth({}, { throwOnError: true })
           .catch(() => ({ data: undefined as ProviderAuthResponse | undefined })),
       ]);
       if (!provRes.data) throw new Error("No provider data");
@@ -33,7 +33,6 @@ function useProvidersQuery() {
       return provRes.data;
     },
     enabled: !!client,
-    staleTime: 0,
   });
 }
 

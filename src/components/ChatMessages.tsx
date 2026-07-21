@@ -3,6 +3,7 @@ import type {
   PermissionRequest,
   QuestionAnswer,
   QuestionRequest,
+  SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/v2/client";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -18,9 +19,13 @@ import { useReplyPermission } from "@/hooks/mutations/useReplyPermission";
 import { useMessage, useMessageIds } from "@/hooks/useMessages";
 import { useActivePermission } from "@/hooks/usePermissions";
 import { useActiveQuestion } from "@/hooks/useQuestions";
-import { useIsBusy } from "@/hooks/useSessionStatuses";
+import { useSessionError } from "@/hooks/useSessionError";
+import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useTodos } from "@/hooks/useTodos";
+import { type ModelError, presentModelError } from "@/lib/modelError";
+import { getOpenCodeUsageAction, type OpenCodeUsageAction } from "@/lib/usageLimit";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
+import type { MessageWithParts } from "@/types";
 
 // ── Image lightbox ───────────────────────────────────────────────────────
 
@@ -993,6 +998,159 @@ const CompactionPartView = memo(function CompactionPartView() {
   );
 });
 
+const ModelErrorCard = memo(function ModelErrorCard({ error }: { error: ModelError }) {
+  const presentation = presentModelError(error);
+
+  return (
+    <div
+      role="alert"
+      className="my-1 rounded-lg border border-red-200 bg-red-50/60 px-3 py-2.5 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100"
+    >
+      <div className="flex items-start gap-2.5">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="mt-0.5 shrink-0 text-red-600 dark:text-red-400"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <div className="min-w-0">
+          <div className="text-xs font-semibold">{presentation.title}</div>
+          <div className="mt-0.5 text-[11px] leading-relaxed opacity-80">
+            {presentation.description}
+          </div>
+          {presentation.detail && presentation.detail !== presentation.description && (
+            <details className="mt-1.5">
+              <summary className="cursor-pointer text-[10px] opacity-65 hover:opacity-100">
+                Provider details
+              </summary>
+              <div className="mt-1 break-words font-mono text-[10px] opacity-70">
+                {presentation.detail.slice(0, 1000)}
+              </div>
+            </details>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const USAGE_LIMIT_WINDOW = 24 * 60 * 60 * 1000;
+
+function usageLimitStorageKeys(action: OpenCodeUsageAction) {
+  const suffix = action.reason === "free_tier_limit" ? "free-tier" : "account-rate-limit";
+  return {
+    seen: `bloxbot:usage-limit:${suffix}:seen`,
+    hidden: `bloxbot:usage-limit:${suffix}:hidden`,
+  };
+}
+
+function shouldShowUsageLimitDialog(action: OpenCodeUsageAction): boolean {
+  const keys = usageLimitStorageKeys(action);
+  if (window.localStorage.getItem(keys.hidden) === "true") return false;
+  const seen = Number(window.localStorage.getItem(keys.seen));
+  return !Number.isFinite(seen) || seen === 0 || Date.now() - seen >= USAGE_LIMIT_WINDOW;
+}
+
+const UsageLimitDialog = memo(function UsageLimitDialog({
+  action,
+}: {
+  action: OpenCodeUsageAction;
+}) {
+  const [open, setOpen] = useState(() => shouldShowUsageLimitDialog(action));
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = "usage-limit-dialog-title";
+  const descriptionId = "usage-limit-dialog-description";
+
+  const close = useCallback(
+    (dontShowAgain: boolean) => {
+      const keys = usageLimitStorageKeys(action);
+      window.localStorage.setItem(keys.seen, String(Date.now()));
+      if (dontShowAgain) window.localStorage.setItem(keys.hidden, "true");
+      setOpen(false);
+    },
+    [action],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "");
+    }
+    return () => {
+      if (dialog.open && typeof dialog.close === "function") dialog.close();
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      className="fixed inset-0 z-50 m-0 h-full max-h-none w-full max-w-none bg-transparent p-4 backdrop:bg-black/40"
+      onCancel={(event) => {
+        event.preventDefault();
+        close(false);
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) close(false);
+      }}
+    >
+      <div className="absolute left-1/2 top-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-card p-5 text-foreground shadow-2xl">
+        <h2 id={titleId} className="text-sm font-semibold">
+          {action.title}
+        </h2>
+        <p id={descriptionId} className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          {action.message}
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => close(true)}
+            className="rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            Don't show again
+          </button>
+          {action.link ? (
+            <a
+              href={action.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => close(false)}
+              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
+            >
+              {action.label}
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => close(false)}
+              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
+            >
+              {action.label}
+            </button>
+          )}
+        </div>
+      </div>
+    </dialog>
+  );
+});
+
 const PartRenderer = memo(function PartRenderer({ part }: { part: Part }) {
   switch (part.type) {
     case "text":
@@ -1167,12 +1325,14 @@ const QuestionPrompt = memo(function QuestionPrompt({
       ))}
       <div className="mt-3 flex items-center gap-2">
         <button
+          type="button"
           onClick={submit}
           className="rounded-md bg-foreground px-3 py-1 text-[11px] font-medium text-background transition-opacity hover:opacity-90"
         >
           Submit
         </button>
         <button
+          type="button"
           onClick={() => onReject(question.id)}
           className="rounded-md px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
         >
@@ -1211,18 +1371,21 @@ const PermissionPrompt = memo(function PermissionPrompt({
       )}
       <div className="mt-3 flex items-center gap-2">
         <button
+          type="button"
           onClick={() => onReply(permission.id, "once")}
           className="rounded-md bg-foreground px-3 py-1 text-[11px] font-medium text-background transition-opacity hover:opacity-90"
         >
           Allow Once
         </button>
         <button
+          type="button"
           onClick={() => onReply(permission.id, "always")}
           className="rounded-md border px-3 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
         >
           Always Allow
         </button>
         <button
+          type="button"
           onClick={() => onReply(permission.id, "reject")}
           className="rounded-md px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:text-destructive"
         >
@@ -1297,13 +1460,11 @@ const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: st
             {msg.parts.map((part) => (
               <PartRenderer key={part.id} part={part} />
             ))}
-            {"error" in msg.info && msg.info.error && (
-              <div className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-950/40 dark:text-red-400">
-                {msg.info.error.data && "message" in msg.info.error.data
-                  ? String(msg.info.error.data.message)
-                  : msg.info.error.name}
-              </div>
-            )}
+            {"error" in msg.info &&
+              msg.info.error &&
+              msg.info.error.name !== "MessageAbortedError" && (
+                <ModelErrorCard error={msg.info.error} />
+              )}
           </div>
         )}
       </div>
@@ -1313,23 +1474,30 @@ const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: st
 
 // ── Main component ─────────────────────────────────────────────────────
 
-const BusyThinkingIndicator = memo(function BusyThinkingIndicator() {
-  const messageIds = useMessageIds();
-  const { activeSessionId } = useActiveSession();
-  const isBusy = useIsBusy(activeSessionId);
-  const lastId = messageIds.length > 0 ? messageIds[messageIds.length - 1] : null;
-  const lastMsg = useMessage(lastId ?? "");
-  if (!isBusy || !lastMsg || lastMsg.info.role !== "user") return null;
+const BusyThinkingIndicator = memo(function BusyThinkingIndicator({
+  status,
+  lastMessage,
+}: {
+  status: SessionStatus | undefined;
+  lastMessage: MessageWithParts | undefined;
+}) {
+  if (status?.type !== "busy" || !lastMessage || lastMessage.info.role !== "user") return null;
   return <BloxBotThinking />;
 });
 
 function ChatMessages() {
   const messageIds = useMessageIds();
+  const lastMessage = useMessage(messageIds[messageIds.length - 1] ?? "");
+  const sessionError = useSessionError();
   const { activeSessionId } = useActiveSession();
-  const isBusy = useIsBusy(activeSessionId);
+  const sessionStatus = useSessionStatus(activeSessionId);
+  const isBusy = sessionStatus !== undefined && sessionStatus.type !== "idle";
+  const usageAction = getOpenCodeUsageAction(sessionStatus);
   const todos = useTodos();
   const activeQuestion = useActiveQuestion();
   const activePermission = useActivePermission();
+  const lastMessageHasError =
+    lastMessage?.info.role === "assistant" && Boolean(lastMessage.info.error);
   const answerQuestion = useAnswerQuestion();
   const rejectQuestion = useRejectQuestion();
   const replyPermission = useReplyPermission();
@@ -1394,7 +1562,7 @@ function ChatMessages() {
     [replyPermission],
   );
 
-  if (messageIds.length === 0 && !isBusy) {
+  if (messageIds.length === 0 && !isBusy && !sessionError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6">
         <ImageLightbox />
@@ -1450,7 +1618,14 @@ function ChatMessages() {
           {activePermission && (
             <PermissionPrompt permission={activePermission} onReply={handleReplyPermission} />
           )}
-          <BusyThinkingIndicator />
+          <BusyThinkingIndicator status={sessionStatus} lastMessage={lastMessage} />
+          {usageAction && (
+            <UsageLimitDialog
+              key={`${usageAction.provider}:${usageAction.reason}`}
+              action={usageAction}
+            />
+          )}
+          {sessionError && !lastMessageHasError && <ModelErrorCard error={sessionError} />}
         </div>
         <div ref={bottomRef} />
       </div>

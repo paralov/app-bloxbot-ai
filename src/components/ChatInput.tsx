@@ -77,6 +77,7 @@ const LightboxOverlay = memo(function LightboxOverlay({
       onClick={onClose}
     >
       <button
+        type="button"
         onClick={onClose}
         className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
       >
@@ -96,6 +97,7 @@ const LightboxOverlay = memo(function LightboxOverlay({
       </button>
       {hasMultiple && (
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onPrev();
@@ -125,6 +127,7 @@ const LightboxOverlay = memo(function LightboxOverlay({
       />
       {hasMultiple && (
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onNext();
@@ -159,14 +162,14 @@ const LightboxOverlay = memo(function LightboxOverlay({
 const SendButton = memo(function SendButton({
   text,
   hasAttachments,
+  isBusy,
   onSend,
 }: {
   text: string;
   hasAttachments: boolean;
+  isBusy: boolean;
   onSend: () => void;
 }) {
-  const { activeSessionId } = useActiveSession();
-  const isBusy = useIsBusy(activeSessionId);
   const abort = useAbort();
   const canSend = !isBusy;
 
@@ -174,7 +177,17 @@ const SendButton = memo(function SendButton({
     <>
       {isBusy ? (
         <button
-          onClick={() => abort.mutate()}
+          type="button"
+          onClick={() =>
+            abort.mutate(undefined, {
+              onError: (error) => {
+                toast.error("Couldn't stop the session", {
+                  description: error.message,
+                });
+              },
+            })
+          }
+          disabled={abort.isPending}
           className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           title="Stop"
         >
@@ -184,6 +197,7 @@ const SendButton = memo(function SendButton({
         </button>
       ) : (
         <button
+          type="button"
           onClick={onSend}
           disabled={(!text.trim() && !hasAttachments) || !canSend}
           className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background transition-opacity disabled:opacity-30"
@@ -220,7 +234,7 @@ function ChatInput() {
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
   const agents = useAgents();
-  const { activeSessionId } = useActiveSession();
+  const { activeSessionId, activeSessionIdRef } = useActiveSession();
   const isBusy = useIsBusy(activeSessionId);
   const {
     selectedModel,
@@ -444,14 +458,35 @@ function ChatInput() {
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return;
     if (isBusy) return;
+    const submittedText = text;
+    const submittedAttachments = attachments;
     const images =
       attachments.length > 0
         ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
         : undefined;
-    sendMessage.mutate({ text: trimmed || " ", images });
     setText("");
     setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+    sendMessage.mutate(
+      { text: trimmed || " ", images },
+      {
+        onError: (error) => {
+          if (activeSessionIdRef.current !== activeSessionId) return;
+          setText((current) => {
+            if (!submittedText) return current;
+            return current ? `${submittedText}\n${current}` : submittedText;
+          });
+          setAttachments((current) => {
+            const currentIds = new Set(current.map((attachment) => attachment.id));
+            const restored = submittedAttachments.filter(
+              (attachment) => !currentIds.has(attachment.id),
+            );
+            return [...restored, ...current];
+          });
+          toast.error("Message not sent", { description: error.message });
+        },
+      },
+    );
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -793,7 +828,12 @@ function ChatInput() {
             rows={1}
             className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none"
           />
-          <SendButton text={text} hasAttachments={attachments.length > 0} onSend={handleSubmit} />
+          <SendButton
+            text={text}
+            hasAttachments={attachments.length > 0}
+            isBusy={isBusy}
+            onSend={handleSubmit}
+          />
         </div>
       </div>
 

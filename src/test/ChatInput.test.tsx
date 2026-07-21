@@ -8,7 +8,7 @@
 import type { Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatInput from "@/components/ChatInput";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -37,9 +37,9 @@ function createClient(overrides: Record<string, unknown> = {}) {
       list: vi.fn().mockResolvedValue({ data: [] }),
       get: vi.fn().mockResolvedValue({ data: null }),
       create: vi.fn().mockResolvedValue({ data: null }),
-      delete: vi.fn().mockResolvedValue({}),
+      delete: vi.fn().mockResolvedValue({ data: true }),
       update: vi.fn().mockResolvedValue({ data: null }),
-      abort: vi.fn().mockResolvedValue({}),
+      abort: vi.fn().mockResolvedValue({ data: true }),
       messages: vi.fn().mockResolvedValue({ data: [] }),
       status: vi.fn().mockResolvedValue({ data: {} }),
       todo: vi.fn().mockResolvedValue({ data: [] }),
@@ -106,8 +106,8 @@ function seedState(qc: QueryClient, session: Session) {
   });
   qc.setQueryData<MessagesCache>(qk.messages(session.id), { messageIds: [], messagesById: {} });
   qc.setQueryData(qk.todos(session.id), []);
-  qc.setQueryData(qk.questions, null);
-  qc.setQueryData(qk.permissions, null);
+  qc.setQueryData(qk.questions(session.id), null);
+  qc.setQueryData(qk.permissions(session.id), null);
 }
 
 /**
@@ -126,6 +126,9 @@ function TestChatInput({
   clientStatus?: string;
 }) {
   const activeSessionIdRef = useRef<string | null>(sessionId);
+  useEffect(() => {
+    activeSessionIdRef.current = sessionId;
+  }, [sessionId]);
   const session = makeSession(sessionId, "Test Session");
   seedState(queryClient, session);
 
@@ -260,6 +263,61 @@ describe("ChatInput", () => {
     expect(textarea.value).toBe("");
   });
 
+  it("restores the draft and status when sending fails", async () => {
+    const client = createClient({
+      promptAsync: vi.fn().mockRejectedValue(new Error("Prompt rejected")),
+    });
+    const qc = createQueryClient();
+
+    render(<TestChatInput client={client} queryClient={qc} />);
+
+    const textarea = (await screen.findByPlaceholderText(
+      "Describe what you want to build...",
+    )) as HTMLTextAreaElement;
+    act(() => {
+      qc.setQueryData(qk.statuses, { s1: { type: "idle" } as SessionStatus });
+    });
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Keep this draft" } });
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+
+    await waitFor(() => expect(textarea.value).toBe("Keep this draft"));
+    expect(qc.getQueryData<Record<string, SessionStatus>>(qk.statuses)?.s1.type).toBe("idle");
+    expect(await screen.findByText("Message not sent")).toBeInTheDocument();
+  });
+
+  it("does not restore a failed send into a different session", async () => {
+    let rejectPrompt: (error: Error) => void = () => {};
+    const client = createClient({
+      promptAsync: vi.fn().mockReturnValue(
+        new Promise((_resolve, reject) => {
+          rejectPrompt = reject;
+        }),
+      ),
+    });
+    const qc = createQueryClient();
+    const view = render(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+
+    const textarea = (await screen.findByPlaceholderText(
+      "Describe what you want to build...",
+    )) as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Session one draft" } });
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+
+    view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s2" />);
+    await act(async () => {
+      rejectPrompt(new Error("Prompt rejected"));
+      await Promise.resolve();
+    });
+
+    expect(textarea.value).toBe("");
+    expect(screen.queryByText("Message not sent")).not.toBeInTheDocument();
+  });
+
   it("does not send when text is only whitespace", async () => {
     const client = createClient();
     const qc = createQueryClient();
@@ -290,6 +348,27 @@ describe("ChatInput", () => {
     await waitFor(() => {
       expect(screen.getByTitle("Stop")).toBeInTheDocument();
     });
+  });
+
+  it("marks a successfully aborted session idle without refetching", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+
+    render(<TestChatInput client={client} queryClient={qc} />);
+
+    act(() => {
+      qc.setQueryData(qk.statuses, { s1: { type: "busy" } as SessionStatus });
+    });
+
+    const stopButton = await screen.findByTitle("Stop");
+    await act(async () => {
+      fireEvent.click(stopButton);
+    });
+
+    await waitFor(() => {
+      expect(qc.getQueryData<Record<string, SessionStatus>>(qk.statuses)?.s1.type).toBe("idle");
+    });
+    expect(client.session.abort).toHaveBeenCalledWith({ sessionID: "s1" }, { throwOnError: true });
   });
 
   it("does not send when session is busy", async () => {
@@ -370,6 +449,7 @@ describe("ChatInput", () => {
           },
         ],
       }),
+      { throwOnError: true },
     );
   });
 });
