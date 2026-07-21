@@ -15,7 +15,6 @@ function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): str
 
 export function createOpenCodeConfig(platform: NodeJS.Platform, localAppData?: string) {
   return {
-    plugin: ["opencode-gemini-auth@latest"],
     // Keep OpenCode's standard automatic context compaction enabled for long sessions.
     compaction: {
       auto: true,
