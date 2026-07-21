@@ -17,6 +17,17 @@ export interface MessagesCache {
   messagesById: Record<string, MessageWithParts>;
 }
 
+export interface ModelUsageEvent {
+  provider: string;
+  model: string;
+  tokens_total: number;
+  tokens_input: number;
+  tokens_output: number;
+  tokens_reasoning: number;
+  tokens_cache_read: number;
+  tokens_cache_write: number;
+}
+
 export class SseDispatchError extends Data.TaggedError("SseDispatchError")<{
   eventType: string;
   cause: unknown;
@@ -35,9 +46,10 @@ export function sseDispatch(
   queryClient: QueryClient,
   event: unknown,
   activeSessionIdRef: { current: string | null },
+  captureModelUsage?: (usage: ModelUsageEvent) => void,
 ): void {
   Effect.runSync(
-    sseDispatchEffect(queryClient, event, activeSessionIdRef).pipe(
+    sseDispatchEffect(queryClient, event, activeSessionIdRef, captureModelUsage).pipe(
       Effect.catchAll((error) =>
         Effect.logWarning(`sseDispatch: malformed ${error.eventType} event, skipping`, error.cause),
       ),
@@ -49,6 +61,7 @@ export function sseDispatchEffect(
   queryClient: QueryClient,
   event: unknown,
   activeSessionIdRef: { current: string | null },
+  captureModelUsage?: (usage: ModelUsageEvent) => void,
 ): Effect.Effect<void, SseDispatchError> {
   if (!event || typeof event !== "object" || !("type" in event)) return Effect.void;
 
@@ -61,7 +74,9 @@ export function sseDispatchEffect(
         }),
     ),
     Effect.flatMap((envelope) =>
-      Effect.sync(() => dispatchEvent(queryClient, envelope as Event, activeSessionIdRef)),
+      Effect.sync(() =>
+        dispatchEvent(queryClient, envelope as Event, activeSessionIdRef, captureModelUsage),
+      ),
     ),
   );
 }
@@ -70,6 +85,7 @@ function dispatchEvent(
   queryClient: QueryClient,
   event: Event,
   activeSessionIdRef: { current: string | null },
+  captureModelUsage?: (usage: ModelUsageEvent) => void,
 ): void {
   const currentSessionId = activeSessionIdRef.current;
 
@@ -118,6 +134,15 @@ function dispatchEvent(
     case "message.updated": {
       const { info } = event.properties;
       if (info.sessionID !== currentSessionId) break;
+      const previousMessage = queryClient.getQueryData<MessagesCache>(qk.messages(currentSessionId))
+        ?.messagesById[info.id];
+      const newlyCompleted =
+        info.role === "assistant" &&
+        info.time?.completed !== undefined &&
+        !(
+          previousMessage?.info.role === "assistant" &&
+          previousMessage.info.time?.completed !== undefined
+        );
       queryClient.setQueryData<MessagesCache>(qk.messages(currentSessionId), (prev) => {
         if (!prev)
           return { messageIds: [info.id], messagesById: { [info.id]: { info, parts: [] } } };
@@ -133,6 +158,19 @@ function dispatchEvent(
           messagesById: { ...prev.messagesById, [info.id]: { info, parts: [] } },
         };
       });
+      if (newlyCompleted) {
+        captureModelUsage?.({
+          provider: info.providerID,
+          model: info.modelID,
+          tokens_total:
+            info.tokens.total ?? info.tokens.input + info.tokens.output + info.tokens.reasoning,
+          tokens_input: info.tokens.input,
+          tokens_output: info.tokens.output,
+          tokens_reasoning: info.tokens.reasoning,
+          tokens_cache_read: info.tokens.cache.read,
+          tokens_cache_write: info.tokens.cache.write,
+        });
+      }
       break;
     }
     case "message.part.updated": {

@@ -14,6 +14,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@/components/theme-provider";
+import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
@@ -198,6 +199,7 @@ function seedReadyState(queryClient: QueryClient, opts: { sessions?: Session[] }
     lastModel: "anthropic/claude-3.5-sonnet",
     hiddenModels: [],
     theme: "system",
+    analyticsEnabled: false,
   });
 }
 
@@ -214,6 +216,26 @@ afterEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("User journeys", () => {
+  it("keeps anonymous analytics off until enabled in Privacy settings", async () => {
+    const client = createClient();
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient);
+
+    render(<TestApp client={client} queryClient={queryClient} />);
+
+    fireEvent.click(await screen.findByText("Settings"));
+    fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
+    const analyticsSwitch = screen.getByRole("switch", {
+      name: "Share anonymous usage analytics",
+    });
+    expect(analyticsSwitch).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(analyticsSwitch);
+
+    expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
+    await expect(desktop.loadConfig()).resolves.toMatchObject({ analyticsEnabled: true });
+  });
+
   it("guides the user until Roblox Studio connects", async () => {
     const client = createClient();
     const studioStatus = vi

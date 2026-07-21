@@ -1,0 +1,71 @@
+name: Build BloxBot
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: universal-apple-darwin
+            builder_args: --mac --universal
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            builder_args: --win --x64
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            builder_args: --linux deb --x64
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Package application
+        shell: bash
+        env:
+          CSC_LINK: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE || '' }}
+          CSC_KEY_PASSWORD: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm exec electron-builder ${{ matrix.builder_args }} --publish never
+
+      - name: Stage release files
+        shell: bash
+        run: |
+          mkdir staged-release
+          find release -maxdepth 1 -type f \( \
+            -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.deb' -o -name 'latest*.yml' \
+          \) -exec cp {} staged-release/ \;
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: bloxbot-${{ matrix.target }}
+          if-no-files-found: error
+          path: staged-release/*

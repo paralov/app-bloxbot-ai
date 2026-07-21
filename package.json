@@ -23,10 +23,10 @@
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "test": "vitest run && pnpm test:release",
-    "test:release": "node --test scripts/release-notes.test.mjs",
+    "test:release": "node --test scripts/release-notes.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.2.27",

@@ -10,23 +10,31 @@ interface AnalyticsEnvironment {
   runtime: "browser" | "electron";
 }
 
-function captureAppOpened(posthog: PostHogInterface, getVersion: () => Promise<string>): void {
-  void getVersion()
-    .then((version) => {
-      posthog.register({ app_version: version });
-      posthog.capture("app_opened", { app_version: version });
-    })
-    .catch(() => {
-      posthog.capture("app_opened", { app_version: "unknown" });
-    });
+export async function enableAnalytics(
+  posthog: PostHogInterface,
+  { production, getVersion, platform, runtime }: AnalyticsEnvironment,
+  captureAppOpened = true,
+): Promise<void> {
+  if (!production) return;
+
+  posthog.opt_in_capturing();
+  posthog.register({
+    app: "bloxbot",
+    app_platform: platform,
+    app_runtime: runtime,
+  });
+  if (!captureAppOpened) return;
+
+  const version = await getVersion().catch(() => "unknown");
+  posthog.register({ app_version: version });
+  posthog.capture("app_opened", { app_version: version });
 }
 
-export function createPostHogOptions({
-  production,
-  getVersion,
-  platform,
-  runtime,
-}: AnalyticsEnvironment): Partial<PostHogConfig> {
+export function disableAnalytics(posthog: PostHogInterface): void {
+  posthog.opt_out_capturing();
+}
+
+export function createPostHogOptions(): Partial<PostHogConfig> {
   return {
     api_host: POSTHOG_API_HOST,
     defaults: "2026-01-30",
@@ -36,21 +44,14 @@ export function createPostHogOptions({
     capture_performance: false,
     disable_session_recording: true,
     disable_surveys: true,
+    disable_product_tours: true,
+    advanced_disable_flags: true,
     advanced_disable_toolbar_metrics: true,
-    opt_out_capturing_by_default: !production,
+    opt_out_capturing_by_default: true,
+    opt_out_capturing_persistence_type: "localStorage",
     person_profiles: "never",
     persistence: "localStorage",
     save_campaign_params: false,
     save_referrer: false,
-    loaded: (posthog) => {
-      if (!production) return;
-
-      posthog.register({
-        app: "bloxbot",
-        app_platform: platform,
-        app_runtime: runtime,
-      });
-      captureAppOpened(posthog, getVersion);
-    },
   };
 }

@@ -24,6 +24,7 @@ describe("browser desktop fallback", () => {
       lastModel: "openai/gpt-5",
       hiddenModels: [],
       theme: "system",
+      analyticsEnabled: false,
     });
   });
 
@@ -38,6 +39,7 @@ describe("browser desktop fallback", () => {
       lastModel: null,
       hiddenModels: [],
       theme: "system",
+      analyticsEnabled: false,
     });
   });
 
@@ -50,6 +52,15 @@ describe("browser desktop fallback", () => {
       lastModel: null,
       hiddenModels: [],
       theme: "dark",
+      analyticsEnabled: false,
     });
+  });
+
+  it("persists analytics consent as an explicit opt-in", async () => {
+    const { desktop } = await import("@/lib/desktop");
+
+    await desktop.patchConfig({ analyticsEnabled: true });
+
+    await expect(desktop.loadConfig()).resolves.toMatchObject({ analyticsEnabled: true });
   });
 });

@@ -31,10 +31,14 @@ export function useSendMessage() {
         sessionID: activeSessionId,
         parts,
       };
+      let provider: string | undefined;
+      let model: string | undefined;
 
       if (selectedModel) {
         const [providerID, modelID] = splitModelKey(selectedModel);
         if (providerID && modelID) {
+          provider = providerID;
+          model = modelID;
           opts.model = { providerID, modelID };
         }
       }
@@ -44,7 +48,8 @@ export function useSendMessage() {
 
       await client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0]);
       posthog.capture("message_sent", {
-        model: selectedModel ?? undefined,
+        provider,
+        model,
         agent: selectedAgent ?? undefined,
       });
     },

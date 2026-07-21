@@ -3,6 +3,7 @@ import {
   type AppConfig,
   AppConfigPatchSchema,
   AppConfigSchema,
+  DEFAULT_APP_CONFIG,
   type DesktopApi,
   type OpenCodeInfo,
   OpenCodeInfoSchema,
@@ -11,7 +12,7 @@ import {
 } from "@/types/desktop";
 
 const CONFIG_KEY = "bloxbot-config";
-const DEFAULT_CONFIG: AppConfig = { lastModel: null, hiddenModels: [], theme: "system" };
+const DEFAULT_CONFIG: AppConfig = DEFAULT_APP_CONFIG;
 
 export class DesktopError extends Data.TaggedError("DesktopError")<{
   message: string;

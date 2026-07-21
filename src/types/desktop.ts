@@ -11,10 +11,18 @@ export const AppConfigSchema = Schema.mutable(
     lastModel: Schema.NullOr(Schema.String),
     hiddenModels: MutableStrings,
     theme: ThemePreferenceSchema,
+    analyticsEnabled: Schema.Boolean,
   }),
 );
 
 export type AppConfig = typeof AppConfigSchema.Type;
+
+export const DEFAULT_APP_CONFIG: AppConfig = {
+  lastModel: null,
+  hiddenModels: [],
+  theme: "system",
+  analyticsEnabled: false,
+};
 
 export const AppConfigPatchSchema = Schema.partial(AppConfigSchema);
 

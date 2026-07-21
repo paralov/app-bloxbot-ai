@@ -102,6 +102,7 @@ function seedState(qc: QueryClient, session: Session) {
     lastModel: "anthropic/claude-3.5-sonnet",
     hiddenModels: [],
     theme: "system",
+    analyticsEnabled: false,
   });
   qc.setQueryData<MessagesCache>(qk.messages(session.id), { messageIds: [], messagesById: {} });
   qc.setQueryData(qk.todos(session.id), []);

@@ -1,4 +1,5 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { usePostHog } from "@posthog/react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -62,6 +63,7 @@ export function OpenCodeClientProvider({
   children: ReactNode;
   activeSessionIdRef: React.RefObject<string | null>;
 }) {
+  const posthog = usePostHog();
   const queryClient = useQueryClient();
 
   const [status, setStatus] = useState<AppStatus>("waiting");
@@ -195,7 +197,9 @@ export function OpenCodeClientProvider({
 
         for await (const event of sseResult.stream) {
           if (abortController.signal.aborted) break;
-          sseDispatch(queryClient, event, activeSessionIdRef);
+          sseDispatch(queryClient, event, activeSessionIdRef, (usage) => {
+            posthog.capture("model_usage", usage);
+          });
         }
 
         if (!abortController.signal.aborted) {
@@ -224,7 +228,7 @@ export function OpenCodeClientProvider({
       sseAbortRef.current = null;
       dismissReconnectToast();
     };
-  }, [client, ready, queryClient, activeSessionIdRef]);
+  }, [client, ready, queryClient, activeSessionIdRef, posthog]);
 
   const value: OpenCodeClientContextValue = {
     client,

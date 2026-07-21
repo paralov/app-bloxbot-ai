@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 
 const REPOSITORY_URL = "https://github.com/paralov/app-bloxbot-ai";
 
-export function changelogSection(changelog, version) {
+export function changelogSection(changelog: string, version: string): string {
   const heading = `## [${version}]`;
   const start = changelog.indexOf(heading);
   if (start === -1) throw new Error(`CHANGELOG.md has no ${heading} section`);
@@ -16,7 +16,7 @@ export function changelogSection(changelog, version) {
   return body;
 }
 
-export function releaseNotes(changelog, version) {
+export function releaseNotes(changelog: string, version: string): string {
   const tag = `v${version}`;
   const download = `${REPOSITORY_URL}/releases/download/${tag}`;
   return [
@@ -30,15 +30,15 @@ export function releaseNotes(changelog, version) {
   ].join("\n");
 }
 
-async function main() {
+async function main(): Promise<void> {
   const version = process.argv[2];
-  if (!version) throw new Error("Usage: node scripts/release-notes.mjs <version>");
+  if (!version) throw new Error("Usage: node scripts/release-notes.ts <version>");
   const changelog = await readFile(new URL("../CHANGELOG.md", import.meta.url), "utf8");
   process.stdout.write(`${releaseNotes(changelog, version)}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+  main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
   });

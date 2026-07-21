@@ -58,7 +58,7 @@ Download the installer for your platform from the [releases page](https://github
 pnpm install
 
 # Run in development mode
-make dev
+pnpm dev
 ```
 
 On first launch, BloxBot downloads the newest compatible OpenCode `1.x.x`
@@ -86,10 +86,10 @@ electron/               # Electron main process and preload bridge
 
 | Command | Description |
 |---------|-------------|
-| `make dev` | Run the full app in dev mode |
-| `make build` | Production build |
-| `make test` | Run frontend tests |
-| `make check` | Test + type-check + lint |
+| `pnpm dev` | Run the full app in dev mode |
+| `pnpm package` | Production build and installers |
+| `pnpm test` | Run all tests |
+| `pnpm typecheck` | Type-check app, Electron, and release scripts |
 | `pnpm lint` | Lint frontend code (Biome) |
 
 ## Tech stack

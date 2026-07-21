@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { changelogSection, releaseNotes } from "./release-notes.mjs";
+import { changelogSection, releaseNotes } from "./release-notes.ts";
 
 const changelog = `# Changelog
 

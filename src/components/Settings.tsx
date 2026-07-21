@@ -58,7 +58,7 @@ const TECHNOLOGIES = [
   },
 ];
 
-type SettingsTab = "providers" | "models" | "appearance" | "about";
+type SettingsTab = "providers" | "models" | "appearance" | "privacy" | "about";
 
 interface SettingsProps {
   onClose: () => void;
@@ -203,6 +203,28 @@ function Settings({ onClose }: SettingsProps) {
             </svg>
             About
           </button>
+          <button
+            onClick={() => setTab("privacy")}
+            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+              tab === "privacy"
+                ? "bg-accent font-medium text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            Privacy
+          </button>
         </div>
 
         {/* Content area */}
@@ -210,6 +232,7 @@ function Settings({ onClose }: SettingsProps) {
           {tab === "providers" && <ProvidersTab />}
           {tab === "models" && <ModelsTab />}
           {tab === "appearance" && <AppearanceTab />}
+          {tab === "privacy" && <PrivacyTab />}
           {tab === "about" && <AboutTab appVersion={appVersion} />}
         </div>
       </div>
@@ -990,6 +1013,51 @@ function ThemePreview({ swatch }: { swatch: Theme }) {
     <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-border">
       <div className="w-1/2 bg-stone-50" />
       <div className="w-1/2 bg-stone-950" />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Privacy Tab
+// ═══════════════════════════════════════════════════════════════════════
+
+function PrivacyTab() {
+  const { analyticsEnabled, setAnalyticsEnabled } = usePreferences();
+
+  return (
+    <div className="mx-auto w-full max-w-md px-6 py-8">
+      <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Anonymous analytics are off until you choose to enable them.
+      </p>
+
+      <div className="mt-6 rounded-lg border bg-card p-3.5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium">Share anonymous usage analytics</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Shares provider and model names, token counts, app version, and feature events. Never
+              includes prompts, responses, API keys, file contents, or personal profiles.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={analyticsEnabled}
+            aria-label="Share anonymous usage analytics"
+            onClick={() => setAnalyticsEnabled(!analyticsEnabled)}
+            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+              analyticsEnabled ? "bg-foreground" : "bg-border"
+            }`}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
+                analyticsEnabled ? "translate-x-4" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

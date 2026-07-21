@@ -15,7 +15,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import { QueryClient } from "@tanstack/react-query";
 import { Cause, Effect } from "effect";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch, sseDispatchEffect } from "@/lib/sseDispatch";
 import type { MessageWithParts } from "@/types";
@@ -225,6 +225,50 @@ describe("sseDispatch", () => {
   // ── Message events ─────────────────────────────────────────────────
 
   describe("message.updated", () => {
+    it("captures anonymous provider, model, and aggregate token usage once", () => {
+      const captureModelUsage = vi.fn();
+      const event = {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "m1",
+            sessionID: "s1",
+            role: "assistant",
+            time: { created: 1, completed: 2 },
+            parentID: "m0",
+            providerID: "anthropic",
+            modelID: "claude-sonnet-4",
+            mode: "chat",
+            agent: "build",
+            path: { cwd: "/workspace", root: "/workspace" },
+            cost: 0.01,
+            tokens: {
+              total: 21,
+              input: 10,
+              output: 7,
+              reasoning: 4,
+              cache: { read: 3, write: 2 },
+            },
+          },
+        },
+      };
+
+      sseDispatch(qc, event, { current: "s1" }, captureModelUsage);
+      sseDispatch(qc, event, { current: "s1" }, captureModelUsage);
+
+      expect(captureModelUsage).toHaveBeenCalledOnce();
+      expect(captureModelUsage).toHaveBeenCalledWith({
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        tokens_total: 21,
+        tokens_input: 10,
+        tokens_output: 7,
+        tokens_reasoning: 4,
+        tokens_cache_read: 3,
+        tokens_cache_write: 2,
+      });
+    });
+
     it("adds a new message to the cache", () => {
       qc.setQueryData<MessagesCache>(qk.messages("s1"), { messageIds: [], messagesById: {} });
 

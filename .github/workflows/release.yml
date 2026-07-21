@@ -22,9 +22,9 @@ jobs:
           echo "Releases must run from main, not ${GITHUB_REF}."
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          node scripts/release-notes.mjs "$VERSION" >/dev/null
+          node scripts/release-notes.ts "$VERSION" >/dev/null
           if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
             echo "Tag v${VERSION} already exists. Bump package.json and CHANGELOG.md first."
             exit 1
@@ -42,69 +42,8 @@ jobs:
 
   build:
     needs: validate
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - platform: macos-latest
-            target: universal-apple-darwin
-            builder_args: --mac --universal
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            builder_args: --win --x64
-          - platform: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            builder_args: --linux deb --x64
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Verify source
-        run: |
-          pnpm test
-          pnpm typecheck
-
-      - name: Build application
-        run: pnpm build
-
-      - name: Package application
-        shell: bash
-        env:
-          CSC_LINK: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE || '' }}
-          CSC_KEY_PASSWORD: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm exec electron-builder ${{ matrix.builder_args }} --publish never
-
-      - name: Stage release files
-        shell: bash
-        run: |
-          mkdir staged-release
-          find release -maxdepth 1 -type f \( \
-            -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.deb' -o -name 'latest*.yml' \
-          \) -exec cp {} staged-release/ \;
-
-      - name: Upload release files
-        uses: actions/upload-artifact@v4
-        with:
-          name: bloxbot-${{ matrix.target }}
-          if-no-files-found: error
-          path: staged-release/*
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
 
   publish:
     needs: [validate, build]
@@ -113,10 +52,10 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.validate.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download release files
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: bloxbot-*
           path: release
@@ -144,7 +83,7 @@ jobs:
           }
 
       - name: Generate release notes
-        run: node scripts/release-notes.mjs "$VERSION" >release-notes.md
+        run: node scripts/release-notes.ts "$VERSION" >release-notes.md
 
       - name: Publish GitHub release
         shell: bash

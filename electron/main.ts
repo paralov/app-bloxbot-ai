@@ -10,13 +10,14 @@ import {
   type AppConfig,
   AppConfigPatchSchema,
   AppConfigSchema,
+  DEFAULT_APP_CONFIG,
 } from "../src/types/desktop";
 import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
-const defaultConfig: AppConfig = { lastModel: null, hiddenModels: [], theme: "system" };
+const defaultConfig: AppConfig = DEFAULT_APP_CONFIG;
 const configMutex = Effect.unsafeMakeSemaphore(1);
 
 let mainWindow: BrowserWindow | null = null;
