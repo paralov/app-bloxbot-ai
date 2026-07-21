@@ -77,6 +77,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (configData.detailedAnalytics === "unset") {
       toast("Help improve BloxBot", {
         id: "detailed-analytics-consent",
+        className: "analytics-consent-toast",
         description:
           "Share provider, model, and aggregate token usage. Prompts, responses, files, and agent names are never collected.",
         duration: Number.POSITIVE_INFINITY,

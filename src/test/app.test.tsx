@@ -229,7 +229,9 @@ describe("User journeys", () => {
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
-    expect(await screen.findByText("Help improve BloxBot")).toBeVisible();
+    const consentTitle = await screen.findByText("Help improve BloxBot");
+    expect(consentTitle).toBeVisible();
+    expect(consentTitle.closest("[data-sonner-toast]")).toHaveClass("analytics-consent-toast");
     fireEvent.click(screen.getByRole("button", { name: "Share usage" }));
     await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "enabled" });
 
