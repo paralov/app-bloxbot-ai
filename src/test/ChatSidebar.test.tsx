@@ -75,7 +75,7 @@ function seedState(qc: QueryClient, opts: { sessions?: Session[] } = {}) {
     lastModel: null,
     hiddenModels: [],
     theme: "system",
-    analyticsEnabled: false,
+    detailedAnalytics: "disabled",
   });
 }
 

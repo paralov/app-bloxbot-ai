@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  captureDetailedAnalytics,
   createPostHogOptions,
-  disableAnalytics,
-  enableAnalytics,
+  detailedAnalyticsProperties,
   POSTHOG_API_HOST,
+  setDetailedAnalyticsEnabled,
 } from "@/lib/analytics";
 
 function posthogStub() {
@@ -16,8 +17,18 @@ function posthogStub() {
 }
 
 describe("PostHog analytics", () => {
-  it("starts opted out with automatic and identifying collection disabled", () => {
-    expect(createPostHogOptions()).toMatchObject({
+  beforeEach(() => setDetailedAnalyticsEnabled(false));
+
+  it("enables basic production analytics while disabling automatic collection", async () => {
+    const posthog = posthogStub();
+    const options = createPostHogOptions({
+      production: true,
+      getVersion: async () => "0.6.0",
+      platform: "MacIntel",
+      runtime: "electron",
+    });
+
+    expect(options).toMatchObject({
       api_host: POSTHOG_API_HOST,
       autocapture: false,
       capture_pageview: false,
@@ -27,75 +38,53 @@ describe("PostHog analytics", () => {
       disable_surveys: true,
       disable_product_tours: true,
       advanced_disable_flags: true,
-      opt_out_capturing_by_default: true,
+      opt_out_capturing_by_default: false,
       person_profiles: "never",
-      persistence: "localStorage",
-      save_campaign_params: false,
-      save_referrer: false,
     });
+
+    options.loaded?.(posthog as never);
+    await vi.waitFor(() => expect(posthog.capture).toHaveBeenCalled());
+
+    expect(posthog.opt_in_capturing).toHaveBeenCalledOnce();
+    expect(posthog.capture).toHaveBeenCalledWith("app_opened", { app_version: "0.6.0" });
   });
 
-  it("does not enable collection from development builds", async () => {
+  it("forces development builds to remain opted out", () => {
     const posthog = posthogStub();
-    const getVersion = vi.fn(async () => "0.6.0");
-
-    await enableAnalytics(posthog as never, {
+    const options = createPostHogOptions({
       production: false,
-      getVersion,
+      getVersion: async () => "0.6.0",
       platform: "MacIntel",
       runtime: "browser",
     });
 
-    expect(getVersion).not.toHaveBeenCalled();
-    expect(posthog.opt_in_capturing).not.toHaveBeenCalled();
-    expect(posthog.capture).not.toHaveBeenCalled();
-  });
-
-  it("enables anonymous collection only after production consent", async () => {
-    const posthog = posthogStub();
-
-    await enableAnalytics(posthog as never, {
-      production: true,
-      getVersion: async () => "0.6.0",
-      platform: "MacIntel",
-      runtime: "electron",
-    });
-
-    expect(posthog.opt_in_capturing).toHaveBeenCalledOnce();
-    expect(posthog.register).toHaveBeenNthCalledWith(1, {
-      app: "bloxbot",
-      app_platform: "MacIntel",
-      app_runtime: "electron",
-    });
-    expect(posthog.register).toHaveBeenNthCalledWith(2, { app_version: "0.6.0" });
-    expect(posthog.capture).toHaveBeenCalledWith("app_opened", { app_version: "0.6.0" });
-  });
-
-  it("opts out immediately when consent is disabled", () => {
-    const posthog = posthogStub();
-
-    disableAnalytics(posthog as never);
+    options.loaded?.(posthog as never);
 
     expect(posthog.opt_out_capturing).toHaveBeenCalledOnce();
+    expect(posthog.capture).not.toHaveBeenCalled();
   });
 
-  it("can opt back in without duplicating the app-open event", async () => {
+  it("removes detailed properties until the user opts in", () => {
+    const properties = { provider: "anthropic", model: "claude-sonnet-4" };
+
+    expect(detailedAnalyticsProperties(properties)).toEqual({});
+
+    setDetailedAnalyticsEnabled(true);
+
+    expect(detailedAnalyticsProperties(properties)).toEqual(properties);
+  });
+
+  it("captures detailed token usage only after opt-in", () => {
     const posthog = posthogStub();
-    const getVersion = vi.fn(async () => "0.6.0");
+    const usage = { provider: "anthropic", model: "claude-sonnet-4", tokens_total: 42 };
 
-    await enableAnalytics(
-      posthog as never,
-      {
-        production: true,
-        getVersion,
-        platform: "MacIntel",
-        runtime: "electron",
-      },
-      false,
-    );
-
-    expect(posthog.opt_in_capturing).toHaveBeenCalledOnce();
-    expect(getVersion).not.toHaveBeenCalled();
+    captureDetailedAnalytics(posthog as never, "model_usage", usage);
     expect(posthog.capture).not.toHaveBeenCalled();
+
+    setDetailedAnalyticsEnabled(true);
+    captureDetailedAnalytics(posthog as never, "model_usage", usage);
+
+    expect(posthog.capture).toHaveBeenCalledOnce();
+    expect(posthog.capture).toHaveBeenCalledWith("model_usage", usage);
   });
 });

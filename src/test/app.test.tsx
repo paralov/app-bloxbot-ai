@@ -12,6 +12,7 @@ import type { Session } from "@opencode-ai/sdk/v2/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@/components/theme-provider";
 import { desktop } from "@/lib/desktop";
@@ -175,7 +176,10 @@ function createQueryClient() {
 }
 
 /** Seed the query cache with the minimum state the app needs to be "ready" */
-function seedReadyState(queryClient: QueryClient, opts: { sessions?: Session[] } = {}) {
+function seedReadyState(
+  queryClient: QueryClient,
+  opts: { sessions?: Session[]; detailedAnalytics?: "unset" | "enabled" | "disabled" } = {},
+) {
   const sessions = opts.sessions ?? [];
 
   queryClient.setQueryData(qk.sessions, sessions);
@@ -199,7 +203,7 @@ function seedReadyState(queryClient: QueryClient, opts: { sessions?: Session[] }
     lastModel: "anthropic/claude-3.5-sonnet",
     hiddenModels: [],
     theme: "system",
-    analyticsEnabled: false,
+    detailedAnalytics: opts.detailedAnalytics ?? "disabled",
   });
 }
 
@@ -207,6 +211,8 @@ function seedReadyState(queryClient: QueryClient, opts: { sessions?: Session[] }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
+  toast.dismiss();
 });
 
 afterEach(() => {
@@ -216,24 +222,28 @@ afterEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("User journeys", () => {
-  it("keeps anonymous analytics off until enabled in Privacy settings", async () => {
+  it("prompts once for detailed analytics and keeps the choice toggleable", async () => {
     const client = createClient();
     const queryClient = createQueryClient();
-    seedReadyState(queryClient);
+    seedReadyState(queryClient, { detailedAnalytics: "unset" });
 
     render(<TestApp client={client} queryClient={queryClient} />);
+
+    expect(await screen.findByText("Help improve BloxBot")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Share usage" }));
+    await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "enabled" });
 
     fireEvent.click(await screen.findByText("Settings"));
     fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
     const analyticsSwitch = screen.getByRole("switch", {
-      name: "Share anonymous usage analytics",
+      name: "Share detailed usage analytics",
     });
-    expect(analyticsSwitch).toHaveAttribute("aria-checked", "false");
+    expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
 
     fireEvent.click(analyticsSwitch);
 
-    expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
-    await expect(desktop.loadConfig()).resolves.toMatchObject({ analyticsEnabled: true });
+    expect(analyticsSwitch).toHaveAttribute("aria-checked", "false");
+    await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "disabled" });
   });
 
   it("guides the user until Roblox Studio connects", async () => {

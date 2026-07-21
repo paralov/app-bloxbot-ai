@@ -1,6 +1,7 @@
 import { usePostHog } from "@posthog/react";
 import { useMutation } from "@tanstack/react-query";
 
+import { detailedAnalyticsProperties } from "@/lib/analytics";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -47,11 +48,14 @@ export function useSendMessage() {
       if (selectedVariant) opts.variant = selectedVariant;
 
       await client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0]);
-      posthog.capture("message_sent", {
-        provider,
-        model,
-        agent: selectedAgent ?? undefined,
-      });
+      posthog.capture(
+        "message_sent",
+        detailedAnalyticsProperties({
+          provider,
+          model,
+          agent: selectedAgent ?? undefined,
+        }),
+      );
     },
   });
 }

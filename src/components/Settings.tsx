@@ -1022,37 +1022,38 @@ function ThemePreview({ swatch }: { swatch: Theme }) {
 // ═══════════════════════════════════════════════════════════════════════
 
 function PrivacyTab() {
-  const { analyticsEnabled, setAnalyticsEnabled } = usePreferences();
+  const { detailedAnalyticsEnabled, setDetailedAnalyticsEnabled } = usePreferences();
 
   return (
     <div className="mx-auto w-full max-w-md px-6 py-8">
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
-        Anonymous analytics are off until you choose to enable them.
+        BloxBot collects basic anonymous feature usage. Detailed usage is always your choice.
       </p>
 
       <div className="mt-6 rounded-lg border bg-card p-3.5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-sm font-medium">Share anonymous usage analytics</div>
+            <div className="text-sm font-medium">Share detailed usage analytics</div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Shares provider and model names, token counts, app version, and feature events. Never
-              includes prompts, responses, API keys, file contents, or personal profiles.
+              Additionally shares provider and model names plus aggregate token counts. Never
+              includes prompts, responses, API keys, file contents, session IDs, or personal
+              profiles.
             </p>
           </div>
           <button
             type="button"
             role="switch"
-            aria-checked={analyticsEnabled}
-            aria-label="Share anonymous usage analytics"
-            onClick={() => setAnalyticsEnabled(!analyticsEnabled)}
+            aria-checked={detailedAnalyticsEnabled}
+            aria-label="Share detailed usage analytics"
+            onClick={() => setDetailedAnalyticsEnabled(!detailedAnalyticsEnabled)}
             className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-              analyticsEnabled ? "bg-foreground" : "bg-border"
+              detailedAnalyticsEnabled ? "bg-foreground" : "bg-border"
             }`}
           >
             <span
               className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
-                analyticsEnabled ? "translate-x-4" : "translate-x-0.5"
+                detailedAnalyticsEnabled ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
           </button>

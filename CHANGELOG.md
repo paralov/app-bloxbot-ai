@@ -12,7 +12,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - CI and release publishing now share one reusable build workflow, use current Node runtimes for GitHub Actions, and publish only the installers and files required for automatic updates.
 - macOS releases now use one universal installer for Apple Silicon and Intel Macs.
 - Release tooling is now TypeScript-only, and the redundant Makefile has been removed in favor of package scripts.
-- PostHog analytics are now opt-in and anonymous, including provider, model, and aggregate token usage without prompts, responses, file contents, or personal profiles.
+- PostHog now collects basic anonymous feature analytics by default and asks once before enabling detailed provider, model, and aggregate token usage; detailed sharing remains toggleable in Privacy settings.
 
 ### Fixed
 

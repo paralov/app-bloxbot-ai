@@ -1,6 +1,7 @@
 import { usePostHog } from "@posthog/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { detailedAnalyticsProperties } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
@@ -24,7 +25,10 @@ export function useSetApiKey() {
         const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
         queryClient.setQueryData(qk.providers, merged);
       }
-      posthog.capture("provider_connected", { provider: providerID, method: "api_key" });
+      posthog.capture("provider_connected", {
+        method: "api_key",
+        ...detailedAnalyticsProperties({ provider: providerID }),
+      });
     },
   });
 }
@@ -48,7 +52,10 @@ export function useDisconnectProvider() {
         const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
         queryClient.setQueryData(qk.providers, merged);
       }
-      posthog.capture("provider_disconnected", { provider: providerID });
+      posthog.capture(
+        "provider_disconnected",
+        detailedAnalyticsProperties({ provider: providerID }),
+      );
       return providerID;
     },
   });

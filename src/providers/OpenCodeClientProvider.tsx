@@ -4,6 +4,7 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import LoadingScreen, { type StartupAnimation } from "@/components/LoadingScreen";
+import { captureDetailedAnalytics } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { sseDispatch } from "@/lib/sseDispatch";
@@ -198,7 +199,7 @@ export function OpenCodeClientProvider({
         for await (const event of sseResult.stream) {
           if (abortController.signal.aborted) break;
           sseDispatch(queryClient, event, activeSessionIdRef, (usage) => {
-            posthog.capture("model_usage", usage);
+            captureDetailedAnalytics(posthog, "model_usage", usage);
           });
         }
 
