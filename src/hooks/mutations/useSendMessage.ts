@@ -53,7 +53,6 @@ export function useSendMessage() {
         detailedAnalyticsProperties({
           provider,
           model,
-          agent: selectedAgent ?? undefined,
         }),
       );
     },

@@ -1,4 +1,4 @@
-import type { PostHogConfig, PostHogInterface, Properties } from "posthog-js";
+import type { CaptureResult, PostHogConfig, PostHogInterface, Properties } from "posthog-js";
 
 export const POSTHOG_API_KEY = "phc_bOlMECnl02VBjOp2Y8PNOD36gSBmAuekirxhPKxjbEz";
 export const POSTHOG_API_HOST = "https://eu.i.posthog.com";
@@ -11,6 +11,79 @@ interface AnalyticsEnvironment {
 }
 
 let detailedAnalyticsEnabled = false;
+
+const COMMON_ANALYTICS_PROPERTIES = [
+  "token",
+  "distinct_id",
+  "$lib",
+  "$lib_version",
+  "$config_defaults",
+  "$process_person_profile",
+  "app",
+  "app_platform",
+  "app_runtime",
+  "app_version",
+] as const;
+
+const EVENT_ANALYTICS_PROPERTIES = new Map<string, readonly string[]>([
+  ["app_opened", ["app_version"]],
+  ["session_created", []],
+  ["message_sent", ["provider", "model"]],
+  ["provider_connected", ["method", "provider"]],
+  ["provider_disconnected", ["provider"]],
+  [
+    "model_usage",
+    [
+      "provider",
+      "model",
+      "tokens_total",
+      "tokens_input",
+      "tokens_output",
+      "tokens_reasoning",
+      "tokens_cache_read",
+      "tokens_cache_write",
+    ],
+  ],
+]);
+
+const DETAILED_ANALYTICS_PROPERTIES = new Set([
+  "provider",
+  "model",
+  "tokens_total",
+  "tokens_input",
+  "tokens_output",
+  "tokens_reasoning",
+  "tokens_cache_read",
+  "tokens_cache_write",
+]);
+
+const DETAILED_ANALYTICS_EVENTS = new Set(["model_usage"]);
+
+/**
+ * Final outbound privacy boundary. PostHog enriches manual events with browser,
+ * URL, device, and session properties, so only explicitly approved fields may
+ * leave the app.
+ */
+export function sanitizePostHogEvent(capture: CaptureResult | null): CaptureResult | null {
+  if (!capture) return null;
+  const eventProperties = EVENT_ANALYTICS_PROPERTIES.get(capture.event);
+  if (!eventProperties) return null;
+  if (!detailedAnalyticsEnabled && DETAILED_ANALYTICS_EVENTS.has(capture.event)) return null;
+
+  const allowed = new Set([...COMMON_ANALYTICS_PROPERTIES, ...eventProperties]);
+  const properties = Object.fromEntries(
+    Object.entries(capture.properties).filter(
+      ([key]) =>
+        allowed.has(key) && (detailedAnalyticsEnabled || !DETAILED_ANALYTICS_PROPERTIES.has(key)),
+    ),
+  );
+
+  // Prevent PostHog from deriving location from the request IP address.
+  properties.$geoip_disable = true;
+
+  const { $set: _set, $set_once: _setOnce, ...eventWithoutProfiles } = capture;
+  return { ...eventWithoutProfiles, properties };
+}
 
 export function setDetailedAnalyticsEnabled(enabled: boolean): void {
   detailedAnalyticsEnabled = enabled;
@@ -49,9 +122,11 @@ export function createPostHogOptions({
     opt_out_capturing_by_default: !production,
     opt_out_capturing_persistence_type: "localStorage",
     person_profiles: "never",
-    persistence: "localStorage",
+    disable_persistence: true,
+    persistence: "memory",
     save_campaign_params: false,
     save_referrer: false,
+    before_send: sanitizePostHogEvent,
     loaded: (posthog) => {
       if (!production) {
         posthog.opt_out_capturing();

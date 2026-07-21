@@ -4,6 +4,7 @@ import {
   createPostHogOptions,
   detailedAnalyticsProperties,
   POSTHOG_API_HOST,
+  sanitizePostHogEvent,
   setDetailedAnalyticsEnabled,
 } from "@/lib/analytics";
 
@@ -40,6 +41,8 @@ describe("PostHog analytics", () => {
       advanced_disable_flags: true,
       opt_out_capturing_by_default: false,
       person_profiles: "never",
+      disable_persistence: true,
+      persistence: "memory",
     });
 
     options.loaded?.(posthog as never);
@@ -86,5 +89,86 @@ describe("PostHog analytics", () => {
 
     expect(posthog.capture).toHaveBeenCalledOnce();
     expect(posthog.capture).toHaveBeenCalledWith("model_usage", usage);
+  });
+
+  it("strips PostHog browser, URL, device, session, and profile enrichment", () => {
+    setDetailedAnalyticsEnabled(true);
+    const sanitized = sanitizePostHogEvent({
+      uuid: "event-id",
+      event: "message_sent",
+      properties: {
+        token: POSTHOG_API_HOST,
+        distinct_id: "temporary-launch-id",
+        app: "bloxbot",
+        app_platform: "MacIntel",
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        $current_url: "file:///Users/alice/Applications/BloxBot/index.html",
+        $pathname: "/Users/alice/Applications/BloxBot/index.html",
+        $user_agent: "secret-user-agent",
+        $device_id: "persistent-device-id",
+        $session_id: "session-id",
+        $window_id: "window-id",
+        $screen_width: 1920,
+        timezone: "Europe/Oslo",
+      },
+      $set: { email: "alice@example.com" },
+      $set_once: { name: "Alice" },
+    });
+
+    expect(sanitized).toEqual({
+      uuid: "event-id",
+      event: "message_sent",
+      properties: {
+        token: POSTHOG_API_HOST,
+        distinct_id: "temporary-launch-id",
+        app: "bloxbot",
+        app_platform: "MacIntel",
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        $geoip_disable: true,
+      },
+    });
+  });
+
+  it("enforces detailed consent again at the final outbound boundary", () => {
+    expect(
+      sanitizePostHogEvent({
+        uuid: "event-id",
+        event: "message_sent",
+        properties: {
+          token: POSTHOG_API_HOST,
+          distinct_id: "temporary-launch-id",
+          provider: "anthropic",
+          model: "claude-sonnet-4",
+        },
+      }),
+    ).toEqual({
+      uuid: "event-id",
+      event: "message_sent",
+      properties: {
+        token: POSTHOG_API_HOST,
+        distinct_id: "temporary-launch-id",
+        $geoip_disable: true,
+      },
+    });
+
+    expect(
+      sanitizePostHogEvent({
+        uuid: "event-id",
+        event: "model_usage",
+        properties: { distinct_id: "temporary-launch-id", tokens_total: 42 },
+      }),
+    ).toBeNull();
+  });
+
+  it("drops any event that is not explicitly approved", () => {
+    expect(
+      sanitizePostHogEvent({
+        uuid: "event-id",
+        event: "$pageview",
+        properties: { distinct_id: "temporary-launch-id" },
+      }),
+    ).toBeNull();
   });
 });

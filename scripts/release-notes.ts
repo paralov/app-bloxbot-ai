@@ -3,6 +3,18 @@ import { pathToFileURL } from "node:url";
 
 const REPOSITORY_URL = "https://github.com/paralov/app-bloxbot-ai";
 
+export function releaseAssetNames(version: string): string[] {
+  return [
+    `BloxBot-${version}-mac.dmg`,
+    `BloxBot-${version}-mac.zip`,
+    `BloxBot-Setup-${version}.exe`,
+    `BloxBot-${version}-linux-amd64.deb`,
+    "latest-mac.yml",
+    "latest.yml",
+    "latest-linux.yml",
+  ];
+}
+
 export function changelogSection(changelog: string, version: string): string {
   const heading = `## [${version}]`;
   const start = changelog.indexOf(heading);
@@ -19,12 +31,13 @@ export function changelogSection(changelog: string, version: string): string {
 export function releaseNotes(changelog: string, version: string): string {
   const tag = `v${version}`;
   const download = `${REPOSITORY_URL}/releases/download/${tag}`;
+  const [dmg, , exe, deb] = releaseAssetNames(version);
   return [
     "## Download BloxBot",
     "",
-    `- [macOS (.dmg)](${download}/BloxBot-${version}-mac.dmg)`,
-    `- [Windows (.exe)](${download}/BloxBot-Setup-${version}.exe)`,
-    `- [Debian / Ubuntu (.deb)](${download}/BloxBot-${version}-linux-amd64.deb)`,
+    `- [macOS (.dmg)](${download}/${dmg})`,
+    `- [Windows (.exe)](${download}/${exe})`,
+    `- [Debian / Ubuntu (.deb)](${download}/${deb})`,
     "",
     changelogSection(changelog, version),
   ].join("\n");

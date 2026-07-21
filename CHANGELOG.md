@@ -12,13 +12,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 
 - CI and release publishing now share one reusable build workflow, use current Node runtimes for GitHub Actions, and publish only the installers and files required for automatic updates.
+- Releases are now assembled as retryable drafts, verified for the exact updater-safe asset set, and published only after every upload succeeds.
+- GitHub Actions are pinned to their latest immutable revisions, and write access is limited to the final release-publishing job.
 - macOS releases now use one universal installer for Apple Silicon and Intel Macs.
 - Release tooling is now TypeScript-only, and the redundant Makefile has been removed in favor of package scripts.
-- PostHog now collects basic anonymous feature analytics by default and asks once before enabling detailed provider, model, and aggregate token usage; detailed sharing remains toggleable in Privacy settings.
+- PostHog now collects basic privacy-minimized feature analytics by default and asks once before enabling detailed provider, model, and aggregate token usage; detailed sharing remains toggleable in Privacy settings.
+- Analytics now use a temporary per-launch identifier and a strict outbound property allowlist that removes URLs, device and session identifiers, user-agent details, profile data, and IP-derived location data.
 
 ### Fixed
 
 - Added production app-open and model-usage events so PostHog ingestion and aggregate token usage can be monitored without collecting user content.
+- Fixed detailed analytics sending user-defined agent names even though the consent prompt did not request them.
 
 ## [0.6.0] - 2026-07-21
 

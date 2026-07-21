@@ -75,7 +75,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       toast("Help improve BloxBot", {
         id: "detailed-analytics-consent",
         description:
-          "Share anonymous provider, model, and token usage. Prompts, responses, files, and personal details are never collected.",
+          "Share provider, model, and aggregate token usage. Prompts, responses, files, and agent names are never collected.",
         duration: Number.POSITIVE_INFINITY,
         action: {
           label: "Share usage",

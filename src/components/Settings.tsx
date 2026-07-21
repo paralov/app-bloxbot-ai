@@ -1028,7 +1028,9 @@ function PrivacyTab() {
     <div className="mx-auto w-full max-w-md px-6 py-8">
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
-        BloxBot collects basic anonymous feature usage. Detailed usage is always your choice.
+        BloxBot records basic feature counts with a temporary identifier that resets each launch.
+        URLs, device details, location enrichment, and content are not included. Detailed usage is
+        always your choice.
       </p>
 
       <div className="mt-6 rounded-lg border bg-card p-3.5">
@@ -1037,8 +1039,8 @@ function PrivacyTab() {
             <div className="text-sm font-medium">Share detailed usage analytics</div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               Additionally shares provider and model names plus aggregate token counts. Never
-              includes prompts, responses, API keys, file contents, session IDs, or personal
-              profiles.
+              includes prompts, responses, API keys, file contents, agent names, persistent device
+              IDs, session IDs, or personal profiles.
             </p>
           </div>
           <button

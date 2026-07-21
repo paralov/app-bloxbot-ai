@@ -26,9 +26,9 @@ Download the installer for your platform from the [releases page](https://github
 
 | Platform | File |
 |----------|------|
-| macOS (Apple Silicon) | `BloxBot_x.x.x_aarch64.dmg` |
-| macOS (Intel) | `BloxBot_x.x.x_x64.dmg` |
-| Windows (64-bit) | `BloxBot_x.x.x_x64-setup.exe` |
+| macOS (Apple Silicon and Intel) | `BloxBot-x.y.z-mac.dmg` |
+| Windows (64-bit) | `BloxBot-Setup-x.y.z.exe` |
+| Debian / Ubuntu (64-bit) | `BloxBot-x.y.z-linux-amd64.deb` |
 
 ### Setup
 
@@ -43,6 +43,8 @@ Download the installer for your platform from the [releases page](https://github
 **macOS**: The app is signed and notarized. Open the `.dmg` and drag BloxBot to Applications.
 
 **Windows**: SmartScreen may warn about an unknown publisher. Click "More info" then "Run anyway".
+
+**Linux**: Install the `.deb` with your software center or `sudo apt install ./BloxBot-*.deb`.
 
 ## Development
 

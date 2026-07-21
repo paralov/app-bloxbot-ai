@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -13,8 +13,6 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.value }}
     steps:
       - name: Require the default branch
         if: ${{ github.ref != 'refs/heads/main' }}
@@ -22,23 +20,16 @@ jobs:
           echo "Releases must run from main, not ${GITHUB_REF}."
           exit 1
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
 
       - name: Read and validate version
-        id: version
-        shell: bash
-        run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          node scripts/release-notes.ts "$VERSION" >/dev/null
-          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${VERSION} already exists. Bump package.json and CHANGELOG.md first."
-            exit 1
-          fi
-          echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release.ts validate
 
   build:
     needs: validate
@@ -48,48 +39,19 @@ jobs:
   publish:
     needs: [validate, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
-      VERSION: ${{ needs.validate.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download release files
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: bloxbot-*
           path: release
           merge-multiple: true
 
-      - name: Verify the updater-safe asset set
-        shell: bash
-        run: |
-          EXPECTED=(
-            "BloxBot-${VERSION}-mac.dmg"
-            "BloxBot-${VERSION}-mac.zip"
-            "BloxBot-Setup-${VERSION}.exe"
-            "BloxBot-${VERSION}-linux-amd64.deb"
-            "latest-mac.yml"
-            "latest.yml"
-            "latest-linux.yml"
-          )
-          for FILE in "${EXPECTED[@]}"; do
-            test -f "release/${FILE}" || { echo "Missing release/${FILE}"; exit 1; }
-          done
-          test "$(find release -maxdepth 1 -type f | wc -l | tr -d ' ')" = 7 || {
-            echo "Expected exactly seven release files:"
-            find release -maxdepth 1 -type f -print
-            exit 1
-          }
-
-      - name: Generate release notes
-        run: node scripts/release-notes.ts "$VERSION" >release-notes.md
-
-      - name: Publish GitHub release
-        shell: bash
-        run: |
-          gh release create "v${VERSION}" \
-            --target "$GITHUB_SHA" \
-            --title "BloxBot v${VERSION}" \
-            --notes-file release-notes.md \
-            release/*
+      - name: Verify and atomically publish the release
+        run: node scripts/release.ts publish release
