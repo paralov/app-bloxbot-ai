@@ -22,7 +22,8 @@
     "preview": "vite preview",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
-    "test": "vitest run",
+    "test": "vitest run && pnpm test:release",
+    "test:release": "node --test scripts/release-notes.test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit"

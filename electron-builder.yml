@@ -13,16 +13,19 @@ mac:
   category: public.app-category.developer-tools
   icon: electron/icons/icon.icns
   hardenedRuntime: true
+  artifactName: BloxBot-${version}-mac.${ext}
   target:
     - dmg
     - zip
 win:
   icon: electron/icons/icon.ico
+  artifactName: BloxBot-Setup-${version}.${ext}
   target:
     - nsis
 linux:
   category: Development
   icon: electron/icons/icon.png
+  artifactName: BloxBot-${version}-linux-amd64.${ext}
   target:
     - deb
 publish:

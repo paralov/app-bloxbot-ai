@@ -1,32 +1,25 @@
-name: CI / Release
+name: CI
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    permissions:
-      contents: write
     strategy:
-      fail-fast: ${{ startsWith(github.ref, 'refs/tags/') }}
+      fail-fast: false
       matrix:
         include:
           - platform: macos-latest
-            target: aarch64-apple-darwin
-            builder_args: --mac --arm64
-
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            builder_args: --mac --x64
+            target: universal-apple-darwin
+            builder_args: --mac --universal
 
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
@@ -74,18 +67,10 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          PUBLISH=never
-          RELEASE_TYPE=release
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            PUBLISH=always
-            if [[ "${GITHUB_REF_NAME}" =~ -(alpha|beta|rc) ]]; then RELEASE_TYPE=prerelease; fi
-          fi
           pnpm exec electron-builder ${{ matrix.builder_args }} \
-            --publish "$PUBLISH" \
-            -c.publish.releaseType="$RELEASE_TYPE"
+            --publish never
 
       - name: Upload build artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
           name: bloxbot-${{ matrix.target }}
@@ -95,5 +80,4 @@ jobs:
             release/*.zip
             release/*.exe
             release/*.deb
-            release/*.blockmap
             release/latest*.yml

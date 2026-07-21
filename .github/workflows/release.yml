@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Require the default branch
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "Releases must run from main, not ${GITHUB_REF}."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read and validate version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          node scripts/release-notes.mjs "$VERSION" >/dev/null
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists. Bump package.json and CHANGELOG.md first."
+            exit 1
+          fi
+          echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: macos-latest
+            target: universal-apple-darwin
+            builder_args: --mac --universal
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            builder_args: --win --x64
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            builder_args: --linux deb --x64
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify source
+        run: |
+          pnpm test
+          pnpm typecheck
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Package application
+        shell: bash
+        env:
+          CSC_LINK: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE || '' }}
+          CSC_KEY_PASSWORD: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm exec electron-builder ${{ matrix.builder_args }} --publish never
+
+      - name: Stage release files
+        shell: bash
+        run: |
+          mkdir staged-release
+          find release -maxdepth 1 -type f \( \
+            -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.deb' -o -name 'latest*.yml' \
+          \) -exec cp {} staged-release/ \;
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: bloxbot-${{ matrix.target }}
+          if-no-files-found: error
+          path: staged-release/*
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bloxbot-*
+          path: release
+          merge-multiple: true
+
+      - name: Verify the updater-safe asset set
+        shell: bash
+        run: |
+          EXPECTED=(
+            "BloxBot-${VERSION}-mac.dmg"
+            "BloxBot-${VERSION}-mac.zip"
+            "BloxBot-Setup-${VERSION}.exe"
+            "BloxBot-${VERSION}-linux-amd64.deb"
+            "latest-mac.yml"
+            "latest.yml"
+            "latest-linux.yml"
+          )
+          for FILE in "${EXPECTED[@]}"; do
+            test -f "release/${FILE}" || { echo "Missing release/${FILE}"; exit 1; }
+          done
+          test "$(find release -maxdepth 1 -type f | wc -l | tr -d ' ')" = 7 || {
+            echo "Expected exactly seven release files:"
+            find release -maxdepth 1 -type f -print
+            exit 1
+          }
+
+      - name: Generate release notes
+        run: node scripts/release-notes.mjs "$VERSION" >release-notes.md
+
+      - name: Publish GitHub release
+        shell: bash
+        run: |
+          gh release create "v${VERSION}" \
+            --target "$GITHUB_SHA" \
+            --title "BloxBot v${VERSION}" \
+            --notes-file release-notes.md \
+            release/*

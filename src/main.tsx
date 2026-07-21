@@ -3,21 +3,19 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { createPostHogOptions, POSTHOG_API_KEY } from "./lib/analytics";
+import { desktop } from "./lib/desktop";
 
-const POSTHOG_API_KEY = "phc_bOlMECnl02VBjOp2Y8PNOD36gSBmAuekirxhPKxjbEz";
-const POSTHOG_API_HOST = "https://eu.i.posthog.com";
+const postHogOptions = createPostHogOptions({
+  production: import.meta.env.PROD,
+  getVersion: () => desktop.getVersion(),
+  platform: navigator.platform,
+  runtime: window.bloxbot ? "electron" : "browser",
+});
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <PostHogProvider
-      apiKey={POSTHOG_API_KEY}
-      options={{
-        api_host: POSTHOG_API_HOST,
-        defaults: "2026-01-30",
-        advanced_disable_toolbar_metrics: true,
-        disable_session_recording: true,
-      }}
-    >
+    <PostHogProvider apiKey={POSTHOG_API_KEY} options={postHogOptions}>
       <App />
     </PostHogProvider>
   </React.StrictMode>,
