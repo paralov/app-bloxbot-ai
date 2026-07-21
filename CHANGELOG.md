@@ -7,6 +7,21 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-07-21
+
+### Changed
+
+- Model quota failures now use OpenCode's structured status and action data, with native usage-limit guidance for free models instead of message matching.
+- Automatic OpenCode context compaction is enabled by default, and the OpenCode SDK has been updated to its current status schema.
+- React Query synchronization now uses scoped cache keys, precise event-driven updates, reconnect reconciliation, and targeted mutation rollback instead of broad invalidation.
+- Removed the bundled third-party Gemini OAuth plugin; Google API-key authentication and other supported providers remain available.
+- Refined the detailed-analytics consent prompt into a compact decision card with full-width copy and clear actions.
+
+### Fixed
+
+- Prevented stale HTTP snapshots and out-of-order event updates from restoring deleted sessions, reviving stale messages, or leaking drafts between conversations.
+- Corrected session mutation failure handling, optional action rendering, sidebar interactions, and related React subscription ownership issues.
+
 ## [0.6.1] - 2026-07-21
 
 ### Changed
@@ -54,6 +69,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.5.2...v0.6.0
