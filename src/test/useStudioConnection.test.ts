@@ -11,6 +11,9 @@ describe("checkStudioConnection", () => {
         }),
         connect: vi.fn(),
       },
+      tool: {
+        ids: vi.fn().mockResolvedValue({ data: ["read", "roblox-studio_get_studio_state"] }),
+      },
     };
 
     await expect(checkStudioConnection(client as never)).resolves.toBe("connected");
@@ -26,10 +29,29 @@ describe("checkStudioConnection", () => {
           .mockResolvedValueOnce({ data: { "roblox-studio": { status: "connected" } } }),
         connect: vi.fn().mockResolvedValue({}),
       },
+      tool: {
+        ids: vi.fn().mockResolvedValue({ data: ["roblox-studio_get_studio_state"] }),
+      },
     };
 
     await expect(checkStudioConnection(client as never)).resolves.toBe("connected");
     expect(client.mcp.connect).toHaveBeenCalledWith({ name: "roblox-studio" });
+  });
+
+  it("keeps waiting when the MCP bridge has no Studio tools", async () => {
+    const client = {
+      mcp: {
+        status: vi.fn().mockResolvedValue({
+          data: { "roblox-studio": { status: "connected" } },
+        }),
+        connect: vi.fn(),
+      },
+      tool: {
+        ids: vi.fn().mockResolvedValue({ data: ["bash", "read", "write"] }),
+      },
+    };
+
+    await expect(checkStudioConnection(client as never)).resolves.toBe("waiting");
   });
 
   it("keeps waiting when Studio is unavailable", async () => {
@@ -37,6 +59,9 @@ describe("checkStudioConnection", () => {
       mcp: {
         status: vi.fn().mockRejectedValue(new Error("Studio is closed")),
         connect: vi.fn(),
+      },
+      tool: {
+        ids: vi.fn(),
       },
     };
 
