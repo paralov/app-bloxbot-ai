@@ -1,7 +1,7 @@
 {
   "name": "bloxbot",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "AI-assisted Roblox development from a secure desktop app",
   "type": "module",
   "main": "dist-electron/main/main.js",
