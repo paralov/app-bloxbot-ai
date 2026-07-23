@@ -7,6 +7,7 @@ interface LoadingScreenProps {
   message?: string;
   detail?: string;
   animation?: StartupAnimation;
+  startup?: StartupProgress;
   /** When true, shows the error state with help actions instead of the dot loader. */
   error?: boolean;
   /** Called when the user clicks "Try Again". */
@@ -16,6 +17,13 @@ interface LoadingScreenProps {
 }
 
 export type StartupAnimation = "sparkles" | "dots" | "blocks";
+
+export interface StartupProgress {
+  step: 1 | 2 | 3;
+  label: string;
+  progress?: number;
+  meta?: string;
+}
 
 type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up-to-date" | "error";
 
@@ -30,6 +38,7 @@ function LoadingScreen({
   message = "Starting up...",
   detail,
   animation,
+  startup,
   error,
   onRetry,
   retrying,
@@ -267,6 +276,8 @@ function LoadingScreen({
               </a>
             </div>
           </div>
+        ) : startup ? (
+          <StartupProgressGraphic startup={startup} />
         ) : animation ? (
           <StartupAnimationGraphic animation={animation} />
         ) : (
@@ -275,6 +286,60 @@ function LoadingScreen({
             <span className="bloxbot-dot h-1 w-1 rounded-full bg-foreground/25 [animation-delay:150ms]" />
             <span className="bloxbot-dot h-1 w-1 rounded-full bg-foreground/25 [animation-delay:300ms]" />
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StartupProgressGraphic({ startup }: { startup: StartupProgress }) {
+  const currentIndex = startup.step - 1;
+  const currentProgress =
+    startup.progress === undefined ? undefined : Math.min(1, Math.max(0, startup.progress));
+
+  return (
+    <div className="mt-5 w-full max-w-[17rem]">
+      <div
+        className="grid grid-cols-3 gap-1.5"
+        role="progressbar"
+        aria-label={`${startup.label}, step ${startup.step} of 3`}
+        aria-valuemin={currentProgress === undefined ? undefined : 0}
+        aria-valuemax={currentProgress === undefined ? undefined : 100}
+        aria-valuenow={
+          currentProgress === undefined ? undefined : Math.round(currentProgress * 100)
+        }
+      >
+        {[0, 1, 2].map((index) => {
+          const complete = index < currentIndex;
+          const current = index === currentIndex;
+          const fill = complete ? 1 : current ? currentProgress : 0;
+
+          return (
+            <span
+              key={index}
+              className="h-1.5 overflow-hidden rounded-full bg-foreground/10"
+              aria-hidden="true"
+            >
+              {current && fill === undefined ? (
+                <span className="startup-progress-indeterminate block h-full rounded-full bg-foreground/65" />
+              ) : (
+                <span
+                  className="block h-full origin-left rounded-full bg-foreground/65 transition-transform duration-300 ease-out"
+                  style={{ transform: `scaleX(${fill ?? 0})` }}
+                />
+              )}
+            </span>
+          );
+        })}
+      </div>
+      <div className="mt-2.5 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
+        <span>
+          Step {startup.step} of 3 · {startup.label}
+        </span>
+        {startup.meta && (
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-foreground/65">
+            {startup.meta}
+          </span>
         )}
       </div>
     </div>

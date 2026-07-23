@@ -37,6 +37,18 @@ export const OpenCodeInfoSchema = Schema.mutable(
 
 export type OpenCodeInfo = typeof OpenCodeInfoSchema.Type;
 
+export type OpenCodeStartupProgress =
+  | { phase: "checking" }
+  | {
+      phase: "downloading";
+      downloadedBytes: number;
+      totalBytes: number | null;
+      bytesPerSecond: number;
+    }
+  | { phase: "verifying" }
+  | { phase: "installing" }
+  | { phase: "starting" };
+
 export const UpdateInfoSchema = Schema.mutable(
   Schema.Struct({
     version: Schema.String,
@@ -48,6 +60,7 @@ export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
 export interface DesktopApi {
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
+  onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
   getVersion(): Promise<string>;
   openUrl(url: string): Promise<void>;
   loadConfig(): Promise<AppConfig>;

@@ -11,6 +11,7 @@ import {
   getOpenCodeAssetSpec,
   selectCompatibleRelease,
 } from "../../electron/services/OpenCodeBinary";
+import type { OpenCodeStartupProgress } from "../types/desktop";
 
 const temporaryDirectories: string[] = [];
 
@@ -92,10 +93,13 @@ describe("OpenCode binary releases", () => {
     const digest = createHash("sha256").update(archive).digest("hex");
     const assetName = "opencode-darwin-arm64.zip";
     const releases = [release("v1.4.2", assetName, `sha256:${digest}`)];
+    const startupProgress: OpenCodeStartupProgress[] = [];
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json(releases))
-      .mockResolvedValueOnce(new Response(archive));
+      .mockResolvedValueOnce(
+        new Response(archive, { headers: { "content-length": String(archive.byteLength) } }),
+      );
     const extractArchive = vi.fn(async (_archivePath: string, destination: string) => {
       await writeFile(join(destination, "opencode"), "runtime binary");
     });
@@ -107,6 +111,7 @@ describe("OpenCode binary releases", () => {
         arch: "arm64",
         fetch,
         extractArchive,
+        onStartupProgress: (progress) => startupProgress.push(progress),
       }),
     );
 
@@ -114,6 +119,14 @@ describe("OpenCode binary releases", () => {
     expect(installed.executable).toBe(join(cacheDirectory, "darwin-arm64", "1.4.2", "opencode"));
     await expect(readFile(installed.executable, "utf8")).resolves.toBe("runtime binary");
     expect(fetch).toHaveBeenCalledTimes(2);
+    expect(startupProgress[0]).toEqual({ phase: "checking" });
+    expect(startupProgress).toContainEqual({
+      phase: "downloading",
+      downloadedBytes: archive.byteLength,
+      totalBytes: archive.byteLength,
+      bytesPerSecond: expect.any(Number),
+    });
+    expect(startupProgress.slice(-2)).toEqual([{ phase: "verifying" }, { phase: "installing" }]);
 
     const cached = await Effect.runPromise(
       ensureOpenCodeBinary({

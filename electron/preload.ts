@@ -1,10 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import type { AppConfig, DesktopApi } from "../src/types/desktop";
+import type { AppConfig, DesktopApi, OpenCodeStartupProgress } from "../src/types/desktop";
 import { channels } from "./channels";
 
 const api: DesktopApi = {
   getOpenCodeInfo: () => ipcRenderer.invoke(channels.getOpenCodeInfo),
+  onOpenCodeStartupProgress: (listener) => {
+    const handleProgress = (_event: Electron.IpcRendererEvent, progress: OpenCodeStartupProgress) =>
+      listener(progress);
+    ipcRenderer.on(channels.openCodeStartupProgress, handleProgress);
+    return () => ipcRenderer.removeListener(channels.openCodeStartupProgress, handleProgress);
+  },
   getVersion: () => ipcRenderer.invoke(channels.getVersion),
   openUrl: (url) => ipcRenderer.invoke(channels.openUrl, url),
   loadConfig: () => ipcRenderer.invoke(channels.loadConfig),

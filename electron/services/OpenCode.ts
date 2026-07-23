@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Context, Data, Effect, Layer } from "effect";
 import { networkConnections, type Systeminformation } from "systeminformation";
 
-import type { OpenCodeInfo } from "../../src/types/desktop";
+import type { OpenCodeInfo, OpenCodeStartupProgress } from "../../src/types/desktop";
 import { createOpenCodeConfig } from "../opencodeConfig";
 import { ensureOpenCodeBinary } from "./OpenCodeBinary";
 
@@ -43,6 +43,7 @@ interface PreparedOpenCode {
 export interface OpenCodeOptions {
   binaryCacheDirectory: string;
   workspace: string;
+  onStartupProgress?: (progress: OpenCodeStartupProgress) => void;
 }
 
 export interface OpenCodeService {
@@ -191,11 +192,13 @@ function prepareOpenCode(options: OpenCodeOptions): Effect.Effect<PreparedOpenCo
   return Effect.gen(function* () {
     const { executable, version } = yield* ensureOpenCodeBinary({
       cacheDirectory: options.binaryCacheDirectory,
+      onStartupProgress: options.onStartupProgress,
     }).pipe(
       Effect.mapError(
         (cause) => new OpenCodeError({ message: cause.message, cause }),
       ),
     );
+    yield* Effect.sync(() => options.onStartupProgress?.({ phase: "starting" }));
     yield* Effect.logInfo(`[opencode] Starting v${version}`);
 
     const opencodeHome = join(options.workspace, ".opencode");

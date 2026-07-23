@@ -7,6 +7,7 @@ import {
   type DesktopApi,
   type OpenCodeInfo,
   OpenCodeInfoSchema,
+  type OpenCodeStartupProgress,
   type UpdateInfo,
   UpdateInfoSchema,
 } from "@/types/desktop";
@@ -29,6 +30,8 @@ interface DesktopEffects {
   readonly installUpdate: Effect.Effect<void, DesktopError>;
   readonly relaunch: Effect.Effect<void, DesktopError>;
 }
+
+type StartupProgressListener = (progress: OpenCodeStartupProgress) => void;
 
 const loadBrowserConfig = Effect.gen(function* () {
   const stored = yield* Effect.try({
@@ -132,6 +135,8 @@ const runPromise = <A>(effect: Effect.Effect<A, DesktopError>): Promise<A> =>
 /** Promise-only adapter consumed by React and exposed by the Electron bridge contract. */
 export const desktop: DesktopApi = {
   getOpenCodeInfo: () => runPromise(desktopEffects.getOpenCodeInfo),
+  onOpenCodeStartupProgress: (listener: StartupProgressListener) =>
+    window.bloxbot?.onOpenCodeStartupProgress(listener) ?? (() => {}),
   getVersion: () => runPromise(desktopEffects.getVersion),
   openUrl: (url) => runPromise(desktopEffects.openUrl(url)),
   loadConfig: () => runPromise(desktopEffects.loadConfig),

@@ -17,6 +17,8 @@ import { Data, Effect, Schema } from "effect";
 import extractZip from "extract-zip";
 import { x as extractTar } from "tar";
 
+import type { OpenCodeStartupProgress } from "../../src/types/desktop";
+
 const OPEN_CODE_API = "https://api.github.com/repos/anomalyco/opencode/releases";
 const OPEN_CODE_DOWNLOAD_PREFIX = "https://github.com/anomalyco/opencode/releases/download/";
 const SUPPORTED_MAJOR = 1;
@@ -95,6 +97,7 @@ type ExtractArchive = (
   destination: string,
   format: AssetSpec["format"],
 ) => Promise<void>;
+type StartupProgressReporter = (progress: OpenCodeStartupProgress) => void;
 
 export interface OpenCodeBinaryOptions {
   cacheDirectory: string;
@@ -102,6 +105,7 @@ export interface OpenCodeBinaryOptions {
   arch?: string;
   fetch?: Fetch;
   extractArchive?: ExtractArchive;
+  onStartupProgress?: StartupProgressReporter;
 }
 
 const fail = (message: string, cause?: unknown) =>
@@ -112,6 +116,63 @@ const tryPromise = <A>(message: string, evaluate: (signal: AbortSignal) => Promi
     try: evaluate,
     catch: (cause) => new OpenCodeBinaryError({ message, cause }),
   });
+
+function contentLength(response: Response): number | null {
+  const header = response.headers.get("content-length");
+  if (header === null) return null;
+  const value = Number(header);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+async function readDownload(
+  response: Response,
+  signal: AbortSignal,
+  reportProgress?: StartupProgressReporter,
+): Promise<Buffer | undefined> {
+  if (!response.body) return undefined;
+
+  const totalBytes = contentLength(response);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  const startedAt = Date.now();
+  let downloadedBytes = 0;
+  let lastReportAt = startedAt;
+
+  const report = (now: number) => {
+    const elapsedSeconds = Math.max((now - startedAt) / 1000, 0.001);
+    reportProgress?.({
+      phase: "downloading",
+      downloadedBytes,
+      totalBytes,
+      bytesPerSecond: Math.round(downloadedBytes / elapsedSeconds),
+    });
+  };
+  const abortRead = () => void reader.cancel(signal.reason).catch(() => {});
+
+  signal.addEventListener("abort", abortRead, { once: true });
+  report(startedAt);
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (signal.aborted) throw signal.reason;
+      if (done) break;
+
+      chunks.push(value);
+      downloadedBytes += value.byteLength;
+      const now = Date.now();
+      if (now - lastReportAt >= 100) {
+        report(now);
+        lastReportAt = now;
+      }
+    }
+    report(Date.now());
+    return Buffer.concat(chunks, downloadedBytes);
+  } finally {
+    signal.removeEventListener("abort", abortRead);
+    reader.releaseLock();
+  }
+}
 
 function parseVersion(tag: string): Version | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(tag);
@@ -347,6 +408,7 @@ function installRelease(
   release: CompatibleRelease,
   fetchFn: Fetch,
   extractArchive: ExtractArchive,
+  reportProgress?: StartupProgressReporter,
 ): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
   return Effect.acquireUseRelease(
     tryPromise(
@@ -365,12 +427,18 @@ function installRelease(
         const { archiveBuffer, response } = yield* tryPromise(
           "OpenCode download failed",
           async (signal) => {
+            const downloadSignal = AbortSignal.any([
+              signal,
+              AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+            ]);
             const response = await fetchFn(release.asset.browser_download_url, {
               headers: { "User-Agent": "BloxBot" },
-              signal: AbortSignal.any([signal, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)]),
+              signal: downloadSignal,
             });
             return {
-              archiveBuffer: response.ok ? await response.arrayBuffer() : undefined,
+              archiveBuffer: response.ok
+                ? await readDownload(response, downloadSignal, reportProgress)
+                : undefined,
               response,
             };
           },
@@ -383,6 +451,7 @@ function installRelease(
         }
 
         const archive = Buffer.from(archiveBuffer);
+        reportProgress?.({ phase: "verifying" });
         const archiveSha256 = createHash("sha256").update(archive).digest("hex");
         if (archiveSha256 !== release.archiveSha256) {
           return yield* fail("The downloaded OpenCode archive failed SHA-256 verification");
@@ -390,6 +459,7 @@ function installRelease(
 
         // Node filesystem and archive APIs do not accept AbortSignal. Mask this
         // publish phase so interruption cannot race cleanup against in-flight writes.
+        reportProgress?.({ phase: "installing" });
         return yield* Effect.uninterruptible(
           Effect.gen(function* () {
             yield* tryPromise("Failed to write the OpenCode archive", () =>
@@ -481,6 +551,7 @@ export function ensureOpenCodeBinary(
   const platformDirectory = join(options.cacheDirectory, `${platform}-${arch}`);
 
   return Effect.gen(function* () {
+    yield* Effect.sync(() => options.onStartupProgress?.({ phase: "checking" }));
     const spec = yield* getOpenCodeAssetSpec(platform, arch);
     yield* tryPromise("Failed to create the OpenCode cache directory", () =>
       mkdir(platformDirectory, { recursive: true }),
@@ -506,6 +577,7 @@ export function ensureOpenCodeBinary(
           release,
           fetchFn,
           extractArchive,
+          options.onStartupProgress,
         ));
       yield* pruneCache(platformDirectory);
       return binary;

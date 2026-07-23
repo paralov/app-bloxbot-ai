@@ -282,6 +282,16 @@
 
 /* ── Playful startup progress ───────────────────────────────────── */
 
+@keyframes startup-progress-sweep {
+  from { transform: translateX(-110%); }
+  to   { transform: translateX(310%); }
+}
+
+.startup-progress-indeterminate {
+  width: 34%;
+  animation: startup-progress-sweep 1.25s ease-in-out infinite;
+}
+
 @keyframes startup-sparkle {
   0%, 100% { opacity: 0.2; transform: scale(0.55) rotate(0deg); }
   50%      { opacity: 0.9; transform: scale(1) rotate(90deg); }
@@ -387,11 +397,16 @@
 .startup-blocks span:nth-child(3) { animation-delay: 320ms; }
 
 @media (prefers-reduced-motion: reduce) {
+  .startup-progress-indeterminate,
   .startup-sparkles span,
   .startup-connecting::after,
   .startup-connecting span,
   .startup-blocks span {
     animation: none;
+  }
+
+  .startup-progress-indeterminate {
+    width: 38%;
   }
 }
 

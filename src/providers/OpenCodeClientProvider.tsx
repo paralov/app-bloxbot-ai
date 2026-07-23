@@ -11,11 +11,12 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
-import LoadingScreen, { type StartupAnimation } from "@/components/LoadingScreen";
+import LoadingScreen, { type StartupProgress } from "@/components/LoadingScreen";
 import { captureDetailedAnalytics } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { sseDispatch } from "@/lib/sseDispatch";
+import type { OpenCodeStartupProgress } from "@/types/desktop";
 
 const SSE_RECONNECT_DELAY = 3000;
 const SSE_FAILURE_THRESHOLD = 3;
@@ -23,26 +24,91 @@ const SSE_FAILURE_THRESHOLD = 3;
 type AppStatus = "waiting" | "ready" | "error";
 export type StartupPhase = "engine" | "connection" | "workspace";
 
-const STARTUP_COPY: Record<StartupPhase, { message: string; animation: StartupAnimation }> = {
-  engine: {
-    message: "Waking things up",
-    animation: "sparkles",
-  },
+interface StartupPresentation {
+  message: string;
+  detail: string;
+  startup: StartupProgress;
+}
+
+const DEFAULT_ENGINE_PROGRESS: OpenCodeStartupProgress = { phase: "checking" };
+
+const STARTUP_COPY: Record<Exclude<StartupPhase, "engine">, StartupPresentation> = {
   connection: {
     message: "Connecting the dots",
-    animation: "dots",
+    detail: "Making sure everything can talk",
+    startup: { step: 2, label: "Connecting" },
   },
   workspace: {
     message: "Setting the stage",
-    animation: "blocks",
+    detail: "Loading your workspace and preferences",
+    startup: { step: 3, label: "Opening" },
   },
 };
 
-export function getStartupPresentation(phase: StartupPhase): {
-  message: string;
-  animation: StartupAnimation;
-} {
-  return STARTUP_COPY[phase];
+export function formatTransferSpeed(bytesPerSecond: number): string {
+  const speed = Number.isFinite(bytesPerSecond) ? Math.max(0, bytesPerSecond) : 0;
+  if (speed < 1024) return `${Math.round(speed)} B/s`;
+  if (speed < 1024 ** 2) return `${(speed / 1024).toFixed(1)} KB/s`;
+  return `${(speed / 1024 ** 2).toFixed(1)} MB/s`;
+}
+
+function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresentation {
+  if (progress.phase === "downloading") {
+    const fraction =
+      progress.totalBytes && progress.totalBytes > 0
+        ? Math.min(progress.downloadedBytes / progress.totalBytes, 1)
+        : undefined;
+    const percentage = fraction === undefined ? null : `${Math.round(fraction * 100)}%`;
+    return {
+      message: "Downloading a one-time setup",
+      detail: "Future launches will use the saved copy",
+      startup: {
+        step: 1,
+        label: "Preparing",
+        progress: fraction,
+        meta: [percentage, formatTransferSpeed(progress.bytesPerSecond)]
+          .filter(Boolean)
+          .join(" · "),
+      },
+    };
+  }
+
+  if (progress.phase === "verifying") {
+    return {
+      message: "Checking the download",
+      detail: "Making sure everything arrived safely",
+      startup: { step: 1, label: "Preparing", progress: 1 },
+    };
+  }
+
+  if (progress.phase === "installing") {
+    return {
+      message: "Finishing setup",
+      detail: "Unpacking the local engine",
+      startup: { step: 1, label: "Preparing", progress: 1 },
+    };
+  }
+
+  if (progress.phase === "starting") {
+    return {
+      message: "Starting your workspace",
+      detail: "Launching the local engine",
+      startup: { step: 1, label: "Preparing", progress: 1 },
+    };
+  }
+
+  return {
+    message: "Getting things ready",
+    detail: "Checking what this computer needs",
+    startup: { step: 1, label: "Preparing" },
+  };
+}
+
+export function getStartupPresentation(
+  phase: StartupPhase,
+  engineProgress: OpenCodeStartupProgress = DEFAULT_ENGINE_PROGRESS,
+): StartupPresentation {
+  return phase === "engine" ? getEnginePresentation(engineProgress) : STARTUP_COPY[phase];
 }
 
 interface OpenCodeClientContextValue {
@@ -76,6 +142,8 @@ export function OpenCodeClientProvider({
 
   const [status, setStatus] = useState<AppStatus>("waiting");
   const [startupPhase, setStartupPhase] = useState<StartupPhase>("engine");
+  const [engineProgress, setEngineProgress] =
+    useState<OpenCodeStartupProgress>(DEFAULT_ENGINE_PROGRESS);
   const [port, setPort] = useState(0);
   const [client, setClient] = useState<OpencodeClient | null>(null);
   const [ready, setReady] = useState(false);
@@ -89,6 +157,9 @@ export function OpenCodeClientProvider({
 
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout>;
+    const unsubscribeProgress = desktop.onOpenCodeStartupProgress((progress) => {
+      if (!cancelled) setEngineProgress(progress);
+    });
 
     // The desktop service owns startup, its deadline, and process cleanup.
     async function getServerInfo() {
@@ -120,6 +191,7 @@ export function OpenCodeClientProvider({
         setStatus("waiting");
         setInitError(null);
         setStartupPhase("engine");
+        setEngineProgress(DEFAULT_ENGINE_PROGRESS);
         const { port: ocPort, workspace, authorization } = await getServerInfo();
         if (cancelled) return;
 
@@ -154,6 +226,7 @@ export function OpenCodeClientProvider({
 
     return () => {
       cancelled = true;
+      unsubscribeProgress();
       clearTimeout(retryTimer);
     };
   }, [ready, queryClient]);
@@ -246,13 +319,13 @@ export function OpenCodeClientProvider({
   );
 
   if (!ready) {
-    const startup = getStartupPresentation(startupPhase);
+    const startup = getStartupPresentation(startupPhase, engineProgress);
     return (
       <OpenCodeClientContext.Provider value={value}>
         <LoadingScreen
           message={initError ? "Failed to connect to OpenCode" : startup.message}
-          detail={initError ?? undefined}
-          animation={initError ? undefined : startup.animation}
+          detail={initError ?? startup.detail}
+          startup={initError ? undefined : startup.startup}
           error={!!initError}
           onRetry={initError ? () => desktop.relaunch() : undefined}
         />

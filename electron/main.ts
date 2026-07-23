@@ -11,6 +11,7 @@ import {
   AppConfigPatchSchema,
   AppConfigSchema,
   DEFAULT_APP_CONFIG,
+  type OpenCodeStartupProgress,
 } from "../src/types/desktop";
 import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
@@ -32,6 +33,11 @@ const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
     binaryCacheDirectory: join(app.getPath("userData"), "opencode"),
     workspace: join(app.getPath("home"), "BloxBot"),
+    onStartupProgress: (progress: OpenCodeStartupProgress) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channels.openCodeStartupProgress, progress);
+      }
+    },
   }),
 );
 
