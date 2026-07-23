@@ -61,6 +61,7 @@ export type UpdateInfo = typeof UpdateInfoSchema.Type;
 export interface DesktopApi {
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
   onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
+  isStudioConnected(): Promise<boolean>;
   getVersion(): Promise<string>;
   openUrl(url: string): Promise<void>;
   loadConfig(): Promise<AppConfig>;

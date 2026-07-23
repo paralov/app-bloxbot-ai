@@ -1,16 +1,17 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { useQuery } from "@tanstack/react-query";
 
+import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
 const STUDIO_MCP_NAME = "roblox-studio";
-const STUDIO_TOOL_PREFIX = `${STUDIO_MCP_NAME}_`;
 
 export type StudioConnectionState = "checking" | "connected" | "waiting";
 
 export async function checkStudioConnection(
-  client: Pick<OpencodeClient, "mcp" | "tool">,
+  client: Pick<OpencodeClient, "mcp">,
+  detectStudioConnection: () => Promise<boolean> = desktop.isStudioConnected,
 ): Promise<Exclude<StudioConnectionState, "checking">> {
   try {
     const current = await client.mcp.status({});
@@ -20,8 +21,7 @@ export async function checkStudioConnection(
       if (refreshed.data?.[STUDIO_MCP_NAME]?.status !== "connected") return "waiting";
     }
 
-    const tools = await client.tool.ids({});
-    return tools.data?.some((id) => id.startsWith(STUDIO_TOOL_PREFIX)) ? "connected" : "waiting";
+    return (await detectStudioConnection()) ? "connected" : "waiting";
   } catch {
     return "waiting";
   }

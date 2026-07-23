@@ -11,6 +11,7 @@ const api: DesktopApi = {
     ipcRenderer.on(channels.openCodeStartupProgress, handleProgress);
     return () => ipcRenderer.removeListener(channels.openCodeStartupProgress, handleProgress);
   },
+  isStudioConnected: () => ipcRenderer.invoke(channels.isStudioConnected),
   getVersion: () => ipcRenderer.invoke(channels.getVersion),
   openUrl: (url) => ipcRenderer.invoke(channels.openUrl, url),
   loadConfig: () => ipcRenderer.invoke(channels.loadConfig),

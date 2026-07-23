@@ -16,6 +16,7 @@ import {
 import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
+import { isStudioConnected } from "./services/StudioConnection";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultConfig: AppConfig = DEFAULT_APP_CONFIG;
@@ -124,6 +125,7 @@ const registerIpcHandlers = Effect.sync(() => {
       OpenCode.pipe(Effect.flatMap((service) => service.info)),
     ),
   );
+  ipcMain.handle(channels.isStudioConnected, () => isStudioConnected());
   ipcMain.handle(channels.getVersion, () => runMain(Effect.sync(() => app.getVersion())));
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));

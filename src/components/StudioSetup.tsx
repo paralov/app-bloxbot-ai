@@ -142,9 +142,32 @@ function StudioSetup({ connected, checking, onCheck, onContinue }: StudioSetupPr
                   type="button"
                   onClick={onCheck}
                   disabled={checking}
-                  className="h-9 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+                  aria-busy={checking}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
                 >
-                  {checking ? "Looking..." : "Check again"}
+                  {checking && (
+                    <svg
+                      className="h-3.5 w-3.5 animate-spin"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="9"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                      />
+                      <path
+                        className="opacity-90"
+                        fill="currentColor"
+                        d="M21 12a9 9 0 0 0-9-9v3a6 6 0 0 1 6 6h3Z"
+                      />
+                    </svg>
+                  )}
+                  {checking ? "Checking..." : "Check again"}
                 </button>
               )}
             </div>

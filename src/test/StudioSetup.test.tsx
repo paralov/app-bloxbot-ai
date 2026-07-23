@@ -52,4 +52,17 @@ describe("StudioSetup", () => {
     fireEvent.click(screen.getByRole("button", { name: "Let's build" }));
     expect(onContinue).toHaveBeenCalledOnce();
   });
+
+  it("shows progress while checking again", () => {
+    render(<StudioSetup connected={false} checking onCheck={vi.fn()} onContinue={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    const button = screen.getByRole("button", { name: "Checking..." });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button.querySelector(".animate-spin")).toBeVisible();
+  });
 });

@@ -11,13 +11,14 @@ describe("checkStudioConnection", () => {
         }),
         connect: vi.fn(),
       },
-      tool: {
-        ids: vi.fn().mockResolvedValue({ data: ["read", "roblox-studio_get_studio_state"] }),
-      },
     };
+    const detectStudioConnection = vi.fn().mockResolvedValue(true);
 
-    await expect(checkStudioConnection(client as never)).resolves.toBe("connected");
+    await expect(checkStudioConnection(client as never, detectStudioConnection)).resolves.toBe(
+      "connected",
+    );
     expect(client.mcp.connect).not.toHaveBeenCalled();
+    expect(detectStudioConnection).toHaveBeenCalledOnce();
   });
 
   it("retries the Studio connection and detects when setup is complete", async () => {
@@ -29,16 +30,15 @@ describe("checkStudioConnection", () => {
           .mockResolvedValueOnce({ data: { "roblox-studio": { status: "connected" } } }),
         connect: vi.fn().mockResolvedValue({}),
       },
-      tool: {
-        ids: vi.fn().mockResolvedValue({ data: ["roblox-studio_get_studio_state"] }),
-      },
     };
 
-    await expect(checkStudioConnection(client as never)).resolves.toBe("connected");
+    await expect(checkStudioConnection(client as never, async () => true)).resolves.toBe(
+      "connected",
+    );
     expect(client.mcp.connect).toHaveBeenCalledWith({ name: "roblox-studio" });
   });
 
-  it("keeps waiting when the MCP bridge has no Studio tools", async () => {
+  it("keeps waiting when Roblox Studio is not connected to the MCP bridge", async () => {
     const client = {
       mcp: {
         status: vi.fn().mockResolvedValue({
@@ -46,12 +46,11 @@ describe("checkStudioConnection", () => {
         }),
         connect: vi.fn(),
       },
-      tool: {
-        ids: vi.fn().mockResolvedValue({ data: ["bash", "read", "write"] }),
-      },
     };
 
-    await expect(checkStudioConnection(client as never)).resolves.toBe("waiting");
+    await expect(checkStudioConnection(client as never, async () => false)).resolves.toBe(
+      "waiting",
+    );
   });
 
   it("keeps waiting when Studio is unavailable", async () => {
@@ -60,11 +59,8 @@ describe("checkStudioConnection", () => {
         status: vi.fn().mockRejectedValue(new Error("Studio is closed")),
         connect: vi.fn(),
       },
-      tool: {
-        ids: vi.fn(),
-      },
     };
 
-    await expect(checkStudioConnection(client as never)).resolves.toBe("waiting");
+    await expect(checkStudioConnection(client as never, async () => true)).resolves.toBe("waiting");
   });
 });

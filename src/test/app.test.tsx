@@ -159,11 +159,6 @@ function createClient(overrides: Record<string, unknown> = {}) {
       connect: vi.fn(),
       disconnect: vi.fn(),
     },
-    tool: {
-      ids: vi.fn().mockResolvedValue({
-        data: ["roblox-studio_get_studio_state"],
-      }),
-    },
     instance: { dispose: vi.fn() },
   };
 }
@@ -216,6 +211,7 @@ function seedReadyState(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(desktop, "isStudioConnected").mockResolvedValue(true);
   window.localStorage.clear();
   toast.dismiss();
 });
