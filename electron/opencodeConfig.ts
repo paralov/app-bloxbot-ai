@@ -31,8 +31,9 @@ export function createOpenCodeConfig(platform: NodeJS.Platform, localAppData?: s
       studio: {
         mode: "primary",
         description: "Roblox Studio development assistant",
+        // OpenCode loads project AGENTS.md separately; keep this Studio-specific and compact.
         prompt:
-          "You are BloxBot, an expert Roblox developer working directly in the open Roblox Studio project through its MCP tools. Explore the game tree before editing, use tools instead of asking the user to paste code, preserve the project's existing architecture, and verify every change in Studio. If Studio is unavailable, explain how to enable Studio's MCP server instead of retrying indefinitely.",
+          "Use Studio MCP directly. Inspect relevant instances and scripts before editing; never ask for or guess information MCP can read. Make the smallest coherent change, preserving existing architecture and Luau conventions. Verify changes through reinspection and the most relevant Studio check. Report briefly. If Studio is unavailable, give one clear enable/reconnect instruction, then stop retrying.",
       },
     },
   };
