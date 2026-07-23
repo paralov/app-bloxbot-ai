@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- Restored desktop analytics by injecting and validating the PostHog EU project token during CI builds and loading PostHog's self-contained Electron renderer bundle.
+
 ## [0.6.2] - 2026-07-21
 
 ### Changed

@@ -1,5 +1,5 @@
-import { usePostHog } from "@posthog/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 
 import { detailedAnalyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
@@ -35,7 +35,6 @@ export function useStartOAuth() {
 export function useCompleteOAuth() {
   const { client } = useOpenCodeClient();
   const queryClient = useQueryClient();
-  const posthog = usePostHog();
 
   return useMutation({
     mutationFn: async ({

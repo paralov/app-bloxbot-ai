@@ -1,5 +1,5 @@
-import { usePostHog } from "@posthog/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 
 import { detailedAnalyticsProperties } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
@@ -8,7 +8,6 @@ import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 export function useSetApiKey() {
   const { client } = useOpenCodeClient();
   const queryClient = useQueryClient();
-  const posthog = usePostHog();
 
   return useMutation({
     mutationFn: async ({ providerID, key }: { providerID: string; key: string }) => {
@@ -35,7 +34,6 @@ export function useSetApiKey() {
 export function useDisconnectProvider() {
   const { client } = useOpenCodeClient();
   const queryClient = useQueryClient();
-  const posthog = usePostHog();
 
   return useMutation({
     mutationFn: async (providerID: string) => {

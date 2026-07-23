@@ -1,6 +1,6 @@
 import type { CaptureResult, PostHogConfig, PostHogInterface, Properties } from "posthog-js";
 
-export const POSTHOG_API_KEY = "phc_bOlMECnl02VBjOp2Y8PNOD36gSBmAuekirxhPKxjbEz";
+export const POSTHOG_PROJECT_TOKEN = import.meta.env.VITE_POSTHOG_PROJECT_TOKEN?.trim() ?? "";
 export const POSTHOG_API_HOST = "https://eu.i.posthog.com";
 
 interface AnalyticsEnvironment {

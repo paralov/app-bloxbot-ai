@@ -1,6 +1,6 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
-import { usePostHog } from "@posthog/react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import {
   createContext,
   type ReactNode,
@@ -72,7 +72,6 @@ export function OpenCodeClientProvider({
   children: ReactNode;
   activeSessionIdRef: React.RefObject<string | null>;
 }) {
-  const posthog = usePostHog();
   const queryClient = useQueryClient();
 
   const [status, setStatus] = useState<AppStatus>("waiting");
@@ -239,7 +238,7 @@ export function OpenCodeClientProvider({
       sseAbortRef.current = null;
       dismissReconnectToast();
     };
-  }, [client, ready, queryClient, activeSessionIdRef, posthog]);
+  }, [client, ready, queryClient, activeSessionIdRef]);
 
   const value = useMemo<OpenCodeClientContextValue>(
     () => ({ client, status, port, ready, initError }),

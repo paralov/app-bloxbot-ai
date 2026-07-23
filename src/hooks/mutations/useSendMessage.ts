@@ -1,6 +1,6 @@
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
-import { usePostHog } from "@posthog/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 
 import { detailedAnalyticsProperties } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
@@ -23,7 +23,6 @@ export function useSendMessage() {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
   const { selectedModel, selectedAgent, selectedVariant } = usePreferences();
-  const posthog = usePostHog();
   const queryClient = useQueryClient();
 
   return useMutation<void, Error, SendMessageInput, SendMessageContext | undefined>({

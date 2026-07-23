@@ -63,6 +63,11 @@ pnpm install
 pnpm dev
 ```
 
+Production builds require `VITE_POSTHOG_PROJECT_TOKEN`. Copy `.env.example` to
+`.env.local` for local packaging. GitHub Actions injects the public project token
+from the `POSTHOG_PROJECT_TOKEN` repository variable and validates it against
+PostHog's EU endpoint before building release artifacts.
+
 On first launch, BloxBot downloads the newest compatible OpenCode `1.x.x`
 release and verifies its SHA-256 digest. Later launches check for compatible
 minor and patch updates and can fall back to the newest verified cached copy

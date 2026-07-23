@@ -30,7 +30,6 @@
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.18.4",
-    "@posthog/react": "^1.8.2",
     "@tanstack/react-query": "^5.91.2",
     "@tanstack/react-virtual": "^3.13.23",
     "effect": "^3.22.0",

@@ -11,9 +11,6 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.18.4
         version: 1.18.4
-      '@posthog/react':
-        specifier: ^1.8.2
-        version: 1.8.2(@types/react@18.3.28)(posthog-js@1.363.1)(react@18.3.1)
       '@tanstack/react-query':
         specifier: ^5.91.2
         version: 5.91.2(react@18.3.1)
@@ -687,16 +684,6 @@ packages:
 
   '@posthog/core@1.24.1':
     resolution: {integrity: sha512-e8AciAnc6MRFws89ux8lJKFAaI03yEon0ASDoUO7yS91FVqbUGXYekObUUR3LHplcg+pmyiJBI0jolY0SFbGRA==}
-
-  '@posthog/react@1.8.2':
-    resolution: {integrity: sha512-KzUuXIcAR8fAjU7IeDq+XfEcUTNvzgEGB381WRrFUUsu7jFTcKZZ6crx/ukHRCzTnoEuy5EJDkL7b7sJecPlCg==}
-    peerDependencies:
-      '@types/react': '>=16.8.0'
-      posthog-js: '>=1.257.2'
-      react: '>=16.8.0'
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
 
   '@posthog/types@1.363.1':
     resolution: {integrity: sha512-bFYk5XHgYEfVhQU0AwkG9MbMqq9QRbKDDJxOtYWGJ6Uw+/nLRNs/ZydXy3aMt0ldIdkNzZq+qaJ/p2Jg0+mP8g==}
@@ -4391,13 +4378,6 @@ snapshots:
   '@posthog/core@1.24.1':
     dependencies:
       cross-spawn: 7.0.6
-
-  '@posthog/react@1.8.2(@types/react@18.3.28)(posthog-js@1.363.1)(react@18.3.1)':
-    dependencies:
-      posthog-js: 1.363.1
-      react: 18.3.1
-    optionalDependencies:
-      '@types/react': 18.3.28
 
   '@posthog/types@1.363.1': {}
 
