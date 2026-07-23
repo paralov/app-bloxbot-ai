@@ -1,3 +1,4 @@
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
 import ChatInput from "@/components/ChatInput";
@@ -9,6 +10,7 @@ import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { useStudioConnection } from "@/hooks/useStudioConnection";
+import { POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
@@ -29,6 +31,32 @@ function Chat() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
+
+  const appScreen =
+    showStudioSetup || studioConnection.state === "waiting"
+      ? "studio-setup"
+      : studioConnection.state === "checking"
+        ? "studio-checking"
+        : showSettings
+          ? "settings"
+          : !ready
+            ? "loading"
+            : activeSessionId
+              ? "chat"
+              : "home";
+
+  useEffect(() => {
+    if (!import.meta.env.PROD || !POSTHOG_PROJECT_TOKEN) return;
+
+    const screenProperties = {
+      $current_url: `bloxbot://app/${appScreen}`,
+      $host: "app",
+      $pathname: `/${appScreen}`,
+      app_screen: appScreen,
+    };
+    posthog.register(screenProperties);
+    posthog.capture("$pageview", screenProperties);
+  }, [appScreen]);
 
   useEffect(() => {
     if (studioConnection.state === "waiting") setShowStudioSetup(true);

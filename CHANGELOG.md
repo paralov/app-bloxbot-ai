@@ -9,11 +9,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
-- Simplified desktop analytics to PostHog's built-in defaults, with persistent device identity, person profiles, and feature flags enabled.
+- Simplified desktop analytics to PostHog's built-in defaults, with persistent device identity, device profiling, person profiles, feature flags, and app screen pageviews enabled.
 
 ### Fixed
 
 - Restored desktop analytics by injecting the PostHog EU project token during CI builds and loading PostHog's self-contained Electron renderer bundle.
+- Replaced analytics' current page URL with stable `bloxbot://app/<screen>` metadata.
 
 ## [0.6.2] - 2026-07-21
 
