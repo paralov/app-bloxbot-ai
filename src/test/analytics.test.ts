@@ -27,6 +27,7 @@ describe("PostHog analytics", () => {
       getVersion: async () => "0.6.0",
       platform: "MacIntel",
       runtime: "electron",
+      userAgent: "BloxBot/0.6.0",
     });
 
     expect(options).toMatchObject({
@@ -39,6 +40,7 @@ describe("PostHog analytics", () => {
       disable_surveys: true,
       disable_product_tours: true,
       advanced_disable_flags: true,
+      opt_out_useragent_filter: true,
       opt_out_capturing_by_default: false,
       person_profiles: "never",
       disable_persistence: true,
@@ -49,6 +51,12 @@ describe("PostHog analytics", () => {
     await vi.waitFor(() => expect(posthog.capture).toHaveBeenCalled());
 
     expect(posthog.opt_in_capturing).toHaveBeenCalledOnce();
+    expect(posthog.register).toHaveBeenCalledWith({
+      app: "bloxbot",
+      app_platform: "MacIntel",
+      app_runtime: "electron",
+      app_user_agent: "BloxBot/0.6.0",
+    });
     expect(posthog.capture).toHaveBeenCalledWith("app_opened", { app_version: "0.6.0" });
   });
 
@@ -59,6 +67,7 @@ describe("PostHog analytics", () => {
       getVersion: async () => "0.6.0",
       platform: "MacIntel",
       runtime: "browser",
+      userAgent: "BloxBot/0.6.0",
     });
 
     options.loaded?.(posthog as never);

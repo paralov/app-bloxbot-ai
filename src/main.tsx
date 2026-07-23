@@ -11,6 +11,7 @@ const postHogOptions = createPostHogOptions({
   getVersion: () => desktop.getVersion(),
   platform: navigator.platform,
   runtime: window.bloxbot ? "electron" : "browser",
+  userAgent: navigator.userAgent,
 });
 
 if (POSTHOG_PROJECT_TOKEN) posthog.init(POSTHOG_PROJECT_TOKEN, postHogOptions);

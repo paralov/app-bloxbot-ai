@@ -8,6 +8,7 @@ interface AnalyticsEnvironment {
   getVersion: () => Promise<string>;
   platform: string;
   runtime: "browser" | "electron";
+  userAgent: string;
 }
 
 let detailedAnalyticsEnabled = false;
@@ -22,6 +23,7 @@ const COMMON_ANALYTICS_PROPERTIES = [
   "app",
   "app_platform",
   "app_runtime",
+  "app_user_agent",
   "app_version",
 ] as const;
 
@@ -106,6 +108,7 @@ export function createPostHogOptions({
   getVersion,
   platform,
   runtime,
+  userAgent,
 }: AnalyticsEnvironment): Partial<PostHogConfig> {
   return {
     api_host: POSTHOG_API_HOST,
@@ -119,6 +122,8 @@ export function createPostHogOptions({
     disable_product_tours: true,
     advanced_disable_flags: true,
     advanced_disable_toolbar_metrics: true,
+    // The intentional BloxBot user agent matches PostHog's generic "bot" heuristic.
+    opt_out_useragent_filter: true,
     opt_out_capturing_by_default: !production,
     opt_out_capturing_persistence_type: "localStorage",
     person_profiles: "never",
@@ -138,6 +143,7 @@ export function createPostHogOptions({
         app: "bloxbot",
         app_platform: platform,
         app_runtime: runtime,
+        app_user_agent: userAgent,
       });
       void getVersion().then(
         (version) => {
