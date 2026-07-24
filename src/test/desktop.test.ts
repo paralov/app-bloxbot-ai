@@ -15,12 +15,6 @@ describe("browser desktop fallback", () => {
     );
   });
 
-  it("reports Studio as disconnected outside Electron", async () => {
-    const { desktop } = await import("@/lib/desktop");
-
-    await expect(desktop.isStudioConnected()).resolves.toBe(false);
-  });
-
   it("persists preferences while running as a web preview", async () => {
     const { desktop } = await import("@/lib/desktop");
 

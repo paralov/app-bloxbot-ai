@@ -211,7 +211,6 @@ function seedReadyState(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.spyOn(desktop, "isStudioConnected").mockResolvedValue(true);
   window.localStorage.clear();
   toast.dismiss();
 });

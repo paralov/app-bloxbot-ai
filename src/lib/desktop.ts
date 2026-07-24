@@ -22,7 +22,6 @@ export class DesktopError extends Data.TaggedError("DesktopError")<{
 
 interface DesktopEffects {
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
-  readonly isStudioConnected: Effect.Effect<boolean, DesktopError>;
   readonly getVersion: Effect.Effect<string, DesktopError>;
   readonly openUrl: (url: string) => Effect.Effect<void, DesktopError>;
   readonly loadConfig: Effect.Effect<AppConfig, DesktopError>;
@@ -59,7 +58,6 @@ const browserEffects: DesktopEffects = {
       message: "The desktop service is unavailable. Start BloxBot with pnpm dev.",
     }),
   ),
-  isStudioConnected: Effect.succeed(false),
   getVersion: Effect.succeed("0.5.2"),
   openUrl: (url) =>
     Effect.sync(() => window.open(url, "_blank", "noopener,noreferrer")).pipe(Effect.asVoid),
@@ -111,9 +109,6 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     getOpenCodeInfo: invoke("Failed to get OpenCode connection details", () =>
       api.getOpenCodeInfo(),
     ).pipe(decodeBridgeValue("OpenCode connection details are invalid", OpenCodeInfoSchema)),
-    isStudioConnected: invoke("Failed to check Roblox Studio connection", () =>
-      api.isStudioConnected(),
-    ).pipe(decodeBridgeValue("Roblox Studio connection status is invalid", Schema.Boolean)),
     getVersion: invoke("Failed to get the app version", () => api.getVersion()).pipe(
       decodeBridgeValue("Desktop app version is invalid", Schema.String),
     ),
@@ -142,7 +137,6 @@ export const desktop: DesktopApi = {
   getOpenCodeInfo: () => runPromise(desktopEffects.getOpenCodeInfo),
   onOpenCodeStartupProgress: (listener: StartupProgressListener) =>
     window.bloxbot?.onOpenCodeStartupProgress(listener) ?? (() => {}),
-  isStudioConnected: () => runPromise(desktopEffects.isStudioConnected),
   getVersion: () => runPromise(desktopEffects.getVersion),
   openUrl: (url) => runPromise(desktopEffects.openUrl(url)),
   loadConfig: () => runPromise(desktopEffects.loadConfig),

@@ -12,13 +12,9 @@ describe("checkStudioConnection", () => {
         connect: vi.fn(),
       },
     };
-    const detectStudioConnection = vi.fn().mockResolvedValue(true);
 
-    await expect(checkStudioConnection(client as never, detectStudioConnection)).resolves.toBe(
-      "connected",
-    );
+    await expect(checkStudioConnection(client as never)).resolves.toBe("connected");
     expect(client.mcp.connect).not.toHaveBeenCalled();
-    expect(detectStudioConnection).toHaveBeenCalledOnce();
   });
 
   it("retries the Studio connection and detects when setup is complete", async () => {
@@ -32,25 +28,19 @@ describe("checkStudioConnection", () => {
       },
     };
 
-    await expect(checkStudioConnection(client as never, async () => true)).resolves.toBe(
-      "connected",
-    );
+    await expect(checkStudioConnection(client as never)).resolves.toBe("connected");
     expect(client.mcp.connect).toHaveBeenCalledWith({ name: "roblox-studio" });
   });
 
-  it("keeps waiting when Roblox Studio is not connected to the MCP bridge", async () => {
+  it("keeps waiting when the MCP still reports a failed connection", async () => {
     const client = {
       mcp: {
-        status: vi.fn().mockResolvedValue({
-          data: { "roblox-studio": { status: "connected" } },
-        }),
-        connect: vi.fn(),
+        status: vi.fn().mockResolvedValue({ data: { "roblox-studio": { status: "failed" } } }),
+        connect: vi.fn().mockResolvedValue({}),
       },
     };
 
-    await expect(checkStudioConnection(client as never, async () => false)).resolves.toBe(
-      "waiting",
-    );
+    await expect(checkStudioConnection(client as never)).resolves.toBe("waiting");
   });
 
   it("keeps waiting when Studio is unavailable", async () => {
@@ -61,6 +51,6 @@ describe("checkStudioConnection", () => {
       },
     };
 
-    await expect(checkStudioConnection(client as never, async () => true)).resolves.toBe("waiting");
+    await expect(checkStudioConnection(client as never)).resolves.toBe("waiting");
   });
 });
