@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-07-24
+
 ### Fixed
 
 - Unblocked Studio setup across platforms by trusting the connected MCP status instead of inspecting OS-specific processes and sockets.
@@ -104,7 +106,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.5...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.6...HEAD
+[0.6.6]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.5...v0.6.6
 [0.6.5]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.2...v0.6.3
