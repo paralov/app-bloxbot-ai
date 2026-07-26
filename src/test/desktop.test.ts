@@ -25,7 +25,6 @@ describe("browser desktop fallback", () => {
       hiddenModels: [],
       theme: "system",
       detailedAnalytics: "unset",
-      studioAssignments: {},
     });
   });
 
@@ -41,7 +40,6 @@ describe("browser desktop fallback", () => {
       hiddenModels: [],
       theme: "system",
       detailedAnalytics: "unset",
-      studioAssignments: {},
     });
   });
 
@@ -55,7 +53,6 @@ describe("browser desktop fallback", () => {
       hiddenModels: [],
       theme: "dark",
       detailedAnalytics: "unset",
-      studioAssignments: {},
     });
   });
 
@@ -65,17 +62,5 @@ describe("browser desktop fallback", () => {
     await desktop.patchConfig({ detailedAnalytics: "enabled" });
 
     await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "enabled" });
-  });
-
-  it("persists Roblox Studio assignments by session", async () => {
-    const { desktop } = await import("@/lib/desktop");
-
-    await desktop.patchConfig({
-      studioAssignments: { s1: { id: "studio-lobby", name: "Lobby" } },
-    });
-
-    await expect(desktop.loadConfig()).resolves.toMatchObject({
-      studioAssignments: { s1: { id: "studio-lobby", name: "Lobby" } },
-    });
   });
 });

@@ -15,9 +15,7 @@ import {
 } from "../src/types/desktop";
 import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
-import { studioMcpCommand } from "./opencodeConfig";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
-import { listRobloxStudios } from "./services/RobloxStudio";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultConfig: AppConfig = DEFAULT_APP_CONFIG;
@@ -34,7 +32,6 @@ class DesktopMainError extends Data.TaggedError("DesktopMainError")<{
 const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
     binaryCacheDirectory: join(app.getPath("userData"), "opencode"),
-    studioMcpRouterPath: join(currentDirectory, "studioMcpRouter.js"),
     workspace: join(app.getPath("home"), "BloxBot"),
     onStartupProgress: (progress: OpenCodeStartupProgress) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -182,9 +179,6 @@ const registerIpcHandlers = Effect.sync(() => {
         app.quit();
       }),
     ),
-  );
-  ipcMain.handle(channels.listRobloxStudios, () =>
-    listRobloxStudios(studioMcpCommand(process.platform, process.env.LOCALAPPDATA)),
   );
 });
 

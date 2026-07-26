@@ -19,15 +19,6 @@ import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
-const studioRouting = vi.hoisted(() => ({
-  assigned: vi.fn().mockResolvedValue("assigned-studio-system"),
-  automatic: vi.fn().mockResolvedValue(undefined),
-}));
-vi.mock("@/lib/studioRouting", () => ({
-  routeAssignedStudio: studioRouting.assigned,
-  routeAutomaticStudio: studioRouting.automatic,
-}));
-
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function makeSession(id: string, title: string): Session {
@@ -91,11 +82,7 @@ function createQueryClient() {
   });
 }
 
-function seedState(
-  qc: QueryClient,
-  session: Session,
-  studioAssignment?: { id: string; name: string },
-) {
+function seedState(qc: QueryClient, session: Session) {
   qc.setQueryData(qk.sessions, [session]);
   qc.setQueryData(qk.statuses, {});
   qc.setQueryData(qk.agents, []);
@@ -116,7 +103,6 @@ function seedState(
     hiddenModels: [],
     theme: "system",
     detailedAnalytics: "disabled",
-    studioAssignments: studioAssignment ? { [session.id]: studioAssignment } : {},
   });
   qc.setQueryData<MessagesCache>(qk.messages(session.id), { messageIds: [], messagesById: {} });
   qc.setQueryData(qk.todos(session.id), []);
@@ -133,20 +119,18 @@ function TestChatInput({
   queryClient,
   sessionId = "s1",
   clientStatus = "ready",
-  studioAssignment,
 }: {
   client: ReturnType<typeof createClient>;
   queryClient: QueryClient;
   sessionId?: string;
   clientStatus?: string;
-  studioAssignment?: { id: string; name: string };
 }) {
   const activeSessionIdRef = useRef<string | null>(sessionId);
   useEffect(() => {
     activeSessionIdRef.current = sessionId;
   }, [sessionId]);
   const session = makeSession(sessionId, "Test Session");
-  seedState(queryClient, session, studioAssignment);
+  seedState(queryClient, session);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -213,32 +197,6 @@ describe("ChatInput", () => {
     const args = client.session.promptAsync.mock.calls[0][0];
     expect(args.parts[0].text).toBe("Build a game");
     expect(args.sessionID).toBe("s1");
-  });
-
-  it("routes an assigned session through its own Studio MCP server", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(
-      <TestChatInput
-        client={client}
-        queryClient={qc}
-        studioAssignment={{ id: "studio-lobby", name: "Lobby" }}
-      />,
-    );
-
-    const textarea = await screen.findByPlaceholderText("Describe what you want to build...");
-    await act(async () => {
-      fireEvent.change(textarea, { target: { value: "Add a spawn" } });
-      fireEvent.click(screen.getByTitle("Send"));
-    });
-
-    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalled());
-    expect(studioRouting.assigned).toHaveBeenCalledWith(client, "s1", {
-      id: "studio-lobby",
-      name: "Lobby",
-    });
-    expect(client.session.promptAsync.mock.calls[0][0].system).toBe("assigned-studio-system");
   });
 
   it("sends message on Enter key (without Shift)", async () => {

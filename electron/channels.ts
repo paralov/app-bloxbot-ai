@@ -8,5 +8,4 @@ export const channels = {
   openUrl: "app:open-url",
   patchConfig: "config:patch",
   relaunch: "app:relaunch",
-  listRobloxStudios: "studio:list",
 } as const;

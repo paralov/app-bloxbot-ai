@@ -2,11 +2,9 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
-import { useStudioAssignments } from "@/hooks/useStudioAssignments";
 import { detailedAnalyticsProperties } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
-import { routeAssignedStudio, routeAutomaticStudio } from "@/lib/studioRouting";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
@@ -25,7 +23,6 @@ export function useSendMessage() {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
   const { selectedModel, selectedAgent, selectedVariant } = usePreferences();
-  const { assignments } = useStudioAssignments();
   const queryClient = useQueryClient();
 
   return useMutation<void, Error, SendMessageInput, SendMessageContext | undefined>({
@@ -42,12 +39,6 @@ export function useSendMessage() {
         sessionID: activeSessionId,
         parts,
       };
-      const studioAssignment = assignments[activeSessionId];
-      if (studioAssignment) {
-        opts.system = await routeAssignedStudio(client, activeSessionId, studioAssignment);
-      } else {
-        await routeAutomaticStudio(client, activeSessionId);
-      }
       let provider: string | undefined;
       let model: string | undefined;
 

@@ -106,9 +106,7 @@ function createClient(overrides: Record<string, unknown> = {}) {
   return {
     session: {
       list: vi.fn().mockResolvedValue({ data: [] }),
-      get: vi.fn().mockImplementation(async ({ sessionID }: { sessionID: string }) => ({
-        data: { ...makeSession(sessionID, "Session"), permission: [] },
-      })),
+      get: vi.fn().mockResolvedValue({ data: null }),
       create: vi.fn().mockResolvedValue({ data: null }),
       delete: vi.fn().mockResolvedValue({ data: true }),
       update: vi.fn().mockResolvedValue({ data: null }),
@@ -154,9 +152,6 @@ function createClient(overrides: Record<string, unknown> = {}) {
     },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
     app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
-    tool: {
-      ids: vi.fn().mockResolvedValue({ data: ["roblox-studio_search_game_tree"] }),
-    },
     mcp: {
       status: vi.fn().mockResolvedValue({
         data: { "roblox-studio": { status: "connected" } },
@@ -303,6 +298,12 @@ describe("User journeys", () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText("Describe what you want to build...")).toBeInTheDocument();
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "Coordinate multiple Studio places" }));
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalled());
+    expect(client.session.promptAsync.mock.calls[0][0].parts[0].text).toContain(
+      "multiple open Roblox Studio places",
+    );
   });
 
   it("switches to the latest session immediately without waiting for older requests", async () => {

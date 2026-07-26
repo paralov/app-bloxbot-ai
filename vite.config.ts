@@ -13,10 +13,7 @@ export default defineConfig({
     tailwindcss(),
     electron({
       main: {
-        entry: {
-          main: "electron/main.ts",
-          studioMcpRouter: "electron/studioMcpRouter.ts",
-        },
+        entry: "electron/main.ts",
         vite: {
           build: {
             outDir: "dist-electron/main",

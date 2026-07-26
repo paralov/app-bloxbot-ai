@@ -5,7 +5,6 @@ import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
 import ChatSidebar from "@/components/ChatSidebar";
 import LoadingScreen from "@/components/LoadingScreen";
-import StudioPlacePicker from "@/components/StudioPlacePicker";
 import StudioSetup from "@/components/StudioSetup";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
@@ -135,8 +134,8 @@ function Chat() {
           </div>
         ) : (
           <>
-            <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b px-4">
-              <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-10 shrink-0 items-center border-b px-4">
+              <div className="flex items-center gap-2">
                 <h3 className="truncate text-xs font-semibold">
                   {activeSessionTitle || "Untitled"}
                 </h3>
@@ -147,7 +146,6 @@ function Chat() {
                   </span>
                 )}
               </div>
-              <StudioPlacePicker sessionID={activeSessionId} disabled={isBusy} />
             </div>
 
             <ChatMessages />

@@ -8,8 +8,6 @@ import {
   type OpenCodeInfo,
   OpenCodeInfoSchema,
   type OpenCodeStartupProgress,
-  type RobloxStudioPlace,
-  RobloxStudioPlaceSchema,
   type UpdateInfo,
   UpdateInfoSchema,
 } from "@/types/desktop";
@@ -31,7 +29,6 @@ interface DesktopEffects {
   readonly checkForUpdate: Effect.Effect<UpdateInfo | null, DesktopError>;
   readonly installUpdate: Effect.Effect<void, DesktopError>;
   readonly relaunch: Effect.Effect<void, DesktopError>;
-  readonly listRobloxStudios: Effect.Effect<RobloxStudioPlace[], DesktopError>;
 }
 
 type StartupProgressListener = (progress: OpenCodeStartupProgress) => void;
@@ -85,7 +82,6 @@ const browserEffects: DesktopEffects = {
     new DesktopError({ message: "Updates are only available in the desktop app." }),
   ),
   relaunch: Effect.sync(() => window.location.reload()),
-  listRobloxStudios: Effect.succeed([]),
 };
 
 const invoke = <A>(message: string, operation: () => Promise<A>) =>
@@ -126,14 +122,6 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     ),
     installUpdate: invoke("Failed to install the update", () => api.installUpdate()),
     relaunch: invoke("Failed to relaunch the app", () => api.relaunch()),
-    listRobloxStudios: invoke("Failed to list Roblox Studio places", () =>
-      api.listRobloxStudios(),
-    ).pipe(
-      decodeBridgeValue(
-        "Roblox Studio place list is invalid",
-        Schema.mutable(Schema.Array(RobloxStudioPlaceSchema)),
-      ),
-    ),
   };
 }
 
@@ -156,5 +144,4 @@ export const desktop: DesktopApi = {
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),
   installUpdate: () => runPromise(desktopEffects.installUpdate),
   relaunch: () => runPromise(desktopEffects.relaunch),
-  listRobloxStudios: () => runPromise(desktopEffects.listRobloxStudios),
 };
