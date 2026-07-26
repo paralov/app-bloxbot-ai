@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   captureDetailedAnalytics,
   detailedAnalyticsProperties,
+  explorerAnalyticsProperties,
   setDetailedAnalyticsEnabled,
 } from "@/lib/analytics";
 
@@ -39,5 +40,26 @@ describe("PostHog analytics", () => {
 
     expect(posthog.capture).toHaveBeenCalledOnce();
     expect(posthog.capture).toHaveBeenCalledWith("model_usage", usage);
+  });
+
+  it("keeps Explorer analytics coarse and strips object content", () => {
+    expect(
+      explorerAnalyticsProperties({
+        duration_ms: 42,
+        node_count: 8,
+        source: "initial",
+        class_category: "known",
+        path: "game.Workspace.Secret",
+        name: "Secret",
+        placeName: "Private place",
+        properties: "Position=1,2,3",
+        attributes: "Owner=Oscar",
+      }),
+    ).toEqual({
+      duration_ms: 42,
+      node_count: 8,
+      source: "initial",
+      class_category: "known",
+    });
   });
 });

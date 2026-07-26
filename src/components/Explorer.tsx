@@ -16,8 +16,10 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { explorerAnalyticsProperties } from "@/lib/analytics";
 import {
   createExplorerReference,
   type ExplorerCollection,
@@ -142,6 +144,10 @@ function findNode(nodes: readonly ExplorerNode[], path: string): ExplorerNode | 
   return null;
 }
 
+function countNodes(nodes: readonly ExplorerNode[]): number {
+  return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
+}
+
 export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
   const { selectedModel, selectedAgent } = usePreferences();
@@ -155,12 +161,17 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
 
   const model = useMemo(() => {
     if (!selectedModel) return undefined;
     const [providerID, modelID] = splitModelKey(selectedModel);
     return providerID && modelID ? { providerID, modelID } : undefined;
   }, [selectedModel]);
+
+  useEffect(() => {
+    posthog.capture(collapsed ? "explorer_closed" : "explorer_opened");
+  }, [collapsed]);
 
   useEffect(() => {
     if (!client || collapsed) return;
@@ -176,6 +187,43 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
       syncingRef.current = true;
       setSyncing(true);
       setSyncError(null);
+      const syncStartedAt = performance.now();
+      const isFirstSync = !telemetryRef.current.firstSyncReported;
+      if (isFirstSync) {
+        posthog.capture("sync_started", { source: "initial" });
+      }
+
+      async function generate(reason: "initial" | "contract_recovery") {
+        const startedAt = performance.now();
+        posthog.capture("collector_generation_started", {
+          model_mediated: true,
+          reason,
+        });
+        try {
+          const generated = await generateExplorerCollection(activeClient, model, selectedAgent);
+          posthog.capture(
+            "collector_generation_succeeded",
+            explorerAnalyticsProperties({
+              duration_ms: Math.round(performance.now() - startedAt),
+              model_mediated: true,
+              reason,
+              root_count: generated.snapshot.roots.length,
+              node_count: countNodes(generated.snapshot.roots),
+            }),
+          );
+          return generated;
+        } catch (error) {
+          posthog.capture(
+            "collector_generation_failed",
+            explorerAnalyticsProperties({
+              duration_ms: Math.round(performance.now() - startedAt),
+              model_mediated: true,
+              reason,
+            }),
+          );
+          throw error;
+        }
+      }
 
       try {
         const current = collectionRef.current;
@@ -190,10 +238,12 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
             );
             next = { collector: current.collector, snapshot };
           } catch {
-            next = await generateExplorerCollection(activeClient, model, selectedAgent);
+            telemetryRef.current.hadFailure = true;
+            posthog.capture("sync_failed", { reason: "collector_replay" });
+            next = await generate("contract_recovery");
           }
         } else {
-          next = await generateExplorerCollection(activeClient, model, selectedAgent);
+          next = await generate("initial");
         }
 
         if (cancelled) return;
@@ -204,7 +254,28 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
             ? currentExpanded
             : new Set(next.snapshot.roots.map((node) => node.path)),
         );
+        if (isFirstSync || telemetryRef.current.hadFailure) {
+          posthog.capture(
+            "sync_succeeded",
+            explorerAnalyticsProperties({
+              duration_ms: Math.round(performance.now() - syncStartedAt),
+              source: telemetryRef.current.hadFailure ? "recovery" : "initial",
+              root_count: next.snapshot.roots.length,
+              node_count: countNodes(next.snapshot.roots),
+            }),
+          );
+          telemetryRef.current.firstSyncReported = true;
+          telemetryRef.current.hadFailure = false;
+        }
       } catch (error) {
+        telemetryRef.current.hadFailure = true;
+        posthog.capture(
+          "sync_failed",
+          explorerAnalyticsProperties({
+            duration_ms: Math.round(performance.now() - syncStartedAt),
+            reason: collectionRef.current ? "recovery_failed" : "initial_failed",
+          }),
+        );
         if (!cancelled) setSyncError(error instanceof Error ? error.message : String(error));
       } finally {
         syncingRef.current = false;
@@ -242,6 +313,13 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
   const handleReference = useCallback(() => {
     if (!selected) return;
     referenceObject(createExplorerReference(selected));
+    posthog.capture(
+      "reference_added",
+      explorerAnalyticsProperties({
+        class_category: iconForClass(selected.className) === Box ? "generic" : "known",
+        has_attributes: selected.attributes.length > 0,
+      }),
+    );
     toast.success(`${selected.name} added to your message`);
   }, [referenceObject, selected]);
 
@@ -262,9 +340,9 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-l bg-sidebar">
-      <header className="flex min-h-[81px] shrink-0 items-start justify-between px-5 py-4">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b px-5">
         <div>
-          <h2 className="font-serif text-xl italic">Explorer</h2>
+          <h2 className="font-serif text-xl">Explorer</h2>
         </div>
         <button
           type="button"

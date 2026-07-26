@@ -20,3 +20,24 @@ export function captureDetailedAnalytics(
 ): void {
   if (detailedAnalyticsEnabled) posthog.capture(event, properties);
 }
+
+const EXPLORER_ANALYTICS_KEYS = new Set([
+  "class_category",
+  "duration_ms",
+  "has_attributes",
+  "model_mediated",
+  "node_count",
+  "reason",
+  "root_count",
+  "source",
+]);
+
+export function explorerAnalyticsProperties(properties: Properties): Properties {
+  return Object.fromEntries(
+    Object.entries(properties).filter(
+      ([key, value]) =>
+        EXPLORER_ANALYTICS_KEYS.has(key) &&
+        (typeof value === "string" || typeof value === "number" || typeof value === "boolean"),
+    ),
+  );
+}
