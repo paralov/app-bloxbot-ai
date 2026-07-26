@@ -5,6 +5,7 @@ import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
 import ChatSidebar from "@/components/ChatSidebar";
 import LoadingScreen from "@/components/LoadingScreen";
+import PlaytestPanel from "@/components/PlaytestPanel";
 import StudioSetup from "@/components/StudioSetup";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
@@ -31,6 +32,7 @@ function Chat() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
+  const [showPlaytest, setShowPlaytest] = useState(false);
 
   const appScreen =
     showStudioSetup || studioConnection.state === "waiting"
@@ -86,7 +88,7 @@ function Chat() {
         onOpenSettings={handleOpenSettings}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         {showStudioSetup || studioConnection.state === "waiting" ? (
           <StudioSetup
             connected={studioConnection.state === "connected"}
@@ -134,8 +136,8 @@ function Chat() {
           </div>
         ) : (
           <>
-            <div className="flex h-10 shrink-0 items-center border-b px-4">
-              <div className="flex items-center gap-2">
+            <div className="flex h-10 shrink-0 items-center justify-between border-b px-4">
+              <div className="flex min-w-0 items-center gap-2">
                 <h3 className="truncate text-xs font-semibold">
                   {activeSessionTitle || "Untitled"}
                 </h3>
@@ -146,10 +148,20 @@ function Chat() {
                   </span>
                 )}
               </div>
+              <button
+                type="button"
+                onClick={() => setShowPlaytest(true)}
+                disabled={isBusy}
+                className="ml-3 inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-40 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950"
+                title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
+              >
+                <span aria-hidden="true">▶</span> Playtest
+              </button>
             </div>
 
             <ChatMessages />
             <ChatInput />
+            {showPlaytest ? <PlaytestPanel onClose={() => setShowPlaytest(false)} /> : null}
           </>
         )}
 
