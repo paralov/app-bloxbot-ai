@@ -18,20 +18,27 @@ import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function makeSession(id: string, title: string, createdAt = Date.now()): Session {
+function makeSession(
+  id: string,
+  title: string,
+  createdAt = Date.now(),
+  archived?: number,
+): Session {
   return {
     id,
     title,
-    time: { created: createdAt, updated: createdAt },
+    time: { created: createdAt, updated: createdAt, archived },
     version: 1,
     parentID: "",
   } as Session;
 }
 
 function createClient(overrides: Record<string, unknown> = {}) {
+  const list = vi.fn().mockResolvedValue({ data: [] });
   return {
+    experimental: { session: { list } },
     session: {
-      list: vi.fn().mockResolvedValue({ data: [] }),
+      list,
       get: vi.fn().mockResolvedValue({ data: null }),
       create: vi.fn().mockResolvedValue({ data: null }),
       delete: vi.fn().mockResolvedValue({ data: true }),
@@ -179,36 +186,84 @@ describe("ChatSidebar", () => {
     expect(onSessionSelect).toHaveBeenCalled();
   });
 
-  it("calls session.delete when Delete is clicked", async () => {
-    const s1 = makeSession("s1", "To Delete");
-    const client = createClient({ delete: vi.fn().mockResolvedValue({ data: true }) });
+  it("snoozes an idle session instead of deleting it", async () => {
+    const s1 = makeSession("s1", "To Snooze");
+    const snoozed = makeSession("s1", "To Snooze", s1.time.created, Date.now());
+    const client = createClient({ update: vi.fn().mockResolvedValue({ data: snoozed }) });
     const qc = createQueryClient();
     seedState(qc, { sessions: [s1] });
     qc.setQueryData(qk.statuses, { s1: { type: "idle" } });
-    qc.setQueryData(qk.messages("s1"), { messageIds: [], messagesById: {} });
-    qc.setQueryData(qk.todos("s1"), []);
-    qc.setQueryData(qk.questions("s1"), null);
-    qc.setQueryData(qk.permissions("s1"), null);
 
     render(<TestSidebar client={client} queryClient={qc} />);
 
-    expect(await screen.findByText("To Delete")).toBeInTheDocument();
+    expect(await screen.findByText("To Snooze")).toBeInTheDocument();
 
-    const deleteBtn = screen.getByTitle("Delete");
+    const snoozeBtn = screen.getByTitle("Snooze");
     await act(async () => {
-      fireEvent.click(deleteBtn);
+      fireEvent.click(snoozeBtn);
     });
 
-    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "s1" }, { throwOnError: true });
+    expect(client.session.update).toHaveBeenCalledWith(
+      { sessionID: "s1", time: { archived: expect.any(Number) } },
+      { throwOnError: true },
+    );
+    expect(client.session.delete).not.toHaveBeenCalled();
 
     await waitFor(() => {
-      expect(screen.queryByText("To Delete")).not.toBeInTheDocument();
+      expect(screen.getByText("Snoozed")).toBeInTheDocument();
     });
-    expect(qc.getQueryData(qk.messages("s1"))).toBeUndefined();
-    expect(qc.getQueryData(qk.todos("s1"))).toBeUndefined();
-    expect(qc.getQueryData(qk.questions("s1"))).toBeUndefined();
-    expect(qc.getQueryData(qk.permissions("s1"))).toBeUndefined();
-    expect(qc.getQueryData<Record<string, unknown>>(qk.statuses)).toEqual({});
+  });
+
+  it("does not snooze a busy session", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    seedState(qc, { sessions: [makeSession("s1", "Still working")] });
+    qc.setQueryData(qk.statuses, { s1: { type: "busy" } });
+
+    render(<TestSidebar client={client} queryClient={qc} />);
+
+    const button = await screen.findByTitle("Wait for session to finish");
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(client.session.update).not.toHaveBeenCalled();
+  });
+
+  it("restores and opens a snoozed session", async () => {
+    const snoozed = makeSession("s1", "A very long snoozed session title", Date.now(), Date.now());
+    const restored = makeSession("s1", snoozed.title, snoozed.time.created);
+    const client = createClient({ update: vi.fn().mockResolvedValue({ data: restored }) });
+    const qc = createQueryClient();
+    seedState(qc, { sessions: [snoozed] });
+
+    render(<TestSidebar client={client} queryClient={qc} />);
+    fireEvent.click(await screen.findByText("Snoozed"));
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(`Restore and open ${snoozed.title}`));
+    });
+
+    expect(client.session.update).toHaveBeenCalledWith(
+      { sessionID: "s1", time: {} },
+      { throwOnError: true },
+    );
+    await waitFor(() => expect(screen.queryByText("Snoozed")).not.toBeInTheDocument());
+  });
+
+  it("permanently deletes a snoozed session only after confirmation", async () => {
+    const snoozed = makeSession("s1", "Old session", Date.now(), Date.now());
+    const client = createClient();
+    const qc = createQueryClient();
+    seedState(qc, { sessions: [snoozed] });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(<TestSidebar client={client} queryClient={qc} />);
+    fireEvent.click(await screen.findByText("Snoozed"));
+    const deleteButton = screen.getByTitle("Delete permanently");
+    fireEvent.click(deleteButton);
+    expect(client.session.delete).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    await act(async () => fireEvent.click(deleteButton));
+    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "s1" }, { throwOnError: true });
   });
 
   it("enters rename mode and commits on Enter", async () => {

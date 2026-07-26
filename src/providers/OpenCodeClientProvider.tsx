@@ -384,7 +384,7 @@ export function OpenCodeClientProvider({
 
 export async function prefetchServerState(client: OpencodeClient, queryClient: QueryClient) {
   const results = await Promise.allSettled([
-    client.session.list({}, { throwOnError: true }),
+    client.experimental.session.list({ archived: true }, { throwOnError: true }),
     client.provider.list({}, { throwOnError: true }),
     client.session.status({}, { throwOnError: true }),
     client.app.agents({}, { throwOnError: true }),
