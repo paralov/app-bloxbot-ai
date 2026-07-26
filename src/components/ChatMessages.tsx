@@ -10,6 +10,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 
 /** Module-level constant to avoid creating a new array on every render. */
 const REMARK_PLUGINS = [remarkGfm];
@@ -1580,7 +1581,15 @@ function ChatMessages() {
           </p>
           <button
             type="button"
-            onClick={() => sendMessage.mutate({ text: MULTI_STUDIO_PROMPT })}
+            onClick={() =>
+              sendMessage.mutate(
+                { text: MULTI_STUDIO_PROMPT },
+                {
+                  onError: (error) =>
+                    toast.error("Message not sent", { description: error.message }),
+                },
+              )
+            }
             className="mt-4 rounded-full border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             Coordinate multiple Studio places
