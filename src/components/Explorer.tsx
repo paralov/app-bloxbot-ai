@@ -262,7 +262,7 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-l bg-sidebar">
-      <header className="flex min-h-[81px] shrink-0 items-start justify-between border-b px-5 py-4">
+      <header className="flex min-h-[81px] shrink-0 items-start justify-between px-5 py-4">
         <div>
           <h2 className="font-serif text-xl italic">Explorer</h2>
         </div>
