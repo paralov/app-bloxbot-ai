@@ -2,7 +2,6 @@ import {
   Box,
   Boxes,
   Camera,
-  ChevronLeft,
   ChevronRight,
   CircleDot,
   CloudSun,
@@ -143,13 +142,6 @@ function findNode(nodes: readonly ExplorerNode[], path: string): ExplorerNode | 
   return null;
 }
 
-function freshnessLabel(capturedAt: string, now: number): string {
-  const elapsed = Math.max(0, now - Date.parse(capturedAt));
-  if (!Number.isFinite(elapsed) || elapsed < 10_000) return "Just synced";
-  if (elapsed < 60_000) return `${Math.floor(elapsed / 1_000)}s ago`;
-  return `${Math.floor(elapsed / 60_000)}m ago`;
-}
-
 export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
   const { selectedModel, selectedAgent } = usePreferences();
@@ -161,7 +153,6 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
   const syncLatestRef = useRef<() => void>(() => undefined);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
@@ -208,7 +199,6 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
         if (cancelled) return;
         collectionRef.current = next;
         setCollection(next);
-        setNow(Date.now());
         setExpanded((currentExpanded) =>
           currentExpanded.size > 0
             ? currentExpanded
@@ -229,11 +219,9 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
     syncLatestRef.current = () => void sync();
     void sync();
     const interval = window.setInterval(() => void sync(), SYNC_INTERVAL_MS);
-    const freshness = window.setInterval(() => setNow(Date.now()), 10_000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
-      window.clearInterval(freshness);
     };
   }, [client, collapsed, model, selectedAgent]);
 
@@ -274,38 +262,25 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-l bg-sidebar">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Boxes size={14} />
-          <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]">Explorer</div>
-            <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${syncError ? "bg-amber-500" : syncing ? "animate-pulse bg-blue-500" : "bg-emerald-500"}`}
-              />
-              <span className="truncate">
-                {syncing && !collection
-                  ? "Building collector…"
-                  : syncing
-                    ? "Syncing…"
-                    : syncError
-                      ? "Retrying automatically"
-                      : collection
-                        ? freshnessLabel(collection.snapshot.capturedAt, now)
-                        : "Waiting to sync"}
-              </span>
-            </div>
-          </div>
+      <header className="flex min-h-[81px] shrink-0 items-start justify-between border-b px-5 py-4">
+        <div>
+          <h2 className="font-serif text-xl italic">Explorer</h2>
         </div>
         <button
           type="button"
           onClick={onToggle}
-          aria-label="Collapse Explorer"
-          className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="rounded-md px-2 py-1 text-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label="Close explorer"
         >
-          <ChevronLeft size={13} />
+          ×
         </button>
-      </div>
+      </header>
+
+      {syncError ? (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+          Reconnect Studio if needed; Explorer will retry automatically.
+        </div>
+      ) : null}
 
       <div
         className="min-h-0 flex-1 overflow-y-auto py-1"
@@ -313,11 +288,6 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
         aria-label="Instance hierarchy"
       >
         {!collection && syncing ? <ExplorerLoading /> : null}
-        {!collection && syncError ? (
-          <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-            Explorer will retry when Studio is available.
-          </div>
-        ) : null}
         {collection?.snapshot.roots.map((node) => (
           <TreeRow
             key={node.path}
