@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): string[] {
+export function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): string[] {
   if (platform === "darwin") {
     return ["/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP"];
   }

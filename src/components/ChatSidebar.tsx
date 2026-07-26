@@ -4,6 +4,7 @@ import { useDeleteSession } from "@/hooks/mutations/useDeleteSession";
 import { useRenameSession } from "@/hooks/mutations/useRenameSession";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
+import { useStudioAssignments } from "@/hooks/useStudioAssignments";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 
 interface ChatSidebarProps {
@@ -53,6 +54,7 @@ const ChatSidebar = memo(function ChatSidebar({
   const createSession = useCreateSession();
   const deleteSession = useDeleteSession();
   const renameSession = useRenameSession();
+  const { assignments } = useStudioAssignments();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -213,6 +215,7 @@ const ChatSidebar = memo(function ChatSidebar({
               const isActive = session.id === activeSessionId;
               const isEditing = session.id === editingId;
               const status = sessionStatuses[session.id];
+              const studioAssignment = assignments[session.id];
 
               return (
                 <div
@@ -244,7 +247,8 @@ const ChatSidebar = memo(function ChatSidebar({
                             }}
                             className="w-full rounded bg-background px-1 text-xs outline-none ring-1 ring-ring"
                           />
-                          <div className="mt-0.5 text-[10px] text-muted-foreground">
+                          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                            {studioAssignment ? `${studioAssignment.name} · ` : ""}
                             {formatTime(session.time.updated)}
                           </div>
                         </div>
@@ -263,7 +267,8 @@ const ChatSidebar = memo(function ChatSidebar({
                           <div className="truncate text-xs font-medium leading-snug">
                             {session.title || "Untitled"}
                           </div>
-                          <div className="mt-0.5 text-[10px] text-muted-foreground">
+                          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                            {studioAssignment ? `${studioAssignment.name} · ` : ""}
                             {formatTime(session.time.updated)}
                           </div>
                         </div>

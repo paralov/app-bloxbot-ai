@@ -15,7 +15,9 @@ import {
 } from "../src/types/desktop";
 import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
+import { studioMcpCommand } from "./opencodeConfig";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
+import { listRobloxStudios } from "./services/RobloxStudio";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultConfig: AppConfig = DEFAULT_APP_CONFIG;
@@ -179,6 +181,9 @@ const registerIpcHandlers = Effect.sync(() => {
         app.quit();
       }),
     ),
+  );
+  ipcMain.handle(channels.listRobloxStudios, () =>
+    listRobloxStudios(studioMcpCommand(process.platform, process.env.LOCALAPPDATA)),
   );
 });
 

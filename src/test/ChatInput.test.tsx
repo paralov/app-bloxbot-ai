@@ -71,7 +71,30 @@ function createClient(overrides: Record<string, unknown> = {}) {
     permission: { list: vi.fn().mockResolvedValue({ data: [] }), reply: vi.fn() },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
     app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
-    mcp: { connect: vi.fn(), disconnect: vi.fn() },
+    config: {
+      get: vi.fn().mockResolvedValue({
+        data: {
+          mcp: {
+            "roblox-studio": { type: "local", command: ["StudioMCP"], enabled: true },
+          },
+        },
+      }),
+    },
+    tool: {
+      ids: vi.fn().mockResolvedValue({
+        data: [
+          "roblox-studio_search_game_tree",
+          "bloxbot_studio_s1_set_active_studio",
+          "bloxbot_studio_s1_search_game_tree",
+        ],
+      }),
+    },
+    mcp: {
+      status: vi.fn().mockResolvedValue({ data: {} }),
+      add: vi.fn().mockResolvedValue({ data: {} }),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    },
     instance: { dispose: vi.fn() },
   };
 }
@@ -82,7 +105,11 @@ function createQueryClient() {
   });
 }
 
-function seedState(qc: QueryClient, session: Session) {
+function seedState(
+  qc: QueryClient,
+  session: Session,
+  studioAssignment?: { id: string; name: string },
+) {
   qc.setQueryData(qk.sessions, [session]);
   qc.setQueryData(qk.statuses, {});
   qc.setQueryData(qk.agents, []);
@@ -103,6 +130,7 @@ function seedState(qc: QueryClient, session: Session) {
     hiddenModels: [],
     theme: "system",
     detailedAnalytics: "disabled",
+    studioAssignments: studioAssignment ? { [session.id]: studioAssignment } : {},
   });
   qc.setQueryData<MessagesCache>(qk.messages(session.id), { messageIds: [], messagesById: {} });
   qc.setQueryData(qk.todos(session.id), []);
@@ -119,18 +147,20 @@ function TestChatInput({
   queryClient,
   sessionId = "s1",
   clientStatus = "ready",
+  studioAssignment,
 }: {
   client: ReturnType<typeof createClient>;
   queryClient: QueryClient;
   sessionId?: string;
   clientStatus?: string;
+  studioAssignment?: { id: string; name: string };
 }) {
   const activeSessionIdRef = useRef<string | null>(sessionId);
   useEffect(() => {
     activeSessionIdRef.current = sessionId;
   }, [sessionId]);
   const session = makeSession(sessionId, "Test Session");
-  seedState(queryClient, session);
+  seedState(queryClient, session, studioAssignment);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -197,6 +227,42 @@ describe("ChatInput", () => {
     const args = client.session.promptAsync.mock.calls[0][0];
     expect(args.parts[0].text).toBe("Build a game");
     expect(args.sessionID).toBe("s1");
+  });
+
+  it("routes an assigned session through its own Studio MCP server", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+
+    render(
+      <TestChatInput
+        client={client}
+        queryClient={qc}
+        studioAssignment={{ id: "studio-lobby", name: "Lobby" }}
+      />,
+    );
+
+    const textarea = await screen.findByPlaceholderText("Describe what you want to build...");
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Add a spawn" } });
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalled());
+    expect(client.mcp.add).toHaveBeenCalledWith(
+      {
+        name: "bloxbot_studio_s1",
+        config: { type: "local", command: ["StudioMCP"], enabled: true },
+      },
+      { throwOnError: true },
+    );
+    const args = client.session.promptAsync.mock.calls[0][0];
+    expect(args.system).toContain("bloxbot_studio_s1_set_active_studio");
+    expect(args.system).toContain('"studio-lobby"');
+    expect(args.tools).toEqual({
+      "roblox-studio_search_game_tree": false,
+      bloxbot_studio_s1_set_active_studio: true,
+      bloxbot_studio_s1_search_game_tree: true,
+    });
   });
 
   it("sends message on Enter key (without Shift)", async () => {

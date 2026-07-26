@@ -1,7 +1,9 @@
 import type { Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { updateStudioAssignment } from "@/hooks/useStudioAssignments";
 import { qk } from "@/lib/queryKeys";
+import { disconnectSessionStudioServer } from "@/lib/studioRouting";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
@@ -32,6 +34,9 @@ export function useDeleteSession() {
       if (activeSessionId === sessionID) {
         clearSession();
       }
+
+      void updateStudioAssignment(queryClient, sessionID, null).catch(() => undefined);
+      if (client) void disconnectSessionStudioServer(client, sessionID).catch(() => undefined);
     },
   });
 }

@@ -7,6 +7,7 @@ AI-assisted Roblox development. BloxBot is a free, open-source desktop app that 
 ## What it does
 
 - Chat with AI models (Claude, GPT, Gemini, and more) that can read and modify your Roblox Studio project in real time
+- Assign chat sessions to different open Studio places and work on them in parallel
 - Create scripts, build UI, manipulate the explorer hierarchy, edit properties  - all through natural language
 - Uses Roblox Studio's [built-in MCP server](https://create.roblox.com/docs/studio/mcp), giving the AI structured access to Studio. No plugins to install
 - Bring your own API key from any supported provider, or connect via OAuth

@@ -11,4 +11,5 @@ export const qk = {
   permissions: (id: string) => ["sessions", id, "permissions"] as const,
   config: ["config"] as const,
   studioConnection: ["studio-connection"] as const,
+  studios: ["roblox-studios"] as const,
 };

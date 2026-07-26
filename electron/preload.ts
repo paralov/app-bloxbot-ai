@@ -18,6 +18,7 @@ const api: DesktopApi = {
   checkForUpdate: () => ipcRenderer.invoke(channels.checkForUpdate),
   installUpdate: () => ipcRenderer.invoke(channels.installUpdate),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
+  listRobloxStudios: () => ipcRenderer.invoke(channels.listRobloxStudios),
 };
 
 contextBridge.exposeInMainWorld("bloxbot", api);

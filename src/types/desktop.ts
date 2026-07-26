@@ -2,6 +2,25 @@ import { Schema } from "effect";
 
 const MutableStrings = Schema.mutable(Schema.Array(Schema.String));
 
+export const RobloxStudioPlaceSchema = Schema.mutable(
+  Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+    active: Schema.Boolean,
+  }),
+);
+
+export type RobloxStudioPlace = typeof RobloxStudioPlaceSchema.Type;
+
+export const StudioAssignmentSchema = Schema.mutable(
+  Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+  }),
+);
+
+export type StudioAssignment = typeof StudioAssignmentSchema.Type;
+
 export const ThemePreferenceSchema = Schema.Literal("light", "dark", "system");
 export const DetailedAnalyticsPreferenceSchema = Schema.Literal("unset", "enabled", "disabled");
 
@@ -13,6 +32,7 @@ export const AppConfigSchema = Schema.mutable(
     hiddenModels: MutableStrings,
     theme: ThemePreferenceSchema,
     detailedAnalytics: DetailedAnalyticsPreferenceSchema,
+    studioAssignments: Schema.Record({ key: Schema.String, value: StudioAssignmentSchema }),
   }),
 );
 
@@ -23,6 +43,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   hiddenModels: [],
   theme: "system",
   detailedAnalytics: "unset",
+  studioAssignments: {},
 };
 
 export const AppConfigPatchSchema = Schema.partial(AppConfigSchema);
@@ -68,4 +89,5 @@ export interface DesktopApi {
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;
+  listRobloxStudios(): Promise<RobloxStudioPlace[]>;
 }
