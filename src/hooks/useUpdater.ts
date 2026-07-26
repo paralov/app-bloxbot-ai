@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { createElement, useEffect } from "react";
 import { toast } from "sonner";
 
+import { UpdateReleaseNotes } from "@/components/UpdateReleaseNotes";
 import { desktop } from "@/lib/desktop";
 
 // ── Semver helpers ──────────────────────────────────────────────────────
@@ -62,7 +63,8 @@ export function useUpdater(): void {
           console.debug(`[updater] Prompting for update ${currentVersion} → ${update.version}`);
 
           toast(`BloxBot ${update.version} is available`, {
-            description: update.body ?? "A new version is ready to install.",
+            className: "update-available-toast",
+            description: createElement(UpdateReleaseNotes, { body: update.body }),
             duration: Number.POSITIVE_INFINITY,
             action: {
               label: "Install & Restart",

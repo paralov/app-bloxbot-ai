@@ -656,6 +656,50 @@
   height: 16px;
 }
 
+/* Persistent updater prompt: compact release summary with a clear action. */
+[data-sonner-toaster] [data-sonner-toast].update-available-toast {
+  width: min(420px, calc(100vw - 32px));
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px 8px;
+  padding: 16px;
+}
+
+[data-sonner-toaster] [data-sonner-toast].update-available-toast [data-content] {
+  flex: 0 0 100%;
+  gap: 8px;
+}
+
+[data-sonner-toaster] [data-sonner-toast].update-available-toast [data-description] {
+  margin-top: 0;
+  color: var(--foreground);
+}
+
+.update-release-notes {
+  display: grid;
+  gap: 8px;
+}
+
+.update-release-notes-title {
+  margin-bottom: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.update-release-notes ul {
+  display: grid;
+  gap: 4px;
+  padding-left: 16px;
+  list-style: disc;
+}
+
+[data-sonner-toaster] [data-sonner-toast].update-available-toast [data-button] {
+  margin-left: 0;
+}
+
 /* Analytics consent is a small decision card, not a transient status toast. */
 [data-sonner-toaster] [data-sonner-toast].analytics-consent-toast {
   align-items: flex-start;
