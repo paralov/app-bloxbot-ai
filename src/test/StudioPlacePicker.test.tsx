@@ -5,29 +5,18 @@ import StudioPlacePicker from "@/components/StudioPlacePicker";
 
 const mocks = vi.hoisted(() => ({
   assignments: {} as Record<string, { id: string; name: string }>,
-  setAssignment: vi.fn().mockResolvedValue(undefined),
-  refetch: vi.fn().mockResolvedValue(undefined),
+  setAssignment: vi.fn(),
+  refetch: vi.fn(),
 }));
-
-vi.mock("@/providers/OpenCodeClientProvider", () => ({
-  useOpenCodeClient: () => ({ client: null }),
-}));
-
 vi.mock("@/hooks/useStudioAssignments", () => ({
   useStudioAssignments: () => ({
     assignments: mocks.assignments,
     setAssignment: mocks.setAssignment,
   }),
 }));
-
 vi.mock("@/hooks/useStudioPlaces", () => ({
   useStudioPlaces: () => ({
-    data: [
-      { id: "studio-1", name: "Place1", active: false },
-      { id: "studio-2", name: "Place1", active: false },
-    ],
-    error: null,
-    isError: false,
+    data: [{ id: "studio-1", name: "Lobby", active: true }],
     isFetching: false,
     refetch: mocks.refetch,
   }),
@@ -36,29 +25,21 @@ vi.mock("@/hooks/useStudioPlaces", () => ({
 describe("StudioPlacePicker", () => {
   beforeEach(() => {
     mocks.assignments = {};
-    mocks.setAssignment.mockClear();
-    mocks.refetch.mockClear();
+    mocks.setAssignment.mockResolvedValue(undefined);
   });
 
-  it("always shows automatic selection as the active default option", async () => {
+  it("defaults to automatic selection and assigns a place", async () => {
     render(<StudioPlacePicker sessionID="s1" />);
-
-    expect(screen.getByText("Automatic selection")).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("Assign this session to a Roblox Studio place"));
-
-    const automaticOptions = screen.getAllByText("Automatic selection");
-    expect(automaticOptions).toHaveLength(2);
-    fireEvent.click(automaticOptions[1]);
-
-    await waitFor(() => expect(mocks.setAssignment).toHaveBeenCalledWith("s1", null));
+    const select = screen.getByRole("combobox", { name: "Roblox Studio place" });
+    expect(select).toHaveValue("");
+    fireEvent.change(select, { target: { value: "studio-1" } });
+    await waitFor(() =>
+      expect(mocks.setAssignment).toHaveBeenCalledWith("s1", { id: "studio-1", name: "Lobby" }),
+    );
   });
 
-  it("does not allow reassignment while the session is working", () => {
+  it("is disabled while the session is working", () => {
     render(<StudioPlacePicker sessionID="s1" disabled />);
-
-    const picker = screen.getByTitle("Wait for this session to finish before changing places");
-    expect(picker).toBeDisabled();
-    fireEvent.click(picker);
-    expect(screen.getAllByText("Automatic selection")).toHaveLength(1);
+    expect(screen.getByRole("combobox", { name: "Roblox Studio place" })).toBeDisabled();
   });
 });

@@ -6,11 +6,7 @@ import { useStudioAssignments } from "@/hooks/useStudioAssignments";
 import { detailedAnalyticsProperties } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
-import {
-  applyStudioPermissionRouting,
-  prepareAutomaticStudioPermissionRouting,
-  prepareStudioPromptRouting,
-} from "@/lib/studioRouting";
+import { routeAssignedStudio, routeAutomaticStudio } from "@/lib/studioRouting";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
@@ -48,12 +44,9 @@ export function useSendMessage() {
       };
       const studioAssignment = assignments[activeSessionId];
       if (studioAssignment) {
-        const routing = await prepareStudioPromptRouting(client, activeSessionId, studioAssignment);
-        opts.system = routing.system;
-        await applyStudioPermissionRouting(client, activeSessionId, routing.permissions);
+        opts.system = await routeAssignedStudio(client, activeSessionId, studioAssignment);
       } else {
-        const permissions = await prepareAutomaticStudioPermissionRouting(client);
-        await applyStudioPermissionRouting(client, activeSessionId, permissions);
+        await routeAutomaticStudio(client, activeSessionId);
       }
       let provider: string | undefined;
       let model: string | undefined;

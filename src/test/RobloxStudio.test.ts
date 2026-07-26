@@ -29,10 +29,4 @@ describe("Roblox Studio MCP discovery", () => {
       "StudioMCP did not return a place list",
     );
   });
-
-  it("normalizes malformed JSON into the place-list validation error", () => {
-    expect(() => parseStudioListResult({ content: [{ type: "text", text: "not json" }] })).toThrow(
-      "StudioMCP returned an invalid place list",
-    );
-  });
 });

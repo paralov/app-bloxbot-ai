@@ -2,7 +2,6 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import electronBuild from "vite-plugin-electron";
 import electron from "vite-plugin-electron/simple";
 
 const host = process.env.VITE_DEV_HOST;
@@ -14,7 +13,10 @@ export default defineConfig({
     tailwindcss(),
     electron({
       main: {
-        entry: "electron/main.ts",
+        entry: {
+          main: "electron/main.ts",
+          studioMcpRouter: "electron/studioMcpRouter.ts",
+        },
         vite: {
           build: {
             outDir: "dist-electron/main",
@@ -27,15 +29,6 @@ export default defineConfig({
           build: {
             outDir: "dist-electron/preload",
           },
-        },
-      },
-    }),
-    electronBuild({
-      entry: "electron/studioMcpRouter.ts",
-      onstart: () => undefined,
-      vite: {
-        build: {
-          outDir: "dist-electron/studio-router",
         },
       },
     }),

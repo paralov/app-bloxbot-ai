@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { STUDIO_ROUTER_TEMPLATE_MCP_NAME } from "../src/lib/studioRoutingNames";
+const STUDIO_ROUTER_TEMPLATE_MCP_NAME = "bloxbot-studio-router-template";
 
 export interface StudioMcpRouterConfig {
   executable: string;

@@ -2,246 +2,137 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 type JsonRpcID = number | string | null;
-
-interface JsonRpcMessage {
-  jsonrpc?: string;
+type JsonRpcMessage = {
   id?: JsonRpcID;
   method?: string;
   params?: unknown;
   result?: unknown;
   error?: unknown;
-}
+  [key: string]: unknown;
+};
 
-interface PendingToolCall {
-  internalID: string;
-  original: JsonRpcMessage;
-}
-
+const SELECT_ID = "__bloxbot_select_studio__";
 const CONTROL_TOOLS = new Set(["list_roblox_studios", "set_active_studio"]);
-const INTERNAL_REQUEST_PREFIX = "bloxbot-select-";
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function idKey(id: JsonRpcID): string {
-  return `${typeof id}:${String(id)}`;
-}
-
-function toolName(message: JsonRpcMessage): string | null {
-  const params = asRecord(message.params);
-  return typeof params?.name === "string" ? params.name : null;
-}
+const record = (value: unknown) =>
+  value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+const key = (id: JsonRpcID) => `${typeof id}:${String(id)}`;
 
 function selectionFailed(message: JsonRpcMessage): boolean {
-  if (message.error !== undefined) return true;
-  return asRecord(message.result)?.isError === true;
+  return message.error !== undefined || record(message.result)?.isError === true;
 }
 
-function filterControlTools(message: JsonRpcMessage): JsonRpcMessage {
-  const result = asRecord(message.result);
+function hideControlTools(message: JsonRpcMessage): JsonRpcMessage {
+  const result = record(message.result);
   if (!Array.isArray(result?.tools)) return message;
-
   return {
     ...message,
     result: {
       ...result,
-      tools: result.tools.filter((tool) => {
-        const name = asRecord(tool)?.name;
-        return typeof name !== "string" || !CONTROL_TOOLS.has(name);
-      }),
+      tools: result.tools.filter((tool) => !CONTROL_TOOLS.has(String(record(tool)?.name))),
     },
   };
 }
 
 export class StudioMcpRouter {
-  private nextInternalID = 0;
-  private readonly pendingToolCalls = new Map<string, PendingToolCall>();
-  private readonly pendingToolCallsByOriginalID = new Map<string, string>();
-  private readonly toolListRequests = new Set<string>();
+  private selected = false;
+  private readonly waitingToolLists: JsonRpcMessage[] = [];
+  private readonly toolListIDs = new Set<string>();
 
   constructor(
     private readonly studioID: string,
-    private readonly writeToStudio: (message: JsonRpcMessage) => void,
-    private readonly writeToClient: (message: JsonRpcMessage) => void,
+    private readonly toStudio: (message: JsonRpcMessage) => void,
+    private readonly toClient: (message: JsonRpcMessage) => void,
+    private readonly fail: (message: string) => void,
   ) {}
 
-  handleClientMessage(message: JsonRpcMessage): void {
-    if (message.method === "notifications/cancelled") {
-      const params = asRecord(message.params);
-      const requestID = params?.requestId;
-      if (typeof requestID === "string" || typeof requestID === "number" || requestID === null) {
-        const internalKey = this.pendingToolCallsByOriginalID.get(idKey(requestID));
-        const pending = internalKey ? this.pendingToolCalls.get(internalKey) : undefined;
-        if (internalKey && pending) {
-          this.pendingToolCalls.delete(internalKey);
-          this.pendingToolCallsByOriginalID.delete(idKey(requestID));
-          this.writeToStudio({
-            ...message,
-            params: { ...params, requestId: pending.internalID },
-          });
-          return;
-        }
-      }
-    }
-
-    if (message.method === "tools/list" && message.id !== undefined) {
-      this.toolListRequests.add(idKey(message.id));
-      this.writeToStudio(message);
-      return;
-    }
-
-    if (message.method !== "tools/call") {
-      this.writeToStudio(message);
-      return;
-    }
-
-    if (toolName(message) === "set_active_studio") {
-      const params = asRecord(message.params) ?? {};
-      this.writeToStudio({
-        ...message,
-        params: {
-          ...params,
-          arguments: { studio_id: this.studioID },
-        },
+  handleClient(message: JsonRpcMessage): void {
+    if (message.method === "notifications/initialized") {
+      this.toStudio(message);
+      this.toStudio({
+        jsonrpc: "2.0",
+        id: SELECT_ID,
+        method: "tools/call",
+        params: { name: "set_active_studio", arguments: { studio_id: this.studioID } },
       });
       return;
     }
 
-    const internalID = `${INTERNAL_REQUEST_PREFIX}${++this.nextInternalID}`;
-    const internalKey = idKey(internalID);
-    this.pendingToolCalls.set(internalKey, { internalID, original: message });
-    if (message.id !== undefined) {
-      this.pendingToolCallsByOriginalID.set(idKey(message.id), internalKey);
+    if (message.method === "tools/list" && message.id !== undefined) {
+      this.toolListIDs.add(key(message.id));
+      if (!this.selected) {
+        this.waitingToolLists.push(message);
+        return;
+      }
     }
-    this.writeToStudio({
-      jsonrpc: "2.0",
-      id: internalID,
-      method: "tools/call",
-      params: {
-        name: "set_active_studio",
-        arguments: { studio_id: this.studioID },
-      },
-    });
+    this.toStudio(message);
   }
 
-  handleStudioMessage(message: JsonRpcMessage): void {
-    if (message.id !== undefined) {
-      const key = idKey(message.id);
-      const pending = this.pendingToolCalls.get(key);
-      if (pending) {
-        this.pendingToolCalls.delete(key);
-        if (pending.original.id !== undefined) {
-          this.pendingToolCallsByOriginalID.delete(idKey(pending.original.id));
-        }
-        if (selectionFailed(message)) {
-          if (pending.original.id !== undefined) {
-            this.writeToClient({ ...message, id: pending.original.id });
-          }
-        } else {
-          this.writeToStudio(pending.original);
-        }
+  handleStudio(message: JsonRpcMessage): void {
+    if (message.id === SELECT_ID) {
+      if (selectionFailed(message)) {
+        this.fail("StudioMCP could not select the assigned place");
         return;
       }
-
-      if (this.toolListRequests.delete(key)) {
-        this.writeToClient(filterControlTools(message));
-        return;
-      }
-
-      if (typeof message.id === "string" && message.id.startsWith(INTERNAL_REQUEST_PREFIX)) return;
+      this.selected = true;
+      for (const request of this.waitingToolLists.splice(0)) this.toStudio(request);
+      return;
     }
 
-    this.writeToClient(message);
+    if (message.id !== undefined && this.toolListIDs.delete(key(message.id))) {
+      this.toClient(hideControlTools(message));
+      return;
+    }
+    this.toClient(message);
   }
 }
 
-function parseArguments(argv: readonly string[]): { studioID: string; command: string[] } {
-  const separator = argv.indexOf("--");
-  const studioFlag = argv.indexOf("--studio-id");
-  const studioID = studioFlag >= 0 ? argv[studioFlag + 1] : undefined;
-  const command = separator >= 0 ? argv.slice(separator + 1) : [];
-  if (!studioID || command.length === 0) {
-    throw new Error("Usage: studioMcpRouter --studio-id <id> -- <StudioMCP command>");
-  }
-  return { studioID, command };
-}
+function run(): void {
+  const separator = process.argv.indexOf("--");
+  const studioFlag = process.argv.indexOf("--studio-id");
+  const studioID = studioFlag >= 0 ? process.argv[studioFlag + 1] : undefined;
+  const [executable, ...args] = separator >= 0 ? process.argv.slice(separator + 1) : [];
+  if (!studioID || !executable) throw new Error("Missing Studio router arguments");
 
-export function runStudioMcpRouter(argv = process.argv.slice(2)): void {
-  const { studioID, command } = parseArguments(argv);
-  const [executable, ...args] = command;
-  if (!executable) throw new Error("StudioMCP command is unavailable");
-
-  const {
-    BLOXBOT_STUDIO_ROUTER_ENTRY: _routerEntry,
-    ELECTRON_RUN_AS_NODE: _electronRunAsNode,
-    ...childEnvironment
-  } = process.env;
-  const child = spawn(executable, args, {
-    env: childEnvironment,
-    stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
-  });
-  const sendLine = (stream: NodeJS.WritableStream, message: JsonRpcMessage) => {
+  const { ELECTRON_RUN_AS_NODE: _, BLOXBOT_STUDIO_ROUTER_ENTRY: __, ...env } = process.env;
+  const child = spawn(executable, args, { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  const write = (stream: NodeJS.WritableStream, message: JsonRpcMessage) =>
     stream.write(`${JSON.stringify(message)}\n`);
+  const finish = (code: number) => {
+    process.exitCode = code;
+    process.stdin.pause();
   };
   const router = new StudioMcpRouter(
     studioID,
-    (message) => sendLine(child.stdin, message),
-    (message) => sendLine(process.stdout, message),
+    (message) => write(child.stdin, message),
+    (message) => write(process.stdout, message),
+    (message) => {
+      process.stderr.write(`${message}\n`);
+      child.kill("SIGTERM");
+      finish(1);
+    },
   );
 
-  const clientInput = createInterface({ input: process.stdin });
-  const studioOutput = createInterface({ input: child.stdout });
-  let finished = false;
-  const finish = (code: number) => {
-    if (finished) return;
-    finished = true;
-    clientInput.close();
-    studioOutput.close();
-    process.stdin.pause();
-    process.exitCode = code;
+  const relay = (line: string, handler: (message: JsonRpcMessage) => void) => {
+    try {
+      handler(JSON.parse(line) as JsonRpcMessage);
+    } catch (error) {
+      process.stderr.write(`${String(error)}\n`);
+    }
   };
-  clientInput.on("line", (line) => {
-    try {
-      router.handleClientMessage(JSON.parse(line) as JsonRpcMessage);
-    } catch (error) {
-      process.stderr.write(`BloxBot Studio router ignored invalid client JSON: ${String(error)}\n`);
-    }
-  });
-  studioOutput.on("line", (line) => {
-    try {
-      router.handleStudioMessage(JSON.parse(line) as JsonRpcMessage);
-    } catch (error) {
-      process.stderr.write(`BloxBot Studio router ignored invalid StudioMCP JSON: ${String(error)}\n`);
-    }
-  });
+  createInterface({ input: process.stdin }).on("line", (line) =>
+    relay(line, (message) => router.handleClient(message)),
+  );
+  createInterface({ input: child.stdout }).on("line", (line) =>
+    relay(line, (message) => router.handleStudio(message)),
+  );
   child.stderr.pipe(process.stderr);
-  child.stdin.on("error", (error) => {
-    process.stderr.write(`BloxBot Studio router input failed: ${error.message}\n`);
-  });
   child.on("error", (error) => {
-    process.stderr.write(`BloxBot Studio router failed to start StudioMCP: ${error.message}\n`);
+    process.stderr.write(`${error.message}\n`);
     finish(1);
   });
-  child.on("exit", (code) => {
-    finish(code ?? 1);
-  });
-  process.stdin.on("close", () => {
-    if (child.exitCode === null) child.kill("SIGTERM");
-  });
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.once(signal, () => {
-      if (child.exitCode === null) child.kill(signal);
-    });
-  }
+  child.on("exit", (code) => finish(code ?? 1));
+  process.stdin.on("close", () => child.kill("SIGTERM"));
 }
 
-if (process.env.BLOXBOT_STUDIO_ROUTER_ENTRY === "1") {
-  try {
-    runStudioMcpRouter();
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-  }
-}
+if (process.env.BLOXBOT_STUDIO_ROUTER_ENTRY === "1") run();

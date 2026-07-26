@@ -1,6 +1,5 @@
 import posthog from "posthog-js/dist/module.full.no-external.js";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
@@ -11,7 +10,6 @@ import StudioSetup from "@/components/StudioSetup";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
-import { staleStudioAssignmentIDs, useStudioAssignments } from "@/hooks/useStudioAssignments";
 import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
@@ -26,9 +24,7 @@ function Chat() {
   const isBusy = sessionStatus !== undefined && sessionStatus.type !== "idle";
   const createSession = useCreateSession();
   const { data: allSessions } = useSessions();
-  const { assignments: studioAssignments, setAssignment } = useStudioAssignments();
   const studioConnection = useStudioConnection();
-  const pruneAttempts = useRef(new Map<string, number>());
 
   // Get active session title from the sessions list
   const activeSessionTitle = allSessions?.find((s) => s.id === activeSessionId)?.title ?? null;
@@ -76,21 +72,6 @@ function Chat() {
       clearSession();
     }
   }, [activeSessionId, allSessions, clearSession]);
-
-  useEffect(() => {
-    if (!allSessions) return;
-    const sessionIDs = new Set(allSessions.map((session) => session.id));
-    for (const sessionID of staleStudioAssignmentIDs(studioAssignments, sessionIDs)) {
-      const attempts = pruneAttempts.current.get(sessionID) ?? 0;
-      if (attempts >= 2) continue;
-      pruneAttempts.current.set(sessionID, attempts + 1);
-      void setAssignment(sessionID, null).catch((error) => {
-        toast.error("Old Studio assignment cleanup failed", {
-          description: error instanceof Error ? error.message : String(error),
-        });
-      });
-    }
-  }, [allSessions, setAssignment, studioAssignments]);
 
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);

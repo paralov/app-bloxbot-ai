@@ -25,14 +25,14 @@ describe("OpenCode configuration", () => {
     const config = createOpenCodeConfig("darwin", undefined, {
       executable: "/Applications/BloxBot.app/Contents/MacOS/BloxBot",
       script:
-        "/Applications/BloxBot.app/Contents/Resources/app.asar/dist-electron/studio-router/studioMcpRouter.js",
+        "/Applications/BloxBot.app/Contents/Resources/app.asar/dist-electron/main/studioMcpRouter.js",
     });
 
     expect(config.mcp["bloxbot-studio-router-template"]).toEqual({
       type: "local",
       command: [
         "/Applications/BloxBot.app/Contents/MacOS/BloxBot",
-        "/Applications/BloxBot.app/Contents/Resources/app.asar/dist-electron/studio-router/studioMcpRouter.js",
+        "/Applications/BloxBot.app/Contents/Resources/app.asar/dist-electron/main/studioMcpRouter.js",
       ],
       environment: {
         BLOXBOT_STUDIO_ROUTER_ENTRY: "1",

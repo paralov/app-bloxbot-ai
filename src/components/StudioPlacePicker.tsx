@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useStudioAssignments } from "@/hooks/useStudioAssignments";
@@ -12,30 +11,14 @@ export default function StudioPlacePicker({
   disabled?: boolean;
 }) {
   const { assignments, setAssignment } = useStudioAssignments();
-  const { data: places, error, isError, isFetching, refetch } = useStudioPlaces();
+  const { data: places = [], isFetching, refetch } = useStudioPlaces();
   const assignment = assignments[sessionID];
-  const assignedIsConnected = places?.some((place) => place.id === assignment?.id) ?? false;
-  const [open, setOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
+  const connected = !assignment || places.some((place) => place.id === assignment.id);
 
-  useEffect(() => {
-    if (!open) return;
-    void refetch();
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, [open, refetch]);
-
-  useEffect(() => {
-    if (disabled) setOpen(false);
-  }, [disabled]);
-
-  const choose = async (place: { id: string; name: string } | null) => {
+  const choose = async (studioID: string) => {
+    const place = places.find((candidate) => candidate.id === studioID) ?? null;
     try {
-      await setAssignment(sessionID, place);
-      setOpen(false);
+      await setAssignment(sessionID, place && { id: place.id, name: place.name });
     } catch (error) {
       toast.error("Studio place change failed", {
         description: error instanceof Error ? error.message : String(error),
@@ -44,100 +27,34 @@ export default function StudioPlacePicker({
   };
 
   return (
-    <div className="relative min-w-0" ref={pickerRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        disabled={disabled}
-        className={`flex max-w-56 items-center gap-1.5 rounded-md px-2 py-1 text-[10px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 ${
-          assignment && !assignedIsConnected
-            ? "text-amber-600 dark:text-amber-400"
-            : "text-muted-foreground hover:text-foreground"
+    <label
+      className={`flex min-w-0 items-center gap-1.5 text-[10px] ${
+        connected ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"
+      }`}
+      title={disabled ? "Wait for this session to finish before changing places" : undefined}
+    >
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+          assignment && connected ? "bg-emerald-500" : "bg-muted-foreground/40"
         }`}
-        title={
-          disabled
-            ? "Wait for this session to finish before changing places"
-            : "Assign this session to a Roblox Studio place"
-        }
+      />
+      <select
+        aria-label="Roblox Studio place"
+        value={assignment?.id ?? ""}
+        disabled={disabled}
+        onFocus={() => void refetch()}
+        onChange={(event) => void choose(event.target.value)}
+        className="max-w-56 truncate rounded-md bg-transparent py-1 outline-none hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-            assignment && assignedIsConnected ? "bg-emerald-500" : "bg-muted-foreground/40"
-          }`}
-        />
-        <span className="truncate">{assignment ? assignment.name : "Automatic selection"}</span>
-        <svg
-          width="9"
-          height="9"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="shrink-0"
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-
-      {open ? (
-        <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border bg-popover p-1 shadow-lg">
-          <div className="flex items-center justify-between px-2 py-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Roblox Studio places
-            </span>
-            <button
-              type="button"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              {isFetching ? "Checking…" : "Refresh"}
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => choose(null)}
-            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-foreground ${
-              assignment ? "text-muted-foreground" : "bg-accent text-foreground"
-            }`}
-          >
-            <span className="flex h-1.5 w-1.5 shrink-0 items-center justify-center">
-              {!assignment ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> : null}
-            </span>
-            Automatic selection
-          </button>
-
-          {places?.map((place) => (
-            <button
-              type="button"
-              key={place.id}
-              onClick={() => choose({ id: place.id, name: place.name })}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent ${
-                assignment?.id === place.id ? "bg-accent text-foreground" : "text-muted-foreground"
-              }`}
-            >
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-              <span className="min-w-0 flex-1 truncate text-xs">{place.name}</span>
-              <span className="shrink-0 font-mono text-[9px] opacity-50">
-                {place.id.slice(0, 6)}
-              </span>
-            </button>
-          ))}
-
-          {!isFetching && places?.length === 0 ? (
-            <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-              No open Studio places found.
-            </div>
-          ) : null}
-
-          {isError ? (
-            <div className="px-2 py-2 text-[10px] text-destructive">{error.message}</div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+        <option value="">Automatic selection</option>
+        {assignment && !connected ? <option value={assignment.id}>{assignment.name}</option> : null}
+        {places.map((place) => (
+          <option key={place.id} value={place.id}>
+            {place.name} · {place.id.slice(0, 6)}
+          </option>
+        ))}
+      </select>
+      {isFetching ? <span>Checking…</span> : null}
+    </label>
   );
 }

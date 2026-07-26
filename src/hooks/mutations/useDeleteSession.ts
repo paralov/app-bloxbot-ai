@@ -20,7 +20,7 @@ export function useDeleteSession() {
       if (response.data !== true) throw new Error("OpenCode did not delete the session");
       return sessionID;
     },
-    onSuccess: async (sessionID: string) => {
+    onSuccess: (sessionID: string) => {
       queryClient.setQueryData<Session[]>(qk.sessions, (prev) => {
         if (!prev) return prev;
         return prev.filter((s) => s.id !== sessionID);
@@ -36,17 +36,14 @@ export function useDeleteSession() {
         clearSession();
       }
 
-      const cleanup = await Promise.allSettled([
+      void Promise.all([
         updateStudioAssignment(queryClient, sessionID, null),
         client ? disconnectSessionStudioServer(client, sessionID) : Promise.resolve(),
-      ]);
-      const failure = cleanup.find((result) => result.status === "rejected");
-      if (failure?.status === "rejected") {
+      ]).catch((error) => {
         toast.error("Session deleted, but Studio cleanup failed", {
-          description:
-            failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
+          description: error instanceof Error ? error.message : String(error),
         });
-      }
+      });
     },
   });
 }
