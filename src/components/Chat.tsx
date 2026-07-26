@@ -152,10 +152,10 @@ function Chat() {
                 type="button"
                 onClick={() => setShowPlaytest(true)}
                 disabled={isBusy}
-                className="ml-3 inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-40 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950"
+                className="ml-3 inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
                 title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
               >
-                <span aria-hidden="true">▶</span> Playtest
+                <span aria-hidden="true">▷</span> Playtest
               </button>
             </div>
 

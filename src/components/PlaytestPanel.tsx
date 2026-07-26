@@ -59,6 +59,10 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
   const sendMessage = useSendMessage();
   const [plan, setPlan] = useState<PlaytestPlan | null>(null);
 
+  function writeOwnPlan() {
+    setPlan({ goal: "", steps: [""], watchFor: [""], successCriteria: [""] });
+  }
+
   async function generatePlan() {
     try {
       setPlan(await generate.mutateAsync());
@@ -114,21 +118,31 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       <div className="flex-1 overflow-y-auto p-5">
         {!plan ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-2xl dark:bg-amber-950/50">
-              ▶
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border bg-background text-2xl">
+              ▷
             </div>
             <h3 className="text-sm font-semibold">Plan a focused test run</h3>
             <p className="mt-2 max-w-xs text-xs leading-5 text-muted-foreground">
               The planner reads this chat, but cannot use Studio tools or change your project.
             </p>
-            <button
-              type="button"
-              onClick={generatePlan}
-              disabled={generate.isPending}
-              className="mt-5 rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background disabled:opacity-50"
-            >
-              {generate.isPending ? "Creating plan…" : "Generate test plan"}
-            </button>
+            <div className="mt-5 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={generatePlan}
+                disabled={generate.isPending}
+                className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
+              >
+                {generate.isPending ? "Creating plan…" : "Generate from chat"}
+              </button>
+              <button
+                type="button"
+                onClick={writeOwnPlan}
+                disabled={generate.isPending}
+                className="rounded-lg border bg-background px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+              >
+                Write my own
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-5">
@@ -175,7 +189,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
             type="button"
             onClick={runPlaytest}
             disabled={sendMessage.isPending || generate.isPending}
-            className="rounded-lg bg-amber-500 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+            className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
           >
             {sendMessage.isPending ? "Starting…" : "Run playtest"}
           </button>

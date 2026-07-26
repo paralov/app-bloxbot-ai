@@ -92,7 +92,9 @@ describe("PlaytestPanel", () => {
       },
     };
     render(<Harness client={client} onClose={onClose} />);
-    fireEvent.click(screen.getByRole("button", { name: "Generate test plan" }));
+    expect(client.session.create).not.toHaveBeenCalled();
+    expect(client.session.prompt).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
     expect(await screen.findByDisplayValue("Test rounds")).toBeInTheDocument();
     expect(client.session.prompt.mock.calls[0][0]).toMatchObject({
       sessionID: "planner",
@@ -124,8 +126,25 @@ describe("PlaytestPanel", () => {
       },
     };
     render(<Harness client={client} />);
-    fireEvent.click(screen.getByRole("button", { name: "Generate test plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
     expect(await screen.findByText("Couldn't create a playtest plan")).toBeInTheDocument();
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
+  });
+
+  it("opens blank manual fields without calling the planning agent", () => {
+    const client = {
+      session: {
+        create: vi.fn(),
+        prompt: vi.fn(),
+        delete: vi.fn(),
+        promptAsync: vi.fn(),
+      },
+    };
+    render(<Harness client={client} />);
+    fireEvent.click(screen.getByRole("button", { name: "Write my own" }));
+    expect(screen.getByLabelText("Goal")).toHaveValue("");
+    expect(screen.getByLabelText("Steps 1")).toHaveValue("");
+    expect(client.session.create).not.toHaveBeenCalled();
+    expect(client.session.prompt).not.toHaveBeenCalled();
   });
 });
