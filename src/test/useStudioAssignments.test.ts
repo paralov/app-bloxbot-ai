@@ -7,9 +7,6 @@ import type { AppConfig } from "@/types/desktop";
 
 const mocks = vi.hoisted(() => ({ loadConfig: vi.fn(), patchConfig: vi.fn() }));
 vi.mock("@/lib/config", () => mocks);
-vi.mock("@/providers/OpenCodeClientProvider", () => ({
-  useOpenCodeClient: () => ({ client: null }),
-}));
 
 const stored: AppConfig = {
   lastModel: "openai/gpt-5",

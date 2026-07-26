@@ -94,6 +94,7 @@ export async function routeAutomaticStudio(
   client: OpencodeClient,
   sessionID: string,
 ): Promise<void> {
+  await disconnectSessionStudioServer(client, sessionID);
   await setStudioPermissions(client, sessionID, `${BASE_SERVER}_`);
 }
 
@@ -103,6 +104,7 @@ export async function routeAssignedStudio(
   assignment: StudioAssignment,
 ): Promise<string> {
   const server = studioSessionServerName(sessionID, assignment.id);
+  await disconnectSessionStudioServer(client, sessionID, server);
   await ensureServer(client, server, assignment.id);
   await setStudioPermissions(client, sessionID, `${server}_`);
   return `This session is pinned to ${JSON.stringify(assignment.name)} (${JSON.stringify(assignment.id)}). Use only ${server}_ Studio tools. If they fail, ask the user to reassign the session.`;
@@ -111,12 +113,14 @@ export async function routeAssignedStudio(
 export async function disconnectSessionStudioServer(
   client: OpencodeClient,
   sessionID: string,
+  keep?: string,
 ): Promise<void> {
   const status = (await client.mcp.status({}, { throwOnError: true })).data ?? {};
   await Promise.all(
     Object.entries(status)
       .filter(
-        ([name, value]) => name.startsWith(sessionPrefix(sessionID)) && value.status !== "disabled",
+        ([name, value]) =>
+          name !== keep && name.startsWith(sessionPrefix(sessionID)) && value.status !== "disabled",
       )
       .map(([name]) => client.mcp.disconnect({ name }, { throwOnError: true })),
   );

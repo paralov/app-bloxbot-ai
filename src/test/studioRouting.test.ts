@@ -59,7 +59,10 @@ function clientWith(
 describe("Studio routing", () => {
   it("adds one place-specific server and preserves non-Studio permissions", async () => {
     const server = studioSessionServerName("s1", "studio-a");
-    const client = clientWith(["roblox-studio_search", `${server}_search`]);
+    const oldServer = studioSessionServerName("s1", "studio-old");
+    const client = clientWith(["roblox-studio_search", `${server}_search`], {
+      [oldServer]: { status: "connected" },
+    });
 
     const system = await routeAssignedStudio(client, "s1", { id: "studio-a", name: "Lobby" });
 
@@ -73,6 +76,10 @@ describe("Studio routing", () => {
           enabled: true,
         },
       },
+      { throwOnError: true },
+    );
+    expect(client.mcp.disconnect).toHaveBeenCalledWith(
+      { name: oldServer },
       { throwOnError: true },
     );
     expect(client.session.update).toHaveBeenCalledWith(
