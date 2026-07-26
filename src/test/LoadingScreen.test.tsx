@@ -1,8 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import LoadingScreen from "@/components/LoadingScreen";
-import { getStartupPresentation, type StartupPhase } from "@/providers/OpenCodeClientProvider";
+import {
+  getStartupErrorPresentation,
+  getStartupPresentation,
+  type StartupPhase,
+} from "@/providers/OpenCodeClientProvider";
 
 describe("startup progress", () => {
   it.each([
@@ -42,5 +46,34 @@ describe("startup progress", () => {
     expect(screen.getByText("Future launches will use the saved copy")).toBeVisible();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25");
     expect(screen.getByText("25% · 2.0 MB/s")).toBeVisible();
+  });
+
+  it("turns a verbose download failure into calm, actionable copy", () => {
+    const technicalDetail =
+      "Unable to download a verified OpenCode 1.x.x release and no cached copy is available: GitHub release lookup failed with HTTP 403 at file:///C:/Users/example/main.js";
+    const presentation = getStartupErrorPresentation(technicalDetail);
+
+    render(
+      <LoadingScreen
+        message={presentation.message}
+        detail={presentation.detail}
+        technicalDetail={presentation.technicalDetail}
+        error
+        onRetry={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Setup couldn't finish" })).toBeVisible();
+    expect(
+      screen.getByText(
+        "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then restart setup.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Restart setup" })).toBeVisible();
+
+    const disclosure = screen.getByText("Technical details");
+    expect(screen.getByText(technicalDetail)).not.toBeVisible();
+    fireEvent.click(disclosure);
+    expect(screen.getByText(technicalDetail)).toBeVisible();
   });
 });

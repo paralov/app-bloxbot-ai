@@ -30,6 +30,12 @@ interface StartupPresentation {
   startup: StartupProgress;
 }
 
+interface StartupErrorPresentation {
+  message: string;
+  detail: string;
+  technicalDetail: string;
+}
+
 const DEFAULT_ENGINE_PROGRESS: OpenCodeStartupProgress = { phase: "checking" };
 
 const STARTUP_COPY: Record<Exclude<StartupPhase, "engine">, StartupPresentation> = {
@@ -109,6 +115,40 @@ export function getStartupPresentation(
   engineProgress: OpenCodeStartupProgress = DEFAULT_ENGINE_PROGRESS,
 ): StartupPresentation {
   return phase === "engine" ? getEnginePresentation(engineProgress) : STARTUP_COPY[phase];
+}
+
+export function getStartupErrorPresentation(error: unknown): StartupErrorPresentation {
+  const technicalDetail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  const normalized = technicalDetail.toLowerCase();
+
+  if (
+    normalized.includes("github release lookup") ||
+    normalized.includes("opencode download") ||
+    normalized.includes("verified opencode")
+  ) {
+    return {
+      message: "Setup couldn't finish",
+      detail:
+        "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then restart setup.",
+      technicalDetail,
+    };
+  }
+
+  if (normalized.includes("does not provide a supported binary")) {
+    return {
+      message: "This computer isn't supported yet",
+      detail:
+        "BloxBot couldn't find a compatible setup package for this system. Check for an app update or contact support.",
+      technicalDetail,
+    };
+  }
+
+  return {
+    message: "Setup couldn't finish",
+    detail:
+      "BloxBot hit a problem while preparing its local engine. Restart setup, or check for an app update if it happens again.",
+    technicalDetail,
+  };
 }
 
 interface OpenCodeClientContextValue {
@@ -320,14 +360,16 @@ export function OpenCodeClientProvider({
 
   if (!ready) {
     const startup = getStartupPresentation(startupPhase, engineProgress);
+    const startupError = initError ? getStartupErrorPresentation(initError) : null;
     return (
       <OpenCodeClientContext.Provider value={value}>
         <LoadingScreen
-          message={initError ? "Failed to connect to OpenCode" : startup.message}
-          detail={initError ?? startup.detail}
-          startup={initError ? undefined : startup.startup}
-          error={!!initError}
-          onRetry={initError ? () => desktop.relaunch() : undefined}
+          message={startupError?.message ?? startup.message}
+          detail={startupError?.detail ?? startup.detail}
+          technicalDetail={startupError?.technicalDetail}
+          startup={startupError ? undefined : startup.startup}
+          error={!!startupError}
+          onRetry={startupError ? () => desktop.relaunch() : undefined}
         />
       </OpenCodeClientContext.Provider>
     );

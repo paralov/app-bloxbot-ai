@@ -6,6 +6,8 @@ import type { UpdateInfo } from "@/types/desktop";
 interface LoadingScreenProps {
   message?: string;
   detail?: string;
+  /** Full diagnostic text, hidden behind a disclosure in the error state. */
+  technicalDetail?: string;
   animation?: StartupAnimation;
   startup?: StartupProgress;
   /** When true, shows the error state with help actions instead of the dot loader. */
@@ -37,6 +39,7 @@ type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up
 function LoadingScreen({
   message = "Starting up...",
   detail,
+  technicalDetail,
   animation,
   startup,
   error,
@@ -45,6 +48,7 @@ function LoadingScreen({
 }: LoadingScreenProps) {
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>("idle");
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const updateRef = useRef<UpdateInfo | null>(null);
 
   async function handleCheckForUpdates() {
@@ -76,9 +80,23 @@ function LoadingScreen({
     }
   }
 
+  async function handleCopyDetails() {
+    if (!technicalDetail) return;
+    try {
+      await navigator.clipboard.writeText(technicalDetail);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("error");
+    }
+  }
+
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center px-6">
-      <div className="animate-fade-in flex w-full max-w-sm flex-col items-center">
+    <div className="flex h-full w-full flex-col items-center justify-center overflow-y-auto px-6 py-10">
+      <div
+        className="animate-fade-in flex w-full max-w-sm flex-col items-center"
+        role={error ? "alert" : undefined}
+        aria-live={error ? "assertive" : undefined}
+      >
         {/* BloxBot face  - inline SVG so we can animate individual parts */}
         <svg
           width="80"
@@ -141,12 +159,10 @@ function LoadingScreen({
         </svg>
 
         {/* Status text */}
-        <h1 className="mt-5 text-sm font-semibold text-foreground/80">{message}</h1>
+        <h1 className="mt-5 text-base font-semibold text-foreground">{message}</h1>
 
         {detail && (
-          <p
-            className={`mt-1.5 max-w-sm text-center text-xs leading-relaxed ${error ? "text-destructive" : "text-muted-foreground"}`}
-          >
+          <p className="mt-2 max-w-sm text-center text-xs leading-relaxed text-muted-foreground">
             {detail}
           </p>
         )}
@@ -192,7 +208,7 @@ function LoadingScreen({
                       <path d="M3 22v-6h6" />
                       <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
                     </svg>
-                    Try Again
+                    Restart setup
                   </>
                 )}
               </button>
@@ -272,9 +288,36 @@ function LoadingScreen({
                 rel="noreferrer"
                 className="underline transition-colors hover:text-foreground"
               >
-                bloxbot.ai
+                Get help
               </a>
             </div>
+
+            {technicalDetail && (
+              <details className="mt-1 w-full max-w-sm rounded-lg border bg-card text-left text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none px-3 py-2.5 font-medium text-foreground/75 transition-colors hover:text-foreground">
+                  Technical details
+                </summary>
+                <div className="border-t px-3 py-3">
+                  <p className="leading-relaxed">
+                    Share these details if support asks for them. They may include local file paths.
+                  </p>
+                  <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-[10px] leading-relaxed text-foreground/70">
+                    {technicalDetail}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={handleCopyDetails}
+                    className="mt-2 font-medium text-foreground/70 underline transition-colors hover:text-foreground"
+                  >
+                    {copyStatus === "copied"
+                      ? "Copied"
+                      : copyStatus === "error"
+                        ? "Couldn't copy"
+                        : "Copy details"}
+                  </button>
+                </div>
+              </details>
+            )}
           </div>
         ) : startup ? (
           <StartupProgressGraphic startup={startup} />
