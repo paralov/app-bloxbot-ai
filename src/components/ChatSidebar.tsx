@@ -1,4 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/v2/client";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useArchiveSession } from "@/hooks/mutations/useArchiveSession";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
@@ -6,6 +7,7 @@ import { useDeleteSession } from "@/hooks/mutations/useDeleteSession";
 import { useRenameSession } from "@/hooks/mutations/useRenameSession";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
+import { countBucket } from "@/lib/analytics";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 
 interface ChatSidebarProps {
@@ -106,10 +108,29 @@ const ChatSidebar = memo(function ChatSidebar({
     archiveSession.mutate(sessionID);
   }
 
+  function handleSnoozedSelect(sessionID: string) {
+    posthog.capture("snoozed_session_opened");
+    handleSelect(sessionID);
+  }
+
+  function handleSnoozedToggle() {
+    setSnoozedExpanded((expanded) => {
+      const nextExpanded = !expanded;
+      posthog.capture("snoozed_section_toggled", {
+        expanded: nextExpanded,
+        count_bucket: countBucket(snoozedSessions.length),
+      });
+      return nextExpanded;
+    });
+  }
+
   function handleDelete(session: Session) {
-    if (
-      window.confirm(`Permanently delete “${session.title || "Untitled"}”? This cannot be undone.`)
-    ) {
+    posthog.capture("permanent_delete_requested");
+    const confirmed = window.confirm(
+      `Permanently delete “${session.title || "Untitled"}”? This cannot be undone.`,
+    );
+    posthog.capture(confirmed ? "permanent_delete_confirmed" : "permanent_delete_cancelled");
+    if (confirmed) {
       deleteSession.mutate(session.id);
     }
   }
@@ -370,7 +391,7 @@ const ChatSidebar = memo(function ChatSidebar({
               <button
                 type="button"
                 aria-expanded={snoozedExpanded}
-                onClick={() => setSnoozedExpanded((expanded) => !expanded)}
+                onClick={handleSnoozedToggle}
                 className="flex w-full items-center gap-1.5 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
               >
                 <svg
@@ -397,7 +418,7 @@ const ChatSidebar = memo(function ChatSidebar({
                     >
                       <button
                         type="button"
-                        onClick={() => handleSelect(session.id)}
+                        onClick={() => handleSnoozedSelect(session.id)}
                         className="min-w-0 flex-1 px-2 py-1.5 text-left"
                         title={`Open snoozed session ${session.title || "Untitled"}`}
                       >

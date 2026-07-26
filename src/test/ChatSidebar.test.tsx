@@ -16,6 +16,9 @@ import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/dist/module.full.no-external.js", () => ({ default: { capture } }));
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function makeSession(
@@ -212,6 +215,7 @@ describe("ChatSidebar", () => {
     await waitFor(() => {
       expect(screen.getByText("Snoozed")).toBeInTheDocument();
     });
+    expect(capture).toHaveBeenCalledWith("session_snoozed");
   });
 
   it("does not snooze a busy session", async () => {
@@ -237,11 +241,16 @@ describe("ChatSidebar", () => {
 
     render(<TestSidebar client={client} queryClient={qc} onSessionSelect={onSessionSelect} />);
     fireEvent.click(await screen.findByText("Snoozed"));
+    expect(capture).toHaveBeenCalledWith("snoozed_section_toggled", {
+      expanded: true,
+      count_bucket: "1",
+    });
     await act(async () => {
       fireEvent.click(screen.getByTitle(`Open snoozed session ${snoozed.title}`));
     });
 
     expect(onSessionSelect).toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledWith("snoozed_session_opened");
     expect(client.session.update).not.toHaveBeenCalled();
     expect(screen.getByText("Snoozed")).toBeInTheDocument();
   });
@@ -274,9 +283,12 @@ describe("ChatSidebar", () => {
     const deleteButton = screen.getByTitle("Delete permanently");
     fireEvent.click(deleteButton);
     expect(client.session.delete).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledWith("permanent_delete_requested");
+    expect(capture).toHaveBeenCalledWith("permanent_delete_cancelled");
 
     confirm.mockReturnValue(true);
     await act(async () => fireEvent.click(deleteButton));
+    expect(capture).toHaveBeenCalledWith("permanent_delete_confirmed");
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "s1" }, { throwOnError: true });
   });
 

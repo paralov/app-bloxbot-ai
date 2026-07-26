@@ -1,5 +1,6 @@
 import type { Session } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 
 import { qk } from "@/lib/queryKeys";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
@@ -29,6 +30,7 @@ export function useArchiveSession() {
       if (activeSessionId === session.id) {
         clearSession();
       }
+      posthog.capture("session_snoozed");
     },
   });
 }
