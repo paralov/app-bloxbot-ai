@@ -363,91 +363,73 @@ const ChatSidebar = memo(function ChatSidebar({
                 </div>
               );
             })}
-
-            {snoozedSessions.length > 0 && (
-              <div className="mt-2 border-t border-border/70 pt-1">
-                <button
-                  type="button"
-                  aria-expanded={snoozedExpanded}
-                  onClick={() => setSnoozedExpanded((expanded) => !expanded)}
-                  className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className={`transition-transform ${snoozedExpanded ? "rotate-90" : ""}`}
-                  >
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                  Snoozed
-                  <span className="ml-auto font-normal tabular-nums">{snoozedSessions.length}</span>
-                </button>
-
-                {snoozedExpanded && (
-                  <div className="pb-1">
-                    {snoozedSessions.map((session) => (
-                      <div
-                        key={session.id}
-                        className="group relative mx-1 flex items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => handleSelect(session.id)}
-                          className="min-w-0 flex-1 px-2 py-1.5 text-left"
-                          title={`Open snoozed session ${session.title || "Untitled"}`}
-                        >
-                          <div className="max-w-[8.5rem] truncate text-[11px] leading-snug opacity-80">
-                            {session.title || "Untitled"}
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSelect(session.id)}
-                          className="mr-0.5 flex h-5 w-5 items-center justify-center rounded opacity-0 transition-opacity hover:bg-accent group-focus-within:opacity-100 group-hover:opacity-100"
-                          title="Open snoozed session"
-                        >
-                          <svg
-                            width="11"
-                            height="11"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-                            <path d="M3 3v5h5" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(session)}
-                          className="mr-1 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-focus-within:opacity-100 group-hover:opacity-100"
-                          title="Delete permanently"
-                        >
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <path d="M3 6h18" />
-                            <path d="M8 6V4h8v2" />
-                            <path d="M19 6l-1 14H6L5 6" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
+
+          {snoozedSessions.length > 0 && (
+            <div className="shrink-0 border-t border-border/70">
+              <button
+                type="button"
+                aria-expanded={snoozedExpanded}
+                onClick={() => setSnoozedExpanded((expanded) => !expanded)}
+                className="flex w-full items-center gap-1.5 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className={`transition-transform ${snoozedExpanded ? "rotate-90" : ""}`}
+                >
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+                Snoozed
+                <span className="ml-auto font-normal tabular-nums">{snoozedSessions.length}</span>
+              </button>
+
+              {snoozedExpanded && (
+                <div className="max-h-40 overflow-y-auto overflow-x-hidden pb-1">
+                  {snoozedSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="group relative mx-1 flex min-w-0 items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSelect(session.id)}
+                        className="min-w-0 flex-1 px-2 py-1.5 text-left"
+                        title={`Open snoozed session ${session.title || "Untitled"}`}
+                      >
+                        <div className="truncate text-[11px] leading-snug opacity-80">
+                          {session.title || "Untitled"}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(session)}
+                        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-focus-within:opacity-100 group-hover:opacity-100"
+                        title="Delete permanently"
+                      >
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4h8v2" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="shrink-0 border-t px-3 py-2 space-y-1">
             <button

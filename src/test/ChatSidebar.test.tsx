@@ -246,6 +246,22 @@ describe("ChatSidebar", () => {
     expect(screen.getByText("Snoozed")).toBeInTheDocument();
   });
 
+  it("pins the snoozed fold directly above settings", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    seedState(qc, {
+      sessions: [makeSession("s1", "Archived", Date.now(), Date.now())],
+    });
+
+    render(<TestSidebar client={client} queryClient={qc} />);
+
+    const snoozed = await screen.findByText("Snoozed");
+    const settings = screen.getByText("Settings");
+    expect(
+      snoozed.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("permanently deletes a snoozed session only after confirmation", async () => {
     const snoozed = makeSession("s1", "Old session", Date.now(), Date.now());
     const client = createClient();
