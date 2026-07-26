@@ -99,13 +99,8 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-label="Playtest planner"
     >
-      <header className="flex shrink-0 items-start justify-between border-b px-5 py-4">
-        <div>
-          <h2 className="font-serif text-xl italic">Playtest</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Turn this chat into an editable Studio test plan.
-          </p>
-        </div>
+      <header className="flex shrink-0 items-start justify-between px-5 py-4">
+        <h2 className="font-serif text-xl italic">Playtest</h2>
         <button
           type="button"
           onClick={onClose}
