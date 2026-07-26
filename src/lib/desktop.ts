@@ -11,6 +11,12 @@ import {
   type UpdateInfo,
   UpdateInfoSchema,
 } from "@/types/desktop";
+import {
+  type StudioTargetDiscovery,
+  StudioTargetDiscoverySchema,
+  type StudioTargetSelection,
+  StudioTargetSelectionSchema,
+} from "@/types/studioTarget";
 
 const CONFIG_KEY = "bloxbot-config";
 const DEFAULT_CONFIG: AppConfig = DEFAULT_APP_CONFIG;
@@ -29,6 +35,10 @@ interface DesktopEffects {
   readonly checkForUpdate: Effect.Effect<UpdateInfo | null, DesktopError>;
   readonly installUpdate: Effect.Effect<void, DesktopError>;
   readonly relaunch: Effect.Effect<void, DesktopError>;
+  readonly discoverStudioTargets: Effect.Effect<StudioTargetDiscovery, DesktopError>;
+  readonly selectStudioTarget: (
+    targetKey: string,
+  ) => Effect.Effect<StudioTargetSelection, DesktopError>;
 }
 
 type StartupProgressListener = (progress: OpenCodeStartupProgress) => void;
@@ -82,6 +92,13 @@ const browserEffects: DesktopEffects = {
     new DesktopError({ message: "Updates are only available in the desktop app." }),
   ),
   relaunch: Effect.sync(() => window.location.reload()),
+  discoverStudioTargets: Effect.fail(
+    new DesktopError({ message: "Studio targets are only available in the desktop app." }),
+  ),
+  selectStudioTarget: () =>
+    Effect.fail(
+      new DesktopError({ message: "Studio targets are only available in the desktop app." }),
+    ),
 };
 
 const invoke = <A>(message: string, operation: () => Promise<A>) =>
@@ -122,6 +139,13 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     ),
     installUpdate: invoke("Failed to install the update", () => api.installUpdate()),
     relaunch: invoke("Failed to relaunch the app", () => api.relaunch()),
+    discoverStudioTargets: invoke("Failed to discover Studio targets", () =>
+      api.discoverStudioTargets(),
+    ).pipe(decodeBridgeValue("Studio target discovery is invalid", StudioTargetDiscoverySchema)),
+    selectStudioTarget: (targetKey) =>
+      invoke("Failed to select the Studio target", () => api.selectStudioTarget(targetKey)).pipe(
+        decodeBridgeValue("Studio target selection is invalid", StudioTargetSelectionSchema),
+      ),
   };
 }
 
@@ -144,4 +168,6 @@ export const desktop: DesktopApi = {
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),
   installUpdate: () => runPromise(desktopEffects.installUpdate),
   relaunch: () => runPromise(desktopEffects.relaunch),
+  discoverStudioTargets: () => runPromise(desktopEffects.discoverStudioTargets),
+  selectStudioTarget: (targetKey) => runPromise(desktopEffects.selectStudioTarget(targetKey)),
 };

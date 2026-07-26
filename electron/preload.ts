@@ -18,6 +18,8 @@ const api: DesktopApi = {
   checkForUpdate: () => ipcRenderer.invoke(channels.checkForUpdate),
   installUpdate: () => ipcRenderer.invoke(channels.installUpdate),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
+  discoverStudioTargets: () => ipcRenderer.invoke(channels.discoverStudioTargets),
+  selectStudioTarget: (targetKey) => ipcRenderer.invoke(channels.selectStudioTarget, targetKey),
 };
 
 contextBridge.exposeInMainWorld("bloxbot", api);

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import type { StudioTargetDiscovery, StudioTargetSelection } from "./studioTarget";
 
 const MutableStrings = Schema.mutable(Schema.Array(Schema.String));
 
@@ -68,4 +69,6 @@ export interface DesktopApi {
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;
+  discoverStudioTargets(): Promise<StudioTargetDiscovery>;
+  selectStudioTarget(targetKey: string): Promise<StudioTargetSelection>;
 }
