@@ -1,11 +1,38 @@
-import { useMutation } from "@tanstack/react-query";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Box,
+  Boxes,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  CircleDot,
+  CloudSun,
+  Code2,
+  Database,
+  Folder,
+  Gamepad2,
+  type LucideIcon,
+  PanelTop,
+  ScrollText,
+  Server,
+  Sparkles,
+  Users,
+} from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { createExplorerReference, type ExplorerNode, loadExplorerSnapshot } from "@/lib/explorer";
+import {
+  createExplorerReference,
+  type ExplorerCollection,
+  type ExplorerField,
+  type ExplorerNode,
+  generateExplorerCollection,
+  replayExplorerCollector,
+} from "@/lib/explorer";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
+
+const SYNC_INTERVAL_MS = 20_000;
 
 interface ExplorerProps {
   collapsed: boolean;
@@ -21,6 +48,27 @@ interface TreeRowProps {
   onSelect: (node: ExplorerNode) => void;
 }
 
+const CLASS_ICONS: ReadonlyArray<[RegExp, LucideIcon]> = [
+  [/^(Workspace|WorldRoot)$/, Gamepad2],
+  [/^(Players|Player)$/, Users],
+  [/^(Lighting|Atmosphere|Sky|Clouds)$/, CloudSun],
+  [/^(ReplicatedStorage|ServerStorage|DataStoreService)$/, Database],
+  [/^(ServerScriptService|Script|LocalScript|ModuleScript)$/, Code2],
+  [/^(StarterGui|ScreenGui|SurfaceGui|BillboardGui|GuiObject|Frame)$/, PanelTop],
+  [/^(Folder|Configuration)$/, Folder],
+  [/^(Model|PVInstance)$/, Boxes],
+  [/^(Part|MeshPart|UnionOperation|SpawnLocation|BasePart)$/, Box],
+  [/^(Camera)$/, Camera],
+  [/^(ParticleEmitter|Beam|Trail|Highlight)$/, Sparkles],
+  [/^(RemoteEvent|RemoteFunction|BindableEvent|BindableFunction)$/, Server],
+  [/^(StringValue|NumberValue|BoolValue|ObjectValue|ValueBase)$/, CircleDot],
+  [/^(TextLabel|TextButton|TextBox)$/, ScrollText],
+];
+
+function iconForClass(className: string): LucideIcon {
+  return CLASS_ICONS.find(([pattern]) => pattern.test(className))?.[1] ?? Box;
+}
+
 const TreeRow = memo(function TreeRow({
   node,
   depth,
@@ -31,10 +79,15 @@ const TreeRow = memo(function TreeRow({
 }: TreeRowProps) {
   const isExpanded = expanded.has(node.path);
   const canExpand = node.hasChildren || node.children.length > 0;
+  const InstanceIcon = iconForClass(node.className);
 
   return (
     <>
       <div
+        role="treeitem"
+        tabIndex={0}
+        aria-selected={selectedPath === node.path}
+        aria-expanded={canExpand ? isExpanded : undefined}
         className={`group flex h-6 items-center pr-2 text-[11px] ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
       >
@@ -45,15 +98,10 @@ const TreeRow = memo(function TreeRow({
           onClick={() => onToggle(node.path)}
           className="flex h-5 w-4 shrink-0 items-center justify-center disabled:opacity-0"
         >
-          <svg
-            width="9"
-            height="9"
-            viewBox="0 0 12 12"
-            fill="none"
+          <ChevronRight
+            size={10}
             className={`transition-transform ${isExpanded ? "rotate-90" : ""}`}
-          >
-            <path d="m4 2.5 3.5 3.5L4 9.5" stroke="currentColor" strokeWidth="1.4" />
-          </svg>
+          />
         </button>
         <button
           type="button"
@@ -61,9 +109,11 @@ const TreeRow = memo(function TreeRow({
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           title={`${node.path} · ${node.className}`}
         >
-          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] bg-blue-500/10 text-[8px] font-bold text-blue-600 dark:text-blue-400">
-            {node.className.slice(0, 1).toUpperCase()}
-          </span>
+          <InstanceIcon
+            size={13}
+            strokeWidth={1.8}
+            className="shrink-0 text-blue-600 dark:text-blue-400"
+          />
           <span className="truncate">{node.name}</span>
         </button>
       </div>
@@ -84,12 +134,36 @@ const TreeRow = memo(function TreeRow({
   );
 });
 
+function findNode(nodes: readonly ExplorerNode[], path: string): ExplorerNode | null {
+  for (const node of nodes) {
+    if (node.path === path) return node;
+    const child = findNode(node.children, path);
+    if (child) return child;
+  }
+  return null;
+}
+
+function freshnessLabel(capturedAt: string, now: number): string {
+  const elapsed = Math.max(0, now - Date.parse(capturedAt));
+  if (!Number.isFinite(elapsed) || elapsed < 10_000) return "Just synced";
+  if (elapsed < 60_000) return `${Math.floor(elapsed / 1_000)}s ago`;
+  return `${Math.floor(elapsed / 60_000)}m ago`;
+}
+
 export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
   const { selectedModel, selectedAgent } = usePreferences();
   const { referenceObject } = useExplorerReference();
+  const [collection, setCollection] = useState<ExplorerCollection | null>(null);
+  const collectionRef = useRef<ExplorerCollection | null>(null);
+  const syncingRef = useRef(false);
+  const resyncRequestedRef = useRef(false);
+  const syncLatestRef = useRef<() => void>(() => undefined);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [selected, setSelected] = useState<ExplorerNode | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   const model = useMemo(() => {
     if (!selectedModel) return undefined;
@@ -97,21 +171,71 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
     return providerID && modelID ? { providerID, modelID } : undefined;
   }, [selectedModel]);
 
-  const snapshot = useMutation({
-    mutationFn: async () => {
-      if (!client) throw new Error("BloxBot is still connecting");
-      return loadExplorerSnapshot(client, model, selectedAgent);
-    },
-    onSuccess: (data) => {
-      setSelected(null);
-      setExpanded(new Set(data.roots.map((node) => node.path)));
-    },
-    onError: (error) => toast.error("Explorer couldn't refresh", { description: error.message }),
-  });
-
   useEffect(() => {
-    if (client && !snapshot.data && !snapshot.isPending && !snapshot.isError) snapshot.mutate();
-  }, [client, snapshot]);
+    if (!client || collapsed) return;
+    const activeClient = client;
+    let cancelled = false;
+
+    async function sync() {
+      if (syncingRef.current) {
+        resyncRequestedRef.current = true;
+        return;
+      }
+      if (document.visibilityState === "hidden") return;
+      syncingRef.current = true;
+      setSyncing(true);
+      setSyncError(null);
+
+      try {
+        const current = collectionRef.current;
+        let next: ExplorerCollection;
+        if (current) {
+          try {
+            const snapshot = await replayExplorerCollector(
+              activeClient,
+              current.collector,
+              model,
+              selectedAgent,
+            );
+            next = { collector: current.collector, snapshot };
+          } catch {
+            next = await generateExplorerCollection(activeClient, model, selectedAgent);
+          }
+        } else {
+          next = await generateExplorerCollection(activeClient, model, selectedAgent);
+        }
+
+        if (cancelled) return;
+        collectionRef.current = next;
+        setCollection(next);
+        setNow(Date.now());
+        setExpanded((currentExpanded) =>
+          currentExpanded.size > 0
+            ? currentExpanded
+            : new Set(next.snapshot.roots.map((node) => node.path)),
+        );
+      } catch (error) {
+        if (!cancelled) setSyncError(error instanceof Error ? error.message : String(error));
+      } finally {
+        syncingRef.current = false;
+        if (!cancelled) setSyncing(false);
+        if (resyncRequestedRef.current) {
+          resyncRequestedRef.current = false;
+          queueMicrotask(() => syncLatestRef.current());
+        }
+      }
+    }
+
+    syncLatestRef.current = () => void sync();
+    void sync();
+    const interval = window.setInterval(() => void sync(), SYNC_INTERVAL_MS);
+    const freshness = window.setInterval(() => setNow(Date.now()), 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.clearInterval(freshness);
+    };
+  }, [client, collapsed, model, selectedAgent]);
 
   const toggleNode = useCallback((path: string) => {
     setExpanded((current) => {
@@ -122,7 +246,11 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
     });
   }, []);
 
-  const selectNode = useCallback((node: ExplorerNode) => setSelected(node), []);
+  const selected = useMemo(
+    () => (selectedPath && collection ? findNode(collection.snapshot.roots, selectedPath) : null),
+    [collection, selectedPath],
+  );
+
   const handleReference = useCallback(() => {
     if (!selected) return;
     referenceObject(createExplorerReference(selected));
@@ -138,54 +266,45 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
           className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
           title="Open Explorer"
         >
-          <ExplorerIcon />
+          <Boxes size={15} />
         </button>
       </aside>
     );
   }
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-l bg-sidebar">
+    <aside className="flex w-72 shrink-0 flex-col border-l bg-sidebar">
       <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <ExplorerIcon />
+          <Boxes size={14} />
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em]">Explorer</div>
-            {snapshot.data ? (
-              <div className="truncate text-[9px] text-muted-foreground">
-                {snapshot.data.placeName}
-              </div>
-            ) : null}
+            <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${syncError ? "bg-amber-500" : syncing ? "animate-pulse bg-blue-500" : "bg-emerald-500"}`}
+              />
+              <span className="truncate">
+                {syncing && !collection
+                  ? "Building collector…"
+                  : syncing
+                    ? "Syncing…"
+                    : syncError
+                      ? "Retrying automatically"
+                      : collection
+                        ? freshnessLabel(collection.snapshot.capturedAt, now)
+                        : "Waiting to sync"}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => snapshot.mutate()}
-            disabled={snapshot.isPending}
-            aria-label="Refresh Explorer"
-            className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-          >
-            <RefreshIcon spinning={snapshot.isPending} />
-          </button>
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-label="Collapse Explorer"
-            className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label="Collapse Explorer"
+          className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <ChevronLeft size={13} />
+        </button>
       </div>
 
       <div
@@ -193,94 +312,91 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
         role="tree"
         aria-label="Instance hierarchy"
       >
-        {snapshot.isPending ? <ExplorerLoading /> : null}
-        {snapshot.isError ? (
+        {!collection && syncing ? <ExplorerLoading /> : null}
+        {!collection && syncError ? (
           <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-            <p>Couldn't read the place.</p>
-            <button
-              type="button"
-              onClick={() => snapshot.mutate()}
-              className="mt-2 font-medium text-foreground underline underline-offset-2"
-            >
-              Try again
-            </button>
+            Explorer will retry when Studio is available.
           </div>
         ) : null}
-        {snapshot.data?.roots.map((node) => (
+        {collection?.snapshot.roots.map((node) => (
           <TreeRow
             key={node.path}
             node={node}
             depth={0}
             expanded={expanded}
-            selectedPath={selected?.path ?? null}
+            selectedPath={selectedPath}
             onToggle={toggleNode}
-            onSelect={selectNode}
+            onSelect={(next) => setSelectedPath(next.path)}
           />
         ))}
       </div>
 
       {selected ? (
-        <div className="shrink-0 border-t bg-card/60 p-3">
-          <div className="truncate text-xs font-medium">{selected.name}</div>
-          <div
-            className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground"
-            title={selected.path}
-          >
-            {selected.path}
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
-              {selected.className}
-            </span>
-            <button
-              type="button"
-              onClick={handleReference}
-              className="rounded-md bg-foreground px-2 py-1 text-[10px] font-medium text-background hover:opacity-90"
-            >
-              Reference in chat
-            </button>
-          </div>
-        </div>
+        <Inspector node={selected} onReference={handleReference} />
       ) : (
         <div className="shrink-0 border-t px-3 py-2 text-[9px] text-muted-foreground">
-          Select an object to reference it in chat.
+          Select an object to inspect and reference it.
         </div>
       )}
     </aside>
   );
 }
 
-function ExplorerIcon() {
+function Inspector({ node, onReference }: { node: ExplorerNode; onReference: () => void }) {
+  const InstanceIcon = iconForClass(node.className);
   return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
+    <div className="max-h-[42%] shrink-0 overflow-y-auto border-t bg-card/60">
+      <div className="sticky top-0 border-b bg-card/95 p-3 backdrop-blur-sm">
+        <div className="flex items-start gap-2">
+          <InstanceIcon size={15} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-medium">{node.name}</div>
+            <div className="truncate font-mono text-[9px] text-muted-foreground" title={node.path}>
+              {node.path}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onReference}
+            className="shrink-0 rounded-md bg-foreground px-2 py-1 text-[9px] font-medium text-background hover:opacity-90"
+          >
+            Reference
+          </button>
+        </div>
+      </div>
+      <FieldSection
+        title="Properties"
+        fields={[{ name: "ClassName", value: node.className }, ...node.properties]}
+      />
+      {node.attributes.length > 0 ? (
+        <FieldSection title="Attributes" fields={node.attributes} />
+      ) : null}
+    </div>
   );
 }
 
-function RefreshIcon({ spinning }: { spinning: boolean }) {
+function FieldSection({ title, fields }: { title: string; fields: readonly ExplorerField[] }) {
   return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={spinning ? "animate-spin" : ""}
-    >
-      <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" />
-    </svg>
+    <section className="border-b px-3 py-2 last:border-b-0">
+      <h4 className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h4>
+      <dl className="space-y-1">
+        {fields.map((field) => (
+          <div
+            key={`${field.name}-${field.value}`}
+            className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2 text-[10px]"
+          >
+            <dt className="truncate text-muted-foreground" title={field.name}>
+              {field.name}
+            </dt>
+            <dd className="break-words font-mono text-foreground" title={field.value}>
+              {field.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
