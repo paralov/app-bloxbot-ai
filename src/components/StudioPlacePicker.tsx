@@ -50,7 +50,7 @@ export default function StudioPlacePicker({ sessionID }: { sessionID: string }) 
             assignment && assignedIsConnected ? "bg-emerald-500" : "bg-muted-foreground/40"
           }`}
         />
-        <span className="truncate">{assignment ? assignment.name : "Choose Studio place"}</span>
+        <span className="truncate">{assignment ? assignment.name : "Automatic selection"}</span>
         <svg
           width="9"
           height="9"
@@ -82,15 +82,18 @@ export default function StudioPlacePicker({ sessionID }: { sessionID: string }) 
             </button>
           </div>
 
-          {assignment ? (
-            <button
-              type="button"
-              onClick={() => choose(null)}
-              className="flex w-full rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              Use automatic Studio selection
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => choose(null)}
+            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-foreground ${
+              assignment ? "text-muted-foreground" : "bg-accent text-foreground"
+            }`}
+          >
+            <span className="flex h-1.5 w-1.5 shrink-0 items-center justify-center">
+              {!assignment ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> : null}
+            </span>
+            Automatic selection
+          </button>
 
           {places?.map((place) => (
             <button
