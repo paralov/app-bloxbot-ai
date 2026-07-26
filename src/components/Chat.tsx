@@ -88,7 +88,7 @@ function Chat() {
         onOpenSettings={handleOpenSettings}
       />
 
-      <div className="relative flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         {showStudioSetup || studioConnection.state === "waiting" ? (
           <StudioSetup
             connected={studioConnection.state === "connected"}
@@ -161,7 +161,6 @@ function Chat() {
 
             <ChatMessages />
             <ChatInput />
-            {showPlaytest ? <PlaytestPanel onClose={() => setShowPlaytest(false)} /> : null}
           </>
         )}
 
@@ -171,6 +170,9 @@ function Chat() {
           </div>
         )}
       </div>
+      {showPlaytest && activeSessionId ? (
+        <PlaytestPanel onClose={() => setShowPlaytest(false)} />
+      ) : null}
     </div>
   );
 }
