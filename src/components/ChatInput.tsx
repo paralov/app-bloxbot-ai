@@ -7,6 +7,7 @@ import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
+import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo } from "@/types";
 
@@ -231,6 +232,7 @@ const StatusHint = memo(function StatusHint() {
 });
 
 function ChatInput() {
+  const { pendingReference, consumeReference } = useExplorerReference();
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
   const agents = useAgents();
@@ -272,6 +274,18 @@ function ChatInput() {
   const agentPickerRef = useRef<HTMLDivElement>(null);
   const dragCounterRef = useRef(0);
   const rejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (!pendingReference) return;
+    setText((current) => (current.trim() ? `${pendingReference}\n\n${current}` : pendingReference));
+    consumeReference();
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+      textareaRef.current.focus();
+    });
+  }, [pendingReference, consumeReference]);
 
   const triggerRejectShake = useCallback(() => {
     setRejectShake(true);

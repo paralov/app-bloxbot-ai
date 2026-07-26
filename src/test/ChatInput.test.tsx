@@ -16,6 +16,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
 import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
+import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
@@ -153,8 +154,10 @@ function TestChatInput({
             }}
           >
             <PreferencesProvider>
-              <ChatInput />
-              <Toaster />
+              <ExplorerReferenceProvider>
+                <ChatInput />
+                <Toaster />
+              </ExplorerReferenceProvider>
             </PreferencesProvider>
           </ActiveSessionContext.Provider>
         </OpenCodeClientContext.Provider>

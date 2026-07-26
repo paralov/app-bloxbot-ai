@@ -10,6 +10,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { Data, Effect, Schema } from "effect";
 import type { ModelError } from "@/lib/modelError";
 import { qk } from "@/lib/queryKeys";
+import { isVisibleSession } from "@/lib/sessionVisibility";
 import type { MessageWithParts } from "@/types";
 
 export interface MessagesCache {
@@ -92,6 +93,7 @@ function dispatchEvent(
   switch (event.type) {
     case "session.created": {
       const { info } = event.properties;
+      if (!isVisibleSession(info)) break;
       queryClient.setQueryData<Session[]>(qk.sessions, (prev) => {
         if (!prev) return [info];
         if (prev.some((s) => s.id === info.id)) return prev;

@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { useUpdater } from "@/hooks/useUpdater";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
+import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
 import { OpenCodeClientProvider } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
@@ -33,7 +34,9 @@ function App() {
         <OpenCodeClientProvider activeSessionIdRef={activeSessionIdRef}>
           <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
             <PreferencesProvider>
-              <AppInner />
+              <ExplorerReferenceProvider>
+                <AppInner />
+              </ExplorerReferenceProvider>
             </PreferencesProvider>
           </ActiveSessionProvider>
         </OpenCodeClientProvider>

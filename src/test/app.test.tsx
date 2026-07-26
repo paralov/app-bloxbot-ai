@@ -19,6 +19,7 @@ import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
+import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
@@ -80,7 +81,9 @@ function TestApp({
         >
           <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
             <PreferencesProvider>
-              <ChatWithSonner />
+              <ExplorerReferenceProvider>
+                <ChatWithSonner />
+              </ExplorerReferenceProvider>
             </PreferencesProvider>
           </ActiveSessionProvider>
         </OpenCodeClientContext.Provider>

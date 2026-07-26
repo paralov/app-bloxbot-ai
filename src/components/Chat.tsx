@@ -4,6 +4,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
 import ChatSidebar from "@/components/ChatSidebar";
+import Explorer from "@/components/Explorer";
 import LoadingScreen from "@/components/LoadingScreen";
 import StudioSetup from "@/components/StudioSetup";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
@@ -29,6 +30,7 @@ function Chat() {
   const activeSessionTitle = allSessions?.find((s) => s.id === activeSessionId)?.title ?? null;
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
 
@@ -159,6 +161,15 @@ function Chat() {
           </div>
         )}
       </div>
+      {activeSessionId &&
+      !showSettings &&
+      !showStudioSetup &&
+      studioConnection.state === "connected" ? (
+        <Explorer
+          collapsed={explorerCollapsed}
+          onToggle={() => setExplorerCollapsed((value) => !value)}
+        />
+      ) : null}
     </div>
   );
 }
