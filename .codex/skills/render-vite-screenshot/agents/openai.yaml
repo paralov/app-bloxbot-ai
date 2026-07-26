@@ -1,0 +1,4 @@
+interface:
+  display_name: "Render Vite Screenshot"
+  short_description: "Capture UI safely with a temporary Vite harness"
+  default_prompt: "Use $render-vite-screenshot to render and capture this UI without launching Electron."
