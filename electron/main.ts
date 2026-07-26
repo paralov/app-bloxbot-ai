@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import { autoUpdater } from "electron-updater";
-import { Data, Effect, ManagedRuntime, Schema } from "effect";
+import { Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
 import {
   type AppConfig,
@@ -16,6 +16,7 @@ import {
 import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
+import { makeStudioMcpBrokerLayer } from "./services/StudioMcpBroker";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultConfig: AppConfig = DEFAULT_APP_CONFIG;
@@ -38,7 +39,14 @@ const openCodeRuntime = ManagedRuntime.make(
         mainWindow.webContents.send(channels.openCodeStartupProgress, progress);
       }
     },
-  }),
+  }).pipe(
+    Layer.provide(
+      makeStudioMcpBrokerLayer({
+        workspace: join(app.getPath("home"), "BloxBot"),
+        localAppData: process.env.LOCALAPPDATA,
+      }),
+    ),
+  ),
 );
 
 function isMissingFile(cause: unknown): boolean {

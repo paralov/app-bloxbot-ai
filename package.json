@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.26.0",
     "@opencode-ai/sdk": "^1.18.4",
     "@tanstack/react-query": "^5.91.2",
     "@tanstack/react-virtual": "^3.13.23",

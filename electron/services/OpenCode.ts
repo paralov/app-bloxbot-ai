@@ -9,6 +9,7 @@ import { networkConnections, type Systeminformation } from "systeminformation";
 import type { OpenCodeInfo, OpenCodeStartupProgress } from "../../src/types/desktop";
 import { createOpenCodeConfig } from "../opencodeConfig";
 import { ensureOpenCodeBinary } from "./OpenCodeBinary";
+import { StudioMcpBroker } from "./StudioMcpBroker";
 
 const LOOPBACK = "127.0.0.1";
 const STARTUP_TIMEOUT = "60 seconds";
@@ -188,8 +189,11 @@ function waitForHealth(
   );
 }
 
-function prepareOpenCode(options: OpenCodeOptions): Effect.Effect<PreparedOpenCode, OpenCodeError> {
+function prepareOpenCode(
+  options: OpenCodeOptions,
+): Effect.Effect<PreparedOpenCode, OpenCodeError, StudioMcpBroker> {
   return Effect.gen(function* () {
+    const broker = yield* StudioMcpBroker;
     const { executable, version } = yield* ensureOpenCodeBinary({
       cacheDirectory: options.binaryCacheDirectory,
       onStartupProgress: options.onStartupProgress,
@@ -219,7 +223,7 @@ function prepareOpenCode(options: OpenCodeOptions): Effect.Effect<PreparedOpenCo
       ),
       { concurrency: "unbounded", discard: true },
     );
-    const config = createOpenCodeConfig(process.platform, process.env.LOCALAPPDATA);
+    const config = createOpenCodeConfig(broker.info);
     yield* fileOperation("Failed to write the OpenCode configuration", () =>
       writeFile(
         join(configDirectory, "opencode.json"),

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): string[] {
+export function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): string[] {
   if (platform === "darwin") {
     return ["/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP"];
   }
@@ -13,7 +13,7 @@ function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): str
   return ["studio-mcp"];
 }
 
-export function createOpenCodeConfig(platform: NodeJS.Platform, localAppData?: string) {
+export function createOpenCodeConfig(broker: { url: string }) {
   return {
     // Keep OpenCode's standard automatic context compaction enabled for long sessions.
     compaction: {
@@ -21,8 +21,8 @@ export function createOpenCodeConfig(platform: NodeJS.Platform, localAppData?: s
     },
     mcp: {
       "roblox-studio": {
-        type: "local",
-        command: studioMcpCommand(platform, localAppData),
+        type: "remote",
+        url: broker.url,
         enabled: true,
       },
     },
