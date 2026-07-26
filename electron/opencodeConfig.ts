@@ -1,5 +1,12 @@
 import { join } from "node:path";
 
+import { STUDIO_ROUTER_TEMPLATE_MCP_NAME } from "../src/lib/studioRoutingNames";
+
+export interface StudioMcpRouterConfig {
+  executable: string;
+  script: string;
+}
+
 export function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): string[] {
   if (platform === "darwin") {
     return ["/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP"];
@@ -13,7 +20,11 @@ export function studioMcpCommand(platform: NodeJS.Platform, localAppData?: strin
   return ["studio-mcp"];
 }
 
-export function createOpenCodeConfig(platform: NodeJS.Platform, localAppData?: string) {
+export function createOpenCodeConfig(
+  platform: NodeJS.Platform,
+  localAppData?: string,
+  studioRouter?: StudioMcpRouterConfig,
+) {
   return {
     // Keep OpenCode's standard automatic context compaction enabled for long sessions.
     compaction: {
@@ -25,6 +36,19 @@ export function createOpenCodeConfig(platform: NodeJS.Platform, localAppData?: s
         command: studioMcpCommand(platform, localAppData),
         enabled: true,
       },
+      ...(studioRouter
+        ? {
+            [STUDIO_ROUTER_TEMPLATE_MCP_NAME]: {
+              type: "local" as const,
+              command: [studioRouter.executable, studioRouter.script],
+              environment: {
+                BLOXBOT_STUDIO_ROUTER_ENTRY: "1",
+                ELECTRON_RUN_AS_NODE: "1",
+              },
+              enabled: false,
+            },
+          }
+        : {}),
     },
     default_agent: "studio",
     agent: {

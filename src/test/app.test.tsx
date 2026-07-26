@@ -106,7 +106,9 @@ function createClient(overrides: Record<string, unknown> = {}) {
   return {
     session: {
       list: vi.fn().mockResolvedValue({ data: [] }),
-      get: vi.fn().mockResolvedValue({ data: null }),
+      get: vi.fn().mockImplementation(async ({ sessionID }: { sessionID: string }) => ({
+        data: { ...makeSession(sessionID, "Session"), permission: [] },
+      })),
       create: vi.fn().mockResolvedValue({ data: null }),
       delete: vi.fn().mockResolvedValue({ data: true }),
       update: vi.fn().mockResolvedValue({ data: null }),
@@ -152,6 +154,9 @@ function createClient(overrides: Record<string, unknown> = {}) {
     },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
     app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
+    tool: {
+      ids: vi.fn().mockResolvedValue({ data: ["roblox-studio_search_game_tree"] }),
+    },
     mcp: {
       status: vi.fn().mockResolvedValue({
         data: { "roblox-studio": { status: "connected" } },

@@ -53,7 +53,11 @@ function createClient(overrides: Record<string, unknown> = {}) {
     permission: { list: vi.fn().mockResolvedValue({ data: [] }), reply: vi.fn() },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
     app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
-    mcp: { connect: vi.fn(), disconnect: vi.fn() },
+    mcp: {
+      status: vi.fn().mockResolvedValue({ data: {} }),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    },
     instance: { dispose: vi.fn() },
   };
 }

@@ -42,6 +42,7 @@ interface PreparedOpenCode {
 
 export interface OpenCodeOptions {
   binaryCacheDirectory: string;
+  studioMcpRouterPath: string;
   workspace: string;
   onStartupProgress?: (progress: OpenCodeStartupProgress) => void;
 }
@@ -219,7 +220,10 @@ function prepareOpenCode(options: OpenCodeOptions): Effect.Effect<PreparedOpenCo
       ),
       { concurrency: "unbounded", discard: true },
     );
-    const config = createOpenCodeConfig(process.platform, process.env.LOCALAPPDATA);
+    const config = createOpenCodeConfig(process.platform, process.env.LOCALAPPDATA, {
+      executable: process.execPath,
+      script: options.studioMcpRouterPath,
+    });
     yield* fileOperation("Failed to write the OpenCode configuration", () =>
       writeFile(
         join(configDirectory, "opencode.json"),

@@ -5,7 +5,7 @@
  * model selection, and send/abort button states.
  */
 
-import type { Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
+import type { PermissionRule, Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
@@ -15,6 +15,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
+import { studioSessionServerName } from "@/lib/studioRouting";
 import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
@@ -32,13 +33,23 @@ function makeSession(id: string, title: string): Session {
 }
 
 function createClient(overrides: Record<string, unknown> = {}) {
+  const status: Record<string, { status: string }> = {};
+  let permissions: PermissionRule[] = [
+    { permission: "bash", pattern: "git status", action: "allow" },
+  ];
+  const assignedServer = studioSessionServerName("s1", "studio-lobby");
   return {
     session: {
       list: vi.fn().mockResolvedValue({ data: [] }),
-      get: vi.fn().mockResolvedValue({ data: null }),
+      get: vi.fn().mockImplementation(async () => ({ data: { permission: permissions } })),
       create: vi.fn().mockResolvedValue({ data: null }),
       delete: vi.fn().mockResolvedValue({ data: true }),
-      update: vi.fn().mockResolvedValue({ data: null }),
+      update: vi
+        .fn()
+        .mockImplementation(async ({ permission }: { permission?: PermissionRule[] }) => {
+          if (permission) permissions = permission;
+          return { data: { permission: permissions } };
+        }),
       abort: vi.fn().mockResolvedValue({ data: true }),
       messages: vi.fn().mockResolvedValue({ data: [] }),
       status: vi.fn().mockResolvedValue({ data: {} }),
@@ -76,24 +87,38 @@ function createClient(overrides: Record<string, unknown> = {}) {
         data: {
           mcp: {
             "roblox-studio": { type: "local", command: ["StudioMCP"], enabled: true },
+            "bloxbot-studio-router-template": {
+              type: "local",
+              command: ["electron", "studioMcpRouter.js"],
+              environment: {
+                BLOXBOT_STUDIO_ROUTER_ENTRY: "1",
+                ELECTRON_RUN_AS_NODE: "1",
+              },
+              enabled: false,
+            },
           },
         },
       }),
     },
     tool: {
       ids: vi.fn().mockResolvedValue({
-        data: [
-          "roblox-studio_search_game_tree",
-          "bloxbot_studio_s1_set_active_studio",
-          "bloxbot_studio_s1_search_game_tree",
-        ],
+        data: ["roblox-studio_search_game_tree", `${assignedServer}_search_game_tree`],
       }),
     },
     mcp: {
-      status: vi.fn().mockResolvedValue({ data: {} }),
-      add: vi.fn().mockResolvedValue({ data: {} }),
-      connect: vi.fn(),
-      disconnect: vi.fn(),
+      status: vi.fn().mockImplementation(async () => ({ data: { ...status } })),
+      add: vi.fn().mockImplementation(async ({ name }: { name: string }) => {
+        status[name] = { status: "connected" };
+        return { data: {} };
+      }),
+      connect: vi.fn().mockImplementation(async ({ name }: { name: string }) => {
+        status[name] = { status: "connected" };
+        return { data: true };
+      }),
+      disconnect: vi.fn().mockImplementation(async ({ name }: { name: string }) => {
+        status[name] = { status: "disabled" };
+        return { data: true };
+      }),
     },
     instance: { dispose: vi.fn() },
   };
@@ -232,6 +257,7 @@ describe("ChatInput", () => {
   it("routes an assigned session through its own Studio MCP server", async () => {
     const client = createClient();
     const qc = createQueryClient();
+    const serverName = studioSessionServerName("s1", "studio-lobby");
 
     render(
       <TestChatInput
@@ -250,19 +276,89 @@ describe("ChatInput", () => {
     await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalled());
     expect(client.mcp.add).toHaveBeenCalledWith(
       {
-        name: "bloxbot_studio_s1",
-        config: { type: "local", command: ["StudioMCP"], enabled: true },
+        name: serverName,
+        config: {
+          type: "local",
+          command: [
+            "electron",
+            "studioMcpRouter.js",
+            "--studio-id",
+            "studio-lobby",
+            "--",
+            "StudioMCP",
+          ],
+          environment: {
+            BLOXBOT_STUDIO_ROUTER_ENTRY: "1",
+            ELECTRON_RUN_AS_NODE: "1",
+          },
+          enabled: true,
+        },
       },
       { throwOnError: true },
     );
     const args = client.session.promptAsync.mock.calls[0][0];
-    expect(args.system).toContain("bloxbot_studio_s1_set_active_studio");
+    expect(args.system).toContain(`${serverName}_`);
+    expect(args.system).toContain("Place selection is enforced automatically");
     expect(args.system).toContain('"studio-lobby"');
-    expect(args.tools).toEqual({
-      "roblox-studio_search_game_tree": false,
-      bloxbot_studio_s1_set_active_studio: true,
-      bloxbot_studio_s1_search_game_tree: true,
+    expect(args.tools).toBeUndefined();
+    expect(client.session.update).toHaveBeenCalledWith(
+      {
+        sessionID: "s1",
+        permission: [
+          { permission: "bash", pattern: "git status", action: "allow" },
+          { permission: "roblox-studio_search_game_tree", pattern: "*", action: "deny" },
+          { permission: `${serverName}_search_game_tree`, pattern: "*", action: "allow" },
+        ],
+      },
+      { throwOnError: true },
+    );
+  });
+
+  it("restores automatic Studio routing after removing an assignment", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    const serverName = studioSessionServerName("s1", "studio-lobby");
+
+    render(
+      <TestChatInput
+        client={client}
+        queryClient={qc}
+        studioAssignment={{ id: "studio-lobby", name: "Lobby" }}
+      />,
+    );
+
+    const textarea = await screen.findByPlaceholderText("Describe what you want to build...");
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Assigned request" } });
+      fireEvent.click(screen.getByTitle("Send"));
     });
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      qc.setQueryData(qk.statuses, {});
+      qc.setQueryData(qk.config, {
+        ...qc.getQueryData<object>(qk.config),
+        studioAssignments: {},
+      });
+    });
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Automatic request" } });
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledTimes(2));
+
+    expect(client.session.promptAsync.mock.calls[1][0].tools).toBeUndefined();
+    expect(client.session.update).toHaveBeenLastCalledWith(
+      {
+        sessionID: "s1",
+        permission: [
+          { permission: "bash", pattern: "git status", action: "allow" },
+          { permission: "roblox-studio_search_game_tree", pattern: "*", action: "allow" },
+          { permission: `${serverName}_search_game_tree`, pattern: "*", action: "deny" },
+        ],
+      },
+      { throwOnError: true },
+    );
   });
 
   it("sends message on Enter key (without Shift)", async () => {

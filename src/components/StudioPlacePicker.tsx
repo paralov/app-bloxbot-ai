@@ -4,7 +4,13 @@ import { toast } from "sonner";
 import { useStudioAssignments } from "@/hooks/useStudioAssignments";
 import { useStudioPlaces } from "@/hooks/useStudioPlaces";
 
-export default function StudioPlacePicker({ sessionID }: { sessionID: string }) {
+export default function StudioPlacePicker({
+  sessionID,
+  disabled = false,
+}: {
+  sessionID: string;
+  disabled?: boolean;
+}) {
   const { assignments, setAssignment } = useStudioAssignments();
   const { data: places, error, isError, isFetching, refetch } = useStudioPlaces();
   const assignment = assignments[sessionID];
@@ -22,12 +28,16 @@ export default function StudioPlacePicker({ sessionID }: { sessionID: string }) 
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [open, refetch]);
 
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
   const choose = async (place: { id: string; name: string } | null) => {
     try {
       await setAssignment(sessionID, place);
       setOpen(false);
     } catch (error) {
-      toast.error("Place assignment not saved", {
+      toast.error("Studio place change failed", {
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -38,12 +48,17 @@ export default function StudioPlacePicker({ sessionID }: { sessionID: string }) 
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className={`flex max-w-56 items-center gap-1.5 rounded-md px-2 py-1 text-[10px] transition-colors hover:bg-accent ${
+        disabled={disabled}
+        className={`flex max-w-56 items-center gap-1.5 rounded-md px-2 py-1 text-[10px] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 ${
           assignment && !assignedIsConnected
             ? "text-amber-600 dark:text-amber-400"
             : "text-muted-foreground hover:text-foreground"
         }`}
-        title="Assign this session to a Roblox Studio place"
+        title={
+          disabled
+            ? "Wait for this session to finish before changing places"
+            : "Assign this session to a Roblox Studio place"
+        }
       >
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${

@@ -34,6 +34,7 @@ class DesktopMainError extends Data.TaggedError("DesktopMainError")<{
 const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
     binaryCacheDirectory: join(app.getPath("userData"), "opencode"),
+    studioMcpRouterPath: join(currentDirectory, "..", "studio-router", "studioMcpRouter.js"),
     workspace: join(app.getPath("home"), "BloxBot"),
     onStartupProgress: (progress: OpenCodeStartupProgress) => {
       if (mainWindow && !mainWindow.isDestroyed()) {

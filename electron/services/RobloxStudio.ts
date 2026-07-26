@@ -24,7 +24,13 @@ export function parseStudioListResult(result: unknown): RobloxStudioPlace[] {
   const text = asRecord(textItem)?.text;
   if (typeof text !== "string") throw new Error("StudioMCP did not return a place list");
 
-  const payload = asRecord(JSON.parse(text));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("StudioMCP returned an invalid place list");
+  }
+  const payload = asRecord(parsed);
   if (!Array.isArray(payload?.studios)) throw new Error("StudioMCP returned an invalid place list");
 
   return payload.studios.flatMap((studio) => {
@@ -106,6 +112,7 @@ export function listRobloxStudios(command: readonly string[]): Promise<RobloxStu
     const timer = setTimeout(() => fail("StudioMCP timed out while listing places"), REQUEST_TIMEOUT_MS);
 
     child.on("error", (error) => fail(`Failed to start StudioMCP: ${error.message}`));
+    child.stdin.on("error", (error) => fail(`StudioMCP input failed: ${error.message}`));
     child.on("exit", (code) => {
       if (!settled) fail(`StudioMCP exited before listing places (code ${code ?? "unknown"})`);
     });

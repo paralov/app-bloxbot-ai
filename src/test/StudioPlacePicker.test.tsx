@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/providers/OpenCodeClientProvider", () => ({
+  useOpenCodeClient: () => ({ client: null }),
+}));
+
 vi.mock("@/hooks/useStudioAssignments", () => ({
   useStudioAssignments: () => ({
     assignments: mocks.assignments,
@@ -47,5 +51,14 @@ describe("StudioPlacePicker", () => {
     fireEvent.click(automaticOptions[1]);
 
     await waitFor(() => expect(mocks.setAssignment).toHaveBeenCalledWith("s1", null));
+  });
+
+  it("does not allow reassignment while the session is working", () => {
+    render(<StudioPlacePicker sessionID="s1" disabled />);
+
+    const picker = screen.getByTitle("Wait for this session to finish before changing places");
+    expect(picker).toBeDisabled();
+    fireEvent.click(picker);
+    expect(screen.getAllByText("Automatic selection")).toHaveLength(1);
   });
 });

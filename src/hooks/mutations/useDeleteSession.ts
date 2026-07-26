@@ -1,5 +1,6 @@
 import type { Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { updateStudioAssignment } from "@/hooks/useStudioAssignments";
 import { qk } from "@/lib/queryKeys";
@@ -19,7 +20,7 @@ export function useDeleteSession() {
       if (response.data !== true) throw new Error("OpenCode did not delete the session");
       return sessionID;
     },
-    onSuccess: (sessionID: string) => {
+    onSuccess: async (sessionID: string) => {
       queryClient.setQueryData<Session[]>(qk.sessions, (prev) => {
         if (!prev) return prev;
         return prev.filter((s) => s.id !== sessionID);
@@ -35,8 +36,17 @@ export function useDeleteSession() {
         clearSession();
       }
 
-      void updateStudioAssignment(queryClient, sessionID, null).catch(() => undefined);
-      if (client) void disconnectSessionStudioServer(client, sessionID).catch(() => undefined);
+      const cleanup = await Promise.allSettled([
+        updateStudioAssignment(queryClient, sessionID, null),
+        client ? disconnectSessionStudioServer(client, sessionID) : Promise.resolve(),
+      ]);
+      const failure = cleanup.find((result) => result.status === "rejected");
+      if (failure?.status === "rejected") {
+        toast.error("Session deleted, but Studio cleanup failed", {
+          description:
+            failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
+        });
+      }
     },
   });
 }
