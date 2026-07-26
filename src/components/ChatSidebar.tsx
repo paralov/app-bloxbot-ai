@@ -103,12 +103,7 @@ const ChatSidebar = memo(function ChatSidebar({
   function handleSnooze(sessionID: string) {
     const status = sessionStatuses[sessionID];
     if (status && status.type !== "idle") return;
-    archiveSession.mutate({ sessionID, archived: true });
-  }
-
-  function handleRestore(sessionID: string) {
-    onSessionSelect();
-    archiveSession.mutate({ sessionID, archived: false });
+    archiveSession.mutate(sessionID);
   }
 
   function handleDelete(session: Session) {
@@ -401,9 +396,9 @@ const ChatSidebar = memo(function ChatSidebar({
                       >
                         <button
                           type="button"
-                          onClick={() => handleRestore(session.id)}
+                          onClick={() => handleSelect(session.id)}
                           className="min-w-0 flex-1 px-2 py-1.5 text-left"
-                          title={`Restore and open ${session.title || "Untitled"}`}
+                          title={`Open snoozed session ${session.title || "Untitled"}`}
                         >
                           <div className="max-w-[8.5rem] truncate text-[11px] leading-snug opacity-80">
                             {session.title || "Untitled"}
@@ -411,9 +406,9 @@ const ChatSidebar = memo(function ChatSidebar({
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleRestore(session.id)}
+                          onClick={() => handleSelect(session.id)}
                           className="mr-0.5 flex h-5 w-5 items-center justify-center rounded opacity-0 transition-opacity hover:bg-accent group-focus-within:opacity-100 group-hover:opacity-100"
-                          title="Restore and open"
+                          title="Open snoozed session"
                         >
                           <svg
                             width="11"

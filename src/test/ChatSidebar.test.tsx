@@ -228,24 +228,22 @@ describe("ChatSidebar", () => {
     expect(client.session.update).not.toHaveBeenCalled();
   });
 
-  it("restores and opens a snoozed session", async () => {
+  it("opens a snoozed session without changing its archive timestamp", async () => {
     const snoozed = makeSession("s1", "A very long snoozed session title", Date.now(), Date.now());
-    const restored = makeSession("s1", snoozed.title, snoozed.time.created);
-    const client = createClient({ update: vi.fn().mockResolvedValue({ data: restored }) });
+    const client = createClient({ get: vi.fn().mockResolvedValue({ data: snoozed }) });
     const qc = createQueryClient();
     seedState(qc, { sessions: [snoozed] });
+    const onSessionSelect = vi.fn();
 
-    render(<TestSidebar client={client} queryClient={qc} />);
+    render(<TestSidebar client={client} queryClient={qc} onSessionSelect={onSessionSelect} />);
     fireEvent.click(await screen.findByText("Snoozed"));
     await act(async () => {
-      fireEvent.click(screen.getByTitle(`Restore and open ${snoozed.title}`));
+      fireEvent.click(screen.getByTitle(`Open snoozed session ${snoozed.title}`));
     });
 
-    expect(client.session.update).toHaveBeenCalledWith(
-      { sessionID: "s1", time: {} },
-      { throwOnError: true },
-    );
-    await waitFor(() => expect(screen.queryByText("Snoozed")).not.toBeInTheDocument());
+    expect(onSessionSelect).toHaveBeenCalled();
+    expect(client.session.update).not.toHaveBeenCalled();
+    expect(screen.getByText("Snoozed")).toBeInTheDocument();
   });
 
   it("permanently deletes a snoozed session only after confirmation", async () => {
