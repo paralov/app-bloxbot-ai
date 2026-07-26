@@ -12,6 +12,11 @@ import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
+  default: { capture },
+}));
+
 function Harness({
   client,
   onClose = vi.fn(),
@@ -95,7 +100,9 @@ describe("PlaytestPanel", () => {
     expect(client.session.create).not.toHaveBeenCalled();
     expect(client.session.prompt).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
+    expect(capture).toHaveBeenCalledWith("generation_started", {});
     expect(await screen.findByDisplayValue("Test rounds")).toBeInTheDocument();
+    expect(capture).toHaveBeenCalledWith("generation_succeeded", {});
     expect(client.session.prompt.mock.calls[0][0]).toMatchObject({
       sessionID: "planner",
       format: { type: "json_schema" },
@@ -146,5 +153,6 @@ describe("PlaytestPanel", () => {
     expect(screen.getByLabelText("Steps 1")).toHaveValue("");
     expect(client.session.create).not.toHaveBeenCalled();
     expect(client.session.prompt).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledWith("manual_entry_selected");
   });
 });

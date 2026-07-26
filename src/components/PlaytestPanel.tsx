@@ -1,8 +1,22 @@
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useGeneratePlaytestPlan } from "@/hooks/mutations/useGeneratePlaytestPlan";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
+import { detailedAnalyticsProperties } from "@/lib/analytics";
 import { formatPlaytestPrompt, type PlaytestPlan } from "@/lib/playtestPlan";
+import { splitModelKey } from "@/lib/splitModelKey";
+import { usePreferences } from "@/providers/PreferencesProvider";
+
+function generationErrorCategory(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown";
+  if (error.message.includes("chat context")) return "no_chat_context";
+  if (error.message.includes("invalid") || error.message.includes("incomplete")) {
+    return "invalid_plan";
+  }
+  if (error.message.includes("start")) return "planner_start_failed";
+  return "generation_failed";
+}
 
 function ListEditor({
   label,
@@ -57,16 +71,43 @@ function ListEditor({
 export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
   const generate = useGeneratePlaytestPlan();
   const sendMessage = useSendMessage();
+  const { selectedModel } = usePreferences();
   const [plan, setPlan] = useState<PlaytestPlan | null>(null);
 
+  const [provider, model] = selectedModel ? splitModelKey(selectedModel) : [undefined, undefined];
+
   function writeOwnPlan() {
+    posthog.capture("manual_entry_selected");
     setPlan({ goal: "", steps: [""], watchFor: [""], successCriteria: [""] });
   }
 
   async function generatePlan() {
+    const startedAt = performance.now();
+    posthog.capture("generation_started", detailedAnalyticsProperties({ provider, model }));
     try {
-      setPlan(await generate.mutateAsync());
+      const generatedPlan = await generate.mutateAsync();
+      setPlan(generatedPlan);
+      posthog.capture(
+        "generation_succeeded",
+        detailedAnalyticsProperties({
+          provider,
+          model,
+          duration_ms: Math.round(performance.now() - startedAt),
+          step_count: generatedPlan.steps.length,
+          watch_for_count: generatedPlan.watchFor.length,
+          success_criteria_count: generatedPlan.successCriteria.length,
+        }),
+      );
     } catch (error) {
+      posthog.capture(
+        "generation_failed",
+        detailedAnalyticsProperties({
+          provider,
+          model,
+          duration_ms: Math.round(performance.now() - startedAt),
+          error_category: generationErrorCategory(error),
+        }),
+      );
       toast.error("Couldn't create a playtest plan", {
         description: error instanceof Error ? error.message : "Try again.",
       });
@@ -84,6 +125,16 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       toast.error("Complete every playtest field before running it.");
       return;
     }
+    posthog.capture(
+      "playtest_started",
+      detailedAnalyticsProperties({
+        provider,
+        model,
+        step_count: plan.steps.length,
+        watch_for_count: plan.watchFor.length,
+        success_criteria_count: plan.successCriteria.length,
+      }),
+    );
     sendMessage.mutate(
       { text: formatPlaytestPrompt(plan) },
       {
@@ -99,8 +150,8 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-label="Playtest planner"
     >
-      <header className="flex shrink-0 items-start justify-between px-5 py-4">
-        <h2 className="font-serif text-xl italic">Playtest</h2>
+      <header className="flex shrink-0 items-start justify-between border-b px-5 py-4">
+        <h2 className="font-serif text-xl">Playtest</h2>
         <button
           type="button"
           onClick={onClose}

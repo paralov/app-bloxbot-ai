@@ -77,6 +77,14 @@ function Chat() {
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
+  const handleOpenPlaytest = useCallback(() => {
+    posthog.capture("playtest_opened");
+    setShowPlaytest(true);
+  }, []);
+  const handleClosePlaytest = useCallback(() => {
+    posthog.capture("playtest_closed");
+    setShowPlaytest(false);
+  }, []);
 
   // Main chat UI
   return (
@@ -150,7 +158,7 @@ function Chat() {
               </div>
               <button
                 type="button"
-                onClick={() => setShowPlaytest(true)}
+                onClick={handleOpenPlaytest}
                 disabled={isBusy}
                 className="ml-3 inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
                 title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
@@ -170,9 +178,7 @@ function Chat() {
           </div>
         )}
       </div>
-      {showPlaytest && activeSessionId ? (
-        <PlaytestPanel onClose={() => setShowPlaytest(false)} />
-      ) : null}
+      {showPlaytest && activeSessionId ? <PlaytestPanel onClose={handleClosePlaytest} /> : null}
     </div>
   );
 }
