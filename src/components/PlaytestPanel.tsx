@@ -150,7 +150,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-label="Playtest planner"
     >
-      <header className="flex shrink-0 items-start justify-between border-b px-5 py-4">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b px-5">
         <h2 className="font-serif text-xl">Playtest</h2>
         <button
           type="button"
