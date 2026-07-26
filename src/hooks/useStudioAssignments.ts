@@ -40,8 +40,8 @@ export function useStudioAssignments() {
   const setAssignment = useCallback(
     async (sessionID: string, assignment: StudioAssignment | null) => {
       const changed = assignments[sessionID]?.id !== assignment?.id;
-      await updateStudioAssignment(queryClient, sessionID, assignment);
       if (changed && client) await disconnectSessionStudioServer(client, sessionID);
+      await updateStudioAssignment(queryClient, sessionID, assignment);
     },
     [assignments, client, queryClient],
   );

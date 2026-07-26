@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 
 type JsonRpcID = number | string | null;
@@ -11,12 +12,13 @@ type JsonRpcMessage = {
   [key: string]: unknown;
 };
 
-const SELECT_ID = "__bloxbot_select_studio__";
 const CONTROL_TOOLS = new Set(["list_roblox_studios", "set_active_studio"]);
 
 const record = (value: unknown) =>
   value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
 const key = (id: JsonRpcID) => `${typeof id}:${String(id)}`;
+const isResponse = (message: JsonRpcMessage) =>
+  message.method === undefined && ("result" in message || "error" in message);
 
 function selectionFailed(message: JsonRpcMessage): boolean {
   return message.error !== undefined || record(message.result)?.isError === true;
@@ -35,6 +37,7 @@ function hideControlTools(message: JsonRpcMessage): JsonRpcMessage {
 }
 
 export class StudioMcpRouter {
+  private readonly selectID = `__bloxbot_select_studio_${randomUUID()}`;
   private selected = false;
   private readonly waitingToolLists: JsonRpcMessage[] = [];
   private readonly toolListIDs = new Set<string>();
@@ -51,7 +54,7 @@ export class StudioMcpRouter {
       this.toStudio(message);
       this.toStudio({
         jsonrpc: "2.0",
-        id: SELECT_ID,
+        id: this.selectID,
         method: "tools/call",
         params: { name: "set_active_studio", arguments: { studio_id: this.studioID } },
       });
@@ -69,7 +72,7 @@ export class StudioMcpRouter {
   }
 
   handleStudio(message: JsonRpcMessage): void {
-    if (message.id === SELECT_ID) {
+    if (isResponse(message) && message.id === this.selectID) {
       if (selectionFailed(message)) {
         this.fail("StudioMCP could not select the assigned place");
         return;
@@ -79,7 +82,7 @@ export class StudioMcpRouter {
       return;
     }
 
-    if (message.id !== undefined && this.toolListIDs.delete(key(message.id))) {
+    if (isResponse(message) && message.id !== undefined && this.toolListIDs.delete(key(message.id))) {
       this.toClient(hideControlTools(message));
       return;
     }

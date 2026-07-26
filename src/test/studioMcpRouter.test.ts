@@ -26,17 +26,19 @@ describe("StudioMcpRouter", () => {
 
     router.handleClient({ jsonrpc: "2.0", method: "notifications/initialized" });
     router.handleClient(list);
+    const selection = studio[1] as { id: string };
     expect(studio).toEqual([
       { jsonrpc: "2.0", method: "notifications/initialized" },
       {
         jsonrpc: "2.0",
-        id: "__bloxbot_select_studio__",
+        id: selection.id,
         method: "tools/call",
         params: { name: "set_active_studio", arguments: { studio_id: "studio-a" } },
       },
     ]);
+    expect(selection.id).toMatch(/^__bloxbot_select_studio_/);
 
-    router.handleStudio({ id: "__bloxbot_select_studio__", result: { content: [] } });
+    router.handleStudio({ id: selection.id, result: { content: [] } });
     expect(studio.at(-1)).toEqual(list);
     router.handleStudio({
       id: 2,
@@ -52,8 +54,9 @@ describe("StudioMcpRouter", () => {
   });
 
   it("fails the server when the assigned Studio cannot be selected", () => {
-    const { router, fail } = setup();
-    router.handleStudio({ id: "__bloxbot_select_studio__", result: { isError: true } });
+    const { router, studio, fail } = setup();
+    router.handleClient({ method: "notifications/initialized" });
+    router.handleStudio({ id: (studio[1] as { id: string }).id, result: { isError: true } });
     expect(fail).toHaveBeenCalledWith("StudioMCP could not select the assigned place");
   });
 
