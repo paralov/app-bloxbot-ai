@@ -299,7 +299,7 @@ describe("User journeys", () => {
 
     // The chat area for the session should now be visible (textarea)
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Describe what you want to build...")).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
     });
 
     expect(
@@ -360,11 +360,11 @@ describe("User journeys", () => {
     });
 
     // Wait for the chat input to appear
-    const textarea = await screen.findByPlaceholderText("Describe what you want to build...");
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
 
     // Type and send a message
     await act(async () => {
-      fireEvent.change(textarea, { target: { value: "Build me a Roblox game" } });
+      fireEvent.input(textarea, { target: { textContent: "Build me a Roblox game" } });
     });
     const sendBtn = screen.getByTitle("Send");
     await act(async () => {
@@ -615,7 +615,7 @@ describe("User journeys", () => {
     await act(async () => {
       fireEvent.click(await screen.findByText("My Session"));
     });
-    await screen.findByPlaceholderText("Describe what you want to build...");
+    await screen.findByRole("textbox", { name: "Message" });
 
     const activeRef = { current: "s1" };
 
@@ -715,7 +715,7 @@ describe("User journeys", () => {
     await act(async () => {
       fireEvent.click(await screen.findByText("Quota Session"));
     });
-    await screen.findByPlaceholderText("Describe what you want to build...");
+    await screen.findByRole("textbox", { name: "Message" });
 
     const activeRef = { current: "s1" };
     act(() => {

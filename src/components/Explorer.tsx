@@ -180,7 +180,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const { client } = useOpenCodeClient();
   const studioTarget = useStudioTargetOptional();
   const { selectedModel, selectedAgent } = usePreferences();
-  const { referenceObject } = useExplorerReference();
+  const { referenceObject, publishObjects } = useExplorerReference();
   const [collection, setCollection] = useState<ExplorerCollection | null>(null);
   const collectionRef = useRef<ExplorerCollection | null>(null);
   const syncingRef = useRef(false);
@@ -325,6 +325,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         unchangedPolls = previousComparable === nextComparable ? unchangedPolls + 1 : 0;
         collectionRef.current = next;
         setCollection(next);
+        publishObjects(next.snapshot.roots);
         setExpanded((currentExpanded) =>
           currentExpanded.size > 0
             ? currentExpanded
@@ -389,7 +390,15 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
     };
-  }, [client, collapsed, model, selectedAgent, sessionBusy, studioTarget?.selected]);
+  }, [
+    client,
+    collapsed,
+    model,
+    publishObjects,
+    selectedAgent,
+    sessionBusy,
+    studioTarget?.selected,
+  ]);
 
   const toggleNode = useCallback((path: string) => {
     setExpanded((current) => {

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor";
 import { useAbort } from "@/hooks/mutations/useAbort";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useAgents } from "@/hooks/useAgents";
@@ -233,7 +234,7 @@ const StatusHint = memo(function StatusHint() {
 });
 
 function ChatInput() {
-  const { pendingReference, consumeReference } = useExplorerReference();
+  const { pendingReference, consumeReference, objects } = useExplorerReference();
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
   const agents = useAgents();
@@ -248,7 +249,6 @@ function ChatInput() {
     setSelectedAgent,
     setSelectedVariant,
   } = usePreferences();
-  const sendMessage = useSendMessage();
   const studioTargetReference = useStudioTargetOptional()?.promptReference ?? null;
 
   // Available variants for the currently selected model
@@ -269,24 +269,47 @@ function ChatInput() {
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [rejectShake, setRejectShake] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const promptEditorRef = useRef<PromptEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelSearchRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const agentPickerRef = useRef<HTMLDivElement>(null);
   const dragCounterRef = useRef(0);
   const rejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const previousSessionRef = useRef(activeSessionId);
+  const failedSendRef = useRef<{
+    sessionId: string | null;
+    text: string;
+    attachments: ImageAttachment[];
+  } | null>(null);
+  const sendMessage = useSendMessage({
+    onError: (error) => {
+      const failed = failedSendRef.current;
+      failedSendRef.current = null;
+      if (!failed || activeSessionIdRef.current !== failed.sessionId) return;
+      toast.error("Message not sent", { description: error.message });
+      if (failed.text) promptEditorRef.current?.insertText(failed.text);
+      setAttachments((current) => {
+        const currentIds = new Set(current.map((attachment) => attachment.id));
+        const restored = failed.attachments.filter((attachment) => !currentIds.has(attachment.id));
+        return [...restored, ...current];
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (previousSessionRef.current === activeSessionId) return;
+    previousSessionRef.current = activeSessionId;
+    setText("");
+    setAttachments([]);
+    promptEditorRef.current?.clear();
+  }, [activeSessionId]);
 
   useEffect(() => {
     if (!pendingReference) return;
-    setText((current) => (current.trim() ? `${pendingReference}\n\n${current}` : pendingReference));
+    promptEditorRef.current?.insertText(pendingReference);
     consumeReference();
-    requestAnimationFrame(() => {
-      if (!textareaRef.current) return;
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
-      textareaRef.current.focus();
-    });
+    requestAnimationFrame(() => promptEditorRef.current?.focus());
   }, [pendingReference, consumeReference]);
 
   const triggerRejectShake = useCallback(() => {
@@ -405,11 +428,6 @@ function ChatInput() {
     [addImageFiles],
   );
 
-  function resizeTextarea(el: HTMLTextAreaElement) {
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }
-
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
@@ -471,46 +489,27 @@ function ChatInput() {
   );
 
   function handleSubmit() {
-    const trimmed = text.trim();
+    const editorText = promptEditorRef.current?.getText() ?? text;
+    const trimmed = editorText.trim();
     if (!trimmed && attachments.length === 0) return;
     if (isBusy) return;
-    const submittedText = text;
+    const submittedText = editorText;
     const submittedAttachments = attachments;
+    failedSendRef.current = {
+      sessionId: activeSessionId,
+      text: submittedText,
+      attachments: submittedAttachments,
+    };
     const images =
       attachments.length > 0
         ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
         : undefined;
     setText("");
     setAttachments([]);
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
-    sendMessage.mutate(
-      { text: trimmed || " ", images, studioTargetReference },
-      {
-        onError: (error) => {
-          if (activeSessionIdRef.current !== activeSessionId) return;
-          setText((current) => {
-            if (!submittedText) return current;
-            return current ? `${submittedText}\n${current}` : submittedText;
-          });
-          setAttachments((current) => {
-            const currentIds = new Set(current.map((attachment) => attachment.id));
-            const restored = submittedAttachments.filter(
-              (attachment) => !currentIds.has(attachment.id),
-            );
-            return [...restored, ...current];
-          });
-          toast.error("Message not sent", { description: error.message });
-        },
-      },
-    );
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (isBusy) return;
-      handleSubmit();
-    }
+    promptEditorRef.current?.clear();
+    void sendMessage
+      .mutateAsync({ text: trimmed || " ", images, studioTargetReference })
+      .catch(() => undefined);
   }
 
   function handleModelClick(model: ModelInfo) {
@@ -818,14 +817,11 @@ function ChatInput() {
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
             </svg>
           </button>
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              resizeTextarea(e.target);
-            }}
-            onKeyDown={handleKeyDown}
+          <PromptEditor
+            ref={promptEditorRef}
+            objects={objects}
+            onChange={setText}
+            onSubmit={handleSubmit}
             onPaste={(e) => {
               const items = e.clipboardData.items;
               const imageFiles: File[] = [];
@@ -841,8 +837,6 @@ function ChatInput() {
               }
             }}
             placeholder={isDragging ? "Drop images here..." : "Describe what you want to build..."}
-            rows={1}
-            className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none"
           />
           <SendButton
             text={text}

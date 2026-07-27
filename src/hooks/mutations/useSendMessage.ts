@@ -24,7 +24,7 @@ interface SendMessageContext {
   previousStatus: SessionStatus | undefined;
 }
 
-export function useSendMessage() {
+export function useSendMessage(options?: { onError?: (error: Error) => void }) {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
   const { selectedModel, selectedAgent, selectedVariant } = usePreferences();
@@ -91,6 +91,7 @@ export function useSendMessage() {
       return context;
     },
     onError: (error, input, context) => {
+      options?.onError?.(error);
       posthog.capture(
         "message_send_failed",
         errorAnalyticsProperties("chat", "send_message", error, {
