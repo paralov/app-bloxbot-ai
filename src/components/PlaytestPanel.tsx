@@ -3,7 +3,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useGeneratePlaytestPlan } from "@/hooks/mutations/useGeneratePlaytestPlan";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
-import { detailedAnalyticsProperties } from "@/lib/analytics";
+import {
+  analyticsProperties,
+  detailedAnalyticsProperties,
+  errorAnalyticsProperties,
+} from "@/lib/analytics";
 import { formatPlaytestPrompt, type PlaytestPlan } from "@/lib/playtestPlan";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { usePreferences } from "@/providers/PreferencesProvider";
@@ -77,36 +81,48 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
   const [provider, model] = selectedModel ? splitModelKey(selectedModel) : [undefined, undefined];
 
   function writeOwnPlan() {
-    posthog.capture("manual_entry_selected");
+    posthog.capture("manual_entry_selected", analyticsProperties("playtest"));
     setPlan({ goal: "", steps: [""], watchFor: [""], successCriteria: [""] });
   }
 
   async function generatePlan() {
     const startedAt = performance.now();
-    posthog.capture("generation_started", detailedAnalyticsProperties({ provider, model }));
+    posthog.capture(
+      "generation_started",
+      analyticsProperties("playtest", detailedAnalyticsProperties({ provider, model })),
+    );
     try {
       const generatedPlan = await generate.mutateAsync();
       setPlan(generatedPlan);
       posthog.capture(
         "generation_succeeded",
-        detailedAnalyticsProperties({
-          provider,
-          model,
-          duration_ms: Math.round(performance.now() - startedAt),
-          step_count: generatedPlan.steps.length,
-          watch_for_count: generatedPlan.watchFor.length,
-          success_criteria_count: generatedPlan.successCriteria.length,
-        }),
+        analyticsProperties(
+          "playtest",
+          detailedAnalyticsProperties({
+            outcome: "success",
+            provider,
+            model,
+            duration_ms: Math.round(performance.now() - startedAt),
+            step_count: generatedPlan.steps.length,
+            watch_for_count: generatedPlan.watchFor.length,
+            success_criteria_count: generatedPlan.successCriteria.length,
+          }),
+        ),
       );
     } catch (error) {
       posthog.capture(
         "generation_failed",
-        detailedAnalyticsProperties({
-          provider,
-          model,
-          duration_ms: Math.round(performance.now() - startedAt),
-          error_category: generationErrorCategory(error),
-        }),
+        errorAnalyticsProperties(
+          "playtest",
+          "plan_generation",
+          error,
+          detailedAnalyticsProperties({
+            provider,
+            model,
+            duration_ms: Math.round(performance.now() - startedAt),
+            error_category: generationErrorCategory(error),
+          }),
+        ),
       );
       toast.error("Couldn't create a playtest plan", {
         description: error instanceof Error ? error.message : "Try again.",
@@ -127,13 +143,16 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
     }
     posthog.capture(
       "playtest_started",
-      detailedAnalyticsProperties({
-        provider,
-        model,
-        step_count: plan.steps.length,
-        watch_for_count: plan.watchFor.length,
-        success_criteria_count: plan.successCriteria.length,
-      }),
+      analyticsProperties(
+        "playtest",
+        detailedAnalyticsProperties({
+          provider,
+          model,
+          step_count: plan.steps.length,
+          watch_for_count: plan.watchFor.length,
+          success_criteria_count: plan.successCriteria.length,
+        }),
+      ),
     );
     sendMessage.mutate(
       { text: formatPlaytestPrompt(plan) },

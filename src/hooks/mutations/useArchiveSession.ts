@@ -2,6 +2,7 @@ import type { Session } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
+import { analyticsProperties, errorAnalyticsProperties } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -30,7 +31,12 @@ export function useArchiveSession() {
       if (activeSessionId === session.id) {
         clearSession();
       }
-      posthog.capture("session_snoozed");
+      posthog.capture("session_snoozed", analyticsProperties("sessions", { outcome: "success" }));
     },
+    onError: (error) =>
+      posthog.capture(
+        "session_snooze_failed",
+        errorAnalyticsProperties("sessions", "snooze", error),
+      ),
   });
 }

@@ -2,6 +2,7 @@ import type { Session } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
+import { analyticsProperties, errorAnalyticsProperties } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -35,7 +36,12 @@ export function useCreateSession() {
       queryClient.setQueryData(qk.permissions(newSession.id), null);
 
       selectSession(newSession.id);
-      posthog.capture("session_created");
+      posthog.capture("session_created", analyticsProperties("sessions", { outcome: "success" }));
     },
+    onError: (error) =>
+      posthog.capture(
+        "session_creation_failed",
+        errorAnalyticsProperties("sessions", "creation", error),
+      ),
   });
 }

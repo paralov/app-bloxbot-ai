@@ -50,7 +50,11 @@ describe("PostHog analytics", () => {
     captureDetailedAnalytics(posthog as never, "model_usage", usage);
 
     expect(posthog.capture).toHaveBeenCalledOnce();
-    expect(posthog.capture).toHaveBeenCalledWith("model_usage", usage);
+    expect(posthog.capture).toHaveBeenCalledWith("model_usage", {
+      analytics_schema_version: 1,
+      feature: "model",
+      ...usage,
+    });
   });
 
   it("keeps Explorer analytics coarse and strips object content", () => {

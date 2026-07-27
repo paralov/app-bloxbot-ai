@@ -13,7 +13,7 @@ import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { useStudioConnection } from "@/hooks/useStudioConnection";
-import { POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
+import { analyticsProperties, POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
@@ -63,7 +63,7 @@ function Chat() {
       app_screen: appScreen,
     };
     posthog.register(screenProperties);
-    posthog.capture("$pageview", screenProperties);
+    posthog.capture("$pageview", analyticsProperties("navigation", screenProperties));
   }, [appScreen]);
 
   useEffect(() => {
@@ -85,11 +85,11 @@ function Chat() {
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
   const handleOpenPlaytest = useCallback(() => {
     if (!hasStudioTarget) return;
-    posthog.capture("playtest_opened");
+    posthog.capture("playtest_opened", analyticsProperties("playtest"));
     setShowPlaytest(true);
   }, [hasStudioTarget]);
   const handleClosePlaytest = useCallback(() => {
-    posthog.capture("playtest_closed");
+    posthog.capture("playtest_closed", analyticsProperties("playtest"));
     setShowPlaytest(false);
   }, []);
 
@@ -166,15 +166,26 @@ function Chat() {
               <div className="ml-3 flex shrink-0 items-center gap-2">
                 <StudioTargetPicker />
                 {hasStudioTarget ? (
-                  <button
-                    type="button"
-                    onClick={handleOpenPlaytest}
-                    disabled={isBusy}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
-                    title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
-                  >
-                    <span aria-hidden="true">▷</span> Playtest
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setExplorerCollapsed((value) => !value)}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md border bg-background px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      aria-pressed={!explorerCollapsed}
+                      title={explorerCollapsed ? "Open Explorer" : "Close Explorer"}
+                    >
+                      <span aria-hidden="true">▤</span> Explorer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenPlaytest}
+                      disabled={isBusy}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
+                      title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
+                    >
+                      <span aria-hidden="true">▷</span> Playtest
+                    </button>
+                  </>
                 ) : null}
               </div>
             </div>

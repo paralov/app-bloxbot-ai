@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
-import { detailedAnalyticsProperties } from "@/lib/analytics";
+import { analyticsProperties, detailedAnalyticsProperties } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
@@ -23,10 +23,14 @@ export function useSetApiKey() {
       if (!provRes.data) throw new Error("No provider data after setting API key");
       const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
       queryClient.setQueryData(qk.providers, merged);
-      posthog.capture("provider_connected", {
-        method: "api_key",
-        ...detailedAnalyticsProperties({ provider: providerID }),
-      });
+      posthog.capture(
+        "provider_connected",
+        analyticsProperties("providers", {
+          outcome: "success",
+          method: "api_key",
+          ...detailedAnalyticsProperties({ provider: providerID }),
+        }),
+      );
     },
   });
 }
@@ -50,7 +54,10 @@ export function useDisconnectProvider() {
       queryClient.setQueryData(qk.providers, merged);
       posthog.capture(
         "provider_disconnected",
-        detailedAnalyticsProperties({ provider: providerID }),
+        analyticsProperties("providers", {
+          outcome: "success",
+          ...detailedAnalyticsProperties({ provider: providerID }),
+        }),
       );
       return providerID;
     },

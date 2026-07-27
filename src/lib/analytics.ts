@@ -43,7 +43,9 @@ export function captureDetailedAnalytics(
   event: string,
   properties: Properties,
 ): void {
-  if (detailedAnalyticsEnabled) posthog.capture(event, properties);
+  if (detailedAnalyticsEnabled) {
+    posthog.capture(event, analyticsProperties("model", properties));
+  }
 }
 
 const EXPLORER_ANALYTICS_KEYS = new Set([

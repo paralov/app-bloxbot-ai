@@ -7,7 +7,7 @@ import { useDeleteSession } from "@/hooks/mutations/useDeleteSession";
 import { useRenameSession } from "@/hooks/mutations/useRenameSession";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
-import { countBucket } from "@/lib/analytics";
+import { analyticsProperties, countBucket } from "@/lib/analytics";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 
 interface ChatSidebarProps {
@@ -109,27 +109,33 @@ const ChatSidebar = memo(function ChatSidebar({
   }
 
   function handleSnoozedSelect(sessionID: string) {
-    posthog.capture("snoozed_session_opened");
+    posthog.capture("snoozed_session_opened", analyticsProperties("sessions"));
     handleSelect(sessionID);
   }
 
   function handleSnoozedToggle() {
     setSnoozedExpanded((expanded) => {
       const nextExpanded = !expanded;
-      posthog.capture("snoozed_section_toggled", {
-        expanded: nextExpanded,
-        count_bucket: countBucket(snoozedSessions.length),
-      });
+      posthog.capture(
+        "snoozed_section_toggled",
+        analyticsProperties("sessions", {
+          expanded: nextExpanded,
+          count_bucket: countBucket(snoozedSessions.length),
+        }),
+      );
       return nextExpanded;
     });
   }
 
   function handleDelete(session: Session) {
-    posthog.capture("permanent_delete_requested");
+    posthog.capture("permanent_delete_requested", analyticsProperties("sessions"));
     const confirmed = window.confirm(
       `Permanently delete “${session.title || "Untitled"}”? This cannot be undone.`,
     );
-    posthog.capture(confirmed ? "permanent_delete_confirmed" : "permanent_delete_cancelled");
+    posthog.capture(
+      confirmed ? "permanent_delete_confirmed" : "permanent_delete_cancelled",
+      analyticsProperties("sessions", { confirmed }),
+    );
     if (confirmed) {
       deleteSession.mutate(session.id);
     }

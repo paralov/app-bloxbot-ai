@@ -100,9 +100,15 @@ describe("PlaytestPanel", () => {
     expect(client.session.create).not.toHaveBeenCalled();
     expect(client.session.prompt).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
-    expect(capture).toHaveBeenCalledWith("generation_started", {});
+    expect(capture).toHaveBeenCalledWith("generation_started", {
+      analytics_schema_version: 1,
+      feature: "playtest",
+    });
     expect(await screen.findByDisplayValue("Test rounds")).toBeInTheDocument();
-    expect(capture).toHaveBeenCalledWith("generation_succeeded", {});
+    expect(capture).toHaveBeenCalledWith("generation_succeeded", {
+      analytics_schema_version: 1,
+      feature: "playtest",
+    });
     expect(client.session.prompt.mock.calls[0][0]).toMatchObject({
       sessionID: "planner",
       format: { type: "json_schema" },
@@ -153,6 +159,9 @@ describe("PlaytestPanel", () => {
     expect(screen.getByLabelText("Steps 1")).toHaveValue("");
     expect(client.session.create).not.toHaveBeenCalled();
     expect(client.session.prompt).not.toHaveBeenCalled();
-    expect(capture).toHaveBeenCalledWith("manual_entry_selected");
+    expect(capture).toHaveBeenCalledWith("manual_entry_selected", {
+      analytics_schema_version: 1,
+      feature: "playtest",
+    });
   });
 });

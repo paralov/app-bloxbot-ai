@@ -10,14 +10,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { toast } from "sonner";
 
 /** Module-level constant to avoid creating a new array on every render. */
 const REMARK_PLUGINS = [remarkGfm];
 
 import { useAnswerQuestion, useRejectQuestion } from "@/hooks/mutations/useAnswerQuestion";
 import { useReplyPermission } from "@/hooks/mutations/useReplyPermission";
-import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useMessage, useMessageIds } from "@/hooks/useMessages";
 import { useActivePermission } from "@/hooks/usePermissions";
 import { useActiveQuestion } from "@/hooks/useQuestions";
@@ -28,9 +26,6 @@ import { type ModelError, presentModelError } from "@/lib/modelError";
 import { getOpenCodeUsageAction, type OpenCodeUsageAction } from "@/lib/usageLimit";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import type { MessageWithParts } from "@/types";
-
-const MULTI_STUDIO_PROMPT =
-  "Help me coordinate work across multiple open Roblox Studio places. Use the Studio MCP tools you currently have to discover the places, ask which place this session should target if unclear, and select and verify that target immediately before every place-specific action. Treat the active place as shared state that another session may change.";
 
 // ── Image lightbox ───────────────────────────────────────────────────────
 
@@ -1506,7 +1501,6 @@ function ChatMessages() {
   const answerQuestion = useAnswerQuestion();
   const rejectQuestion = useRejectQuestion();
   const replyPermission = useReplyPermission();
-  const sendMessage = useSendMessage();
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1579,21 +1573,6 @@ function ChatMessages() {
           <p className="mt-2 text-xs text-muted-foreground">
             Ask me to create scripts, design game mechanics, or modify your Roblox Studio project.
           </p>
-          <button
-            type="button"
-            onClick={() =>
-              sendMessage.mutate(
-                { text: MULTI_STUDIO_PROMPT },
-                {
-                  onError: (error) =>
-                    toast.error("Message not sent", { description: error.message }),
-                },
-              )
-            }
-            className="mt-4 rounded-full border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            Coordinate multiple Studio places
-          </button>
         </div>
       </div>
     );

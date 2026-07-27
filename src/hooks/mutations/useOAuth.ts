@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
-import { detailedAnalyticsProperties } from "@/lib/analytics";
+import { analyticsProperties, detailedAnalyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -67,10 +67,14 @@ export function useCompleteOAuth() {
       queryClient.setQueryData(qk.providers, merged);
 
       if (res.data === true) {
-        posthog.capture("provider_connected", {
-          method: "oauth",
-          ...detailedAnalyticsProperties({ provider: providerID }),
-        });
+        posthog.capture(
+          "provider_connected",
+          analyticsProperties("providers", {
+            outcome: "success",
+            method: "oauth",
+            ...detailedAnalyticsProperties({ provider: providerID }),
+          }),
+        );
       }
       return res.data === true;
     },
