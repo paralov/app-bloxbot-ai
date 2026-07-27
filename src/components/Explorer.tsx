@@ -34,6 +34,7 @@ import {
   type ExplorerNode,
   type ExplorerProgramEnvelope,
   generateExplorerProgram,
+  sortExplorerSnapshot,
 } from "@/lib/explorer";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
@@ -250,7 +251,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               ? BUILTIN_EXPLORER_PROGRAM
               : await generateExplorerProgram(activeClient, model, selectedAgent);
           const artifact = await desktop.compileExplorerProgram(program);
-          const snapshot = await desktop.invokeExplorerProgram(artifact);
+          const snapshot = sortExplorerSnapshot(await desktop.invokeExplorerProgram(artifact));
           if (snapshot.roots.length === 0) {
             throw new Error("Studio has not returned an instance tree yet");
           }
@@ -293,7 +294,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         let next: ExplorerCollection;
         if (current) {
           try {
-            const snapshot = await desktop.invokeExplorerProgram(current.artifact);
+            const snapshot = sortExplorerSnapshot(
+              await desktop.invokeExplorerProgram(current.artifact),
+            );
             next = { ...current, snapshot };
           } catch (error) {
             telemetryRef.current.hadFailure = true;

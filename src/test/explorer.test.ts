@@ -5,6 +5,7 @@ import {
   ExplorerProgramEnvelopeSchema,
   ExplorerSnapshotSchema,
   generateExplorerProgram,
+  sortExplorerNodes,
 } from "@/lib/explorer";
 import { isVisibleSession } from "@/lib/sessionVisibility";
 
@@ -56,6 +57,40 @@ describe("Explorer data boundary", () => {
         }),
       ),
     ).rejects.toBeDefined();
+  });
+
+  it("matches Studio's class order and sorts names within a class", () => {
+    const makeNode = (name: string, className: string) => ({
+      name,
+      className,
+      path: `game.Workspace.${name}`,
+      hasChildren: false,
+      properties: [],
+      attributes: [],
+      children: [],
+    });
+
+    const sorted = sortExplorerNodes([
+      makeNode("Baseplate", "Part"),
+      makeNode("Zebra", "Script"),
+      makeNode("LocalScript", "LocalScript"),
+      makeNode("Terrain", "Terrain"),
+      makeNode("Alpha", "Script"),
+      makeNode("Camera", "Camera"),
+      makeNode("ModuleScript", "ModuleScript"),
+      makeNode("SpawnLocation", "SpawnLocation"),
+    ]);
+
+    expect(sorted.map((node) => node.name)).toEqual([
+      "Camera",
+      "Terrain",
+      "Alpha",
+      "Zebra",
+      "SpawnLocation",
+      "LocalScript",
+      "ModuleScript",
+      "Baseplate",
+    ]);
   });
 
   it("generates a reusable TypeScript program in a disposable private session", async () => {

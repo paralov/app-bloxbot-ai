@@ -165,8 +165,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <aside
-      className="animate-in slide-in-from-right-4 flex w-96 min-w-0 shrink-0 flex-col border-l bg-sidebar duration-200"
-      role="dialog"
+      className="animate-in slide-in-from-right-4 flex w-72 shrink-0 flex-col border-l bg-sidebar duration-200"
       aria-label="Playtest planner"
     >
       <header className="flex h-16 shrink-0 items-center justify-between border-b px-5">
@@ -190,7 +189,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
             <p className="mt-2 max-w-xs text-xs leading-5 text-muted-foreground">
               The planner reads this chat, but cannot use Studio tools or change your project.
             </p>
-            <div className="mt-5 flex items-center gap-2">
+            <div className="mt-5 flex w-full max-w-48 flex-col gap-2">
               <button
                 type="button"
                 onClick={generatePlan}
