@@ -315,7 +315,7 @@ function createWindow(): Effect.Effect<void, DesktopMainError> {
       try: () =>
         new BrowserWindow({
           title: "BloxBot",
-          width: 800,
+          width: 920,
           height: 600,
           minWidth: 520,
           minHeight: 400,

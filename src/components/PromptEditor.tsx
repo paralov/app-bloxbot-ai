@@ -296,10 +296,14 @@ function TypeaheadPlugin({
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) return;
         const token = $createPromptTokenNode(option.kind, option.label, option.value);
-        if (nodeToReplace) nodeToReplace.replace(token);
-        else selection.insertNodes([token]);
-        token.selectNext();
-        selection.insertNodes([$createTextNode(" ")]);
+        const trailingSpace = $createTextNode(" ");
+        if (nodeToReplace) {
+          nodeToReplace.replace(token);
+          token.insertAfter(trailingSpace);
+        } else {
+          selection.insertNodes([token, trailingSpace]);
+        }
+        trailingSpace.selectEnd();
         posthog.capture(
           option.kind === "object" ? "composer_object_referenced" : "composer_command_inserted",
           analyticsProperties("chat", {
@@ -320,11 +324,9 @@ function TypeaheadPlugin({
                 className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
                   selectedIndex === index ? "bg-accent" : "hover:bg-accent/70"
                 }`}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  selectOptionAndCleanUp(option);
-                }}
+                onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setHighlightedIndex(index)}
+                onClick={() => selectOptionAndCleanUp(option)}
               >
                 <span className="text-xs font-medium">{option.label}</span>
                 <span className="truncate text-[10px] text-muted-foreground">{option.detail}</span>
