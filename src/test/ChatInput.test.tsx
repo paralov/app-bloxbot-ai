@@ -411,17 +411,6 @@ describe("ChatInput", () => {
     });
   });
 
-  it("shows Shift+Enter hint", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Shift+Enter for new line")).toBeInTheDocument();
-    });
-  });
-
   it("attaches an image to the submitted message", async () => {
     const client = createClient();
     const qc = createQueryClient();

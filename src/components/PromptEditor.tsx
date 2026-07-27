@@ -441,7 +441,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
         <RichTextPlugin
           contentEditable={
             <ContentEditable
-              className="app-scrollbar max-h-40 min-h-[20px] overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed outline-none"
+              className="app-scrollbar max-h-48 min-h-10 overflow-y-auto whitespace-pre-wrap pb-2 pt-1 text-[13px] leading-relaxed outline-none"
               aria-label="Message"
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey) return;
@@ -453,7 +453,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-0 top-0 text-[13px] text-muted-foreground/50">
+            <div className="pointer-events-none absolute left-0 top-1 text-[13px] text-muted-foreground/50">
               {placeholder}
             </div>
           }

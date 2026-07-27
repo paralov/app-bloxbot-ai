@@ -45,6 +45,7 @@
     "lexical": "^0.48.0",
     "lucide-react": "^1.27.0",
     "posthog-js": "^1.363.1",
+    "radix-ui": "^1.6.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
