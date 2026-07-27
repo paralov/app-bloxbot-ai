@@ -11,10 +11,17 @@ interface HighlightedToken {
   dark?: string;
 }
 
+function hiddenLinesMarker(sourceLines: string[]) {
+  const hiddenCount = sourceLines.length - 6;
+  const boundaryLines = [sourceLines[2], sourceLines[sourceLines.length - 3]];
+  const indentation = Math.min(...boundaryLines.map((line) => line.match(/^\s*/)?.[0].length ?? 0));
+  return `${" ".repeat(indentation)}[… ${hiddenCount} hidden ${hiddenCount === 1 ? "line" : "lines"}]`;
+}
+
 function collapsedTextPreview(code: string) {
   const lines = code.split("\n");
   if (lines.length <= 7) return code;
-  return [...lines.slice(0, 3), "", ...lines.slice(-3)].join("\n");
+  return [...lines.slice(0, 3), hiddenLinesMarker(lines), ...lines.slice(-3)].join("\n");
 }
 
 const highlighterPromise = createHighlighterCore({
@@ -61,29 +68,33 @@ export default function SyntaxHighlightedOutput({
     );
   }
 
-  const visibleLines: Array<HighlightedToken[] | null> =
-    collapsed && lines.length > 7 ? [...lines.slice(0, 3), null, ...lines.slice(-3)] : lines;
+  const sourceLines = code.split("\n");
+  const marker = hiddenLinesMarker(sourceLines);
+  const visibleLines: Array<HighlightedToken[] | string> =
+    collapsed && lines.length > 7 ? [...lines.slice(0, 3), marker, ...lines.slice(-3)] : lines;
 
   return (
     <code className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed">
       {visibleLines.map((line, lineIndex) => (
         <span key={lineIndex} className="block">
-          {line === null
-            ? "\u00a0"
-            : line.map((token, tokenIndex) => (
-                <span
-                  key={tokenIndex}
-                  className="syntax-token"
-                  style={
-                    {
-                      "--syntax-light": token.light,
-                      "--syntax-dark": token.dark,
-                    } as CSSProperties
-                  }
-                >
-                  {token.content}
-                </span>
-              ))}
+          {typeof line === "string" ? (
+            <span className="text-muted-foreground/60">{line}</span>
+          ) : (
+            line.map((token, tokenIndex) => (
+              <span
+                key={tokenIndex}
+                className="syntax-token"
+                style={
+                  {
+                    "--syntax-light": token.light,
+                    "--syntax-dark": token.dark,
+                  } as CSSProperties
+                }
+              >
+                {token.content}
+              </span>
+            ))
+          )}
         </span>
       ))}
     </code>
