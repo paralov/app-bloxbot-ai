@@ -692,7 +692,7 @@ const DefaultToolView = memo(function DefaultToolView({
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-1.5 text-[13px] leading-relaxed">
-        <span className="min-w-0 break-all font-medium text-[#005cc5]/70 dark:text-[#79c0ff]/65">
+        <span className="min-w-0 break-all font-medium text-muted-foreground/75 transition-colors hover:text-muted-foreground">
           {tool}
         </span>
         {title && <span className="min-w-0 break-words text-muted-foreground">- {title}</span>}
