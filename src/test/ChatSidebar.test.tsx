@@ -206,9 +206,11 @@ describe("ChatSidebar", () => {
       fireEvent.click(snoozeBtn);
     });
 
-    expect(client.session.update).toHaveBeenCalledWith(
-      { sessionID: "s1", time: { archived: expect.any(Number) } },
-      { throwOnError: true },
+    await waitFor(() =>
+      expect(client.session.update).toHaveBeenCalledWith(
+        { sessionID: "s1", time: { archived: expect.any(Number) } },
+        { throwOnError: true },
+      ),
     );
     expect(client.session.delete).not.toHaveBeenCalled();
 
@@ -291,9 +293,11 @@ describe("ChatSidebar", () => {
     fireEvent.click(await screen.findByText("Snoozed"));
     await act(async () => fireEvent.click(screen.getByTitle("Unsnooze")));
 
-    expect(client.session.update).toHaveBeenCalledWith(
-      { sessionID: "s1", time: { archived: 0 } },
-      { throwOnError: true },
+    await waitFor(() =>
+      expect(client.session.update).toHaveBeenCalledWith(
+        { sessionID: "s1", time: { archived: 0 } },
+        { throwOnError: true },
+      ),
     );
     expect(capture).toHaveBeenCalledWith("session_unsnoozed", {
       analytics_schema_version: 1,

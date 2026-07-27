@@ -71,8 +71,10 @@ const ChatSidebar = memo(function ChatSidebar({
     y: number;
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [transitioningSessionId, setTransitioningSessionId] = useState<string | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  const transitionTimerRef = useRef<number | null>(null);
 
   const { activeSessions, snoozedSessions } = useMemo(() => {
     const active: Session[] = [];
@@ -126,6 +128,13 @@ const ChatSidebar = memo(function ChatSidebar({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [deleteTarget]);
 
+  useEffect(
+    () => () => {
+      if (transitionTimerRef.current !== null) window.clearTimeout(transitionTimerRef.current);
+    },
+    [],
+  );
+
   function startRename(session: { id: string; title?: string }) {
     setEditingId(session.id);
     setEditValue(session.title || "Untitled");
@@ -141,7 +150,11 @@ const ChatSidebar = memo(function ChatSidebar({
   function handleSnooze(sessionID: string) {
     const status = sessionStatuses[sessionID];
     if (status && status.type !== "idle") return;
-    archiveSession.mutate(sessionID);
+    setTransitioningSessionId(sessionID);
+    transitionTimerRef.current = window.setTimeout(() => {
+      archiveSession.mutate(sessionID, { onSettled: () => setTransitioningSessionId(null) });
+      transitionTimerRef.current = null;
+    }, 180);
   }
 
   function handleSnoozedSelect(sessionID: string) {
@@ -150,7 +163,11 @@ const ChatSidebar = memo(function ChatSidebar({
   }
 
   function handleUnsnooze(sessionID: string) {
-    unarchiveSession.mutate(sessionID);
+    setTransitioningSessionId(sessionID);
+    transitionTimerRef.current = window.setTimeout(() => {
+      unarchiveSession.mutate(sessionID, { onSettled: () => setTransitioningSessionId(null) });
+      transitionTimerRef.current = null;
+    }, 180);
   }
 
   function openContextMenu(event: MouseEvent, session: Session) {
@@ -329,7 +346,11 @@ const ChatSidebar = memo(function ChatSidebar({
               return (
                 <div
                   key={session.id}
-                  className="animate-slide-in-left"
+                  className={
+                    transitioningSessionId === session.id
+                      ? "animate-slide-out-left"
+                      : "animate-slide-in-left"
+                  }
                   style={{ animationDelay: `${index * 30}ms` }}
                 >
                   <div
@@ -480,7 +501,11 @@ const ChatSidebar = memo(function ChatSidebar({
                     <div
                       key={session.id}
                       onContextMenu={(event) => openContextMenu(event, session)}
-                      className="group relative mx-1 flex min-w-0 items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                      className={`group relative mx-1 flex min-w-0 items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground ${
+                        transitioningSessionId === session.id
+                          ? "animate-slide-out-left"
+                          : "animate-slide-in-left"
+                      }`}
                     >
                       <button
                         type="button"

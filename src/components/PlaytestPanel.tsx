@@ -168,12 +168,14 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       className="animate-in slide-in-from-right-4 flex w-72 shrink-0 flex-col border-l bg-sidebar duration-200"
       aria-label="Playtest planner"
     >
-      <header className="flex h-16 shrink-0 items-center justify-between border-b px-5">
-        <h2 className="font-serif text-xl">Playtest</h2>
+      <header className="flex h-10 shrink-0 items-center justify-between border-b px-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Playtest
+        </h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md px-2 py-1 text-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex h-6 w-6 items-center justify-center rounded text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Close playtest"
         >
           ×

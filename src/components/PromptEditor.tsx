@@ -95,6 +95,10 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
   }
 
   getTextContent() {
+    if (this.__kind === "object") {
+      const reference = this.__value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+      return `<Instance reference="${reference}">${this.__label}</Instance>`;
+    }
     return this.__value;
   }
 
@@ -267,7 +271,7 @@ function TypeaheadPlugin({
             "object",
             `@${node.name}`,
             `${node.className} · ${node.path}`,
-            `the ${node.className} named "${node.name}" at ${node.path}`,
+            node.path,
           ),
         );
         if (objectOptions.length === 10) break;

@@ -190,6 +190,11 @@
   to   { opacity: 1; transform: translateX(0); }
 }
 
+@keyframes slide-out-left {
+  from { opacity: 1; transform: translateX(0); max-height: 64px; }
+  to { opacity: 0; transform: translateX(-10px); max-height: 0; }
+}
+
 @keyframes scale-in {
   from { opacity: 0; transform: scale(0.96); }
   to   { opacity: 1; transform: scale(1); }
@@ -205,6 +210,11 @@
 
 .animate-slide-in-left {
   animation: slide-in-left 200ms ease-out both;
+}
+
+.animate-slide-out-left {
+  overflow: hidden;
+  animation: slide-out-left 180ms ease-in both;
 }
 
 .animate-scale-in {

@@ -13,6 +13,7 @@ import remarkGfm from "remark-gfm";
 
 /** Module-level constant to avoid creating a new array on every render. */
 const REMARK_PLUGINS = [remarkGfm];
+const INSTANCE_REFERENCE_PATTERN = /<Instance reference="([^"]+)">([^<]+)<\/Instance>/g;
 
 import { useAnswerQuestion, useRejectQuestion } from "@/hooks/mutations/useAnswerQuestion";
 import { useReplyPermission } from "@/hooks/mutations/useReplyPermission";
@@ -818,13 +819,43 @@ const markdownComponents: Components = {
   },
 };
 
+function decodeReference(value: string) {
+  return value.replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+}
+
+function MessageText({ text }: { text: string }) {
+  const parts: Array<{ type: "text" | "instance"; value: string; label?: string }> = [];
+  let cursor = 0;
+  for (const match of text.matchAll(INSTANCE_REFERENCE_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index > cursor) parts.push({ type: "text", value: text.slice(cursor, index) });
+    parts.push({ type: "instance", value: decodeReference(match[1]), label: match[2] });
+    cursor = index + match[0].length;
+  }
+  if (cursor < text.length) parts.push({ type: "text", value: text.slice(cursor) });
+
+  return parts.map((part, index) =>
+    part.type === "instance" ? (
+      <span
+        key={`${part.value}:${index}`}
+        className="mx-0.5 inline-flex items-center rounded-md border border-blue-500/25 bg-blue-500/10 px-1.5 py-0.5 align-baseline text-[11px] font-medium text-blue-700 dark:text-blue-300"
+        title={part.value}
+      >
+        {part.label}
+      </span>
+    ) : (
+      <Markdown key={index} remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
+        {part.value}
+      </Markdown>
+    ),
+  );
+}
+
 const TextPartView = memo(
   function TextPartView({ part }: { part: Extract<Part, { type: "text" }> }) {
     return (
       <div className="text-[13px] leading-relaxed">
-        <Markdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
-          {part.text}
-        </Markdown>
+        <MessageText text={part.text} />
       </div>
     );
   },

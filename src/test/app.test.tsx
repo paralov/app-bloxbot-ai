@@ -506,9 +506,11 @@ describe("User journeys", () => {
       fireEvent.click(snoozeButtons[0]);
     });
 
-    expect(client.session.update).toHaveBeenCalledWith(
-      { sessionID: "s1", time: { archived: expect.any(Number) } },
-      { throwOnError: true },
+    await waitFor(() =>
+      expect(client.session.update).toHaveBeenCalledWith(
+        { sessionID: "s1", time: { archived: expect.any(Number) } },
+        { throwOnError: true },
+      ),
     );
     expect(client.session.delete).not.toHaveBeenCalled();
 
