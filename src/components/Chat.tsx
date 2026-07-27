@@ -167,6 +167,7 @@ function Chat() {
       studioConnection.state === "connected" ? (
         <Explorer
           collapsed={explorerCollapsed}
+          sessionBusy={isBusy}
           onToggle={() => setExplorerCollapsed((value) => !value)}
         />
       ) : null}

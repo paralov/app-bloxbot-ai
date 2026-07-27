@@ -20,23 +20,26 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { explorerAnalyticsProperties } from "@/lib/analytics";
+import { desktop } from "@/lib/desktop";
 import {
   createExplorerReference,
   type ExplorerCollection,
   type ExplorerField,
   type ExplorerNode,
-  generateExplorerCollection,
-  replayExplorerCollector,
+  generateExplorerProgram,
 } from "@/lib/explorer";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
 
-const SYNC_INTERVAL_MS = 20_000;
+const ACTIVE_SYNC_MS = 2_500;
+const IDLE_SYNC_MS = 5_000;
+const MAX_UNCHANGED_SYNC_MS = 30_000;
 
 interface ExplorerProps {
   collapsed: boolean;
+  sessionBusy: boolean;
   onToggle: () => void;
 }
 
@@ -148,7 +151,7 @@ function countNodes(nodes: readonly ExplorerNode[]): number {
   return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
 }
 
-export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
+export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
   const { selectedModel, selectedAgent } = usePreferences();
   const { referenceObject } = useExplorerReference();
@@ -177,13 +180,25 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
     if (!client || collapsed) return;
     const activeClient = client;
     let cancelled = false;
+    let timer: number | undefined;
+    let unchangedPolls = 0;
+
+    function scheduleNext() {
+      if (cancelled) return;
+      const baseDelay = sessionBusy ? ACTIVE_SYNC_MS : IDLE_SYNC_MS;
+      const delay = Math.min(baseDelay * 2 ** Math.min(unchangedPolls, 3), MAX_UNCHANGED_SYNC_MS);
+      timer = window.setTimeout(() => void sync(), delay);
+    }
 
     async function sync() {
       if (syncingRef.current) {
         resyncRequestedRef.current = true;
         return;
       }
-      if (document.visibilityState === "hidden") return;
+      if (document.visibilityState === "hidden" || !document.hasFocus()) {
+        scheduleNext();
+        return;
+      }
       syncingRef.current = true;
       setSyncing(true);
       setSyncError(null);
@@ -200,7 +215,10 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
           reason,
         });
         try {
-          const generated = await generateExplorerCollection(activeClient, model, selectedAgent);
+          const program = await generateExplorerProgram(activeClient, model, selectedAgent);
+          const artifact = await desktop.compileExplorerProgram(program);
+          const snapshot = await desktop.invokeExplorerProgram(artifact);
+          const generated: ExplorerCollection = { program, artifact, snapshot };
           posthog.capture(
             "collector_generation_succeeded",
             explorerAnalyticsProperties({
@@ -230,16 +248,11 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
         let next: ExplorerCollection;
         if (current) {
           try {
-            const snapshot = await replayExplorerCollector(
-              activeClient,
-              current.collector,
-              model,
-              selectedAgent,
-            );
-            next = { collector: current.collector, snapshot };
+            const snapshot = await desktop.invokeExplorerProgram(current.artifact);
+            next = { ...current, snapshot };
           } catch {
             telemetryRef.current.hadFailure = true;
-            posthog.capture("sync_failed", { reason: "collector_replay" });
+            posthog.capture("sync_failed", { reason: "collector_runtime" });
             next = await generate("contract_recovery");
           }
         } else {
@@ -247,6 +260,14 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
         }
 
         if (cancelled) return;
+        const previousComparable = current
+          ? JSON.stringify({ placeName: current.snapshot.placeName, roots: current.snapshot.roots })
+          : null;
+        const nextComparable = JSON.stringify({
+          placeName: next.snapshot.placeName,
+          roots: next.snapshot.roots,
+        });
+        unchangedPolls = previousComparable === nextComparable ? unchangedPolls + 1 : 0;
         collectionRef.current = next;
         setCollection(next);
         setExpanded((currentExpanded) =>
@@ -283,18 +304,27 @@ export default function Explorer({ collapsed, onToggle }: ExplorerProps) {
         if (resyncRequestedRef.current) {
           resyncRequestedRef.current = false;
           queueMicrotask(() => syncLatestRef.current());
-        }
+        } else scheduleNext();
       }
     }
 
     syncLatestRef.current = () => void sync();
     void sync();
-    const interval = window.setInterval(() => void sync(), SYNC_INTERVAL_MS);
+    const resume = () => {
+      if (document.visibilityState === "visible" && document.hasFocus()) {
+        if (timer !== undefined) window.clearTimeout(timer);
+        void sync();
+      }
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("focus", resume);
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
     };
-  }, [client, collapsed, model, selectedAgent]);
+  }, [client, collapsed, model, selectedAgent, sessionBusy]);
 
   const toggleNode = useCallback((path: string) => {
     setExpanded((current) => {

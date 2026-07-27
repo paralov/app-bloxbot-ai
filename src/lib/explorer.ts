@@ -1,5 +1,6 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { Effect, Schema } from "effect";
+import type { GeneratedProgramArtifact, GeneratedProgramEnvelope } from "../types/generatedProgram";
 
 export const ExplorerFieldSchema = Schema.Struct({
   name: Schema.String,
@@ -36,12 +37,31 @@ export const ExplorerSnapshotSchema = Schema.Struct({
 
 export type ExplorerSnapshot = typeof ExplorerSnapshotSchema.Type;
 
-export const ExplorerCollectionSchema = Schema.Struct({
-  collector: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(12_000)),
-  snapshot: ExplorerSnapshotSchema,
+export const EXPLORER_CONTRACT = {
+  name: "explorer-snapshot",
+  version: "1",
+  inputSchemaVersion: "explorer-input-v1",
+  outputSchemaVersion: "explorer-snapshot-v1",
+} as const;
+
+export const ExplorerProgramEnvelopeSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  contract: Schema.Struct({
+    name: Schema.Literal(EXPLORER_CONTRACT.name),
+    version: Schema.Literal(EXPLORER_CONTRACT.version),
+    inputSchemaVersion: Schema.Literal(EXPLORER_CONTRACT.inputSchemaVersion),
+    outputSchemaVersion: Schema.Literal(EXPLORER_CONTRACT.outputSchemaVersion),
+  }),
+  source: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100_000)),
 });
 
-export type ExplorerCollection = typeof ExplorerCollectionSchema.Type;
+export type ExplorerProgramEnvelope = typeof ExplorerProgramEnvelopeSchema.Type;
+
+export interface ExplorerCollection {
+  readonly program: GeneratedProgramEnvelope;
+  readonly artifact: GeneratedProgramArtifact;
+  readonly snapshot: ExplorerSnapshot;
+}
 
 const FIELD_JSON_SCHEMA = {
   type: "object",
@@ -71,20 +91,25 @@ const SNAPSHOT_PROPERTIES = {
   roots: { type: "array", items: { $ref: "#/$defs/node" } },
 } as const;
 
-export const EXPLORER_COLLECTION_OUTPUT_SCHEMA = {
+export const EXPLORER_PROGRAM_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["collector", "snapshot"],
+  required: ["version", "contract", "source"],
   properties: {
-    collector: { type: "string", minLength: 1, maxLength: 12_000 },
-    snapshot: {
+    version: { const: 1 },
+    contract: {
       type: "object",
       additionalProperties: false,
-      required: ["placeName", "capturedAt", "roots"],
-      properties: SNAPSHOT_PROPERTIES,
+      required: ["name", "version", "inputSchemaVersion", "outputSchemaVersion"],
+      properties: {
+        name: { const: EXPLORER_CONTRACT.name },
+        version: { const: EXPLORER_CONTRACT.version },
+        inputSchemaVersion: { const: EXPLORER_CONTRACT.inputSchemaVersion },
+        outputSchemaVersion: { const: EXPLORER_CONTRACT.outputSchemaVersion },
+      },
     },
+    source: { type: "string", minLength: 1, maxLength: 100_000 },
   },
-  $defs: { node: NODE_JSON_SCHEMA },
 } as const;
 
 export const EXPLORER_SNAPSHOT_OUTPUT_SCHEMA = {
@@ -95,17 +120,13 @@ export const EXPLORER_SNAPSHOT_OUTPUT_SCHEMA = {
   $defs: { node: NODE_JSON_SCHEMA },
 } as const;
 
-const INITIAL_SYSTEM_PROMPT = `You are the private data provider for BloxBot's Explorer panel.
-Discover the currently available capabilities and design a deterministic, read-only collector that can be rerun verbatim to inspect the connected Roblox Studio place.
-The collector may be a small program or precise execution instructions. It must contain everything a future agent needs to rerun it without rediscovering or replanning, and it must never modify the place.
-Run the collector now and return both the exact collector and a snapshot. Do not rely on earlier conversation context.
+const INITIAL_SYSTEM_PROMPT = `You generate the private TypeScript data provider for BloxBot's Explorer panel.
+Discover the currently available Studio MCP tools and return an import-free deterministic read-only TypeScript program.
+The source must define async function run({ input, callTool }) and return an Explorer snapshot matching the requested output contract. Use callTool directly with the exact discovered tool names and arguments. It must never modify the place.
+Do not run a recurring model-mediated replay. The app will compile this source once and invoke it directly for every refresh.
 For every object include a compact set of useful, readable properties and all available attributes. Stringify values safely.
 Paths are dot-separated human-readable hints, not durable identifiers. Keep children in Studio order.
 Return only the requested structured output.`;
-
-const REPLAY_SYSTEM_PROMPT = `You are the private data provider for BloxBot's Explorer panel.
-Rerun the supplied collector exactly as written against the currently connected place. Do not rediscover capabilities, redesign the collector, or modify the place.
-Return a fresh snapshot only. Paths are hints, not durable identifiers. Return only the requested structured output.`;
 
 interface ExplorerModel {
   providerID: string;
@@ -132,11 +153,11 @@ async function withPrivateSession<T>(
   }
 }
 
-export async function generateExplorerCollection(
+export async function generateExplorerProgram(
   client: OpencodeClient,
   model?: ExplorerModel,
   agent?: string | null,
-): Promise<ExplorerCollection> {
+): Promise<ExplorerProgramEnvelope> {
   return withPrivateSession(client, async (sessionID) => {
     const response = await client.session.prompt(
       {
@@ -144,11 +165,11 @@ export async function generateExplorerCollection(
         model,
         agent: agent ?? undefined,
         system: INITIAL_SYSTEM_PROMPT,
-        format: { type: "json_schema", schema: EXPLORER_COLLECTION_OUTPUT_SCHEMA, retryCount: 2 },
+        format: { type: "json_schema", schema: EXPLORER_PROGRAM_OUTPUT_SCHEMA, retryCount: 2 },
         parts: [
           {
             type: "text",
-            text: "Discover a safe read-only collection method, retain it as the collector, and run it for the initial Explorer snapshot.",
+            text: "Discover the read-only Studio tools and generate the reusable TypeScript Explorer program.",
           },
         ],
       },
@@ -156,37 +177,7 @@ export async function generateExplorerCollection(
     );
 
     return Effect.runPromise(
-      Schema.decodeUnknown(ExplorerCollectionSchema)(response.data.info.structured),
-    );
-  });
-}
-
-export async function replayExplorerCollector(
-  client: OpencodeClient,
-  collector: string,
-  model?: ExplorerModel,
-  agent?: string | null,
-): Promise<ExplorerSnapshot> {
-  return withPrivateSession(client, async (sessionID) => {
-    const response = await client.session.prompt(
-      {
-        sessionID,
-        model,
-        agent: agent ?? undefined,
-        system: REPLAY_SYSTEM_PROMPT,
-        format: { type: "json_schema", schema: EXPLORER_SNAPSHOT_OUTPUT_SCHEMA, retryCount: 1 },
-        parts: [
-          {
-            type: "text",
-            text: `Rerun this exact read-only collector:\n\n<collector>\n${collector}\n</collector>`,
-          },
-        ],
-      },
-      { throwOnError: true },
-    );
-
-    return Effect.runPromise(
-      Schema.decodeUnknown(ExplorerSnapshotSchema)(response.data.info.structured),
+      Schema.decodeUnknown(ExplorerProgramEnvelopeSchema)(response.data.info.structured),
     );
   });
 }

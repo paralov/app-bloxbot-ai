@@ -1,4 +1,5 @@
 import { Data, Effect, Schema } from "effect";
+import { ExplorerSnapshotSchema } from "@/lib/explorer";
 import {
   type AppConfig,
   AppConfigPatchSchema,
@@ -11,6 +12,7 @@ import {
   type UpdateInfo,
   UpdateInfoSchema,
 } from "@/types/desktop";
+import { GeneratedProgramArtifactSchema } from "@/types/generatedProgram";
 
 const CONFIG_KEY = "bloxbot-config";
 const DEFAULT_CONFIG: AppConfig = DEFAULT_APP_CONFIG;
@@ -21,6 +23,16 @@ export class DesktopError extends Data.TaggedError("DesktopError")<{
 }> {}
 
 interface DesktopEffects {
+  readonly compileExplorerProgram: DesktopApi["compileExplorerProgram"] extends (
+    input: infer Input,
+  ) => Promise<infer Output>
+    ? (input: Input) => Effect.Effect<Output, DesktopError>
+    : never;
+  readonly invokeExplorerProgram: DesktopApi["invokeExplorerProgram"] extends (
+    input: infer Input,
+  ) => Promise<infer Output>
+    ? (input: Input) => Effect.Effect<Output, DesktopError>
+    : never;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
   readonly getVersion: Effect.Effect<string, DesktopError>;
   readonly openUrl: (url: string) => Effect.Effect<void, DesktopError>;
@@ -53,6 +65,8 @@ const loadBrowserConfig = Effect.gen(function* () {
 }).pipe(Effect.catchAll(() => Effect.succeed(DEFAULT_CONFIG)));
 
 const browserEffects: DesktopEffects = {
+  compileExplorerProgram: () =>
+    Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
   getOpenCodeInfo: Effect.fail(
     new DesktopError({
       message: "The desktop service is unavailable. Start BloxBot with pnpm dev.",
@@ -81,6 +95,8 @@ const browserEffects: DesktopEffects = {
   installUpdate: Effect.fail(
     new DesktopError({ message: "Updates are only available in the desktop app." }),
   ),
+  invokeExplorerProgram: () =>
+    Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
   relaunch: Effect.sync(() => window.location.reload()),
 };
 
@@ -106,6 +122,10 @@ const decodeBridgeValue =
 
 function makeBridgeEffects(api: DesktopApi): DesktopEffects {
   return {
+    compileExplorerProgram: (program) =>
+      invoke("Failed to compile Explorer program", () => api.compileExplorerProgram(program)).pipe(
+        decodeBridgeValue("Explorer program artifact is invalid", GeneratedProgramArtifactSchema),
+      ),
     getOpenCodeInfo: invoke("Failed to get OpenCode connection details", () =>
       api.getOpenCodeInfo(),
     ).pipe(decodeBridgeValue("OpenCode connection details are invalid", OpenCodeInfoSchema)),
@@ -121,6 +141,10 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
       decodeBridgeValue("Update information is invalid", Schema.NullOr(UpdateInfoSchema)),
     ),
     installUpdate: invoke("Failed to install the update", () => api.installUpdate()),
+    invokeExplorerProgram: (artifact) =>
+      invoke("Failed to invoke Explorer program", () => api.invokeExplorerProgram(artifact)).pipe(
+        decodeBridgeValue("Explorer snapshot is invalid", ExplorerSnapshotSchema),
+      ),
     relaunch: invoke("Failed to relaunch the app", () => api.relaunch()),
   };
 }
@@ -134,6 +158,7 @@ const runPromise = <A>(effect: Effect.Effect<A, DesktopError>): Promise<A> =>
 
 /** Promise-only adapter consumed by React and exposed by the Electron bridge contract. */
 export const desktop: DesktopApi = {
+  compileExplorerProgram: (program) => runPromise(desktopEffects.compileExplorerProgram(program)),
   getOpenCodeInfo: () => runPromise(desktopEffects.getOpenCodeInfo),
   onOpenCodeStartupProgress: (listener: StartupProgressListener) =>
     window.bloxbot?.onOpenCodeStartupProgress(listener) ?? (() => {}),
@@ -143,5 +168,6 @@ export const desktop: DesktopApi = {
   patchConfig: (patch) => runPromise(desktopEffects.patchConfig(patch)),
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),
   installUpdate: () => runPromise(desktopEffects.installUpdate),
+  invokeExplorerProgram: (artifact) => runPromise(desktopEffects.invokeExplorerProgram(artifact)),
   relaunch: () => runPromise(desktopEffects.relaunch),
 };

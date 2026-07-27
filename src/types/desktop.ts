@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import type { ExplorerProgramEnvelope, ExplorerSnapshot } from "../lib/explorer";
+import type { GeneratedProgramArtifact } from "./generatedProgram";
 
 const MutableStrings = Schema.mutable(Schema.Array(Schema.String));
 
@@ -59,6 +61,8 @@ export const UpdateInfoSchema = Schema.mutable(
 export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
 export interface DesktopApi {
+  compileExplorerProgram(program: ExplorerProgramEnvelope): Promise<GeneratedProgramArtifact>;
+  invokeExplorerProgram(artifact: GeneratedProgramArtifact): Promise<ExplorerSnapshot>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
   onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
   getVersion(): Promise<string>;

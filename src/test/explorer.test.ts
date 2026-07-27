@@ -2,10 +2,9 @@ import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   createExplorerReference,
-  ExplorerCollectionSchema,
+  ExplorerProgramEnvelopeSchema,
   ExplorerSnapshotSchema,
-  generateExplorerCollection,
-  replayExplorerCollector,
+  generateExplorerProgram,
 } from "@/lib/explorer";
 import { isVisibleSession } from "@/lib/sessionVisibility";
 
@@ -59,15 +58,24 @@ describe("Explorer data boundary", () => {
     ).rejects.toBeDefined();
   });
 
-  it("generates a collector and initial snapshot in a disposable private session", async () => {
+  it("generates a reusable TypeScript program in a disposable private session", async () => {
     const create = vi.fn().mockResolvedValue({ data: { id: "hidden-session" } });
-    const structured = { collector: "READ_ONLY_COLLECTOR", snapshot };
+    const structured = {
+      version: 1,
+      contract: {
+        name: "explorer-snapshot",
+        version: "1",
+        inputSchemaVersion: "explorer-input-v1",
+        outputSchemaVersion: "explorer-snapshot-v1",
+      },
+      source: "async function run({ callTool }) { return callTool('inspect_place', {}); }",
+    };
     const prompt = vi.fn().mockResolvedValue({ data: { info: { structured } } });
     const remove = vi.fn().mockResolvedValue({ data: true });
     const client = { session: { create, prompt, delete: remove } };
 
     await expect(
-      generateExplorerCollection(
+      generateExplorerProgram(
         client as never,
         { providerID: "anthropic", modelID: "claude" },
         "build",
@@ -86,31 +94,23 @@ describe("Explorer data boundary", () => {
       { throwOnError: true },
     );
     expect(remove).toHaveBeenCalledWith({ sessionID: "hidden-session" }, { throwOnError: true });
+    expect(prompt.mock.calls[0][0].system).toContain("compile this source once");
+    expect(prompt.mock.calls[0][0].system).toContain("callTool");
   });
 
-  it("replays the retained collector verbatim without asking for a new plan", async () => {
-    const prompt = vi.fn().mockResolvedValue({ data: { info: { structured: snapshot } } });
-    const client = {
-      session: {
-        create: vi.fn().mockResolvedValue({ data: { id: "replay-session" } }),
-        prompt,
-        delete: vi.fn().mockResolvedValue({ data: true }),
-      },
-    };
-
-    await expect(replayExplorerCollector(client as never, "EXACT COLLECTOR")).resolves.toEqual(
-      snapshot,
-    );
-    const request = prompt.mock.calls[0][0];
-    expect(request.parts[0].text).toContain("<collector>\nEXACT COLLECTOR\n</collector>");
-    expect(request.parts[0].text).not.toContain("design");
-    expect(request.format).toMatchObject({ type: "json_schema", retryCount: 1 });
-  });
-
-  it("rejects invalid collectors before they can be retained", async () => {
+  it("rejects invalid generated program contracts", async () => {
     await expect(
       Effect.runPromise(
-        Schema.decodeUnknown(ExplorerCollectionSchema)({ collector: "", snapshot }),
+        Schema.decodeUnknown(ExplorerProgramEnvelopeSchema)({
+          version: 1,
+          contract: {
+            name: "wrong-contract",
+            version: "1",
+            inputSchemaVersion: "explorer-input-v1",
+            outputSchemaVersion: "explorer-snapshot-v1",
+          },
+          source: "async function run() {}",
+        }),
       ),
     ).rejects.toBeDefined();
   });

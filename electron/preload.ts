@@ -4,6 +4,8 @@ import type { AppConfig, DesktopApi, OpenCodeStartupProgress } from "../src/type
 import { channels } from "./channels";
 
 const api: DesktopApi = {
+  compileExplorerProgram: (program) =>
+    ipcRenderer.invoke(channels.compileExplorerProgram, program),
   getOpenCodeInfo: () => ipcRenderer.invoke(channels.getOpenCodeInfo),
   onOpenCodeStartupProgress: (listener) => {
     const handleProgress = (_event: Electron.IpcRendererEvent, progress: OpenCodeStartupProgress) =>
@@ -17,6 +19,8 @@ const api: DesktopApi = {
   patchConfig: (patch: Partial<AppConfig>) => ipcRenderer.invoke(channels.patchConfig, patch),
   checkForUpdate: () => ipcRenderer.invoke(channels.checkForUpdate),
   installUpdate: () => ipcRenderer.invoke(channels.installUpdate),
+  invokeExplorerProgram: (artifact) =>
+    ipcRenderer.invoke(channels.invokeExplorerProgram, artifact),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
 };
 

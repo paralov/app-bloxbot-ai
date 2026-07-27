@@ -13,9 +13,15 @@ import {
   DEFAULT_APP_CONFIG,
   type OpenCodeStartupProgress,
 } from "../src/types/desktop";
+import { ExplorerProgramEnvelopeSchema, ExplorerSnapshotSchema } from "../src/lib/explorer";
+import { GeneratedProgramArtifactSchema } from "../src/types/generatedProgram";
 import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
+import {
+  GeneratedProgramRuntime,
+  GeneratedProgramRuntimeLive,
+} from "./services/GeneratedProgramRuntime";
 import { makeStudioMcpBrokerLayer } from "./services/StudioMcpBroker";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -30,8 +36,14 @@ class DesktopMainError extends Data.TaggedError("DesktopMainError")<{
   cause?: unknown;
 }> {}
 
+const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
+  workspace: join(app.getPath("home"), "BloxBot"),
+  localAppData: process.env.LOCALAPPDATA,
+});
+
 const openCodeRuntime = ManagedRuntime.make(
-  makeOpenCodeLayer({
+  Layer.merge(
+    makeOpenCodeLayer({
     binaryCacheDirectory: join(app.getPath("userData"), "opencode"),
     workspace: join(app.getPath("home"), "BloxBot"),
     onStartupProgress: (progress: OpenCodeStartupProgress) => {
@@ -39,14 +51,9 @@ const openCodeRuntime = ManagedRuntime.make(
         mainWindow.webContents.send(channels.openCodeStartupProgress, progress);
       }
     },
-  }).pipe(
-    Layer.provide(
-      makeStudioMcpBrokerLayer({
-        workspace: join(app.getPath("home"), "BloxBot"),
-        localAppData: process.env.LOCALAPPDATA,
-      }),
-    ),
-  ),
+    }),
+    GeneratedProgramRuntimeLive,
+  ).pipe(Layer.provide(studioMcpBrokerLayer)),
 );
 
 function isMissingFile(cause: unknown): boolean {
@@ -127,6 +134,15 @@ function patchConfig(input: unknown) {
 const runMain = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
 const registerIpcHandlers = Effect.sync(() => {
+  ipcMain.handle(channels.compileExplorerProgram, (_event, input: unknown) =>
+    openCodeRuntime.runPromise(
+      Effect.gen(function* () {
+        const program = yield* Schema.decodeUnknown(ExplorerProgramEnvelopeSchema)(input);
+        const runtime = yield* GeneratedProgramRuntime;
+        return yield* runtime.compile(program);
+      }),
+    ),
+  );
   ipcMain.handle(channels.getOpenCodeInfo, () =>
     openCodeRuntime.runPromise(
       OpenCode.pipe(Effect.flatMap((service) => service.info)),
@@ -177,6 +193,28 @@ const registerIpcHandlers = Effect.sync(() => {
             new DesktopMainError({ message: "Failed to download the update", cause }),
         });
         yield* Effect.sync(() => autoUpdater.quitAndInstall());
+      }),
+    ),
+  );
+  ipcMain.handle(channels.invokeExplorerProgram, (_event, input: unknown) =>
+    openCodeRuntime.runPromise(
+      Effect.gen(function* () {
+        const artifact = yield* Schema.decodeUnknown(GeneratedProgramArtifactSchema)(input);
+        if (
+          artifact.contract.name !== "explorer-snapshot" ||
+          artifact.contract.outputSchemaVersion !== "explorer-snapshot-v1"
+        ) {
+          return yield* Effect.fail(
+            new DesktopMainError({ message: "Explorer program contract is invalid" }),
+          );
+        }
+        const runtime = yield* GeneratedProgramRuntime;
+        const result = yield* runtime.invoke({ artifact, input: null });
+        return yield* Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value).pipe(
+          Effect.mapError(
+            (cause) => new DesktopMainError({ message: "Explorer output is invalid", cause }),
+          ),
+        );
       }),
     ),
   );
