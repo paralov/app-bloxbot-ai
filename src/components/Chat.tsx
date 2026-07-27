@@ -16,6 +16,7 @@ import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const Settings = lazy(() => import("@/components/Settings"));
 
@@ -27,6 +28,8 @@ function Chat() {
   const createSession = useCreateSession();
   const { data: allSessions } = useSessions();
   const studioConnection = useStudioConnection();
+  const studioTarget = useStudioTargetOptional();
+  const hasStudioTarget = studioTarget?.selected !== null && studioTarget?.status === "ready";
 
   // Get active session title from the sessions list
   const activeSessionTitle = allSessions?.find((s) => s.id === activeSessionId)?.title ?? null;
@@ -81,9 +84,10 @@ function Chat() {
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
   const handleOpenPlaytest = useCallback(() => {
+    if (!hasStudioTarget) return;
     posthog.capture("playtest_opened");
     setShowPlaytest(true);
-  }, []);
+  }, [hasStudioTarget]);
   const handleClosePlaytest = useCallback(() => {
     posthog.capture("playtest_closed");
     setShowPlaytest(false);
@@ -161,15 +165,17 @@ function Chat() {
               </div>
               <div className="ml-3 flex shrink-0 items-center gap-2">
                 <StudioTargetPicker />
-                <button
-                  type="button"
-                  onClick={handleOpenPlaytest}
-                  disabled={isBusy}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
-                  title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
-                >
-                  <span aria-hidden="true">▷</span> Playtest
-                </button>
+                {hasStudioTarget ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenPlaytest}
+                    disabled={isBusy}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
+                    title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
+                  >
+                    <span aria-hidden="true">▷</span> Playtest
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -189,14 +195,17 @@ function Chat() {
       !showStudioSetup &&
       !showPlaytest &&
       explorerCollapsed === false &&
-      studioConnection.state === "connected" ? (
+      studioConnection.state === "connected" &&
+      hasStudioTarget ? (
         <Explorer
           collapsed={explorerCollapsed}
           sessionBusy={isBusy}
           onToggle={() => setExplorerCollapsed((value) => !value)}
         />
       ) : null}
-      {showPlaytest && activeSessionId ? <PlaytestPanel onClose={handleClosePlaytest} /> : null}
+      {showPlaytest && activeSessionId && hasStudioTarget ? (
+        <PlaytestPanel onClose={handleClosePlaytest} />
+      ) : null}
     </div>
   );
 }

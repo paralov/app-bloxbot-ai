@@ -189,6 +189,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     };
   }, [client, discover]);
 
+  useEffect(() => {
+    if (!client || status !== "empty") return;
+    const timer = window.setInterval(() => void discover(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [client, discover, status]);
+
   const promptReference = selected
     ? `The app-selected Studio target is "${selected.label}". Treat that label as a hint; verify the active target before place-specific work.`
     : null;
