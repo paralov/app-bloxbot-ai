@@ -7,7 +7,7 @@ import type {
   Todo,
 } from "@opencode-ai/sdk/v2/client";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -866,6 +866,20 @@ function InlineDisclosure({
   previewLines?: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const formatted = useMemo(() => {
+    if (tone !== "output") return { text, structured: false };
+    const trimmed = text.trim();
+    if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
+      return { text, structured: false };
+    }
+    try {
+      const value: unknown = JSON.parse(trimmed);
+      if (value === null || typeof value !== "object") return { text, structured: false };
+      return { text: JSON.stringify(value, null, 2), structured: true };
+    } catch {
+      return { text, structured: false };
+    }
+  }, [text, tone]);
   const toneClass =
     tone === "error"
       ? "text-red-500/70 hover:text-red-400"
@@ -884,16 +898,16 @@ function InlineDisclosure({
           <span
             className={previewLines === 1 ? "block truncate" : "line-clamp-3 whitespace-pre-wrap"}
           >
-            {text}
+            {formatted.text}
           </span>
         ) : null}
       </button>
       {isOpen ? (
         <div
           onClick={() => setIsOpen(false)}
-          className={`app-scrollbar max-h-48 cursor-pointer overflow-auto whitespace-pre-wrap break-all text-[13px] leading-relaxed ${toneClass}`}
+          className={`app-scrollbar max-h-48 cursor-pointer overflow-auto whitespace-pre-wrap text-[13px] leading-relaxed ${toneClass} ${formatted.structured ? "rounded-md bg-muted/40 px-3 py-2" : "break-all"}`}
         >
-          {text}
+          {formatted.text}
         </div>
       ) : null}
     </div>
@@ -1662,7 +1676,7 @@ function ChatMessages() {
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              <div className="pb-8">
+              <div className="pb-6">
                 <MessageBubble messageId={messageIds[virtualItem.index]} />
               </div>
             </div>
