@@ -12,6 +12,7 @@ import { usePreferences } from "@/providers/PreferencesProvider";
 interface SendMessageInput {
   text: string;
   images?: Array<{ mime: string; url: string; filename?: string }>;
+  studioTargetReference?: string | null;
 }
 
 interface SendMessageContext {
@@ -26,7 +27,7 @@ export function useSendMessage() {
   const queryClient = useQueryClient();
 
   return useMutation<void, Error, SendMessageInput, SendMessageContext | undefined>({
-    mutationFn: async ({ text, images }: SendMessageInput) => {
+    mutationFn: async ({ text, images, studioTargetReference }: SendMessageInput) => {
       if (!client || !activeSessionId) throw new Error("No client or session");
 
       const parts: Array<{ type: string; [k: string]: unknown }> = [{ type: "text", text }];
@@ -39,6 +40,7 @@ export function useSendMessage() {
         sessionID: activeSessionId,
         parts,
       };
+      if (studioTargetReference) opts.system = studioTargetReference;
       let provider: string | undefined;
       let model: string | undefined;
 

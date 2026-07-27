@@ -22,6 +22,12 @@ const api: DesktopApi = {
   invokeExplorerProgram: (artifact) =>
     ipcRenderer.invoke(channels.invokeExplorerProgram, artifact),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
+  installStudioTargetPrograms: (envelopes) =>
+    ipcRenderer.invoke(channels.installStudioTargetPrograms, envelopes),
+  discoverStudioTargets: (programs) =>
+    ipcRenderer.invoke(channels.discoverStudioTargets, programs),
+  selectStudioTarget: (programs, targetKey) =>
+    ipcRenderer.invoke(channels.selectStudioTarget, programs, targetKey),
 };
 
 contextBridge.exposeInMainWorld("bloxbot", api);

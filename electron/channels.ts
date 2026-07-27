@@ -10,4 +10,7 @@ export const channels = {
   openUrl: "app:open-url",
   patchConfig: "config:patch",
   relaunch: "app:relaunch",
+  discoverStudioTargets: "studio-target:discover",
+  installStudioTargetPrograms: "studio-target:install-programs",
+  selectStudioTarget: "studio-target:select",
 } as const;

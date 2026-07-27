@@ -15,6 +15,12 @@ import {
 } from "../src/types/desktop";
 import { ExplorerProgramEnvelopeSchema, ExplorerSnapshotSchema } from "../src/lib/explorer";
 import { GeneratedProgramArtifactSchema } from "../src/types/generatedProgram";
+import {
+  StudioTargetDiscoverySchema,
+  StudioTargetProgramEnvelopesSchema,
+  StudioTargetProgramsSchema,
+  StudioTargetSelectionSchema,
+} from "../src/types/studioTarget";
 import { handleLastWindowClosed } from "./appLifecycle";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
@@ -44,17 +50,32 @@ const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
 const openCodeRuntime = ManagedRuntime.make(
   Layer.merge(
     makeOpenCodeLayer({
-    binaryCacheDirectory: join(app.getPath("userData"), "opencode"),
-    workspace: join(app.getPath("home"), "BloxBot"),
-    onStartupProgress: (progress: OpenCodeStartupProgress) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(channels.openCodeStartupProgress, progress);
-      }
-    },
+      binaryCacheDirectory: join(app.getPath("userData"), "opencode"),
+      workspace: join(app.getPath("home"), "BloxBot"),
+      onStartupProgress: (progress: OpenCodeStartupProgress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(channels.openCodeStartupProgress, progress);
+        }
+      },
     }),
-    GeneratedProgramRuntimeLive,
+    GeneratedProgramRuntimeLive.pipe(Layer.provide(studioMcpBrokerLayer)),
   ).pipe(Layer.provide(studioMcpBrokerLayer)),
 );
+
+const expectedContract = (name: string) => ({
+  name,
+  version: "1",
+  inputSchemaVersion: "1",
+  outputSchemaVersion: "1",
+});
+
+function requireContract(contract: { name: string; version: string; inputSchemaVersion: string; outputSchemaVersion: string }, name: string) {
+  const expected = expectedContract(name);
+  if (JSON.stringify(contract) !== JSON.stringify(expected)) {
+    return Effect.fail(new DesktopMainError({ message: `Generated program contract ${name} is invalid` }));
+  }
+  return Effect.void;
+}
 
 function isMissingFile(cause: unknown): boolean {
   return (
@@ -151,6 +172,47 @@ const registerIpcHandlers = Effect.sync(() => {
   ipcMain.handle(channels.getVersion, () => runMain(Effect.sync(() => app.getVersion())));
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));
+  ipcMain.handle(channels.installStudioTargetPrograms, (_event, input: unknown) =>
+    openCodeRuntime.runPromise(
+      Effect.gen(function* () {
+        const envelopes = yield* Schema.decodeUnknown(StudioTargetProgramEnvelopesSchema)(input);
+        yield* requireContract(envelopes.discovery.contract, "studio-target-discovery");
+        yield* requireContract(envelopes.selection.contract, "studio-target-selection");
+        const runtime = yield* GeneratedProgramRuntime;
+        const [discoveryArtifact, selectionArtifact] = yield* Effect.all([
+          runtime.compile(envelopes.discovery),
+          runtime.compile(envelopes.selection),
+        ], { concurrency: "unbounded" });
+        return yield* Schema.decodeUnknown(StudioTargetProgramsSchema)({
+          discovery: { envelope: envelopes.discovery, artifact: discoveryArtifact },
+          selection: { envelope: envelopes.selection, artifact: selectionArtifact },
+        });
+      }),
+    ),
+  );
+  ipcMain.handle(channels.discoverStudioTargets, (_event, input: unknown) =>
+    openCodeRuntime.runPromise(
+      Effect.gen(function* () {
+        const programs = yield* Schema.decodeUnknown(StudioTargetProgramsSchema)(input);
+        yield* requireContract(programs.discovery.artifact.contract, "studio-target-discovery");
+        const runtime = yield* GeneratedProgramRuntime;
+        const result = yield* runtime.invoke({ artifact: programs.discovery.artifact, input: {} });
+        return yield* Schema.decodeUnknown(StudioTargetDiscoverySchema)(result.value);
+      }),
+    ),
+  );
+  ipcMain.handle(channels.selectStudioTarget, (_event, input: unknown, targetKey: unknown) =>
+    openCodeRuntime.runPromise(
+      Effect.gen(function* () {
+        const programs = yield* Schema.decodeUnknown(StudioTargetProgramsSchema)(input);
+        const key = yield* Schema.decodeUnknown(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)))(targetKey);
+        yield* requireContract(programs.selection.artifact.contract, "studio-target-selection");
+        const runtime = yield* GeneratedProgramRuntime;
+        const result = yield* runtime.invoke({ artifact: programs.selection.artifact, input: { targetKey: key } });
+        return yield* Schema.decodeUnknown(StudioTargetSelectionSchema)(result.value);
+      }),
+    ),
+  );
   ipcMain.handle(channels.openUrl, (_event, rawUrl: string) =>
     runMain(
       parseExternalUrl(rawUrl).pipe(
