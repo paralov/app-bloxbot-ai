@@ -5,18 +5,22 @@ const {
   discoverStudioTargets,
   selectStudioTarget,
   installStudioTargetPrograms,
+  patchConfig,
   capture,
   loadConfig,
   generatePrograms,
   client,
+  activeSession,
 } = vi.hoisted(() => ({
   discoverStudioTargets: vi.fn(),
   selectStudioTarget: vi.fn(),
   installStudioTargetPrograms: vi.fn(),
+  patchConfig: vi.fn(),
   capture: vi.fn(),
   loadConfig: vi.fn(),
   generatePrograms: vi.fn(),
   client: {},
+  activeSession: { id: "chat-session" },
 }));
 
 const programs = { discovery: {}, selection: {} };
@@ -26,7 +30,7 @@ vi.mock("@/lib/desktop", () => ({
     discoverStudioTargets,
     selectStudioTarget,
     loadConfig,
-    patchConfig: vi.fn(),
+    patchConfig,
     installStudioTargetPrograms,
   },
 }));
@@ -34,7 +38,7 @@ vi.mock("@/lib/desktop", () => ({
 vi.mock("@/lib/studioTargetPrograms", () => ({ generateStudioTargetPrograms: generatePrograms }));
 vi.mock("@/providers/OpenCodeClientProvider", () => ({ useOpenCodeClient: () => ({ client }) }));
 vi.mock("@/providers/ActiveSessionProvider", () => ({
-  useActiveSession: () => ({ activeSessionId: "chat-session" }),
+  useActiveSession: () => ({ activeSessionId: activeSession.id }),
 }));
 vi.mock("@/providers/PreferencesProvider", () => ({
   usePreferences: () => ({ selectedModel: null, selectedAgent: null }),
@@ -60,6 +64,8 @@ describe("StudioTargetPicker", () => {
     discoverStudioTargets.mockReset();
     selectStudioTarget.mockReset();
     capture.mockReset();
+    patchConfig.mockReset();
+    activeSession.id = "chat-session";
     loadConfig.mockResolvedValue({ studioTargetPrograms: programs, studioTargetsBySession: {} });
     installStudioTargetPrograms.mockResolvedValue(programs);
     generatePrograms.mockRejectedValue(new Error("generation failed"));
@@ -145,5 +151,35 @@ describe("StudioTargetPicker", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("no longer available");
     expect(screen.getByRole("button", { expanded: true })).toHaveTextContent("Lobby");
+  });
+
+  it("restores a session target by place name when its Studio id changes", async () => {
+    loadConfig.mockResolvedValue({
+      studioTargetPrograms: programs,
+      studioTargetsBySession: {
+        "chat-session": { key: "old-id", label: "Dungeon", detail: null },
+      },
+    });
+    discoverStudioTargets.mockResolvedValue({
+      targets: [
+        { key: "new-id", label: "Dungeon", detail: null },
+        { key: "lobby-id", label: "Lobby", detail: null },
+      ],
+      selectedKey: "lobby-id",
+    });
+    selectStudioTarget.mockResolvedValue({
+      selected: { key: "new-id", label: "Dungeon", detail: "Active" },
+      verified: true,
+    });
+
+    renderPicker();
+
+    expect(await screen.findByRole("button", { name: /Dungeon/ })).toBeVisible();
+    expect(selectStudioTarget).toHaveBeenCalledWith(programs, "new-id");
+    expect(patchConfig).toHaveBeenCalledWith({
+      studioTargetsBySession: {
+        "chat-session": { key: "new-id", label: "Dungeon", detail: "Active" },
+      },
+    });
   });
 });

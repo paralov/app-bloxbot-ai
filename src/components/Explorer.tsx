@@ -39,6 +39,7 @@ import { splitModelKey } from "@/lib/splitModelKey";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ACTIVE_SYNC_MS = 2_500;
 const IDLE_SYNC_MS = 5_000;
@@ -170,6 +171,7 @@ function collectPaths(nodes: readonly ExplorerNode[]): Set<string> {
 
 export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
+  const studioTarget = useStudioTargetOptional();
   const { selectedModel, selectedAgent } = usePreferences();
   const { referenceObject } = useExplorerReference();
   const [collection, setCollection] = useState<ExplorerCollection | null>(null);
@@ -200,7 +202,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, [collapsed]);
 
   useEffect(() => {
-    if (!client || collapsed) return;
+    if (!client || collapsed || !studioTarget?.selected) return;
     const activeClient = client;
     let cancelled = false;
     let timer: number | undefined;
@@ -382,7 +384,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
     };
-  }, [client, collapsed, model, selectedAgent, sessionBusy]);
+  }, [client, collapsed, model, selectedAgent, sessionBusy, studioTarget?.selected]);
 
   const toggleNode = useCallback((path: string) => {
     setExpanded((current) => {
