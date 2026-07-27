@@ -85,7 +85,7 @@ export default function StudioTargetPicker() {
         <div
           role="dialog"
           aria-label="Choose Roblox Studio"
-          className="absolute right-0 top-9 z-40 w-80 overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl"
+          className="animate-picker-in absolute right-0 top-9 z-40 w-80 origin-top-right overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl"
         >
           <div className="flex h-11 items-center justify-between gap-3 border-b px-4">
             <h4 className="text-sm font-semibold">Choose Studio instance</h4>
