@@ -34,6 +34,14 @@
   background-clip: padding-box;
 }
 
+.syntax-token {
+  color: var(--syntax-light);
+}
+
+.dark .syntax-token {
+  color: var(--syntax-dark);
+}
+
 /* ── Custom fonts ────────────────────────────────────────────────── */
 
 @theme inline {

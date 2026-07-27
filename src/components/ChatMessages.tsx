@@ -7,13 +7,14 @@ import type {
   Todo,
 } from "@opencode-ai/sdk/v2/client";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 /** Module-level constant to avoid creating a new array on every render. */
 const REMARK_PLUGINS = [remarkGfm];
 const INSTANCE_REFERENCE_PATTERN = /<Instance reference="([^"]+)">([^<]+)<\/Instance>/g;
+const SyntaxHighlightedOutput = lazy(() => import("@/components/SyntaxHighlightedOutput"));
 
 import { useAnswerQuestion, useRejectQuestion } from "@/hooks/mutations/useAnswerQuestion";
 import { useReplyPermission } from "@/hooks/mutations/useReplyPermission";
@@ -691,7 +692,7 @@ const DefaultToolView = memo(function DefaultToolView({
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-1.5 text-[13px] leading-relaxed">
-        <span className="min-w-0 break-all font-medium text-blue-600 dark:text-blue-400">
+        <span className="min-w-0 break-all font-medium text-[#005cc5]/70 dark:text-[#79c0ff]/65">
           {tool}
         </span>
         {title && <span className="min-w-0 break-words text-muted-foreground">- {title}</span>}
@@ -882,12 +883,12 @@ function InlineDisclosure({
   }, [text, tone]);
   const toneClass =
     tone === "error"
-      ? "text-rose-400/55 hover:text-rose-400/80 dark:text-rose-300/50 dark:hover:text-rose-300/75"
+      ? "text-[#d73a49]/60 hover:text-[#d73a49]/85 dark:text-[#ff7b72]/55 dark:hover:text-[#ff7b72]/80"
       : tone === "output"
         ? "text-muted-foreground/70 hover:text-muted-foreground"
         : "text-muted-foreground/55 hover:text-muted-foreground";
   return (
-    <div className={`my-1 min-w-0 ${tone === "output" ? "pl-3" : ""}`}>
+    <div className={`min-w-0 ${tone === "output" ? "pl-3" : ""}`}>
       <button
         type="button"
         aria-expanded={isOpen}
@@ -895,11 +896,17 @@ function InlineDisclosure({
         className={`block w-full min-w-0 text-left text-[13px] leading-relaxed transition-colors ${toneClass}`}
       >
         {!isOpen ? (
-          <span
-            className={previewLines === 1 ? "block truncate" : "line-clamp-3 whitespace-pre-wrap"}
-          >
-            {formatted.text}
-          </span>
+          formatted.structured ? (
+            <Suspense fallback={<span className="line-clamp-3">{formatted.text}</span>}>
+              <SyntaxHighlightedOutput code={formatted.text} collapsed />
+            </Suspense>
+          ) : (
+            <span
+              className={previewLines === 1 ? "block truncate" : "line-clamp-3 whitespace-pre-wrap"}
+            >
+              {formatted.text}
+            </span>
+          )
         ) : null}
       </button>
       {isOpen ? (
@@ -907,7 +914,13 @@ function InlineDisclosure({
           onClick={() => setIsOpen(false)}
           className={`app-scrollbar max-h-48 cursor-pointer overflow-auto whitespace-pre-wrap text-[13px] leading-relaxed ${toneClass} ${formatted.structured ? "rounded-md bg-muted/40 px-3 py-2" : "break-all"}`}
         >
-          {formatted.text}
+          {formatted.structured ? (
+            <Suspense fallback={<pre>{formatted.text}</pre>}>
+              <SyntaxHighlightedOutput code={formatted.text} />
+            </Suspense>
+          ) : (
+            formatted.text
+          )}
         </div>
       ) : null}
     </div>
@@ -972,8 +985,8 @@ const ToolPartView = memo(function ToolPartView({
     <div
       className={
         status === "completed"
-          ? "my-1 min-w-0 max-w-full overflow-hidden"
-          : `my-1 min-w-0 max-w-full overflow-hidden rounded-md border px-2.5 py-2 ${TOOL_STATUS_COLORS[status] ?? TOOL_STATUS_COLORS.pending}`
+          ? "min-w-0 max-w-full overflow-hidden"
+          : `min-w-0 max-w-full overflow-hidden rounded-md border px-2.5 py-2 ${TOOL_STATUS_COLORS[status] ?? TOOL_STATUS_COLORS.pending}`
       }
     >
       {title &&
@@ -1527,7 +1540,7 @@ const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: st
         {isUser ? (
           <UserPartsView parts={msg.parts} />
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {msg.parts.length === 0 && <BloxBotThinking />}
             {msg.parts.map((part) => (
               <PartRenderer key={part.id} part={part} />
@@ -1676,7 +1689,7 @@ function ChatMessages() {
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              <div className="pb-6">
+              <div className="pb-5">
                 <MessageBubble messageId={messageIds[virtualItem.index]} />
               </div>
             </div>
