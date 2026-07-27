@@ -30,6 +30,7 @@ import {
   type ReactNode,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useState,
 } from "react";
@@ -178,6 +179,50 @@ function DomInputFallbackPlugin() {
   return null;
 }
 
+function TypeaheadMenuPortal({ anchor, children }: { anchor: HTMLElement; children: ReactNode }) {
+  const [position, setPosition] = useState({ left: 8, top: 8, maxHeight: 256 });
+
+  useLayoutEffect(() => {
+    const updatePosition = () => {
+      const rect = anchor.getBoundingClientRect();
+      const menuWidth = 288;
+      setPosition({
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)),
+        top: rect.top - 8,
+        maxHeight: Math.max(96, Math.min(256, rect.top - 24)),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    window.visualViewport?.addEventListener("resize", updatePosition);
+    window.visualViewport?.addEventListener("scroll", updatePosition);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      window.visualViewport?.removeEventListener("resize", updatePosition);
+      window.visualViewport?.removeEventListener("scroll", updatePosition);
+    };
+  }, [anchor]);
+
+  return createPortal(
+    <div
+      className="app-scrollbar fixed z-[100] w-72 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
+      style={{
+        left: position.left,
+        top: position.top,
+        maxHeight: position.maxHeight,
+        transform: "translateY(-100%)",
+      }}
+      role="listbox"
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 function TypeaheadPlugin({ kind, objects }: { kind: TokenKind; objects: readonly ExplorerNode[] }) {
   const [query, setQuery] = useState<string | null>(null);
   const triggerFn = useBasicTypeaheadTriggerMatch(kind === "object" ? "@" : "/", {
@@ -236,30 +281,25 @@ function TypeaheadPlugin({ kind, objects }: { kind: TokenKind; objects: readonly
         closeMenu();
       }}
       menuRenderFn={(anchorRef, { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) =>
-        anchorRef.current && options.length > 0
-          ? createPortal(
-              <div className="z-50 max-h-64 w-72 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl">
-                {options.map((option, index) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    ref={option.setRefElement}
-                    className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
-                      selectedIndex === index ? "bg-accent" : "hover:bg-accent/70"
-                    }`}
-                    onMouseEnter={() => setHighlightedIndex(index)}
-                    onClick={() => selectOptionAndCleanUp(option)}
-                  >
-                    <span className="text-xs font-medium">{option.label}</span>
-                    <span className="truncate text-[10px] text-muted-foreground">
-                      {option.detail}
-                    </span>
-                  </button>
-                ))}
-              </div>,
-              anchorRef.current,
-            )
-          : null
+        anchorRef.current && options.length > 0 ? (
+          <TypeaheadMenuPortal anchor={anchorRef.current}>
+            {options.map((option, index) => (
+              <button
+                key={option.key}
+                type="button"
+                ref={option.setRefElement}
+                className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
+                  selectedIndex === index ? "bg-accent" : "hover:bg-accent/70"
+                }`}
+                onMouseEnter={() => setHighlightedIndex(index)}
+                onClick={() => selectOptionAndCleanUp(option)}
+              >
+                <span className="text-xs font-medium">{option.label}</span>
+                <span className="truncate text-[10px] text-muted-foreground">{option.detail}</span>
+              </button>
+            ))}
+          </TypeaheadMenuPortal>
+        ) : null
       }
     />
   );
@@ -327,7 +367,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
         <RichTextPlugin
           contentEditable={
             <ContentEditable
-              className="max-h-40 min-h-[20px] overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed outline-none"
+              className="app-scrollbar max-h-40 min-h-[20px] overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed outline-none"
               aria-label="Message"
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey) return;

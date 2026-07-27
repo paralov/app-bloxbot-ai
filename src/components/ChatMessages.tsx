@@ -1581,7 +1581,11 @@ function ChatMessages() {
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="app-scrollbar flex-1 overflow-y-auto"
+    >
       <ImageLightbox />
       <div className="mx-auto max-w-2xl px-4 py-4">
         <div

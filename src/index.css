@@ -8,6 +8,32 @@
 
 @custom-variant dark (&:is(.dark *));
 
+.app-scrollbar {
+  scrollbar-color: color-mix(in oklch, var(--foreground) 24%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.app-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.app-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 24%, transparent);
+  background-clip: padding-box;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--foreground) 38%, transparent);
+  background-clip: padding-box;
+}
+
 /* ── Custom fonts ────────────────────────────────────────────────── */
 
 @theme inline {
