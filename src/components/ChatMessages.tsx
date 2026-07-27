@@ -895,34 +895,24 @@ function InlineDisclosure({
         onClick={() => setIsOpen((open) => !open)}
         className={`block w-full min-w-0 text-left text-[13px] leading-relaxed transition-colors ${toneClass}`}
       >
-        {!isOpen ? (
-          formatted.structured ? (
-            <Suspense fallback={<span className="line-clamp-3">{formatted.text}</span>}>
-              <SyntaxHighlightedOutput code={formatted.text} collapsed />
-            </Suspense>
-          ) : (
-            <span
-              className={previewLines === 1 ? "block truncate" : "line-clamp-3 whitespace-pre-wrap"}
-            >
-              {formatted.text}
-            </span>
-          )
-        ) : null}
+        {formatted.structured ? (
+          <Suspense fallback={<span className="line-clamp-3">{formatted.text}</span>}>
+            <SyntaxHighlightedOutput code={formatted.text} collapsed={!isOpen} />
+          </Suspense>
+        ) : (
+          <span
+            className={
+              isOpen
+                ? "block whitespace-pre-wrap break-all"
+                : previewLines === 1
+                  ? "block truncate"
+                  : "line-clamp-3 whitespace-pre-wrap"
+            }
+          >
+            {formatted.text}
+          </span>
+        )}
       </button>
-      {isOpen ? (
-        <div
-          onClick={() => setIsOpen(false)}
-          className={`app-scrollbar max-h-48 cursor-pointer overflow-auto whitespace-pre-wrap text-[13px] leading-relaxed ${toneClass} ${formatted.structured ? "rounded-md bg-muted/40 px-3 py-2" : "break-all"}`}
-        >
-          {formatted.structured ? (
-            <Suspense fallback={<pre>{formatted.text}</pre>}>
-              <SyntaxHighlightedOutput code={formatted.text} />
-            </Suspense>
-          ) : (
-            formatted.text
-          )}
-        </div>
-      ) : null}
     </div>
   );
 }

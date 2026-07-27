@@ -17,8 +17,8 @@ function preserveIndentation(value: string) {
 
 function hiddenLinesMarker(sourceLines: string[]) {
   const hiddenCount = sourceLines.length - 6;
-  const boundaryLines = [sourceLines[2], sourceLines[sourceLines.length - 3]];
-  const indentation = Math.min(...boundaryLines.map((line) => line.match(/^\s*/)?.[0].length ?? 0));
+  const tailLine = sourceLines[sourceLines.length - 3];
+  const indentation = tailLine.match(/^\s*/)?.[0].length ?? 0;
   return `${" ".repeat(indentation)}[… ${hiddenCount} hidden ${hiddenCount === 1 ? "line" : "lines"}]`;
 }
 
