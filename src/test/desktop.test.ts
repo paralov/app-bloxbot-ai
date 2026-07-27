@@ -26,6 +26,7 @@ describe("browser desktop fallback", () => {
       theme: "system",
       detailedAnalytics: "unset",
       studioTargetPrograms: null,
+      studioTargetsBySession: {},
     });
   });
 
@@ -42,6 +43,7 @@ describe("browser desktop fallback", () => {
       theme: "system",
       detailedAnalytics: "unset",
       studioTargetPrograms: null,
+      studioTargetsBySession: {},
     });
   });
 
@@ -56,6 +58,7 @@ describe("browser desktop fallback", () => {
       theme: "dark",
       detailedAnalytics: "unset",
       studioTargetPrograms: null,
+      studioTargetsBySession: {},
     });
   });
 

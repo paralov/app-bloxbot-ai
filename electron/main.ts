@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { rename, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,6 +33,10 @@ import { makeStudioMcpBrokerLayer } from "./services/StudioMcpBroker";
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultConfig: AppConfig = DEFAULT_APP_CONFIG;
 const configMutex = Effect.unsafeMakeSemaphore(1);
+
+function configPath(): string {
+  return join(app.getPath("userData"), "bloxbot-store.json");
+}
 
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
@@ -104,7 +108,7 @@ function parseExternalUrl(rawUrl: string) {
 
 const loadConfig = Effect.gen(function* () {
   const contents = yield* Effect.tryPromise({
-    try: () => readFile(join(app.getPath("userData"), "bloxbot-store.json"), "utf8"),
+    try: () => readFile(configPath(), "utf8"),
     catch: (cause) => new DesktopMainError({ message: "Failed to read app configuration", cause }),
   }).pipe(
     Effect.catchAll((error) =>
@@ -141,11 +145,17 @@ function patchConfig(input: unknown) {
     const current = yield* loadConfig;
     const next = { ...current, ...patch };
     yield* Effect.tryPromise({
-      try: () =>
-        writeFile(
-          join(app.getPath("userData"), "bloxbot-store.json"),
-          JSON.stringify(next, null, 2),
-        ),
+      try: async () => {
+        const destination = configPath();
+        const temporary = `${destination}.${process.pid}.tmp`;
+        try {
+          await writeFile(temporary, JSON.stringify(next, null, 2), { mode: 0o600 });
+          await rename(temporary, destination);
+        } catch (cause) {
+          await rm(temporary, { force: true }).catch(() => undefined);
+          throw cause;
+        }
+      },
       catch: (cause) =>
         new DesktopMainError({ message: "Failed to write app configuration", cause }),
     });
