@@ -1,6 +1,7 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
-
+import { BUILTIN_EXPLORER_PROGRAM } from "@/lib/builtinStudioPrograms";
+import { ExplorerSnapshotSchema } from "@/lib/explorer";
 import {
   GeneratedProgramRuntimeError,
   startGeneratedProgramRuntime,
@@ -102,5 +103,45 @@ describe("GeneratedProgramRuntime", () => {
         regenerate: true,
       })._tag,
     ).toBe("GeneratedProgramRuntimeError");
+  });
+
+  it("runs the built-in Explorer collector without model repair", async () => {
+    const callTool = vi.fn().mockResolvedValue({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify([
+            { fullPath: "Place1", name: "Place1", className: "DataModel" },
+            {
+              fullPath: "Workspace",
+              parentName: "Place1",
+              name: "Workspace",
+              className: "Workspace",
+            },
+            {
+              fullPath: "Workspace.SpawnLocation",
+              parentName: "Workspace",
+              name: "SpawnLocation",
+              className: "SpawnLocation",
+            },
+          ]),
+        },
+      ],
+    });
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const artifact = await Effect.runPromise(runtime.compile(BUILTIN_EXPLORER_PROGRAM));
+    const result = await Effect.runPromise(runtime.invoke({ artifact, input: null }));
+    const snapshot = await Effect.runPromise(
+      Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value),
+    );
+
+    expect(snapshot.roots).toHaveLength(2);
+    expect(snapshot.roots.find((node) => node.name === "Workspace")?.children[0]?.name).toBe(
+      "SpawnLocation",
+    );
+    expect(callTool).toHaveBeenCalledWith("search_game_tree", {
+      max_depth: 10,
+      head_limit: 100_000,
+    });
   });
 });

@@ -119,7 +119,10 @@ export default function StudioTargetPicker() {
             ) : status === "error" ? (
               <div className="px-4 py-7 text-center">
                 <p className="text-sm font-medium">Couldn’t find Studios</p>
-                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                <p
+                  className="mt-1 line-clamp-3 break-words text-[11px] leading-4 text-muted-foreground"
+                  title={error ?? undefined}
+                >
                   {error ?? "The Studio integration could not be initialized."}
                 </p>
               </div>
@@ -170,10 +173,11 @@ export default function StudioTargetPicker() {
               </div>
             )}
           </div>
-          {error ? (
+          {error && status !== "error" ? (
             <div
               role="alert"
-              className="border-t border-red-200 bg-red-50 px-4 py-2.5 text-[10px] leading-4 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+              className="line-clamp-3 break-words border-t border-red-200 bg-red-50 px-4 py-2.5 text-[10px] leading-4 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+              title={error}
             >
               {error}
             </div>

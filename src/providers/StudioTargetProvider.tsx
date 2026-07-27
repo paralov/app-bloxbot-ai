@@ -190,8 +190,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
             if (operation !== operationRef.current) return;
             setStatus("error");
             setSelectingKey(null);
-            const detail = repairError instanceof Error ? repairError.message : String(repairError);
-            setError(`Studio discovery failed: ${detail}`);
+            console.error("[studio-target] discovery repair failed", repairError);
+            setError("Studio integration setup failed. Refresh to try again.");
             posthog.capture(
               "studio_target_discovery_failed",
               errorAnalyticsProperties("studio_target", "discovery_repair", repairError, {

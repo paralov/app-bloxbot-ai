@@ -125,6 +125,9 @@ describe("StudioTargetPicker", () => {
     discoverStudioTargets.mockRejectedValueOnce(new Error("offline"));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByText("Couldn’t find Studios")).toBeVisible();
+    expect(
+      screen.getByText("Studio integration setup failed. Refresh to try again."),
+    ).toBeVisible();
   });
 
   it("keeps the prior target when verification fails", async () => {
