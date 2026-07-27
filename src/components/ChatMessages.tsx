@@ -862,27 +862,48 @@ const TextPartView = memo(
   (prev, next) => prev.part.text === next.part.text,
 );
 
+function InlineDisclosure({
+  label,
+  text,
+  monospace = false,
+}: {
+  label: string;
+  text: string;
+  monospace?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="my-1 min-w-0">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+        className="group flex w-full min-w-0 items-center gap-1.5 text-left text-[11px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+      >
+        <span className={`shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}>›</span>
+        <span className="shrink-0 font-medium">{label}</span>
+        {!isOpen ? <span className="truncate opacity-75">{text}</span> : null}
+      </button>
+      {isOpen ? (
+        <div
+          className={`app-scrollbar mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all pl-4 text-[11px] leading-relaxed text-muted-foreground ${
+            monospace ? "font-mono" : ""
+          }`}
+        >
+          {text}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const ReasoningPartView = memo(function ReasoningPartView({
   part,
 }: {
   part: Extract<Part, { type: "reasoning" }>;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
   if (!part.text) return null;
-  return (
-    <details
-      className="group mt-1"
-      open={isOpen}
-      onToggle={(e) => setIsOpen((e.target as HTMLDetailsElement).open)}
-    >
-      <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground">
-        Reasoning
-      </summary>
-      <div className="mt-1 border-l-2 border-border pl-3 text-[12px] leading-relaxed text-muted-foreground">
-        {part.text}
-      </div>
-    </details>
-  );
+  return <InlineDisclosure label="Reasoning" text={part.text} />;
 });
 
 const ToolPartView = memo(function ToolPartView({
@@ -900,6 +921,10 @@ const ToolPartView = memo(function ToolPartView({
       ? part.state.title
       : undefined;
   const tool = baseToolName(part.tool);
+
+  if (errorMsg) {
+    return <InlineDisclosure label={tool} text={errorMsg} monospace />;
+  }
 
   function renderToolContent() {
     switch (tool) {
@@ -945,11 +970,6 @@ const ToolPartView = memo(function ToolPartView({
           <div className="mb-1 break-words text-[11px] font-medium text-foreground">{title}</div>
         )}
       {renderToolContent()}
-      {errorMsg && (
-        <div className="app-scrollbar mt-1.5 max-h-40 max-w-full overflow-auto whitespace-pre-wrap break-all rounded bg-red-50 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-red-600 dark:bg-red-950/40 dark:text-red-400">
-          {errorMsg}
-        </div>
-      )}
     </div>
   );
 });
