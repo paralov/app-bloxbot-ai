@@ -118,29 +118,32 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const discover = useCallback(async () => {
-    const operation = ++operationRef.current;
-    setStatus("loading");
-    setError(null);
-    try {
-      const programs = await getPrograms();
-      await applyDiscovery(programs, operation);
-    } catch {
-      if (operation !== operationRef.current) return;
+  const discover = useCallback(
+    async (showLoading = true) => {
+      const operation = ++operationRef.current;
+      if (showLoading) setStatus("loading");
+      setError(null);
       try {
-        programsRef.current = null;
-        const regenerated = await generatePrograms();
-        await applyDiscovery(regenerated, operation);
-      } catch (repairError) {
+        const programs = await getPrograms();
+        await applyDiscovery(programs, operation);
+      } catch {
         if (operation !== operationRef.current) return;
-        setStatus("error");
-        setSelectingKey(null);
-        const detail = repairError instanceof Error ? repairError.message : String(repairError);
-        setError(`Studio discovery failed: ${detail}`);
-        posthog.capture("studio_target_discovery_failed");
+        try {
+          programsRef.current = null;
+          const regenerated = await generatePrograms();
+          await applyDiscovery(regenerated, operation);
+        } catch (repairError) {
+          if (operation !== operationRef.current) return;
+          setStatus("error");
+          setSelectingKey(null);
+          const detail = repairError instanceof Error ? repairError.message : String(repairError);
+          setError(`Studio discovery failed: ${detail}`);
+          posthog.capture("studio_target_discovery_failed");
+        }
       }
-    }
-  }, [applyDiscovery, generatePrograms, getPrograms]);
+    },
+    [applyDiscovery, generatePrograms, getPrograms],
+  );
 
   const select = useCallback(
     async (target: StudioTarget) => {
@@ -191,7 +194,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!client || status !== "empty") return;
-    const timer = window.setInterval(() => void discover(), 2_000);
+    const timer = window.setInterval(() => void discover(false), 2_000);
     return () => window.clearInterval(timer);
   }, [client, discover, status]);
 

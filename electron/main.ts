@@ -193,11 +193,16 @@ const registerIpcHandlers = Effect.sync(() => {
   ipcMain.handle(channels.discoverStudioTargets, (_event, input: unknown) =>
     openCodeRuntime.runPromise(
       Effect.gen(function* () {
+        yield* Effect.logInfo("[studio-target] discovery requested");
         const programs = yield* Schema.decodeUnknown(StudioTargetProgramsSchema)(input);
         yield* requireContract(programs.discovery.artifact.contract, "studio-target-discovery");
         const runtime = yield* GeneratedProgramRuntime;
         const result = yield* runtime.invoke({ artifact: programs.discovery.artifact, input: {} });
-        return yield* Schema.decodeUnknown(StudioTargetDiscoverySchema)(result.value);
+        const discovery = yield* Schema.decodeUnknown(StudioTargetDiscoverySchema)(result.value);
+        yield* Effect.logInfo(
+          `[studio-target] discovery completed targets=${discovery.targets.length} selected=${discovery.selectedKey !== null}`,
+        );
+        return discovery;
       }),
     ),
   );

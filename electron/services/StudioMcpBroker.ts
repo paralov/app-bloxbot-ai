@@ -65,6 +65,10 @@ class SdkStudioMcpUpstream implements StudioMcpUpstream {
       cwd,
       stderr: "pipe",
     });
+    transport.stderr?.on("data", (chunk: Buffer | string) => {
+      const message = chunk.toString().trimEnd();
+      if (message) process.stderr.write(`[studio-mcp] ${message}\n`);
+    });
     const upstream = new SdkStudioMcpUpstream();
     await upstream.client.connect(transport);
     return upstream;
@@ -79,12 +83,34 @@ class SdkStudioMcpUpstream implements StudioMcpUpstream {
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+    const startedAt = performance.now();
+    process.stderr.write(`[studio-mcp] call ${name}\n`);
     const result = await this.client.callTool({ name, arguments: args }, CallToolResultSchema);
-    return CallToolResultSchema.parse(result);
+    const parsed = CallToolResultSchema.parse(result);
+    const summary = summarizeToolResult(name, parsed);
+    process.stderr.write(
+      `[studio-mcp] result ${name} ${Math.round(performance.now() - startedAt)}ms${summary}\n`,
+    );
+    return parsed;
   }
 
   async close() {
     await this.client.close();
+  }
+}
+
+function summarizeToolResult(name: string, result: CallToolResult): string {
+  if (name !== "list_roblox_studios") return result.isError ? " error=true" : "";
+  const text = result.content.find(
+    (part): part is Extract<(typeof result.content)[number], { type: "text" }> =>
+      part.type === "text",
+  )?.text;
+  if (!text) return ` error=${result.isError === true} studios=unknown`;
+  try {
+    const value = JSON.parse(text) as { studios?: unknown[] };
+    return ` error=${result.isError === true} studios=${Array.isArray(value.studios) ? value.studios.length : "unknown"}`;
+  } catch {
+    return ` error=${result.isError === true} studios=unparseable`;
   }
 }
 
@@ -109,6 +135,7 @@ interface BrokerResource extends StudioMcpBrokerService {
 export async function startStudioMcpBroker(
   upstream: StudioMcpUpstream,
 ): Promise<BrokerResource> {
+  process.stderr.write("[studio-mcp] broker starting\n");
   const sessions = new Map<
     string,
     { server: Server; transport: StreamableHTTPServerTransport }
@@ -164,6 +191,7 @@ export async function startStudioMcpBroker(
   const address = httpServer.address();
   if (!address || typeof address === "string") throw new Error("Broker did not bind a TCP port");
 
+  process.stderr.write(`[studio-mcp] broker listening on ${LOOPBACK}:${address.port}\n`);
   return {
     info: { url: `http://${LOOPBACK}:${address.port}/mcp` },
     callTool: (name, args) =>
