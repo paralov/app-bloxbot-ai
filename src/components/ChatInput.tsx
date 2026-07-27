@@ -802,32 +802,6 @@ function ChatInput() {
             placeholder={isDragging ? "Drop images here..." : "Describe what you want to build..."}
           />
           <div className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className={`flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-background transition-colors hover:bg-accent hover:text-foreground ${rejectShake ? "animate-reject-shake text-red-500" : "text-muted-foreground/60"}`}
-                title="Attach images"
-              >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                </svg>
-              </button>
-              <SendButton
-                text={text}
-                hasAttachments={attachments.length > 0}
-                isBusy={isBusy}
-                onSend={handleSubmit}
-              />
-            </div>
             {visibleAgents.length > 1 && (
               <div className="relative" ref={agentPickerRef}>
                 <button
@@ -878,6 +852,32 @@ function ChatInput() {
                 )}
               </div>
             )}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className={`flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-background transition-colors hover:bg-accent hover:text-foreground ${rejectShake ? "animate-reject-shake text-red-500" : "text-muted-foreground/60"}`}
+                title="Attach images"
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+              <SendButton
+                text={text}
+                hasAttachments={attachments.length > 0}
+                isBusy={isBusy}
+                onSend={handleSubmit}
+              />
+            </div>
           </div>
         </div>
       </div>
