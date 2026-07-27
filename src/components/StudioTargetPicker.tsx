@@ -87,13 +87,8 @@ export default function StudioTargetPicker() {
           aria-label="Choose Roblox Studio"
           className="absolute right-0 top-9 z-40 w-80 overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl"
         >
-          <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
-            <div>
-              <h4 className="text-sm font-semibold">Target Studio</h4>
-              <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                Explorer and new chat actions use this window.
-              </p>
-            </div>
+          <div className="flex h-11 items-center justify-between gap-3 border-b px-4">
+            <h4 className="text-sm font-semibold">Choose Studio instance</h4>
             <button
               type="button"
               onClick={() => void discover()}
