@@ -532,7 +532,7 @@ const ChatSidebar = memo(function ChatSidebar({
                   handleDelete(session);
                 }}
               >
-                Delete permanently…
+                Delete
               </button>
             </div>
           )}

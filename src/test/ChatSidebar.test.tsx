@@ -311,9 +311,9 @@ describe("ChatSidebar", () => {
 
     render(<TestSidebar client={client} queryClient={qc} />);
     fireEvent.click(await screen.findByText("Snoozed"));
-    expect(screen.queryByText("Delete permanently…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Delete")).not.toBeInTheDocument();
     fireEvent.contextMenu(screen.getByTitle(`Open snoozed session ${snoozed.title}`));
-    const deleteButton = screen.getByText("Delete permanently…");
+    const deleteButton = screen.getByText("Delete");
     fireEvent.click(deleteButton);
     expect(client.session.delete).not.toHaveBeenCalled();
     expect(capture).toHaveBeenCalledWith("permanent_delete_requested", {
@@ -328,7 +328,7 @@ describe("ChatSidebar", () => {
 
     confirm.mockReturnValue(true);
     fireEvent.contextMenu(screen.getByTitle(`Open snoozed session ${snoozed.title}`));
-    await act(async () => fireEvent.click(screen.getByText("Delete permanently…")));
+    await act(async () => fireEvent.click(screen.getByText("Delete")));
     expect(capture).toHaveBeenCalledWith("permanent_delete_confirmed", {
       analytics_schema_version: 1,
       confirmed: true,
