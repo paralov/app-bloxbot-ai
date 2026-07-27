@@ -52,7 +52,9 @@ export default function SyntaxHighlightedOutput({
   if (!lines) return <span className="whitespace-pre-wrap">{code}</span>;
 
   return (
-    <code className={collapsed ? "line-clamp-3 whitespace-pre-wrap" : "whitespace-pre-wrap"}>
+    <code
+      className={`font-sans text-[13px] leading-relaxed ${collapsed ? "line-clamp-3 whitespace-pre-wrap" : "whitespace-pre-wrap"}`}
+    >
       {lines.map((line, lineIndex) => (
         <span key={lineIndex} className="block">
           {line.map((token, tokenIndex) => (

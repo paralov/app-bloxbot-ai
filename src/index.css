@@ -36,6 +36,7 @@
 
 .syntax-token {
   color: var(--syntax-light);
+  font: inherit;
 }
 
 .dark .syntax-token {
