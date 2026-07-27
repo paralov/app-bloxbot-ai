@@ -690,8 +690,10 @@ const DefaultToolView = memo(function DefaultToolView({
   const title = "title" in input ? inputField(input, "title") : "";
   return (
     <div className="min-w-0">
-      <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
-        <span className="min-w-0 break-all font-semibold text-muted-foreground">{tool}</span>
+      <div className="flex min-w-0 items-center gap-1.5 text-[13px] leading-relaxed">
+        <span className="min-w-0 break-all font-medium text-blue-600 dark:text-blue-400">
+          {tool}
+        </span>
         {title && <span className="min-w-0 break-words text-muted-foreground">- {title}</span>}
         {status === "running" && (
           <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-amber-400" />
@@ -704,7 +706,6 @@ const DefaultToolView = memo(function DefaultToolView({
               ? output.slice(0, 2000)
               : JSON.stringify(output, null, 2).slice(0, 2000)
           }
-          monospace
           tone="output"
           previewLines={3}
         />
@@ -857,12 +858,10 @@ const TextPartView = memo(
 
 function InlineDisclosure({
   text,
-  monospace = false,
   tone = "reasoning",
   previewLines = 1,
 }: {
   text: string;
-  monospace?: boolean;
   tone?: "reasoning" | "error" | "output";
   previewLines?: number;
 }) {
@@ -879,9 +878,7 @@ function InlineDisclosure({
         type="button"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className={`block w-full min-w-0 text-left text-[11px] leading-relaxed transition-colors ${toneClass} ${
-          monospace ? "font-mono" : ""
-        }`}
+        className={`block w-full min-w-0 text-left text-[13px] leading-relaxed transition-colors ${toneClass}`}
       >
         {!isOpen ? (
           <span
@@ -894,7 +891,7 @@ function InlineDisclosure({
       {isOpen ? (
         <div
           onClick={() => setIsOpen(false)}
-          className={`app-scrollbar max-h-48 cursor-pointer overflow-auto whitespace-pre-wrap break-all text-[11px] leading-relaxed ${toneClass} ${monospace ? "font-mono" : ""}`}
+          className={`app-scrollbar max-h-48 cursor-pointer overflow-auto whitespace-pre-wrap break-all text-[13px] leading-relaxed ${toneClass}`}
         >
           {text}
         </div>
@@ -929,7 +926,7 @@ const ToolPartView = memo(function ToolPartView({
   const tool = baseToolName(part.tool);
 
   if (errorMsg) {
-    return <InlineDisclosure text={errorMsg} monospace tone="error" />;
+    return <InlineDisclosure text={errorMsg} tone="error" />;
   }
 
   function renderToolContent() {
@@ -985,7 +982,7 @@ const ToolPartView = memo(function ToolPartView({
 });
 
 const StepPartView = memo(function StepPartView() {
-  return <div className="my-2 border-t border-border" />;
+  return <div className="h-6" aria-hidden="true" />;
 });
 
 const StepFinishPartView = memo(function StepFinishPartView({
@@ -1516,7 +1513,7 @@ const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: st
         {isUser ? (
           <UserPartsView parts={msg.parts} />
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-3">
             {msg.parts.length === 0 && <BloxBotThinking />}
             {msg.parts.map((part) => (
               <PartRenderer key={part.id} part={part} />
@@ -1665,7 +1662,7 @@ function ChatMessages() {
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              <div className="pb-4">
+              <div className="pb-10">
                 <MessageBubble messageId={messageIds[virtualItem.index]} />
               </div>
             </div>
