@@ -690,7 +690,6 @@ const DefaultToolView = memo(function DefaultToolView({
   status: string;
 }) {
   const title = "title" in input ? inputField(input, "title") : "";
-  const [detailsOpen, setDetailsOpen] = useState(false);
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
@@ -701,20 +700,16 @@ const DefaultToolView = memo(function DefaultToolView({
         )}
       </div>
       {status === "completed" && output && (
-        <details
-          className="mt-1"
-          open={detailsOpen}
-          onToggle={(e) => setDetailsOpen((e.target as HTMLDetailsElement).open)}
-        >
-          <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
-            Output
-          </summary>
-          <pre className="app-scrollbar mt-1 max-h-32 max-w-full overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-[10px] leading-tight text-muted-foreground">
-            {typeof output === "string"
+        <InlineDisclosure
+          text={
+            typeof output === "string"
               ? output.slice(0, 2000)
-              : JSON.stringify(output, null, 2).slice(0, 2000)}
-          </pre>
-        </details>
+              : JSON.stringify(output, null, 2).slice(0, 2000)
+          }
+          monospace
+          tone="output"
+          previewLines={3}
+        />
       )}
     </div>
   );
@@ -863,32 +858,45 @@ const TextPartView = memo(
 );
 
 function InlineDisclosure({
-  label,
   text,
   monospace = false,
+  tone = "reasoning",
+  previewLines = 1,
 }: {
-  label: string;
   text: string;
   monospace?: boolean;
+  tone?: "reasoning" | "error" | "output";
+  previewLines?: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const toneClass =
+    tone === "error"
+      ? "text-red-500/70 hover:text-red-400"
+      : tone === "output"
+        ? "text-foreground/90 hover:text-foreground"
+        : "text-muted-foreground/55 hover:text-muted-foreground";
   return (
     <div className="my-1 min-w-0">
       <button
         type="button"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className="group flex w-full min-w-0 items-center gap-1.5 text-left text-[11px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+        className={`block w-full min-w-0 text-left text-[11px] leading-relaxed transition-colors ${toneClass} ${
+          monospace ? "font-mono" : ""
+        }`}
       >
-        <span className={`shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}>›</span>
-        <span className="shrink-0 font-medium">{label}</span>
-        {!isOpen ? <span className="truncate opacity-75">{text}</span> : null}
+        {!isOpen ? (
+          <span
+            className={previewLines === 1 ? "block truncate" : "line-clamp-3 whitespace-pre-wrap"}
+          >
+            {text}
+          </span>
+        ) : null}
       </button>
       {isOpen ? (
         <div
-          className={`app-scrollbar mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all pl-4 text-[11px] leading-relaxed text-muted-foreground ${
-            monospace ? "font-mono" : ""
-          }`}
+          onClick={() => setIsOpen(false)}
+          className={`app-scrollbar max-h-48 cursor-pointer overflow-auto whitespace-pre-wrap break-all text-[11px] leading-relaxed ${toneClass} ${monospace ? "font-mono" : ""}`}
         >
           {text}
         </div>
@@ -903,7 +911,7 @@ const ReasoningPartView = memo(function ReasoningPartView({
   part: Extract<Part, { type: "reasoning" }>;
 }) {
   if (!part.text) return null;
-  return <InlineDisclosure label="Reasoning" text={part.text} />;
+  return <InlineDisclosure text={part.text} />;
 });
 
 const ToolPartView = memo(function ToolPartView({
@@ -923,7 +931,7 @@ const ToolPartView = memo(function ToolPartView({
   const tool = baseToolName(part.tool);
 
   if (errorMsg) {
-    return <InlineDisclosure label={tool} text={errorMsg} monospace />;
+    return <InlineDisclosure text={errorMsg} monospace tone="error" />;
   }
 
   function renderToolContent() {
