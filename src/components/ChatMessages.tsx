@@ -885,7 +885,7 @@ function InlineDisclosure({
     tone === "error"
       ? "text-[#d73a49]/60 hover:text-[#d73a49]/85 dark:text-[#ff7b72]/55 dark:hover:text-[#ff7b72]/80"
       : tone === "output"
-        ? "text-muted-foreground/70 hover:text-muted-foreground"
+        ? "text-muted-foreground/70 opacity-70 hover:text-muted-foreground hover:opacity-100"
         : "text-muted-foreground/55 hover:text-muted-foreground";
   return (
     <div className={`min-w-0 ${tone === "output" ? "pl-3" : ""}`}>
