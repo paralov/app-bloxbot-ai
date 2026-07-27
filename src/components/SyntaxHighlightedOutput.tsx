@@ -1,6 +1,5 @@
 import { createHighlighterCore } from "@shikijs/core";
 import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
-import json from "@shikijs/langs/json";
 import githubDark from "@shikijs/themes/github-dark";
 import githubLight from "@shikijs/themes/github-light";
 import { type CSSProperties, useEffect, useState } from "react";
@@ -17,7 +16,7 @@ function preserveIndentation(value: string) {
 
 function hiddenLinesMarker(sourceLines: string[]) {
   const hiddenCount = sourceLines.length - 6;
-  const tailLine = sourceLines[sourceLines.length - 3];
+  const tailLine = sourceLines[sourceLines.length - 3] ?? "";
   const indentation = tailLine.match(/^\s*/)?.[0].length ?? 0;
   return `${" ".repeat(indentation)}[… ${hiddenCount} hidden ${hiddenCount === 1 ? "line" : "lines"}]`;
 }
@@ -30,24 +29,73 @@ function collapsedTextPreview(code: string) {
 
 const highlighterPromise = createHighlighterCore({
   themes: [githubLight, githubDark],
-  langs: [json],
+  langs: [],
   engine: createJavaScriptRegexEngine(),
 });
+
+export type HighlightLanguage =
+  | "json"
+  | "bash"
+  | "diff"
+  | "javascript"
+  | "lua"
+  | "shellsession"
+  | "tsx"
+  | "typescript";
+
+const languageLoads = new Map<HighlightLanguage, Promise<void>>();
+
+function ensureLanguage(language: HighlightLanguage) {
+  const existing = languageLoads.get(language);
+  if (existing) return existing;
+  const loading = highlighterPromise.then(async (highlighter) => {
+    switch (language) {
+      case "bash":
+        await highlighter.loadLanguage((await import("@shikijs/langs/bash")).default);
+        break;
+      case "diff":
+        await highlighter.loadLanguage((await import("@shikijs/langs/diff")).default);
+        break;
+      case "javascript":
+        await highlighter.loadLanguage((await import("@shikijs/langs/javascript")).default);
+        break;
+      case "json":
+        await highlighter.loadLanguage((await import("@shikijs/langs/json")).default);
+        break;
+      case "lua":
+        await highlighter.loadLanguage((await import("@shikijs/langs/lua")).default);
+        break;
+      case "shellsession":
+        await highlighter.loadLanguage((await import("@shikijs/langs/shellsession")).default);
+        break;
+      case "tsx":
+        await highlighter.loadLanguage((await import("@shikijs/langs/tsx")).default);
+        break;
+      case "typescript":
+        await highlighter.loadLanguage((await import("@shikijs/langs/typescript")).default);
+        break;
+    }
+  });
+  languageLoads.set(language, loading);
+  return loading;
+}
 
 export default function SyntaxHighlightedOutput({
   code,
   collapsed = false,
+  language = "json",
 }: {
   code: string;
   collapsed?: boolean;
+  language?: HighlightLanguage;
 }) {
   const [lines, setLines] = useState<HighlightedToken[][] | null>(null);
 
   useEffect(() => {
     let active = true;
-    void highlighterPromise.then((highlighter) => {
+    void Promise.all([highlighterPromise, ensureLanguage(language)]).then(([highlighter]) => {
       const tokenLines = highlighter.codeToTokensWithThemes(code, {
-        lang: "json",
+        lang: language,
         themes: { light: "github-light", dark: "github-dark" },
       });
       if (!active) return;
@@ -64,7 +112,7 @@ export default function SyntaxHighlightedOutput({
     return () => {
       active = false;
     };
-  }, [code]);
+  }, [code, language]);
 
   if (!lines) {
     return (
@@ -79,7 +127,7 @@ export default function SyntaxHighlightedOutput({
   }
 
   const sourceLines = code.split("\n");
-  const marker = hiddenLinesMarker(sourceLines);
+  const marker = collapsed && lines.length > 7 ? hiddenLinesMarker(sourceLines) : "";
   const visibleLines: Array<HighlightedToken[] | string> =
     collapsed && lines.length > 7 ? [...lines.slice(0, 3), marker, ...lines.slice(-3)] : lines;
 
