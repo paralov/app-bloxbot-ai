@@ -888,7 +888,7 @@ function InlineDisclosure({
         ? "text-muted-foreground/70 opacity-70 hover:text-muted-foreground hover:opacity-100"
         : "text-muted-foreground/55 hover:text-muted-foreground";
   return (
-    <div className={`min-w-0 ${tone === "output" ? "pl-3" : ""}`}>
+    <div data-preserve-scroll className={`min-w-0 ${tone === "output" ? "pl-3" : ""}`}>
       <button
         type="button"
         aria-expanded={isOpen}
@@ -898,21 +898,19 @@ function InlineDisclosure({
         {formatted.structured ? (
           <Suspense fallback={<span className="line-clamp-3">{formatted.text}</span>}>
             <span
-              key={isOpen ? "expanded" : "collapsed"}
-              className="animate-disclosure-change block"
+              className={`block ${isOpen ? "animate-disclosure-expand" : "animate-disclosure-collapse"}`}
             >
               <SyntaxHighlightedOutput code={formatted.text} collapsed={!isOpen} />
             </span>
           </Suspense>
         ) : (
           <span
-            key={isOpen ? "expanded" : "collapsed"}
             className={
               isOpen
-                ? "animate-disclosure-change block whitespace-pre-wrap break-all"
+                ? "animate-disclosure-expand block whitespace-pre-wrap break-all"
                 : previewLines === 1
-                  ? "animate-disclosure-change block truncate"
-                  : "animate-disclosure-change line-clamp-3 whitespace-pre-wrap"
+                  ? "animate-disclosure-collapse block truncate"
+                  : "animate-disclosure-collapse line-clamp-3 whitespace-pre-wrap"
             }
           >
             {formatted.text}
@@ -1606,7 +1604,13 @@ function ChatMessages() {
     const anchor = bottomRef.current;
     if (!el || !anchor) return;
     let rafId = 0;
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((mutations) => {
+      const onlyDisclosureChanges = mutations.every((mutation) => {
+        const target =
+          mutation.target instanceof Element ? mutation.target : mutation.target.parentElement;
+        return target?.closest("[data-preserve-scroll]") !== null;
+      });
+      if (onlyDisclosureChanges) return;
       if (!shouldAutoScroll.current) return;
       if (!rafId) {
         rafId = requestAnimationFrame(() => {
@@ -1664,8 +1668,9 @@ function ChatMessages() {
   return (
     <div
       ref={containerRef}
+      data-chat-scroll
       onScroll={handleScroll}
-      className="app-scrollbar flex-1 overflow-y-auto"
+      className="app-scrollbar flex-1 overflow-y-auto [overflow-anchor:none]"
     >
       <ImageLightbox />
       <div className="mx-auto max-w-2xl px-4 py-4">
@@ -1685,7 +1690,7 @@ function ChatMessages() {
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              <div className="pb-5">
+              <div className="pb-4">
                 <MessageBubble messageId={messageIds[virtualItem.index]} />
               </div>
             </div>

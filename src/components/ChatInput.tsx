@@ -4,6 +4,7 @@ import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor
 import { useAbort } from "@/hooks/mutations/useAbort";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useAgents } from "@/hooks/useAgents";
+import { useCommands } from "@/hooks/useCommands";
 import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { splitModelKey } from "@/lib/splitModelKey";
@@ -238,6 +239,7 @@ function ChatInput() {
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
   const agents = useAgents();
+  const commands = useCommands();
   const { activeSessionId, activeSessionIdRef } = useActiveSession();
   const isBusy = useIsBusy(activeSessionId);
   const {
@@ -819,6 +821,7 @@ function ChatInput() {
           </button>
           <PromptEditor
             ref={promptEditorRef}
+            commands={commands}
             objects={objects}
             onChange={setText}
             onSubmit={handleSubmit}

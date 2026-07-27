@@ -165,7 +165,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <aside
-      className="animate-in slide-in-from-right-4 flex w-72 shrink-0 flex-col border-l bg-sidebar duration-200"
+      className="flex w-72 shrink-0 flex-col border-l bg-sidebar"
       aria-label="Playtest planner"
     >
       <header className="flex h-10 shrink-0 items-center justify-between border-b px-3">

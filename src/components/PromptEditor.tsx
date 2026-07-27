@@ -10,6 +10,7 @@ import {
   MenuOption,
   useBasicTypeaheadTriggerMatch,
 } from "@lexical/react/LexicalTypeaheadMenuPlugin";
+import type { Command } from "@opencode-ai/sdk/v2/client";
 import {
   $createParagraphNode,
   $createTextNode,
@@ -141,14 +142,8 @@ class PromptOption extends MenuOption {
   }
 }
 
-const COMMANDS = [
-  { name: "build", detail: "Implement the requested change", prompt: "Build this: " },
-  { name: "fix", detail: "Diagnose and fix a problem", prompt: "Fix this: " },
-  { name: "review", detail: "Review the current implementation", prompt: "Review this: " },
-  { name: "explain", detail: "Explain code or behavior", prompt: "Explain this: " },
-] as const;
-
 const EMPTY_OBJECT_INDEX: readonly SearchableObject[] = [];
+const EMPTY_COMMANDS: readonly Command[] = [];
 
 interface SearchableObject {
   node: ExplorerNode;
@@ -250,9 +245,11 @@ function TypeaheadMenuPortal({ anchor, children }: { anchor: HTMLElement; childr
 function TypeaheadPlugin({
   kind,
   objectIndex,
+  commands = EMPTY_COMMANDS,
 }: {
   kind: TokenKind;
   objectIndex: readonly SearchableObject[];
+  commands?: readonly Command[];
 }) {
   const [query, setQuery] = useState<string | null>(null);
   const triggerFn = useBasicTypeaheadTriggerMatch(kind === "object" ? "@" : "/", {
@@ -279,17 +276,23 @@ function TypeaheadPlugin({
       return objectOptions;
     }
 
-    return COMMANDS.filter((command) => command.name.includes(search)).map(
-      (command) =>
+    const commandOptions: PromptOption[] = [];
+    for (const command of commands) {
+      if (!command.name.toLowerCase().includes(search)) continue;
+      const usage = command.hints.length > 0 ? `/${command.name} ${command.hints.join(" ")}` : "";
+      commandOptions.push(
         new PromptOption(
           `command:${command.name}`,
           "command",
           `/${command.name}`,
-          command.detail,
-          command.prompt,
+          [usage, command.description].filter(Boolean).join(" · "),
+          `/${command.name}`,
         ),
-    );
-  }, [kind, objectIndex, query]);
+      );
+      if (commandOptions.length === 10) break;
+    }
+    return commandOptions;
+  }, [commands, kind, objectIndex, query]);
 
   return (
     <LexicalTypeaheadMenuPlugin<PromptOption>
@@ -299,8 +302,29 @@ function TypeaheadPlugin({
       onSelectOption={(option, nodeToReplace, closeMenu) => {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) return;
-        const token = $createPromptTokenNode(option.kind, option.label, option.value);
         const trailingSpace = $createTextNode(" ");
+        if (option.kind === "command") {
+          const commandText = $createTextNode(option.value);
+          if (nodeToReplace) {
+            nodeToReplace.replace(commandText);
+            commandText.insertAfter(trailingSpace);
+          } else {
+            selection.insertNodes([commandText, trailingSpace]);
+          }
+          trailingSpace.selectEnd();
+          posthog.capture(
+            "composer_command_inserted",
+            analyticsProperties("chat", {
+              token_kind: option.kind,
+              command: option.key.replace("command:", ""),
+              completion_method: "typeahead",
+            }),
+          );
+          closeMenu();
+          return;
+        }
+
+        const token = $createPromptTokenNode(option.kind, option.label, option.value);
         if (nodeToReplace) {
           nodeToReplace.replace(token);
           token.insertAfter(trailingSpace);
@@ -309,10 +333,9 @@ function TypeaheadPlugin({
         }
         trailingSpace.selectEnd();
         posthog.capture(
-          option.kind === "object" ? "composer_object_referenced" : "composer_command_inserted",
+          "composer_object_referenced",
           analyticsProperties("chat", {
             token_kind: option.kind,
-            command: option.kind === "command" ? option.key.replace("command:", "") : undefined,
           }),
         );
         closeMenu();
@@ -332,8 +355,19 @@ function TypeaheadPlugin({
                 onMouseEnter={() => setHighlightedIndex(index)}
                 onClick={() => selectOptionAndCleanUp(option)}
               >
-                <span className="text-xs font-medium">{option.label}</span>
-                <span className="truncate text-[10px] text-muted-foreground">{option.detail}</span>
+                <span className="flex w-full items-center justify-between gap-3">
+                  <span className="text-xs font-medium">{option.label}</span>
+                  {option.kind === "command" && selectedIndex === index ? (
+                    <kbd className="rounded border bg-background px-1.5 py-0.5 text-[9px] font-normal text-muted-foreground">
+                      Tab
+                    </kbd>
+                  ) : null}
+                </span>
+                {option.detail ? (
+                  <span className="truncate text-[10px] text-muted-foreground">
+                    {option.detail}
+                  </span>
+                ) : null}
               </button>
             ))}
           </TypeaheadMenuPortal>
@@ -351,6 +385,7 @@ export interface PromptEditorHandle {
 }
 
 interface PromptEditorProps {
+  commands: readonly Command[];
   objects: readonly ExplorerNode[];
   placeholder: string;
   onChange(text: string): void;
@@ -359,7 +394,7 @@ interface PromptEditorProps {
 }
 
 export default forwardRef<PromptEditorHandle, PromptEditorProps>(function PromptEditor(
-  { objects, placeholder, onChange, onSubmit, onPaste },
+  { commands, objects, placeholder, onChange, onSubmit, onPaste },
   ref,
 ) {
   const editorRef = useMemo(() => ({ current: null as LexicalEditor | null }), []);
@@ -437,7 +472,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
         />
         <DomInputFallbackPlugin />
         <TypeaheadPlugin kind="object" objectIndex={objectIndex} />
-        <TypeaheadPlugin kind="command" objectIndex={EMPTY_OBJECT_INDEX} />
+        <TypeaheadPlugin kind="command" objectIndex={EMPTY_OBJECT_INDEX} commands={commands} />
         <SetEditorRef editorRef={editorRef} />
       </div>
     </LexicalComposer>

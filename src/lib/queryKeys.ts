@@ -7,6 +7,7 @@ export const qk = {
   statuses: ["session-statuses"] as const,
   providers: ["providers"] as const,
   agents: ["agents"] as const,
+  commands: ["commands"] as const,
   questions: (id: string) => ["sessions", id, "questions"] as const,
   permissions: (id: string) => ["sessions", id, "permissions"] as const,
   config: ["config"] as const,

@@ -214,9 +214,24 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@keyframes disclosure-change {
-  from { opacity: 0.35; transform: translateY(-2px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes disclosure-expand {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
+}
+
+@keyframes disclosure-collapse {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
+}
+
+@keyframes side-panel-in {
+  from { width: 0; opacity: 0; transform: translateX(18px); }
+  to { width: 18rem; opacity: 1; transform: translateX(0); }
+}
+
+@keyframes side-panel-out {
+  from { width: 18rem; opacity: 1; transform: translateX(0); }
+  to { width: 0; opacity: 0; transform: translateX(18px); }
 }
 
 .animate-fade-in {
@@ -244,8 +259,21 @@
   animation: picker-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.animate-disclosure-change {
-  animation: disclosure-change 140ms ease-out both;
+.animate-disclosure-expand {
+  animation: disclosure-expand 140ms ease-out both;
+}
+
+.animate-disclosure-collapse {
+  animation: disclosure-collapse 110ms ease-out both;
+}
+
+.animate-side-panel-in {
+  animation: side-panel-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-side-panel-out {
+  pointer-events: none;
+  animation: side-panel-out 180ms ease-in both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -253,7 +281,10 @@
     animation: none;
   }
 
-  .animate-disclosure-change {
+  .animate-disclosure-expand,
+  .animate-disclosure-collapse,
+  .animate-side-panel-in,
+  .animate-side-panel-out {
     animation: none;
   }
 }

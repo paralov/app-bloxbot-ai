@@ -468,7 +468,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }
 
   return (
-    <aside className="animate-in slide-in-from-right-4 flex w-72 shrink-0 flex-col border-l bg-sidebar duration-200">
+    <aside className="flex w-72 shrink-0 flex-col border-l bg-sidebar">
       <header className="flex h-10 shrink-0 items-center justify-between border-b px-3">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Explorer

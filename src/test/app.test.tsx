@@ -155,6 +155,7 @@ function createClient(overrides: Record<string, unknown> = {}) {
     },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
     app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
+    command: { list: vi.fn().mockResolvedValue({ data: [] }) },
     mcp: {
       status: vi.fn().mockResolvedValue({
         data: { "roblox-studio": { status: "connected" } },
