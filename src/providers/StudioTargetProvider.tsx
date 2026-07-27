@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-
+import { BUILTIN_STUDIO_TARGET_PROGRAMS } from "@/lib/builtinStudioPrograms";
 import { desktop } from "@/lib/desktop";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { generateStudioTargetPrograms } from "@/lib/studioTargetPrograms";
@@ -54,6 +54,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const operationRef = useRef(0);
   const programsRef = useRef<StudioTargetPrograms | null>(null);
   const generationRef = useRef<Promise<StudioTargetPrograms> | null>(null);
+  const builtinAttemptedRef = useRef(false);
 
   const generatePrograms = useCallback(async () => {
     if (generationRef.current) return generationRef.current;
@@ -80,6 +81,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
 
   const getPrograms = useCallback(async () => {
     if (programsRef.current) return programsRef.current;
+    if (!builtinAttemptedRef.current) {
+      builtinAttemptedRef.current = true;
+      const programs = await desktop.installStudioTargetPrograms(BUILTIN_STUDIO_TARGET_PROGRAMS);
+      programsRef.current = programs;
+      return programs;
+    }
     const config = await desktop.loadConfig();
     if (config.studioTargetPrograms) {
       programsRef.current = config.studioTargetPrograms;
@@ -124,11 +131,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         programsRef.current = null;
         const regenerated = await generatePrograms();
         await applyDiscovery(regenerated, operation);
-      } catch {
+      } catch (repairError) {
         if (operation !== operationRef.current) return;
         setStatus("error");
         setSelectingKey(null);
-        setError("Couldn’t check connected Studio windows.");
+        const detail = repairError instanceof Error ? repairError.message : String(repairError);
+        setError(`Studio discovery failed: ${detail}`);
         posthog.capture("studio_target_discovery_failed");
       }
     }

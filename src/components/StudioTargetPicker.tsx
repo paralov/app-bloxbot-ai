@@ -107,14 +107,14 @@ export default function StudioTargetPicker() {
               <div className="px-4 py-7 text-center">
                 <p className="text-sm font-medium">No Studio windows found</p>
                 <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                  Open a place and enable Studio’s MCP server, then refresh.
+                  Studio MCP is connected, but it has not reported an open Studio window yet.
                 </p>
               </div>
             ) : status === "error" ? (
               <div className="px-4 py-7 text-center">
                 <p className="text-sm font-medium">Couldn’t find Studios</p>
                 <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                  Check that Studio is open and try again.
+                  {error ?? "The Studio integration could not be initialized."}
                 </p>
               </div>
             ) : (

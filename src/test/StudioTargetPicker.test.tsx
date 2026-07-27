@@ -1,15 +1,23 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { discoverStudioTargets, selectStudioTarget, capture, loadConfig, generatePrograms, client } =
-  vi.hoisted(() => ({
-    discoverStudioTargets: vi.fn(),
-    selectStudioTarget: vi.fn(),
-    capture: vi.fn(),
-    loadConfig: vi.fn(),
-    generatePrograms: vi.fn(),
-    client: {},
-  }));
+const {
+  discoverStudioTargets,
+  selectStudioTarget,
+  installStudioTargetPrograms,
+  capture,
+  loadConfig,
+  generatePrograms,
+  client,
+} = vi.hoisted(() => ({
+  discoverStudioTargets: vi.fn(),
+  selectStudioTarget: vi.fn(),
+  installStudioTargetPrograms: vi.fn(),
+  capture: vi.fn(),
+  loadConfig: vi.fn(),
+  generatePrograms: vi.fn(),
+  client: {},
+}));
 
 const programs = { discovery: {}, selection: {} };
 
@@ -19,7 +27,7 @@ vi.mock("@/lib/desktop", () => ({
     selectStudioTarget,
     loadConfig,
     patchConfig: vi.fn(),
-    installStudioTargetPrograms: vi.fn(),
+    installStudioTargetPrograms,
   },
 }));
 
@@ -50,6 +58,7 @@ describe("StudioTargetPicker", () => {
     selectStudioTarget.mockReset();
     capture.mockReset();
     loadConfig.mockResolvedValue({ studioTargetPrograms: programs });
+    installStudioTargetPrograms.mockResolvedValue(programs);
     generatePrograms.mockRejectedValue(new Error("generation failed"));
   });
 

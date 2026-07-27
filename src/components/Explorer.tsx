@@ -12,6 +12,7 @@ import {
   type LucideIcon,
   PanelTop,
   ScrollText,
+  Search,
   Server,
   Sparkles,
   Users,
@@ -20,12 +21,14 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { explorerAnalyticsProperties } from "@/lib/analytics";
+import { BUILTIN_EXPLORER_PROGRAM } from "@/lib/builtinStudioPrograms";
 import { desktop } from "@/lib/desktop";
 import {
   createExplorerReference,
   type ExplorerCollection,
   type ExplorerField,
   type ExplorerNode,
+  type ExplorerProgramEnvelope,
   generateExplorerProgram,
 } from "@/lib/explorer";
 import { splitModelKey } from "@/lib/splitModelKey";
@@ -151,6 +154,16 @@ function countNodes(nodes: readonly ExplorerNode[]): number {
   return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
 }
 
+function collectPaths(nodes: readonly ExplorerNode[]): Set<string> {
+  const paths = new Set<string>();
+  const visit = (node: ExplorerNode) => {
+    paths.add(node.path);
+    node.children.forEach(visit);
+  };
+  nodes.forEach(visit);
+  return paths;
+}
+
 export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
   const { selectedModel, selectedAgent } = usePreferences();
@@ -164,7 +177,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const [syncError, setSyncError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
+  const builtinAttemptedRef = useRef(false);
+  const generationBlockedRef = useRef(false);
 
   const model = useMemo(() => {
     if (!selectedModel) return undefined;
@@ -215,9 +231,18 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           reason,
         });
         try {
-          const program = await generateExplorerProgram(activeClient, model, selectedAgent);
+          let program: ExplorerProgramEnvelope;
+          if (!builtinAttemptedRef.current) {
+            builtinAttemptedRef.current = true;
+            program = BUILTIN_EXPLORER_PROGRAM;
+          } else {
+            program = await generateExplorerProgram(activeClient, model, selectedAgent);
+          }
           const artifact = await desktop.compileExplorerProgram(program);
           const snapshot = await desktop.invokeExplorerProgram(artifact);
+          if (snapshot.roots.length === 0) {
+            throw new Error("Studio has not returned an instance tree yet");
+          }
           const generated: ExplorerCollection = { program, artifact, snapshot };
           posthog.capture(
             "collector_generation_succeeded",
@@ -255,8 +280,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
             posthog.capture("sync_failed", { reason: "collector_runtime" });
             next = await generate("contract_recovery");
           }
-        } else {
+        } else if (!generationBlockedRef.current) {
           next = await generate("initial");
+        } else {
+          throw new Error("Explorer setup needs repair before it can retry.");
         }
 
         if (cancelled) return;
@@ -289,6 +316,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           telemetryRef.current.hadFailure = false;
         }
       } catch (error) {
+        if (!collectionRef.current) generationBlockedRef.current = true;
         telemetryRef.current.hadFailure = true;
         posthog.capture(
           "sync_failed",
@@ -340,6 +368,28 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     [collection, selectedPath],
   );
 
+  const visibleRoots = useMemo(() => {
+    if (!collection) return [];
+    const query = search.trim().toLowerCase();
+    if (!query) return collection.snapshot.roots;
+    const filter = (node: ExplorerNode): ExplorerNode | null => {
+      const children = node.children.flatMap((child) => {
+        const match = filter(child);
+        return match ? [match] : [];
+      });
+      const matches = `${node.name} ${node.className} ${node.path}`.toLowerCase().includes(query);
+      return matches || children.length > 0 ? { ...node, children } : null;
+    };
+    return collection.snapshot.roots.flatMap((root) => {
+      const match = filter(root);
+      return match ? [match] : [];
+    });
+  }, [collection, search]);
+  const visibleExpanded = useMemo(
+    () => (search.trim() ? collectPaths(visibleRoots) : expanded),
+    [expanded, search, visibleRoots],
+  );
+
   const handleReference = useCallback(() => {
     if (!selected) return;
     referenceObject(createExplorerReference(selected));
@@ -352,6 +402,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     );
     toast.success(`${selected.name} added to your message`);
   }, [referenceObject, selected]);
+
+  // Do not reserve an empty panel before Studio has produced the first valid snapshot.
+  if (!collection) return null;
 
   if (collapsed) {
     return (
@@ -384,9 +437,23 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         </button>
       </header>
 
+      <div className="px-3 pb-2 pt-1">
+        <div className="flex h-8 items-center gap-2 rounded-md border bg-background px-2 text-muted-foreground focus-within:border-ring focus-within:text-foreground">
+          <Search aria-hidden="true" size={12} />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search instances"
+            aria-label="Search Explorer"
+            className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+      </div>
+
       {syncError ? (
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-          Reconnect Studio if needed; Explorer will retry automatically.
+          Explorer setup failed. Reopen Explorer to retry the integration.
         </div>
       ) : null}
 
@@ -396,12 +463,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         aria-label="Instance hierarchy"
       >
         {!collection && syncing ? <ExplorerLoading /> : null}
-        {collection?.snapshot.roots.map((node) => (
+        {visibleRoots.map((node) => (
           <TreeRow
             key={node.path}
             node={node}
             depth={0}
-            expanded={expanded}
+            expanded={visibleExpanded}
             selectedPath={selectedPath}
             onToggle={toggleNode}
             onSelect={(next) => setSelectedPath(next.path)}

@@ -188,6 +188,7 @@ function Chat() {
       !showSettings &&
       !showStudioSetup &&
       !showPlaytest &&
+      explorerCollapsed === false &&
       studioConnection.state === "connected" ? (
         <Explorer
           collapsed={explorerCollapsed}
