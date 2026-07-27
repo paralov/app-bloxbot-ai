@@ -307,7 +307,6 @@ describe("ChatSidebar", () => {
     const client = createClient();
     const qc = createQueryClient();
     seedState(qc, { sessions: [snoozed] });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
 
     render(<TestSidebar client={client} queryClient={qc} />);
     fireEvent.click(await screen.findByText("Snoozed"));
@@ -315,6 +314,9 @@ describe("ChatSidebar", () => {
     fireEvent.contextMenu(screen.getByTitle(`Open snoozed session ${snoozed.title}`));
     const deleteButton = screen.getByText("Delete");
     fireEvent.click(deleteButton);
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.getByText("Delete session?")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Cancel"));
     expect(client.session.delete).not.toHaveBeenCalled();
     expect(capture).toHaveBeenCalledWith("permanent_delete_requested", {
       analytics_schema_version: 1,
@@ -326,9 +328,9 @@ describe("ChatSidebar", () => {
       feature: "sessions",
     });
 
-    confirm.mockReturnValue(true);
     fireEvent.contextMenu(screen.getByTitle(`Open snoozed session ${snoozed.title}`));
-    await act(async () => fireEvent.click(screen.getByText("Delete")));
+    fireEvent.click(screen.getByText("Delete"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Delete" })));
     expect(capture).toHaveBeenCalledWith("permanent_delete_confirmed", {
       analytics_schema_version: 1,
       confirmed: true,

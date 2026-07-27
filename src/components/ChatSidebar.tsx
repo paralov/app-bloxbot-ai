@@ -1,6 +1,7 @@
 import type { Session } from "@opencode-ai/sdk/v2/client";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { type MouseEvent, memo, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useArchiveSession } from "@/hooks/mutations/useArchiveSession";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useDeleteSession } from "@/hooks/mutations/useDeleteSession";
@@ -69,7 +70,9 @@ const ChatSidebar = memo(function ChatSidebar({
     x: number;
     y: number;
   } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
 
   const { activeSessions, snoozedSessions } = useMemo(() => {
     const active: Session[] = [];
@@ -107,6 +110,21 @@ const ChatSidebar = memo(function ChatSidebar({
       window.removeEventListener("blur", close);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!deleteTarget) return;
+    cancelDeleteRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      posthog.capture(
+        "permanent_delete_cancelled",
+        analyticsProperties("sessions", { confirmed: false }),
+      );
+      setDeleteTarget(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteTarget]);
 
   function startRename(session: { id: string; title?: string }) {
     setEditingId(session.id);
@@ -158,18 +176,27 @@ const ChatSidebar = memo(function ChatSidebar({
     });
   }
 
-  function handleDelete(session: Session) {
+  function requestDelete(session: Session) {
     posthog.capture("permanent_delete_requested", analyticsProperties("sessions"));
-    const confirmed = window.confirm(
-      `Permanently delete “${session.title || "Untitled"}”? This cannot be undone.`,
-    );
+    setDeleteTarget(session);
+  }
+
+  function cancelDelete() {
     posthog.capture(
-      confirmed ? "permanent_delete_confirmed" : "permanent_delete_cancelled",
-      analyticsProperties("sessions", { confirmed }),
+      "permanent_delete_cancelled",
+      analyticsProperties("sessions", { confirmed: false }),
     );
-    if (confirmed) {
-      deleteSession.mutate(session.id);
-    }
+    setDeleteTarget(null);
+  }
+
+  function confirmDelete() {
+    if (!deleteTarget) return;
+    posthog.capture(
+      "permanent_delete_confirmed",
+      analyticsProperties("sessions", { confirmed: true }),
+    );
+    deleteSession.mutate(deleteTarget.id);
+    setDeleteTarget(null);
   }
 
   return (
@@ -529,13 +556,77 @@ const ChatSidebar = memo(function ChatSidebar({
                 onClick={() => {
                   const session = contextMenu.session;
                   setContextMenu(null);
-                  handleDelete(session);
+                  requestDelete(session);
                 }}
               >
                 Delete
               </button>
             </div>
           )}
+
+          {deleteTarget &&
+            createPortal(
+              <div
+                className="animate-lightbox-backdrop fixed inset-0 z-[300] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) cancelDelete();
+                }}
+              >
+                <div
+                  role="alertdialog"
+                  aria-modal="true"
+                  aria-labelledby="delete-session-title"
+                  aria-describedby="delete-session-description"
+                  className="animate-scale-in w-full max-w-sm rounded-xl border bg-card p-5 text-card-foreground shadow-2xl"
+                >
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                    <svg
+                      width="17"
+                      height="17"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="M19 6l-1 14H6L5 6" />
+                    </svg>
+                  </div>
+                  <h2 id="delete-session-title" className="mt-4 text-sm font-semibold">
+                    Delete session?
+                  </h2>
+                  <p
+                    id="delete-session-description"
+                    className="mt-1.5 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    “{deleteTarget.title || "Untitled"}” and its full conversation history will be
+                    permanently deleted. This cannot be undone.
+                  </p>
+                  <div className="mt-5 flex justify-end gap-2">
+                    <button
+                      ref={cancelDeleteRef}
+                      type="button"
+                      onClick={cancelDelete}
+                      className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmDelete}
+                      className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>,
+              document.body,
+            )}
         </>
       )}
     </div>
