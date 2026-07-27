@@ -882,7 +882,7 @@ function InlineDisclosure({
   }, [text, tone]);
   const toneClass =
     tone === "error"
-      ? "text-red-500/70 hover:text-red-400"
+      ? "text-rose-400/55 hover:text-rose-400/80 dark:text-rose-300/50 dark:hover:text-rose-300/75"
       : tone === "output"
         ? "text-muted-foreground/70 hover:text-muted-foreground"
         : "text-muted-foreground/55 hover:text-muted-foreground";
