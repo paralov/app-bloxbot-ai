@@ -870,10 +870,10 @@ function InlineDisclosure({
     tone === "error"
       ? "text-red-500/70 hover:text-red-400"
       : tone === "output"
-        ? "text-foreground/90 hover:text-foreground"
+        ? "text-muted-foreground/70 hover:text-muted-foreground"
         : "text-muted-foreground/55 hover:text-muted-foreground";
   return (
-    <div className="my-1 min-w-0">
+    <div className={`my-1 min-w-0 ${tone === "output" ? "pl-3" : ""}`}>
       <button
         type="button"
         aria-expanded={isOpen}
@@ -1662,7 +1662,7 @@ function ChatMessages() {
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              <div className="pb-10">
+              <div className="pb-8">
                 <MessageBubble messageId={messageIds[virtualItem.index]} />
               </div>
             </div>
