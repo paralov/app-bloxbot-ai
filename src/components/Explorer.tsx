@@ -185,7 +185,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
-  const builtinAttemptedRef = useRef(false);
   const generationBlockedRef = useRef(false);
 
   const model = useMemo(() => {
@@ -240,13 +239,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           analyticsProperties("explorer", { model_mediated: true, reason }),
         );
         try {
-          let program: ExplorerProgramEnvelope;
-          if (!builtinAttemptedRef.current) {
-            builtinAttemptedRef.current = true;
-            program = BUILTIN_EXPLORER_PROGRAM;
-          } else {
-            program = await generateExplorerProgram(activeClient, model, selectedAgent);
-          }
+          const program: ExplorerProgramEnvelope =
+            reason === "initial"
+              ? BUILTIN_EXPLORER_PROGRAM
+              : await generateExplorerProgram(activeClient, model, selectedAgent);
           const artifact = await desktop.compileExplorerProgram(program);
           const snapshot = await desktop.invokeExplorerProgram(artifact);
           if (snapshot.roots.length === 0) {
@@ -438,9 +434,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     toast.success(`${selected.name} added to your message`);
   }, [referenceObject, selected]);
 
-  // Do not reserve an empty panel before Studio has produced the first valid snapshot.
-  if (!collection) return null;
-
   if (collapsed) {
     return (
       <aside className="flex w-10 shrink-0 flex-col items-center border-l bg-sidebar py-2">
@@ -488,7 +481,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       {syncError ? (
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-          Explorer setup failed. Reopen Explorer to retry the integration.
+          Explorer couldn’t load this Studio place. Close and reopen Explorer to retry.
         </div>
       ) : null}
 
@@ -498,6 +491,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         aria-label="Instance hierarchy"
       >
         {!collection && syncing ? <ExplorerLoading /> : null}
+        {!collection && !syncing && !syncError ? <ExplorerLoading /> : null}
         {visibleRoots.map((node) => (
           <TreeRow
             key={node.path}
