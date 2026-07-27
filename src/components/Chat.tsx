@@ -201,22 +201,24 @@ function Chat() {
           </div>
         ) : (
           <>
-            <div className="flex h-10 shrink-0 items-center border-b px-4">
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <h3 className="truncate text-xs font-semibold">
+            <div className="grid h-10 shrink-0 grid-cols-[minmax(6rem,2fr)_minmax(0,3fr)] items-center border-b px-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <h3 className="min-w-0 flex-1 truncate text-xs font-semibold">
                   {activeSessionTitle || "Untitled"}
                 </h3>
                 {isBusy && (
-                  <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+                  <span className="flex max-w-[42%] shrink items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
                     <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                    {sessionStatus?.type === "retry" ? "Waiting to retry" : "Working"}
+                    <span className="truncate">
+                      {sessionStatus?.type === "retry" ? "Waiting to retry" : "Working"}
+                    </span>
                   </span>
                 )}
               </div>
-              <div className="ml-3 flex w-96 shrink-0 items-center justify-end gap-2">
+              <div className="ml-2 flex min-w-0 items-center justify-end gap-1.5">
                 <StudioTargetPicker />
                 {hasStudioTarget ? (
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-1.5">
                     <button
                       type="button"
                       onClick={handleToggleExplorer}

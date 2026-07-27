@@ -45,7 +45,7 @@ export default function StudioTargetPicker() {
       : (selected?.label ?? (status === "empty" ? "No Studios" : "Choose Studio"));
 
   return (
-    <div ref={containerRef} className="relative min-w-0">
+    <div ref={containerRef} className="relative min-w-0 flex-1">
       <button
         type="button"
         aria-haspopup="dialog"
@@ -61,10 +61,12 @@ export default function StudioTargetPicker() {
             return !value;
           })
         }
-        className="flex h-7 max-w-[240px] items-center gap-1.5 rounded-md border bg-background px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md border bg-background px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       >
-        <StudioIcon />
-        <span className="truncate">{buttonLabel}</span>
+        <span className="shrink-0">
+          <StudioIcon />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-left">{buttonLabel}</span>
         {status === "loading" ? (
           <span className="ml-0.5 h-2.5 w-2.5 animate-spin rounded-full border border-current border-t-transparent" />
         ) : (
@@ -85,7 +87,7 @@ export default function StudioTargetPicker() {
         <div
           role="dialog"
           aria-label="Choose Roblox Studio"
-          className="animate-picker-in absolute right-0 top-9 z-40 w-80 origin-top-right overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl"
+          className="animate-picker-in absolute right-0 top-9 z-40 w-[min(20rem,calc(100vw-2rem))] origin-top-right overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl"
         >
           <div className="flex h-11 items-center justify-between gap-3 border-b px-4">
             <h4 className="text-sm font-semibold">Pick Studio</h4>
