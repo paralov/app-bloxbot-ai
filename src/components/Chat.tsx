@@ -6,6 +6,7 @@ import ChatMessages from "@/components/ChatMessages";
 import ChatSidebar from "@/components/ChatSidebar";
 import Explorer from "@/components/Explorer";
 import LoadingScreen from "@/components/LoadingScreen";
+import PlaytestPanel from "@/components/PlaytestPanel";
 import StudioSetup from "@/components/StudioSetup";
 import StudioTargetPicker from "@/components/StudioTargetPicker";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
@@ -34,6 +35,7 @@ function Chat() {
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
+  const [showPlaytest, setShowPlaytest] = useState(false);
 
   const appScreen =
     showStudioSetup || studioConnection.state === "waiting"
@@ -78,6 +80,14 @@ function Chat() {
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
+  const handleOpenPlaytest = useCallback(() => {
+    posthog.capture("playtest_opened");
+    setShowPlaytest(true);
+  }, []);
+  const handleClosePlaytest = useCallback(() => {
+    posthog.capture("playtest_closed");
+    setShowPlaytest(false);
+  }, []);
 
   // Main chat UI
   return (
@@ -149,7 +159,18 @@ function Chat() {
                   </span>
                 )}
               </div>
-              <StudioTargetPicker />
+              <div className="ml-3 flex shrink-0 items-center gap-2">
+                <StudioTargetPicker />
+                <button
+                  type="button"
+                  onClick={handleOpenPlaytest}
+                  disabled={isBusy}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
+                  title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
+                >
+                  <span aria-hidden="true">▷</span> Playtest
+                </button>
+              </div>
             </div>
 
             <ChatMessages />
@@ -166,6 +187,7 @@ function Chat() {
       {activeSessionId &&
       !showSettings &&
       !showStudioSetup &&
+      !showPlaytest &&
       studioConnection.state === "connected" ? (
         <Explorer
           collapsed={explorerCollapsed}
@@ -173,6 +195,7 @@ function Chat() {
           onToggle={() => setExplorerCollapsed((value) => !value)}
         />
       ) : null}
+      {showPlaytest && activeSessionId ? <PlaytestPanel onClose={handleClosePlaytest} /> : null}
     </div>
   );
 }
