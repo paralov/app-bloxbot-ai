@@ -897,16 +897,22 @@ function InlineDisclosure({
       >
         {formatted.structured ? (
           <Suspense fallback={<span className="line-clamp-3">{formatted.text}</span>}>
-            <SyntaxHighlightedOutput code={formatted.text} collapsed={!isOpen} />
+            <span
+              key={isOpen ? "expanded" : "collapsed"}
+              className="animate-disclosure-change block"
+            >
+              <SyntaxHighlightedOutput code={formatted.text} collapsed={!isOpen} />
+            </span>
           </Suspense>
         ) : (
           <span
+            key={isOpen ? "expanded" : "collapsed"}
             className={
               isOpen
-                ? "block whitespace-pre-wrap break-all"
+                ? "animate-disclosure-change block whitespace-pre-wrap break-all"
                 : previewLines === 1
-                  ? "block truncate"
-                  : "line-clamp-3 whitespace-pre-wrap"
+                  ? "animate-disclosure-change block truncate"
+                  : "animate-disclosure-change line-clamp-3 whitespace-pre-wrap"
             }
           >
             {formatted.text}
