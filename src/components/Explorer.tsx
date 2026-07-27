@@ -100,14 +100,25 @@ const TreeRow = memo(function TreeRow({
         tabIndex={0}
         aria-selected={selectedPath === node.path}
         aria-expanded={canExpand ? isExpanded : undefined}
-        className={`group flex h-6 items-center pr-2 text-[11px] ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+        onClick={() => onSelect(node)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(node);
+          }
+        }}
+        className={`group flex h-6 cursor-default items-center pr-2 text-[11px] ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
+        title={`${node.path} · ${node.className}`}
       >
         <button
           type="button"
           aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`}
           disabled={!canExpand}
-          onClick={() => onToggle(node.path)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle(node.path);
+          }}
           className="flex h-5 w-4 shrink-0 items-center justify-center disabled:opacity-0"
         >
           <ChevronRight
@@ -115,19 +126,14 @@ const TreeRow = memo(function TreeRow({
             className={`transition-transform ${isExpanded ? "rotate-90" : ""}`}
           />
         </button>
-        <button
-          type="button"
-          onClick={() => onSelect(node)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-          title={`${node.path} · ${node.className}`}
-        >
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           <InstanceIcon
             size={13}
             strokeWidth={1.8}
             className="shrink-0 text-blue-600 dark:text-blue-400"
           />
           <span className="truncate">{node.name}</span>
-        </button>
+        </span>
       </div>
       {isExpanded
         ? node.children.map((child) => (
