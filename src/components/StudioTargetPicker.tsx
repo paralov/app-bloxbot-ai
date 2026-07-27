@@ -36,7 +36,8 @@ export default function StudioTargetPicker() {
   }, [open]);
 
   if (!studioTarget) return null;
-  const { targets, selected, status, selectingKey, error, discover, select } = studioTarget;
+  const { targets, selected, status, refreshing, selectingKey, error, discover, select } =
+    studioTarget;
 
   const buttonLabel =
     status === "loading"
@@ -96,9 +97,12 @@ export default function StudioTargetPicker() {
             <button
               type="button"
               onClick={() => void discover()}
-              disabled={status === "loading" || selectingKey !== null}
-              className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+              disabled={status === "loading" || refreshing || selectingKey !== null}
+              className="inline-flex min-w-14 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             >
+              {refreshing ? (
+                <span className="h-2.5 w-2.5 animate-spin rounded-full border border-current border-t-transparent" />
+              ) : null}
               Refresh
             </button>
           </div>

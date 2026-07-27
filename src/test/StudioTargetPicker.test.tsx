@@ -122,6 +122,39 @@ describe("StudioTargetPicker", () => {
     });
   });
 
+  it("keeps the current targets visible while refreshing", async () => {
+    let finishRefresh!: (value: unknown) => void;
+    const refresh = new Promise((resolve) => {
+      finishRefresh = resolve;
+    });
+    discoverStudioTargets
+      .mockResolvedValueOnce({
+        targets: [
+          { key: "one", label: "Lobby", detail: null },
+          { key: "two", label: "Dungeon", detail: null },
+        ],
+        selectedKey: "one",
+      })
+      .mockReturnValueOnce(refresh);
+
+    renderPicker();
+    fireEvent.click(await screen.findByRole("button", { name: /Lobby/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(screen.getAllByRole("button", { name: /Lobby/ })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /Dungeon/ })).toBeVisible();
+    expect(screen.queryByLabelText("Loading Studio targets")).not.toBeInTheDocument();
+
+    finishRefresh({
+      targets: [
+        { key: "one", label: "Lobby", detail: null },
+        { key: "two", label: "Dungeon", detail: null },
+      ],
+      selectedKey: "one",
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled());
+  });
+
   it("handles no Studios and discovery errors", async () => {
     discoverStudioTargets.mockResolvedValueOnce({ targets: [], selectedKey: null });
     renderPicker();

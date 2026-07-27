@@ -85,9 +85,20 @@ function Chat() {
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
+  const handleToggleExplorer = useCallback(() => {
+    if (showPlaytest) {
+      posthog.capture("playtest_closed", analyticsProperties("playtest"));
+      setShowPlaytest(false);
+      setExplorerCollapsed(false);
+      return;
+    }
+
+    setExplorerCollapsed((collapsed) => !collapsed);
+  }, [showPlaytest]);
   const handleOpenPlaytest = useCallback(() => {
     if (!hasStudioTarget) return;
     posthog.capture("playtest_opened", analyticsProperties("playtest"));
+    setExplorerCollapsed(true);
     setShowPlaytest(true);
   }, [hasStudioTarget]);
   const handleClosePlaytest = useCallback(() => {
@@ -171,7 +182,7 @@ function Chat() {
                   <>
                     <button
                       type="button"
-                      onClick={() => setExplorerCollapsed((value) => !value)}
+                      onClick={handleToggleExplorer}
                       className="inline-flex h-7 items-center gap-1.5 rounded-md border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                       aria-pressed={!explorerCollapsed}
                       title={explorerCollapsed ? "Open Explorer" : "Close Explorer"}
@@ -216,7 +227,7 @@ function Chat() {
           key={`${activeSessionId}:${studioTarget?.selected?.key ?? "unselected"}`}
           collapsed={explorerCollapsed}
           sessionBusy={isBusy}
-          onToggle={() => setExplorerCollapsed((value) => !value)}
+          onToggle={() => setExplorerCollapsed(true)}
         />
       ) : null}
       {showPlaytest && activeSessionId && hasStudioTarget ? (

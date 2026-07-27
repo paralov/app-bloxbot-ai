@@ -121,8 +121,9 @@ describe("GeneratedProgramRuntime", () => {
             {
               fullPath: "Workspace.SpawnLocation",
               parentName: "Workspace",
-              name: "SpawnLocation",
+              name: "SpawnLocationClassFallback",
               className: "SpawnLocation",
+              properties: { Name: "Player Spawn" },
             },
           ]),
         },
@@ -137,7 +138,7 @@ describe("GeneratedProgramRuntime", () => {
 
     expect(snapshot.roots).toHaveLength(1);
     expect(snapshot.roots.find((node) => node.name === "Workspace")?.children[0]?.name).toBe(
-      "SpawnLocation",
+      "Player Spawn",
     );
     expect(callTool).toHaveBeenCalledWith("search_game_tree", {
       max_depth: 10,

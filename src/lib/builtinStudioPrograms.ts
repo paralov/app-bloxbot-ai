@@ -102,8 +102,14 @@ async function run({ callTool }: { input: unknown; callTool: (name: string, args
     if (!path) continue;
     const topLevel = path.split(".")[0];
     if (!visibleServices.has(topLevel)) continue;
+    const properties = row?.properties && typeof row.properties === "object" ? row.properties : {};
+    const instanceName =
+      typeof properties.Name === "string" && properties.Name ? properties.Name :
+      typeof row.Name === "string" && row.Name ? row.Name :
+      typeof row.name === "string" && row.name ? row.name :
+      path.split(".").at(-1) ?? path;
     byPath.set(path, {
-      name: typeof row.name === "string" ? row.name : path.split(".").at(-1) ?? path,
+      name: instanceName,
       className: typeof row.className === "string" ? row.className : "Instance",
       path: path.startsWith("game.") ? path : "game." + path,
       hasChildren: Number(row.unexploredChildCount ?? 0) > 0,

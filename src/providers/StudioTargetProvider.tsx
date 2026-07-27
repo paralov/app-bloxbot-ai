@@ -30,6 +30,7 @@ interface StudioTargetContextValue {
   selected: StudioTarget | null;
   promptReference: string | null;
   status: StudioTargetStatus;
+  refreshing: boolean;
   selectingKey: string | null;
   error: string | null;
   discover(): Promise<void>;
@@ -52,9 +53,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const [targets, setTargets] = useState<readonly StudioTarget[]>([]);
   const [selected, setSelected] = useState<StudioTarget | null>(null);
   const [status, setStatus] = useState<StudioTargetStatus>("loading");
+  const [refreshing, setRefreshing] = useState(false);
   const [selectingKey, setSelectingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const operationRef = useRef(0);
+  const targetsRef = useRef<readonly StudioTarget[]>([]);
   const programsRef = useRef<StudioTargetPrograms | null>(null);
   const builtinInstallRef = useRef<Promise<StudioTargetPrograms> | null>(null);
   const discoveryRef = useRef<Promise<void> | null>(null);
@@ -115,6 +118,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     async (programs: StudioTargetPrograms, operation: number) => {
       const result = await desktop.discoverStudioTargets(programs);
       if (operation !== operationRef.current) return;
+      targetsRef.current = result.targets;
       setTargets(result.targets);
       const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
       let nextSelected = remembered
@@ -175,7 +179,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       if (discoveryRef.current) return discoveryRef.current;
       const discovery = (async () => {
         const operation = ++operationRef.current;
-        if (showLoading) setStatus("loading");
+        if (showLoading && targetsRef.current.length === 0) setStatus("loading");
+        else setRefreshing(true);
         setError(null);
         try {
           const programs = await getPrograms();
@@ -188,7 +193,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
             await applyDiscovery(regenerated, operation);
           } catch (repairError) {
             if (operation !== operationRef.current) return;
-            setStatus("error");
+            setStatus(targetsRef.current.length > 0 ? "ready" : "error");
             setSelectingKey(null);
             console.error("[studio-target] discovery repair failed", repairError);
             setError("Studio integration setup failed. Refresh to try again.");
@@ -201,6 +206,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           }
         }
       })().finally(() => {
+        setRefreshing(false);
         discoveryRef.current = null;
       });
       discoveryRef.current = discovery;
@@ -287,8 +293,18 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     ? `The app-selected Studio target is "${selected.label}". Treat that label as a hint; verify the active target before place-specific work.`
     : null;
   const value = useMemo(
-    () => ({ targets, selected, promptReference, status, selectingKey, error, discover, select }),
-    [targets, selected, promptReference, status, selectingKey, error, discover, select],
+    () => ({
+      targets,
+      selected,
+      promptReference,
+      status,
+      refreshing,
+      selectingKey,
+      error,
+      discover,
+      select,
+    }),
+    [targets, selected, promptReference, status, refreshing, selectingKey, error, discover, select],
   );
   return <StudioTargetContext.Provider value={value}>{children}</StudioTargetContext.Provider>;
 }

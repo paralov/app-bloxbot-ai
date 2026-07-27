@@ -125,6 +125,7 @@ Discover the currently available Studio MCP tools and return an import-free dete
 The source must define async function run({ input, callTool }) and return an Explorer snapshot matching the requested output contract. Use callTool directly with the exact discovered tool names and arguments. It must never modify the place.
 Do not run a recurring model-mediated replay. The app will compile this source once and invoke it directly for every refresh.
 For every object include a compact set of useful, readable properties and all available attributes. Stringify values safely.
+Use each instance's Name property for node.name. Use ClassName only for node.className and type/icon metadata.
 Request the deepest complete hierarchy and a very high result limit supported by the discovered tree tool; do not accept shallow defaults.
 Paths are dot-separated human-readable hints, not durable identifiers. Keep children in Studio order.
 Return only the requested structured output.`;
