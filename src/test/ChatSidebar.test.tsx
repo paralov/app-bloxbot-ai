@@ -280,7 +280,29 @@ describe("ChatSidebar", () => {
     ).toBeTruthy();
   });
 
-  it("permanently deletes a snoozed session only after confirmation", async () => {
+  it("unsnoozes a session from its default hover action", async () => {
+    const snoozed = makeSession("s1", "Old session", Date.now(), Date.now());
+    const active = makeSession("s1", "Old session", snoozed.time.created, 0);
+    const client = createClient({ update: vi.fn().mockResolvedValue({ data: active }) });
+    const qc = createQueryClient();
+    seedState(qc, { sessions: [snoozed] });
+
+    render(<TestSidebar client={client} queryClient={qc} />);
+    fireEvent.click(await screen.findByText("Snoozed"));
+    await act(async () => fireEvent.click(screen.getByTitle("Unsnooze")));
+
+    expect(client.session.update).toHaveBeenCalledWith(
+      { sessionID: "s1", time: { archived: 0 } },
+      { throwOnError: true },
+    );
+    expect(capture).toHaveBeenCalledWith("session_unsnoozed", {
+      analytics_schema_version: 1,
+      feature: "sessions",
+      outcome: "success",
+    });
+  });
+
+  it("permanently deletes a session only from its right-click menu and after confirmation", async () => {
     const snoozed = makeSession("s1", "Old session", Date.now(), Date.now());
     const client = createClient();
     const qc = createQueryClient();
@@ -289,7 +311,9 @@ describe("ChatSidebar", () => {
 
     render(<TestSidebar client={client} queryClient={qc} />);
     fireEvent.click(await screen.findByText("Snoozed"));
-    const deleteButton = screen.getByTitle("Delete permanently");
+    expect(screen.queryByText("Delete permanently…")).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByTitle(`Open snoozed session ${snoozed.title}`));
+    const deleteButton = screen.getByText("Delete permanently…");
     fireEvent.click(deleteButton);
     expect(client.session.delete).not.toHaveBeenCalled();
     expect(capture).toHaveBeenCalledWith("permanent_delete_requested", {
@@ -303,7 +327,8 @@ describe("ChatSidebar", () => {
     });
 
     confirm.mockReturnValue(true);
-    await act(async () => fireEvent.click(deleteButton));
+    fireEvent.contextMenu(screen.getByTitle(`Open snoozed session ${snoozed.title}`));
+    await act(async () => fireEvent.click(screen.getByText("Delete permanently…")));
     expect(capture).toHaveBeenCalledWith("permanent_delete_confirmed", {
       analytics_schema_version: 1,
       confirmed: true,

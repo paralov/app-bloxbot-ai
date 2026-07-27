@@ -1,10 +1,11 @@
 import type { Session } from "@opencode-ai/sdk/v2/client";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import { useArchiveSession } from "@/hooks/mutations/useArchiveSession";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useDeleteSession } from "@/hooks/mutations/useDeleteSession";
 import { useRenameSession } from "@/hooks/mutations/useRenameSession";
+import { useUnarchiveSession } from "@/hooks/mutations/useUnarchiveSession";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { analyticsProperties, countBucket } from "@/lib/analytics";
@@ -58,10 +59,16 @@ const ChatSidebar = memo(function ChatSidebar({
   const archiveSession = useArchiveSession();
   const deleteSession = useDeleteSession();
   const renameSession = useRenameSession();
+  const unarchiveSession = useUnarchiveSession();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [snoozedExpanded, setSnoozedExpanded] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    session: Session;
+    x: number;
+    y: number;
+  } | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
 
   const { activeSessions, snoozedSessions } = useMemo(() => {
@@ -90,6 +97,17 @@ const ChatSidebar = memo(function ChatSidebar({
     }
   }, [editingId]);
 
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [contextMenu]);
+
   function startRename(session: { id: string; title?: string }) {
     setEditingId(session.id);
     setEditValue(session.title || "Untitled");
@@ -111,6 +129,19 @@ const ChatSidebar = memo(function ChatSidebar({
   function handleSnoozedSelect(sessionID: string) {
     posthog.capture("snoozed_session_opened", analyticsProperties("sessions"));
     handleSelect(sessionID);
+  }
+
+  function handleUnsnooze(sessionID: string) {
+    unarchiveSession.mutate(sessionID);
+  }
+
+  function openContextMenu(event: MouseEvent, session: Session) {
+    event.preventDefault();
+    setContextMenu({
+      session,
+      x: Math.min(event.clientX, window.innerWidth - 176),
+      y: Math.min(event.clientY, window.innerHeight - 52),
+    });
   }
 
   function handleSnoozedToggle() {
@@ -275,6 +306,7 @@ const ChatSidebar = memo(function ChatSidebar({
                   style={{ animationDelay: `${index * 30}ms` }}
                 >
                   <div
+                    onContextMenu={(event) => openContextMenu(event, session)}
                     className={`group relative mx-1 rounded-md transition-colors duration-150 ${
                       isActive
                         ? "bg-accent text-foreground"
@@ -420,6 +452,7 @@ const ChatSidebar = memo(function ChatSidebar({
                   {snoozedSessions.map((session) => (
                     <div
                       key={session.id}
+                      onContextMenu={(event) => openContextMenu(event, session)}
                       className="group relative mx-1 flex min-w-0 items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                     >
                       <button
@@ -434,9 +467,9 @@ const ChatSidebar = memo(function ChatSidebar({
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDelete(session)}
-                        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-focus-within:opacity-100 group-hover:opacity-100"
-                        title="Delete permanently"
+                        onClick={() => handleUnsnooze(session.id)}
+                        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-focus-within:opacity-100 group-hover:opacity-100"
+                        title="Unsnooze"
                       >
                         <svg
                           width="10"
@@ -446,9 +479,11 @@ const ChatSidebar = memo(function ChatSidebar({
                           stroke="currentColor"
                           strokeWidth="2"
                         >
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4h8v2" />
-                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M3 7h18" />
+                          <path d="M5 7l1 13h12l1-13" />
+                          <path d="M9 11h6" />
+                          <path d="M12 16v-5" />
+                          <path d="m9.5 13.5 2.5-2.5 2.5 2.5" />
                         </svg>
                       </button>
                     </div>
@@ -479,6 +514,28 @@ const ChatSidebar = memo(function ChatSidebar({
               Settings
             </button>
           </div>
+
+          {contextMenu && (
+            <div
+              className="fixed z-[200] w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-xl"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              onPointerDown={(event) => event.stopPropagation()}
+              role="menu"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center rounded px-2 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-accent"
+                onClick={() => {
+                  const session = contextMenu.session;
+                  setContextMenu(null);
+                  handleDelete(session);
+                }}
+              >
+                Delete permanently…
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>
