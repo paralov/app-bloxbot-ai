@@ -289,7 +289,7 @@ const BashToolView = memo(function BashToolView({
     <div>
       {description && <div className="mb-1 text-[11px] text-muted-foreground">{description}</div>}
       {command && (
-        <div className="rounded bg-stone-900 px-2.5 py-1.5 font-mono text-[11px] text-stone-100">
+        <div className="max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded bg-stone-900 px-2.5 py-1.5 font-mono text-[11px] text-stone-100">
           <span className="select-none text-stone-500">$ </span>
           {command}
         </div>
@@ -303,7 +303,7 @@ const BashToolView = memo(function BashToolView({
           <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
             Output ({output.split("\n").length} lines)
           </summary>
-          <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[10px] leading-tight text-foreground">
+          <pre className="app-scrollbar mt-1 max-h-48 max-w-full overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-[10px] leading-tight text-foreground">
             {output.slice(0, 3000)}
           </pre>
         </details>
@@ -692,10 +692,10 @@ const DefaultToolView = memo(function DefaultToolView({
   const title = "title" in input ? inputField(input, "title") : "";
   const [detailsOpen, setDetailsOpen] = useState(false);
   return (
-    <div>
-      <div className="flex items-center gap-1.5 text-[11px]">
-        <span className="font-semibold text-muted-foreground">{tool}</span>
-        {title && <span className="text-muted-foreground">- {title}</span>}
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+        <span className="min-w-0 break-all font-semibold text-muted-foreground">{tool}</span>
+        {title && <span className="min-w-0 break-words text-muted-foreground">- {title}</span>}
         {status === "running" && (
           <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-amber-400" />
         )}
@@ -709,7 +709,7 @@ const DefaultToolView = memo(function DefaultToolView({
           <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
             Output
           </summary>
-          <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted p-2 font-mono text-[10px] leading-tight text-muted-foreground">
+          <pre className="app-scrollbar mt-1 max-h-32 max-w-full overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-[10px] leading-tight text-muted-foreground">
             {typeof output === "string"
               ? output.slice(0, 2000)
               : JSON.stringify(output, null, 2).slice(0, 2000)}
@@ -928,7 +928,7 @@ const ToolPartView = memo(function ToolPartView({
 
   return (
     <div
-      className={`my-1 rounded-md border px-2.5 py-2 ${TOOL_STATUS_COLORS[status] ?? TOOL_STATUS_COLORS.pending}`}
+      className={`my-1 min-w-0 max-w-full overflow-hidden rounded-md border px-2.5 py-2 ${TOOL_STATUS_COLORS[status] ?? TOOL_STATUS_COLORS.pending}`}
     >
       {title &&
         ![
@@ -942,11 +942,11 @@ const ToolPartView = memo(function ToolPartView({
           "webfetch",
           "todowrite",
         ].includes(tool) && (
-          <div className="mb-1 text-[11px] font-medium text-foreground">{title}</div>
+          <div className="mb-1 break-words text-[11px] font-medium text-foreground">{title}</div>
         )}
       {renderToolContent()}
       {errorMsg && (
-        <div className="mt-1.5 rounded bg-red-50 px-2 py-1 text-[11px] text-red-600 dark:bg-red-950/40 dark:text-red-400">
+        <div className="app-scrollbar mt-1.5 max-h-40 max-w-full overflow-auto whitespace-pre-wrap break-all rounded bg-red-50 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-red-600 dark:bg-red-950/40 dark:text-red-400">
           {errorMsg}
         </div>
       )}
