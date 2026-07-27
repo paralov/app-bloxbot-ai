@@ -266,6 +266,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           );
           return generated;
         } catch (error) {
+          console.error("[explorer] collector generation failed", error);
           posthog.capture(
             "collector_generation_failed",
             errorAnalyticsProperties(
@@ -339,6 +340,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           telemetryRef.current.hadFailure = false;
         }
       } catch (error) {
+        console.error("[explorer] sync failed", error);
         if (!collectionRef.current) generationBlockedRef.current = true;
         telemetryRef.current.hadFailure = true;
         posthog.capture(

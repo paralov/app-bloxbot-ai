@@ -14,6 +14,7 @@ import { BUILTIN_STUDIO_TARGET_PROGRAMS } from "@/lib/builtinStudioPrograms";
 import { desktop } from "@/lib/desktop";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { generateStudioTargetPrograms } from "@/lib/studioTargetPrograms";
+import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type {
@@ -46,6 +47,7 @@ function countBucket(count: number): "0" | "1" | "2-4" | "5+" {
 
 export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const { client } = useOpenCodeClient();
+  const { activeSessionId } = useActiveSession();
   const { selectedModel, selectedAgent } = usePreferences();
   const [targets, setTargets] = useState<readonly StudioTarget[]>([]);
   const [selected, setSelected] = useState<StudioTarget | null>(null);
@@ -57,6 +59,18 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const builtinInstallRef = useRef<Promise<StudioTargetPrograms> | null>(null);
   const discoveryRef = useRef<Promise<void> | null>(null);
   const generationRef = useRef<Promise<StudioTargetPrograms> | null>(null);
+  const targetsBySessionRef = useRef<Record<string, StudioTarget>>({});
+  const configLoadedRef = useRef(false);
+
+  const rememberTarget = useCallback(
+    async (target: StudioTarget) => {
+      if (!activeSessionId) return;
+      const next = { ...targetsBySessionRef.current, [activeSessionId]: target };
+      targetsBySessionRef.current = next;
+      await desktop.patchConfig({ studioTargetsBySession: next });
+    },
+    [activeSessionId],
+  );
 
   const generatePrograms = useCallback(async () => {
     if (generationRef.current) return generationRef.current;
@@ -97,36 +111,64 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     return programsRef.current;
   }, []);
 
-  const applyDiscovery = useCallback(async (programs: StudioTargetPrograms, operation: number) => {
-    const result = await desktop.discoverStudioTargets(programs);
-    if (operation !== operationRef.current) return;
-    setTargets(result.targets);
-    let nextSelected = result.targets.find((target) => target.key === result.selectedKey) ?? null;
-    if (!nextSelected && result.targets.length === 1) {
-      const onlyTarget = result.targets[0];
-      setSelectingKey(onlyTarget.key);
-      posthog.capture("studio_target_selected", analyticsProperties("studio_target"));
-      const selection = await desktop.selectStudioTarget(programs, onlyTarget.key);
+  const applyDiscovery = useCallback(
+    async (programs: StudioTargetPrograms, operation: number) => {
+      const result = await desktop.discoverStudioTargets(programs);
       if (operation !== operationRef.current) return;
-      if (!selection.verified) throw new Error("Target verification failed");
-      nextSelected = selection.selected;
+      setTargets(result.targets);
+      const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
+      let nextSelected = remembered
+        ? (result.targets.find((target) => target.key === remembered.key) ??
+          result.targets.find(
+            (target) => target.label.trim().toLowerCase() === remembered.label.trim().toLowerCase(),
+          ) ??
+          null)
+        : (result.targets.find((target) => target.key === result.selectedKey) ?? null);
+      const selectionMode = nextSelected
+        ? nextSelected.key === remembered?.key
+          ? "session_id_match"
+          : "session_name_match"
+        : "automatic";
+      if (nextSelected && result.selectedKey !== nextSelected.key) {
+        setSelectingKey(nextSelected.key);
+        const selection = await desktop.selectStudioTarget(programs, nextSelected.key);
+        if (operation !== operationRef.current) return;
+        if (!selection.verified) throw new Error("Target verification failed");
+        nextSelected = selection.selected;
+        await rememberTarget(nextSelected);
+        setSelectingKey(null);
+      }
+      if (!nextSelected && result.targets.length === 1) {
+        const onlyTarget = result.targets[0];
+        setSelectingKey(onlyTarget.key);
+        posthog.capture("studio_target_selected", analyticsProperties("studio_target"));
+        const selection = await desktop.selectStudioTarget(programs, onlyTarget.key);
+        if (operation !== operationRef.current) return;
+        if (!selection.verified) throw new Error("Target verification failed");
+        nextSelected = selection.selected;
+        await rememberTarget(nextSelected);
+        posthog.capture(
+          "studio_target_verification_succeeded",
+          analyticsProperties("studio_target", {
+            outcome: "success",
+            selection_mode: selectionMode,
+          }),
+        );
+        setSelectingKey(null);
+      }
+      setSelected(nextSelected);
+      setStatus(result.targets.length === 0 ? "empty" : "ready");
       posthog.capture(
-        "studio_target_verification_succeeded",
-        analyticsProperties("studio_target", { outcome: "success", selection_mode: "automatic" }),
+        "studio_target_discovery_succeeded",
+        analyticsProperties("studio_target", {
+          outcome: "success",
+          count_bucket: countBucket(result.targets.length),
+          selected: nextSelected !== null,
+        }),
       );
-      setSelectingKey(null);
-    }
-    setSelected(nextSelected);
-    setStatus(result.targets.length === 0 ? "empty" : "ready");
-    posthog.capture(
-      "studio_target_discovery_succeeded",
-      analyticsProperties("studio_target", {
-        outcome: "success",
-        count_bucket: countBucket(result.targets.length),
-        selected: nextSelected !== null,
-      }),
-    );
-  }, []);
+    },
+    [activeSessionId, rememberTarget],
+  );
 
   const discover = useCallback(
     async (showLoading = true) => {
@@ -191,6 +233,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         }
         if (operation !== operationRef.current) return;
         setSelected(result.selected);
+        await rememberTarget(result.selected);
         setTargets((current) =>
           current.some((item) => item.key === result.selected.key)
             ? current
@@ -214,13 +257,25 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         if (operation === operationRef.current) setSelectingKey(null);
       }
     },
-    [generatePrograms, getPrograms],
+    [generatePrograms, getPrograms, rememberTarget],
   );
 
   useEffect(() => {
-    if (!client) return;
-    void discover();
-  }, [client, discover]);
+    if (!client || !activeSessionId) {
+      setSelected(null);
+      return;
+    }
+    const loadAndDiscover = async () => {
+      if (!configLoadedRef.current) {
+        const config = await desktop.loadConfig();
+        targetsBySessionRef.current = config.studioTargetsBySession ?? {};
+        configLoadedRef.current = true;
+      }
+      setSelected(targetsBySessionRef.current[activeSessionId] ?? null);
+      await discover(false);
+    };
+    void loadAndDiscover();
+  }, [activeSessionId, client, discover]);
 
   useEffect(() => {
     if (!client || status !== "empty") return;

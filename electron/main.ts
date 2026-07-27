@@ -282,7 +282,11 @@ const registerIpcHandlers = Effect.sync(() => {
             (cause) => new DesktopMainError({ message: "Explorer output is invalid", cause }),
           ),
         );
-      }),
+      }).pipe(
+        Effect.tapErrorCause((cause) =>
+          Effect.logError(`[explorer] invocation failed: ${String(cause)}`),
+        ),
+      ),
     ),
   );
   ipcMain.handle(channels.relaunch, () =>

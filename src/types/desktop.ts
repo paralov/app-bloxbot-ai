@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import type { ExplorerProgramEnvelope, ExplorerSnapshot } from "../lib/explorer";
 import type { GeneratedProgramArtifact } from "./generatedProgram";
-import type { StudioTargetDiscovery } from "./studioTarget";
+import { type StudioTargetDiscovery, StudioTargetSchema } from "./studioTarget";
 import {
   type StudioTargetProgramEnvelopes,
   type StudioTargetPrograms,
@@ -23,6 +23,7 @@ export const AppConfigSchema = Schema.mutable(
     theme: ThemePreferenceSchema,
     detailedAnalytics: DetailedAnalyticsPreferenceSchema,
     studioTargetPrograms: Schema.NullOr(StudioTargetProgramsSchema),
+    studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
   }),
 );
 
@@ -34,6 +35,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   theme: "system",
   detailedAnalytics: "unset",
   studioTargetPrograms: null,
+  studioTargetsBySession: {},
 };
 
 export const AppConfigPatchSchema = Schema.partial(AppConfigSchema);

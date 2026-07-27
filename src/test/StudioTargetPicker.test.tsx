@@ -33,6 +33,9 @@ vi.mock("@/lib/desktop", () => ({
 
 vi.mock("@/lib/studioTargetPrograms", () => ({ generateStudioTargetPrograms: generatePrograms }));
 vi.mock("@/providers/OpenCodeClientProvider", () => ({ useOpenCodeClient: () => ({ client }) }));
+vi.mock("@/providers/ActiveSessionProvider", () => ({
+  useActiveSession: () => ({ activeSessionId: "chat-session" }),
+}));
 vi.mock("@/providers/PreferencesProvider", () => ({
   usePreferences: () => ({ selectedModel: null, selectedAgent: null }),
 }));
@@ -57,7 +60,7 @@ describe("StudioTargetPicker", () => {
     discoverStudioTargets.mockReset();
     selectStudioTarget.mockReset();
     capture.mockReset();
-    loadConfig.mockResolvedValue({ studioTargetPrograms: programs });
+    loadConfig.mockResolvedValue({ studioTargetPrograms: programs, studioTargetsBySession: {} });
     installStudioTargetPrograms.mockResolvedValue(programs);
     generatePrograms.mockRejectedValue(new Error("generation failed"));
   });

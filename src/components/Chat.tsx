@@ -209,6 +209,7 @@ function Chat() {
       studioConnection.state === "connected" &&
       hasStudioTarget ? (
         <Explorer
+          key={activeSessionId}
           collapsed={explorerCollapsed}
           sessionBusy={isBusy}
           onToggle={() => setExplorerCollapsed((value) => !value)}
