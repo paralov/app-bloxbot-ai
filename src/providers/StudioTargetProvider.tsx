@@ -53,8 +53,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const operationRef = useRef(0);
   const programsRef = useRef<StudioTargetPrograms | null>(null);
+  const builtinInstallRef = useRef<Promise<StudioTargetPrograms> | null>(null);
+  const discoveryRef = useRef<Promise<void> | null>(null);
   const generationRef = useRef<Promise<StudioTargetPrograms> | null>(null);
-  const builtinAttemptedRef = useRef(false);
 
   const generatePrograms = useCallback(async () => {
     if (generationRef.current) return generationRef.current;
@@ -81,19 +82,19 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
 
   const getPrograms = useCallback(async () => {
     if (programsRef.current) return programsRef.current;
-    if (!builtinAttemptedRef.current) {
-      builtinAttemptedRef.current = true;
-      const programs = await desktop.installStudioTargetPrograms(BUILTIN_STUDIO_TARGET_PROGRAMS);
+    if (!builtinInstallRef.current) {
+      builtinInstallRef.current = desktop
+        .installStudioTargetPrograms(BUILTIN_STUDIO_TARGET_PROGRAMS)
+        .finally(() => {
+          builtinInstallRef.current = null;
+        });
+    }
+    const programs = await builtinInstallRef.current;
+    if (!programsRef.current) {
       programsRef.current = programs;
-      return programs;
     }
-    const config = await desktop.loadConfig();
-    if (config.studioTargetPrograms) {
-      programsRef.current = config.studioTargetPrograms;
-      return config.studioTargetPrograms;
-    }
-    return generatePrograms();
-  }, [generatePrograms]);
+    return programsRef.current;
+  }, []);
 
   const applyDiscovery = useCallback(async (programs: StudioTargetPrograms, operation: number) => {
     const result = await desktop.discoverStudioTargets(programs);
@@ -120,27 +121,34 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
 
   const discover = useCallback(
     async (showLoading = true) => {
-      const operation = ++operationRef.current;
-      if (showLoading) setStatus("loading");
-      setError(null);
-      try {
-        const programs = await getPrograms();
-        await applyDiscovery(programs, operation);
-      } catch {
-        if (operation !== operationRef.current) return;
+      if (discoveryRef.current) return discoveryRef.current;
+      const discovery = (async () => {
+        const operation = ++operationRef.current;
+        if (showLoading) setStatus("loading");
+        setError(null);
         try {
-          programsRef.current = null;
-          const regenerated = await generatePrograms();
-          await applyDiscovery(regenerated, operation);
-        } catch (repairError) {
+          const programs = await getPrograms();
+          await applyDiscovery(programs, operation);
+        } catch {
           if (operation !== operationRef.current) return;
-          setStatus("error");
-          setSelectingKey(null);
-          const detail = repairError instanceof Error ? repairError.message : String(repairError);
-          setError(`Studio discovery failed: ${detail}`);
-          posthog.capture("studio_target_discovery_failed");
+          try {
+            programsRef.current = null;
+            const regenerated = await generatePrograms();
+            await applyDiscovery(regenerated, operation);
+          } catch (repairError) {
+            if (operation !== operationRef.current) return;
+            setStatus("error");
+            setSelectingKey(null);
+            const detail = repairError instanceof Error ? repairError.message : String(repairError);
+            setError(`Studio discovery failed: ${detail}`);
+            posthog.capture("studio_target_discovery_failed");
+          }
         }
-      }
+      })().finally(() => {
+        discoveryRef.current = null;
+      });
+      discoveryRef.current = discovery;
+      return discovery;
     },
     [applyDiscovery, generatePrograms, getPrograms],
   );
@@ -187,9 +195,6 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!client) return;
     void discover();
-    return () => {
-      operationRef.current += 1;
-    };
   }, [client, discover]);
 
   useEffect(() => {
