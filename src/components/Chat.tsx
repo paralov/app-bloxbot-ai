@@ -1,3 +1,4 @@
+import { Boxes, Play } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
@@ -39,6 +40,7 @@ function Chat() {
   const [showSettings, setShowSettings] = useState(false);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
   const [showPlaytest, setShowPlaytest] = useState(false);
+  const sidePanelOpen = showPlaytest || (hasStudioTarget && !explorerCollapsed);
 
   const appScreen =
     showStudioSetup || studioConnection.state === "waiting"
@@ -103,7 +105,7 @@ function Chat() {
         onOpenSettings={handleOpenSettings}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {showStudioSetup || studioConnection.state === "waiting" ? (
           <StudioSetup
             connected={studioConnection.state === "connected"}
@@ -170,20 +172,22 @@ function Chat() {
                     <button
                       type="button"
                       onClick={() => setExplorerCollapsed((value) => !value)}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-md border bg-background px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                       aria-pressed={!explorerCollapsed}
                       title={explorerCollapsed ? "Open Explorer" : "Close Explorer"}
                     >
-                      <span aria-hidden="true">▤</span> Explorer
+                      <Boxes aria-hidden="true" size={13} />
+                      {!sidePanelOpen ? <span>Explorer</span> : null}
                     </button>
                     <button
                       type="button"
                       onClick={handleOpenPlaytest}
                       disabled={isBusy}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
                       title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
                     >
-                      <span aria-hidden="true">▷</span> Playtest
+                      <Play aria-hidden="true" size={13} fill="currentColor" />
+                      {!sidePanelOpen ? <span>Playtest</span> : null}
                     </button>
                   </>
                 ) : null}

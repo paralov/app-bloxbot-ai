@@ -135,7 +135,7 @@ describe("GeneratedProgramRuntime", () => {
       Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value),
     );
 
-    expect(snapshot.roots).toHaveLength(2);
+    expect(snapshot.roots).toHaveLength(1);
     expect(snapshot.roots.find((node) => node.name === "Workspace")?.children[0]?.name).toBe(
       "SpawnLocation",
     );

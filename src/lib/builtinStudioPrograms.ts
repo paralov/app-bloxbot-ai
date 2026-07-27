@@ -89,10 +89,19 @@ async function run({ callTool }: { input: unknown; callTool: (name: string, args
   // generous result cap so ordinary places are collected in one pass.
   const raw = normalizeMcpResult(await callTool("search_game_tree", { max_depth: 10, head_limit: 100000 }));
   const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
+  // Match Studio Explorer's default service set. Studio hides less commonly
+  // edited engine services unless the user explicitly enables them.
+  const visibleServices = new Set([
+    "Workspace", "Players", "Lighting", "MaterialService", "ReplicatedFirst",
+    "ReplicatedStorage", "ServerScriptService", "ServerStorage", "StarterGui",
+    "StarterPack", "StarterPlayer", "Teams", "SoundService", "TextChatService",
+  ]);
   const byPath = new Map<string, any>();
   for (const row of rows) {
     const path = typeof row?.fullPath === "string" ? row.fullPath : typeof row?.path === "string" ? row.path : "";
     if (!path) continue;
+    const topLevel = path.split(".")[0];
+    if (!visibleServices.has(topLevel)) continue;
     byPath.set(path, {
       name: typeof row.name === "string" ? row.name : path.split(".").at(-1) ?? path,
       className: typeof row.className === "string" ? row.className : "Instance",

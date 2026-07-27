@@ -450,7 +450,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l bg-sidebar">
+    <aside className="animate-in slide-in-from-right-4 flex w-72 shrink-0 flex-col border-l bg-sidebar duration-200">
       <header className="flex h-16 shrink-0 items-center justify-between border-b px-5">
         <div>
           <h2 className="font-serif text-xl">Explorer</h2>
