@@ -3,6 +3,7 @@ import {
   captureDetailedAnalytics,
   countBucket,
   detailedAnalyticsProperties,
+  errorAnalyticsProperties,
   explorerAnalyticsProperties,
   setDetailedAnalyticsEnabled,
 } from "@/lib/analytics";
@@ -70,6 +71,16 @@ describe("PostHog analytics", () => {
       node_count: 8,
       source: "initial",
       class_category: "known",
+    });
+  });
+
+  it("adds standard metadata without including error messages", () => {
+    expect(errorAnalyticsProperties("explorer", "sync", new TypeError("private path"))).toEqual({
+      analytics_schema_version: 1,
+      error_type: "TypeError",
+      feature: "explorer",
+      outcome: "failure",
+      phase: "sync",
     });
   });
 });

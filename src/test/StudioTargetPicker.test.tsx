@@ -75,7 +75,11 @@ describe("StudioTargetPicker", () => {
 
     expect(await screen.findByRole("button", { name: /Obby/ })).toBeVisible();
     expect(capture).toHaveBeenCalledWith("studio_target_discovery_succeeded", {
+      analytics_schema_version: 1,
       count_bucket: "1",
+      feature: "studio_target",
+      outcome: "success",
+      selected: true,
     });
     expect(selectStudioTarget).toHaveBeenCalledWith(programs, "private-session-id");
     expect(JSON.stringify(capture.mock.calls)).not.toContain("private-session-id");
@@ -101,7 +105,12 @@ describe("StudioTargetPicker", () => {
 
     await waitFor(() => expect(selectStudioTarget).toHaveBeenCalledWith(programs, "two"));
     expect(screen.getByRole("button", { expanded: true })).toHaveTextContent("Dungeon");
-    expect(capture).toHaveBeenCalledWith("studio_target_verification_succeeded");
+    expect(capture).toHaveBeenCalledWith("studio_target_verification_succeeded", {
+      analytics_schema_version: 1,
+      feature: "studio_target",
+      outcome: "success",
+      selection_mode: "manual",
+    });
   });
 
   it("handles no Studios and discovery errors", async () => {

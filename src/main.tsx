@@ -3,7 +3,12 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import { POSTHOG_API_HOST, POSTHOG_PROJECT_TOKEN } from "./lib/analytics";
+import {
+  ANALYTICS_SCHEMA_VERSION,
+  analyticsProperties,
+  POSTHOG_API_HOST,
+  POSTHOG_PROJECT_TOKEN,
+} from "./lib/analytics";
 import { desktop } from "./lib/desktop";
 
 if (import.meta.env.PROD && POSTHOG_PROJECT_TOKEN) {
@@ -19,6 +24,8 @@ if (import.meta.env.PROD && POSTHOG_PROJECT_TOKEN) {
     $host: "app",
     $pathname: "/loading",
     app: "bloxbot",
+    analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
+    analytics_detail_enabled: false,
     app_platform: navigator.platform,
     app_runtime: window.bloxbot ? "electron" : "browser",
     app_screen: "loading",
@@ -27,9 +34,9 @@ if (import.meta.env.PROD && POSTHOG_PROJECT_TOKEN) {
   void desktop.getVersion().then(
     (version) => {
       posthog.register({ app_version: version });
-      posthog.capture("app_opened", { app_version: version });
+      posthog.capture("app_opened", analyticsProperties("app", { app_version: version }));
     },
-    () => posthog.capture("app_opened", { app_version: "unknown" }),
+    () => posthog.capture("app_opened", analyticsProperties("app", { app_version: "unknown" })),
   );
 }
 

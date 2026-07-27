@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { analyticsProperties, errorAnalyticsProperties } from "@/lib/analytics";
 import { BUILTIN_STUDIO_TARGET_PROGRAMS } from "@/lib/builtinStudioPrograms";
 import { desktop } from "@/lib/desktop";
 import { splitModelKey } from "@/lib/splitModelKey";
@@ -104,19 +105,27 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     if (!nextSelected && result.targets.length === 1) {
       const onlyTarget = result.targets[0];
       setSelectingKey(onlyTarget.key);
-      posthog.capture("studio_target_selected");
+      posthog.capture("studio_target_selected", analyticsProperties("studio_target"));
       const selection = await desktop.selectStudioTarget(programs, onlyTarget.key);
       if (operation !== operationRef.current) return;
       if (!selection.verified) throw new Error("Target verification failed");
       nextSelected = selection.selected;
-      posthog.capture("studio_target_verification_succeeded");
+      posthog.capture(
+        "studio_target_verification_succeeded",
+        analyticsProperties("studio_target", { outcome: "success", selection_mode: "automatic" }),
+      );
       setSelectingKey(null);
     }
     setSelected(nextSelected);
     setStatus(result.targets.length === 0 ? "empty" : "ready");
-    posthog.capture("studio_target_discovery_succeeded", {
-      count_bucket: countBucket(result.targets.length),
-    });
+    posthog.capture(
+      "studio_target_discovery_succeeded",
+      analyticsProperties("studio_target", {
+        outcome: "success",
+        count_bucket: countBucket(result.targets.length),
+        selected: nextSelected !== null,
+      }),
+    );
   }, []);
 
   const discover = useCallback(
@@ -141,7 +150,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
             setSelectingKey(null);
             const detail = repairError instanceof Error ? repairError.message : String(repairError);
             setError(`Studio discovery failed: ${detail}`);
-            posthog.capture("studio_target_discovery_failed");
+            posthog.capture(
+              "studio_target_discovery_failed",
+              errorAnalyticsProperties("studio_target", "discovery_repair", repairError, {
+                used_model_fallback: true,
+              }),
+            );
           }
         }
       })().finally(() => {
@@ -158,7 +172,10 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       const operation = ++operationRef.current;
       setSelectingKey(target.key);
       setError(null);
-      posthog.capture("studio_target_selected");
+      posthog.capture(
+        "studio_target_selected",
+        analyticsProperties("studio_target", { selection_mode: "manual" }),
+      );
       const attempt = async (programs: StudioTargetPrograms) => {
         const result = await desktop.selectStudioTarget(programs, target.key);
         if (!result.verified) throw new Error("Target verification failed");
@@ -180,11 +197,19 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
             : [...current, result.selected],
         );
         setStatus("ready");
-        posthog.capture("studio_target_verification_succeeded");
-      } catch {
+        posthog.capture(
+          "studio_target_verification_succeeded",
+          analyticsProperties("studio_target", { outcome: "success", selection_mode: "manual" }),
+        );
+      } catch (error) {
         if (operation !== operationRef.current) return;
         setError("That Studio window is no longer available. Refresh and choose another.");
-        posthog.capture("studio_target_verification_failed");
+        posthog.capture(
+          "studio_target_verification_failed",
+          errorAnalyticsProperties("studio_target", "verification", error, {
+            selection_mode: "manual",
+          }),
+        );
       } finally {
         if (operation === operationRef.current) setSelectingKey(null);
       }

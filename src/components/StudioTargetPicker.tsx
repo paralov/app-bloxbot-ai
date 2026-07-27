@@ -1,6 +1,7 @@
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useEffect, useRef, useState } from "react";
 
+import { analyticsProperties } from "@/lib/analytics";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 function StudioIcon() {
@@ -50,7 +51,12 @@ export default function StudioTargetPicker() {
         aria-expanded={open}
         onClick={() =>
           setOpen((value) => {
-            if (!value) posthog.capture("studio_target_picker_opened");
+            if (!value) {
+              posthog.capture(
+                "studio_target_picker_opened",
+                analyticsProperties("studio_target", { status }),
+              );
+            }
             return !value;
           })
         }

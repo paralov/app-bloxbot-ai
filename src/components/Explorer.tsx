@@ -20,7 +20,11 @@ import {
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { explorerAnalyticsProperties } from "@/lib/analytics";
+import {
+  analyticsProperties,
+  errorAnalyticsProperties,
+  explorerAnalyticsProperties,
+} from "@/lib/analytics";
 import { BUILTIN_EXPLORER_PROGRAM } from "@/lib/builtinStudioPrograms";
 import { desktop } from "@/lib/desktop";
 import {
@@ -189,7 +193,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, [selectedModel]);
 
   useEffect(() => {
-    posthog.capture(collapsed ? "explorer_closed" : "explorer_opened");
+    posthog.capture(
+      collapsed ? "explorer_closed" : "explorer_opened",
+      analyticsProperties("explorer", { collapsed }),
+    );
   }, [collapsed]);
 
   useEffect(() => {
@@ -221,15 +228,15 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       const syncStartedAt = performance.now();
       const isFirstSync = !telemetryRef.current.firstSyncReported;
       if (isFirstSync) {
-        posthog.capture("sync_started", { source: "initial" });
+        posthog.capture("sync_started", analyticsProperties("explorer", { source: "initial" }));
       }
 
       async function generate(reason: "initial" | "contract_recovery") {
         const startedAt = performance.now();
-        posthog.capture("collector_generation_started", {
-          model_mediated: true,
-          reason,
-        });
+        posthog.capture(
+          "collector_generation_started",
+          analyticsProperties("explorer", { model_mediated: true, reason }),
+        );
         try {
           let program: ExplorerProgramEnvelope;
           if (!builtinAttemptedRef.current) {
@@ -246,23 +253,31 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           const generated: ExplorerCollection = { program, artifact, snapshot };
           posthog.capture(
             "collector_generation_succeeded",
-            explorerAnalyticsProperties({
-              duration_ms: Math.round(performance.now() - startedAt),
-              model_mediated: true,
-              reason,
-              root_count: generated.snapshot.roots.length,
-              node_count: countNodes(generated.snapshot.roots),
-            }),
+            analyticsProperties(
+              "explorer",
+              explorerAnalyticsProperties({
+                duration_ms: Math.round(performance.now() - startedAt),
+                model_mediated: true,
+                reason,
+                root_count: generated.snapshot.roots.length,
+                node_count: countNodes(generated.snapshot.roots),
+              }),
+            ),
           );
           return generated;
         } catch (error) {
           posthog.capture(
             "collector_generation_failed",
-            explorerAnalyticsProperties({
-              duration_ms: Math.round(performance.now() - startedAt),
-              model_mediated: true,
-              reason,
-            }),
+            errorAnalyticsProperties(
+              "explorer",
+              "collector_generation",
+              error,
+              explorerAnalyticsProperties({
+                duration_ms: Math.round(performance.now() - startedAt),
+                model_mediated: true,
+                reason,
+              }),
+            ),
           );
           throw error;
         }
@@ -275,9 +290,14 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           try {
             const snapshot = await desktop.invokeExplorerProgram(current.artifact);
             next = { ...current, snapshot };
-          } catch {
+          } catch (error) {
             telemetryRef.current.hadFailure = true;
-            posthog.capture("sync_failed", { reason: "collector_runtime" });
+            posthog.capture(
+              "sync_failed",
+              errorAnalyticsProperties("explorer", "collector_runtime", error, {
+                reason: "collector_runtime",
+              }),
+            );
             next = await generate("contract_recovery");
           }
         } else if (!generationBlockedRef.current) {
@@ -305,12 +325,15 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         if (isFirstSync || telemetryRef.current.hadFailure) {
           posthog.capture(
             "sync_succeeded",
-            explorerAnalyticsProperties({
-              duration_ms: Math.round(performance.now() - syncStartedAt),
-              source: telemetryRef.current.hadFailure ? "recovery" : "initial",
-              root_count: next.snapshot.roots.length,
-              node_count: countNodes(next.snapshot.roots),
-            }),
+            analyticsProperties(
+              "explorer",
+              explorerAnalyticsProperties({
+                duration_ms: Math.round(performance.now() - syncStartedAt),
+                source: telemetryRef.current.hadFailure ? "recovery" : "initial",
+                root_count: next.snapshot.roots.length,
+                node_count: countNodes(next.snapshot.roots),
+              }),
+            ),
           );
           telemetryRef.current.firstSyncReported = true;
           telemetryRef.current.hadFailure = false;
@@ -320,10 +343,15 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         telemetryRef.current.hadFailure = true;
         posthog.capture(
           "sync_failed",
-          explorerAnalyticsProperties({
-            duration_ms: Math.round(performance.now() - syncStartedAt),
-            reason: collectionRef.current ? "recovery_failed" : "initial_failed",
-          }),
+          errorAnalyticsProperties(
+            "explorer",
+            "sync",
+            error,
+            explorerAnalyticsProperties({
+              duration_ms: Math.round(performance.now() - syncStartedAt),
+              reason: collectionRef.current ? "recovery_failed" : "initial_failed",
+            }),
+          ),
         );
         if (!cancelled) setSyncError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -395,10 +423,13 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     referenceObject(createExplorerReference(selected));
     posthog.capture(
       "reference_added",
-      explorerAnalyticsProperties({
-        class_category: iconForClass(selected.className) === Box ? "generic" : "known",
-        has_attributes: selected.attributes.length > 0,
-      }),
+      analyticsProperties(
+        "explorer",
+        explorerAnalyticsProperties({
+          class_category: iconForClass(selected.className) === Box ? "generic" : "known",
+          has_attributes: selected.attributes.length > 0,
+        }),
+      ),
     );
     toast.success(`${selected.name} added to your message`);
   }, [referenceObject, selected]);
