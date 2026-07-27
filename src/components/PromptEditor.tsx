@@ -144,8 +144,28 @@ const COMMANDS = [
   { name: "explain", detail: "Explain code or behavior", prompt: "Explain this: " },
 ] as const;
 
-function flattenObjects(nodes: readonly ExplorerNode[]): ExplorerNode[] {
-  return nodes.flatMap((node) => [node, ...flattenObjects(node.children)]);
+const EMPTY_OBJECT_INDEX: readonly SearchableObject[] = [];
+
+interface SearchableObject {
+  node: ExplorerNode;
+  searchText: string;
+}
+
+function buildObjectSearchIndex(nodes: readonly ExplorerNode[]): SearchableObject[] {
+  const index: SearchableObject[] = [];
+  const pending = [...nodes].reverse();
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (!node) continue;
+    index.push({
+      node,
+      searchText: `${node.name} ${node.className} ${node.path}`.toLowerCase(),
+    });
+    for (let childIndex = node.children.length - 1; childIndex >= 0; childIndex -= 1) {
+      pending.push(node.children[childIndex]);
+    }
+  }
+  return index;
 }
 
 function SetEditorRef({ editorRef }: { editorRef: React.MutableRefObject<LexicalEditor | null> }) {
@@ -223,20 +243,25 @@ function TypeaheadMenuPortal({ anchor, children }: { anchor: HTMLElement; childr
   );
 }
 
-function TypeaheadPlugin({ kind, objects }: { kind: TokenKind; objects: readonly ExplorerNode[] }) {
+function TypeaheadPlugin({
+  kind,
+  objectIndex,
+}: {
+  kind: TokenKind;
+  objectIndex: readonly SearchableObject[];
+}) {
   const [query, setQuery] = useState<string | null>(null);
   const triggerFn = useBasicTypeaheadTriggerMatch(kind === "object" ? "@" : "/", {
     minLength: 0,
   });
   const options = useMemo(() => {
     const search = (query ?? "").toLowerCase();
-    const objectOptions = flattenObjects(objects)
-      .filter((node) =>
-        `${node.name} ${node.className} ${node.path}`.toLowerCase().includes(search),
-      )
-      .slice(0, 10)
-      .map(
-        (node) =>
+    if (kind === "object") {
+      const objectOptions: PromptOption[] = [];
+      for (const entry of objectIndex) {
+        if (!entry.searchText.includes(search)) continue;
+        const { node } = entry;
+        objectOptions.push(
           new PromptOption(
             `object:${node.path}`,
             "object",
@@ -244,8 +269,13 @@ function TypeaheadPlugin({ kind, objects }: { kind: TokenKind; objects: readonly
             `${node.className} · ${node.path}`,
             `the ${node.className} named "${node.name}" at ${node.path}`,
           ),
-      );
-    const commandOptions = COMMANDS.filter((command) => command.name.includes(search)).map(
+        );
+        if (objectOptions.length === 10) break;
+      }
+      return objectOptions;
+    }
+
+    return COMMANDS.filter((command) => command.name.includes(search)).map(
       (command) =>
         new PromptOption(
           `command:${command.name}`,
@@ -255,8 +285,7 @@ function TypeaheadPlugin({ kind, objects }: { kind: TokenKind; objects: readonly
           command.prompt,
         ),
     );
-    return kind === "object" ? objectOptions : commandOptions;
-  }, [kind, objects, query]);
+  }, [kind, objectIndex, query]);
 
   return (
     <LexicalTypeaheadMenuPlugin<PromptOption>
@@ -291,8 +320,11 @@ function TypeaheadPlugin({ kind, objects }: { kind: TokenKind; objects: readonly
                 className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
                   selectedIndex === index ? "bg-accent" : "hover:bg-accent/70"
                 }`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  selectOptionAndCleanUp(option);
+                }}
                 onMouseEnter={() => setHighlightedIndex(index)}
-                onClick={() => selectOptionAndCleanUp(option)}
               >
                 <span className="text-xs font-medium">{option.label}</span>
                 <span className="truncate text-[10px] text-muted-foreground">{option.detail}</span>
@@ -325,6 +357,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
   ref,
 ) {
   const editorRef = useMemo(() => ({ current: null as LexicalEditor | null }), []);
+  const objectIndex = useMemo(() => buildObjectSearchIndex(objects), [objects]);
   useImperativeHandle(ref, () => ({
     clear() {
       editorRef.current?.update(() => $getRoot().clear().append($createParagraphNode()));
@@ -397,8 +430,8 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
           }
         />
         <DomInputFallbackPlugin />
-        <TypeaheadPlugin kind="object" objects={objects} />
-        <TypeaheadPlugin kind="command" objects={objects} />
+        <TypeaheadPlugin kind="object" objectIndex={objectIndex} />
+        <TypeaheadPlugin kind="command" objectIndex={EMPTY_OBJECT_INDEX} />
         <SetEditorRef editorRef={editorRef} />
       </div>
     </LexicalComposer>
