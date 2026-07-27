@@ -482,11 +482,12 @@ describe("User journeys", () => {
     );
   });
 
-  it("deletes a session and it disappears from the sidebar", async () => {
+  it("snoozes a session and moves it out of the active list", async () => {
     const s1 = makeSession("s1", "Session One");
     const s2 = makeSession("s2", "Session Two");
+    const snoozed = { ...s1, time: { ...s1.time, archived: Date.now() } };
     const client = createClient({
-      delete: vi.fn().mockResolvedValue({ data: true }),
+      update: vi.fn().mockResolvedValue({ data: snoozed }),
       get: vi.fn().mockResolvedValue({ data: s1 }),
       messages: vi.fn().mockResolvedValue({ data: [] }),
     });
@@ -502,17 +503,21 @@ describe("User journeys", () => {
     expect(await screen.findByText("Session One")).toBeInTheDocument();
     expect(screen.getByText("Session Two")).toBeInTheDocument();
 
-    // Find the delete button (title="Delete") within the session row
-    const deleteButtons = screen.getAllByTitle("Delete");
+    const snoozeButtons = screen.getAllByTitle("Snooze");
     await act(async () => {
-      fireEvent.click(deleteButtons[0]);
+      fireEvent.click(snoozeButtons[0]);
     });
 
-    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "s1" }, { throwOnError: true });
+    expect(client.session.update).toHaveBeenCalledWith(
+      { sessionID: "s1", time: { archived: expect.any(Number) } },
+      { throwOnError: true },
+    );
+    expect(client.session.delete).not.toHaveBeenCalled();
 
-    // Session One should be gone from the sidebar
+    // Session One leaves the active list and the folded snoozed section appears.
     await waitFor(() => {
       expect(screen.queryByText("Session One")).not.toBeInTheDocument();
+      expect(screen.getByText("Snoozed")).toBeInTheDocument();
     });
     // Session Two should still be there
     expect(screen.getByText("Session Two")).toBeInTheDocument();

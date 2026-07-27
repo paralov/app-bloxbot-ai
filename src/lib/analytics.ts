@@ -41,3 +41,10 @@ export function explorerAnalyticsProperties(properties: Properties): Properties 
     ),
   );
 }
+
+export function countBucket(count: number): "1" | "2-5" | "6-10" | "11+" {
+  if (count <= 1) return "1";
+  if (count <= 5) return "2-5";
+  if (count <= 10) return "6-10";
+  return "11+";
+}

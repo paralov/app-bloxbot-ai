@@ -13,8 +13,10 @@ function makeQueryClient() {
 describe("OpenCode query lifecycle", () => {
   it("keeps successful startup snapshots when another endpoint fails", async () => {
     const client = {
+      experimental: {
+        session: { list: vi.fn().mockRejectedValue(new Error("sessions unavailable")) },
+      },
       session: {
-        list: vi.fn().mockRejectedValue(new Error("sessions unavailable")),
         status: vi.fn().mockResolvedValue({ data: { s1: { type: "idle" } } }),
       },
       provider: {
@@ -44,7 +46,8 @@ describe("OpenCode query lifecycle", () => {
   it("fails startup when every server-state endpoint is unavailable", async () => {
     const unavailable = vi.fn().mockRejectedValue(new Error("unavailable"));
     const client = {
-      session: { list: unavailable, status: unavailable },
+      experimental: { session: { list: unavailable } },
+      session: { status: unavailable },
       provider: { list: unavailable, auth: unavailable },
       app: { agents: unavailable },
     } as unknown as OpencodeClient;
