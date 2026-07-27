@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { GeneratedProgramArtifactSchema, GeneratedProgramEnvelopeSchema } from "./generatedProgram";
 
 export const StudioTargetSchema = Schema.Struct({
   key: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
@@ -21,3 +22,22 @@ export const StudioTargetSelectionSchema = Schema.Struct({
 });
 
 export type StudioTargetSelection = typeof StudioTargetSelectionSchema.Type;
+
+export const StudioTargetProgramSchema = Schema.Struct({
+  envelope: GeneratedProgramEnvelopeSchema,
+  artifact: GeneratedProgramArtifactSchema,
+});
+
+export const StudioTargetProgramsSchema = Schema.Struct({
+  discovery: StudioTargetProgramSchema,
+  selection: StudioTargetProgramSchema,
+});
+
+export type StudioTargetPrograms = typeof StudioTargetProgramsSchema.Type;
+
+export const StudioTargetProgramEnvelopesSchema = Schema.Struct({
+  discovery: GeneratedProgramEnvelopeSchema,
+  selection: GeneratedProgramEnvelopeSchema,
+});
+
+export type StudioTargetProgramEnvelopes = typeof StudioTargetProgramEnvelopesSchema.Type;

@@ -1,7 +1,7 @@
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useEffect, useRef, useState } from "react";
 
-import { useStudioTarget } from "@/providers/StudioTargetProvider";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 function StudioIcon() {
   return (
@@ -21,7 +21,7 @@ function StudioIcon() {
 }
 
 export default function StudioTargetPicker() {
-  const { targets, selected, status, selectingKey, error, discover, select } = useStudioTarget();
+  const studioTarget = useStudioTargetOptional();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -33,6 +33,9 @@ export default function StudioTargetPicker() {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
+
+  if (!studioTarget) return null;
+  const { targets, selected, status, selectingKey, error, discover, select } = studioTarget;
 
   const buttonLabel =
     status === "loading"

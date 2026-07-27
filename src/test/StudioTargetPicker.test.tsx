@@ -1,14 +1,32 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { discoverStudioTargets, selectStudioTarget, capture } = vi.hoisted(() => ({
-  discoverStudioTargets: vi.fn(),
-  selectStudioTarget: vi.fn(),
-  capture: vi.fn(),
-}));
+const { discoverStudioTargets, selectStudioTarget, capture, loadConfig, generatePrograms, client } =
+  vi.hoisted(() => ({
+    discoverStudioTargets: vi.fn(),
+    selectStudioTarget: vi.fn(),
+    capture: vi.fn(),
+    loadConfig: vi.fn(),
+    generatePrograms: vi.fn(),
+    client: {},
+  }));
+
+const programs = { discovery: {}, selection: {} };
 
 vi.mock("@/lib/desktop", () => ({
-  desktop: { discoverStudioTargets, selectStudioTarget },
+  desktop: {
+    discoverStudioTargets,
+    selectStudioTarget,
+    loadConfig,
+    patchConfig: vi.fn(),
+    installStudioTargetPrograms: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/studioTargetPrograms", () => ({ generateStudioTargetPrograms: generatePrograms }));
+vi.mock("@/providers/OpenCodeClientProvider", () => ({ useOpenCodeClient: () => ({ client }) }));
+vi.mock("@/providers/PreferencesProvider", () => ({
+  usePreferences: () => ({ selectedModel: null, selectedAgent: null }),
 }));
 
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
@@ -31,6 +49,8 @@ describe("StudioTargetPicker", () => {
     discoverStudioTargets.mockReset();
     selectStudioTarget.mockReset();
     capture.mockReset();
+    loadConfig.mockResolvedValue({ studioTargetPrograms: programs });
+    generatePrograms.mockRejectedValue(new Error("generation failed"));
   });
 
   it("auto-selects a single Studio and reports only a count bucket", async () => {
@@ -48,7 +68,7 @@ describe("StudioTargetPicker", () => {
     expect(capture).toHaveBeenCalledWith("studio_target_discovery_succeeded", {
       count_bucket: "1",
     });
-    expect(selectStudioTarget).toHaveBeenCalledWith("private-session-id");
+    expect(selectStudioTarget).toHaveBeenCalledWith(programs, "private-session-id");
     expect(JSON.stringify(capture.mock.calls)).not.toContain("private-session-id");
     expect(JSON.stringify(capture.mock.calls)).not.toContain("Obby");
   });
@@ -70,7 +90,7 @@ describe("StudioTargetPicker", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Lobby/ }));
     fireEvent.click(screen.getByRole("button", { name: /Dungeon/ }));
 
-    await waitFor(() => expect(selectStudioTarget).toHaveBeenCalledWith("two"));
+    await waitFor(() => expect(selectStudioTarget).toHaveBeenCalledWith(programs, "two"));
     expect(screen.getByRole("button", { expanded: true })).toHaveTextContent("Dungeon");
     expect(capture).toHaveBeenCalledWith("studio_target_verification_succeeded");
   });

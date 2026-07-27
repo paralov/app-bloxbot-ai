@@ -14,6 +14,9 @@ import {
 import {
   type StudioTargetDiscovery,
   StudioTargetDiscoverySchema,
+  type StudioTargetProgramEnvelopes,
+  type StudioTargetPrograms,
+  StudioTargetProgramsSchema,
   type StudioTargetSelection,
   StudioTargetSelectionSchema,
 } from "@/types/studioTarget";
@@ -35,8 +38,14 @@ interface DesktopEffects {
   readonly checkForUpdate: Effect.Effect<UpdateInfo | null, DesktopError>;
   readonly installUpdate: Effect.Effect<void, DesktopError>;
   readonly relaunch: Effect.Effect<void, DesktopError>;
-  readonly discoverStudioTargets: Effect.Effect<StudioTargetDiscovery, DesktopError>;
+  readonly installStudioTargetPrograms: (
+    envelopes: StudioTargetProgramEnvelopes,
+  ) => Effect.Effect<StudioTargetPrograms, DesktopError>;
+  readonly discoverStudioTargets: (
+    programs: StudioTargetPrograms,
+  ) => Effect.Effect<StudioTargetDiscovery, DesktopError>;
   readonly selectStudioTarget: (
+    programs: StudioTargetPrograms,
     targetKey: string,
   ) => Effect.Effect<StudioTargetSelection, DesktopError>;
 }
@@ -92,9 +101,14 @@ const browserEffects: DesktopEffects = {
     new DesktopError({ message: "Updates are only available in the desktop app." }),
   ),
   relaunch: Effect.sync(() => window.location.reload()),
-  discoverStudioTargets: Effect.fail(
-    new DesktopError({ message: "Studio targets are only available in the desktop app." }),
-  ),
+  installStudioTargetPrograms: () =>
+    Effect.fail(
+      new DesktopError({ message: "Studio targets are only available in the desktop app." }),
+    ),
+  discoverStudioTargets: () =>
+    Effect.fail(
+      new DesktopError({ message: "Studio targets are only available in the desktop app." }),
+    ),
   selectStudioTarget: () =>
     Effect.fail(
       new DesktopError({ message: "Studio targets are only available in the desktop app." }),
@@ -139,13 +153,18 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     ),
     installUpdate: invoke("Failed to install the update", () => api.installUpdate()),
     relaunch: invoke("Failed to relaunch the app", () => api.relaunch()),
-    discoverStudioTargets: invoke("Failed to discover Studio targets", () =>
-      api.discoverStudioTargets(),
-    ).pipe(decodeBridgeValue("Studio target discovery is invalid", StudioTargetDiscoverySchema)),
-    selectStudioTarget: (targetKey) =>
-      invoke("Failed to select the Studio target", () => api.selectStudioTarget(targetKey)).pipe(
-        decodeBridgeValue("Studio target selection is invalid", StudioTargetSelectionSchema),
+    installStudioTargetPrograms: (envelopes) =>
+      invoke("Failed to install Studio target programs", () =>
+        api.installStudioTargetPrograms(envelopes),
+      ).pipe(decodeBridgeValue("Studio target programs are invalid", StudioTargetProgramsSchema)),
+    discoverStudioTargets: (programs) =>
+      invoke("Failed to discover Studio targets", () => api.discoverStudioTargets(programs)).pipe(
+        decodeBridgeValue("Studio target discovery is invalid", StudioTargetDiscoverySchema),
       ),
+    selectStudioTarget: (programs, targetKey) =>
+      invoke("Failed to select the Studio target", () =>
+        api.selectStudioTarget(programs, targetKey),
+      ).pipe(decodeBridgeValue("Studio target selection is invalid", StudioTargetSelectionSchema)),
   };
 }
 
@@ -168,6 +187,9 @@ export const desktop: DesktopApi = {
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),
   installUpdate: () => runPromise(desktopEffects.installUpdate),
   relaunch: () => runPromise(desktopEffects.relaunch),
-  discoverStudioTargets: () => runPromise(desktopEffects.discoverStudioTargets),
-  selectStudioTarget: (targetKey) => runPromise(desktopEffects.selectStudioTarget(targetKey)),
+  installStudioTargetPrograms: (envelopes) =>
+    runPromise(desktopEffects.installStudioTargetPrograms(envelopes)),
+  discoverStudioTargets: (programs) => runPromise(desktopEffects.discoverStudioTargets(programs)),
+  selectStudioTarget: (programs, targetKey) =>
+    runPromise(desktopEffects.selectStudioTarget(programs, targetKey)),
 };

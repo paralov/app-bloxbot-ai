@@ -8,6 +8,7 @@ import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 import type { ModelInfo } from "@/types";
 
 // ── Image attachment helpers ────────────────────────────────────────────
@@ -246,6 +247,7 @@ function ChatInput() {
     setSelectedVariant,
   } = usePreferences();
   const sendMessage = useSendMessage();
+  const studioTargetReference = useStudioTargetOptional()?.promptReference ?? null;
 
   // Available variants for the currently selected model
   const availableVariants = useMemo(() => {
@@ -468,7 +470,7 @@ function ChatInput() {
     setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     sendMessage.mutate(
-      { text: trimmed || " ", images },
+      { text: trimmed || " ", images, studioTargetReference },
       {
         onError: (error) => {
           if (activeSessionIdRef.current !== activeSessionId) return;
