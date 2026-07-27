@@ -7,6 +7,28 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-27
+
+### Added
+
+- Added session-scoped Roblox Studio targeting with automatic matching, a responsive Studio picker, and a shared Electron-side MCP broker.
+- Added an agent-driven Explorer that automatically synchronizes Roblox Studio's instance tree, supports search, properties and attributes, object references, and Studio-style ordering and filtering.
+- Added an agent playtest workflow that can generate editable test plans from chat history and send the completed playtest back into the active session.
+- Added snoozed sessions with restore-first interactions, contextual deletion, confirmation inside the application, and animated sidebar transitions.
+- Added object mentions and OpenCode-backed slash-command completion to the composer, including argument hints and keyboard completion.
+
+### Changed
+
+- Redesigned reasoning, tool calls, structured output, diffs, shell output, retries, and provider errors as compact inline chat content with collapsible syntax highlighting.
+- Reworked Explorer and Playtest as matching embedded side panels with responsive header controls and smooth entrance and exit transitions.
+- Refined the composer with an expandable input, aligned attachment and submit actions, an in-composer agent selector, and a popover-based reasoning-effort slider.
+- Expanded PostHog events with consistent metadata for Studio targeting, Explorer synchronization, playtesting, composer actions, and session management.
+
+### Fixed
+
+- Prevented Studio discovery refreshes, panel switching, disclosure expansion, and responsive header changes from causing flicker, scroll jumps, clipped controls, or layout shifts.
+- Added a bundled typed Studio collector and strict schema runtime so common discovery and Explorer flows work without an initial model request while retaining agent-generated fallback behavior.
+
 ## [0.7.1] - 2026-07-26
 
 ### Fixed
@@ -124,7 +146,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.7...v0.7.0
 [0.6.7]: https://github.com/paralov/app-bloxbot-ai/compare/v0.6.6...v0.6.7

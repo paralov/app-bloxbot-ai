@@ -1,11 +1,12 @@
 import { Schema } from "effect";
 import type { ExplorerProgramEnvelope, ExplorerSnapshot } from "../lib/explorer";
 import type { GeneratedProgramArtifact } from "./generatedProgram";
-import { type StudioTargetDiscovery, StudioTargetSchema } from "./studioTarget";
 import {
+  type StudioTargetDiscovery,
   type StudioTargetProgramEnvelopes,
   type StudioTargetPrograms,
   StudioTargetProgramsSchema,
+  StudioTargetSchema,
   type StudioTargetSelection,
 } from "./studioTarget";
 
