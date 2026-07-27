@@ -250,8 +250,6 @@ function BloxBotThinking({ label = "Thinking..." }: { label?: string }) {
 const TOOL_STATUS_COLORS: Record<string, string> = {
   pending: "border-border bg-muted/50",
   running: "border-amber-200 bg-amber-50/30 dark:border-amber-900 dark:bg-amber-950/30",
-  completed: "border-border bg-card",
-  error: "border-red-200 bg-red-50/30 dark:border-red-900 dark:bg-red-950/30",
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -961,7 +959,11 @@ const ToolPartView = memo(function ToolPartView({
 
   return (
     <div
-      className={`my-1 min-w-0 max-w-full overflow-hidden rounded-md border px-2.5 py-2 ${TOOL_STATUS_COLORS[status] ?? TOOL_STATUS_COLORS.pending}`}
+      className={
+        status === "completed"
+          ? "my-1 min-w-0 max-w-full overflow-hidden"
+          : `my-1 min-w-0 max-w-full overflow-hidden rounded-md border px-2.5 py-2 ${TOOL_STATUS_COLORS[status] ?? TOOL_STATUS_COLORS.pending}`
+      }
     >
       {title &&
         ![
