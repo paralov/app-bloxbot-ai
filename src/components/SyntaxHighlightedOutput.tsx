@@ -11,6 +11,10 @@ interface HighlightedToken {
   dark?: string;
 }
 
+function preserveIndentation(value: string) {
+  return value.replace(/^( +)/, (indentation) => "\u00a0".repeat(indentation.length));
+}
+
 function hiddenLinesMarker(sourceLines: string[]) {
   const hiddenCount = sourceLines.length - 6;
   const boundaryLines = [sourceLines[2], sourceLines[sourceLines.length - 3]];
@@ -67,7 +71,7 @@ export default function SyntaxHighlightedOutput({
       <span className="block overflow-hidden whitespace-pre font-sans text-[13px] leading-relaxed">
         {(collapsed ? collapsedTextPreview(code) : code).split("\n").map((line, index) => (
           <span key={index} className="block overflow-hidden text-ellipsis whitespace-nowrap">
-            {line || "\u00a0"}
+            {preserveIndentation(line) || "\u00a0"}
           </span>
         ))}
       </span>
@@ -87,7 +91,7 @@ export default function SyntaxHighlightedOutput({
           className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
         >
           {typeof line === "string" ? (
-            <span className="text-muted-foreground/60">{line}</span>
+            <span className="text-muted-foreground/60">{preserveIndentation(line)}</span>
           ) : (
             line.map((token, tokenIndex) => (
               <span
@@ -100,7 +104,7 @@ export default function SyntaxHighlightedOutput({
                   } as CSSProperties
                 }
               >
-                {token.content}
+                {tokenIndex === 0 ? preserveIndentation(token.content) : token.content}
               </span>
             ))
           )}
