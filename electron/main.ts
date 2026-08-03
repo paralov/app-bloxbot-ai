@@ -162,6 +162,13 @@ function patchConfig(input: unknown) {
   }).pipe(configMutex.withPermits(1));
 }
 
+const AUTOUPDATE_DISABLE_VALUES = new Set(["1", "true", "yes"]);
+
+function isAutoUpdateDisabled(): boolean {
+  const value = process.env.BLOXBOT_DISABLE_AUTOUPDATE?.trim().toLowerCase() ?? "";
+  return AUTOUPDATE_DISABLE_VALUES.has(value);
+}
+
 const runMain = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
 const registerIpcHandlers = Effect.sync(() => {
@@ -244,6 +251,7 @@ const registerIpcHandlers = Effect.sync(() => {
     runMain(
       Effect.gen(function* () {
         if (!app.isPackaged) return null;
+        if (isAutoUpdateDisabled()) return null;
         const result = yield* Effect.tryPromise({
           try: () => autoUpdater.checkForUpdates(),
           catch: (cause) =>
@@ -262,6 +270,11 @@ const registerIpcHandlers = Effect.sync(() => {
         if (!app.isPackaged) {
           return yield* Effect.fail(
             new DesktopMainError({ message: "Updates are only available in packaged builds" }),
+          );
+        }
+        if (isAutoUpdateDisabled()) {
+          return yield* Effect.fail(
+            new DesktopMainError({ message: "Auto-update is disabled via BLOXBOT_DISABLE_AUTOUPDATE" }),
           );
         }
         yield* Effect.tryPromise({

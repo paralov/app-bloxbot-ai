@@ -16,6 +16,7 @@ if (import.meta.env.PROD && POSTHOG_PROJECT_TOKEN) {
     api_host: POSTHOG_API_HOST,
     person_profiles: "always",
     capture_pageview: false,
+    capture_exceptions: true,
     // BloxBot intentionally contains "bot", which matches PostHog's bot heuristic.
     opt_out_useragent_filter: true,
   });
