@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import posthog from "posthog-js/dist/module.full.no-external.js";
 import {
   createContext,
   type ReactNode,
@@ -7,15 +6,10 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { useAgents } from "@/hooks/useAgents";
 import { useConnectedProviders } from "@/hooks/useProviders";
-import {
-  analyticsProperties,
-  setDetailedAnalyticsEnabled as setDetailedAnalyticsCollection,
-} from "@/lib/analytics";
 import { type AppConfig, loadConfig, patchConfig } from "@/lib/config";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
@@ -25,12 +19,10 @@ interface PreferencesContextValue {
   selectedAgent: string | null;
   selectedVariant: string | null;
   hiddenModels: Set<string>;
-  detailedAnalyticsEnabled: boolean;
   setSelectedModel: (modelID: string) => void;
   setSelectedAgent: (name: string) => void;
   setSelectedVariant: (variant: string | null) => void;
   toggleModelVisibility: (modelKey: string) => void;
-  setDetailedAnalyticsEnabled: (enabled: boolean) => void;
 }
 
 export const PreferencesContext = createContext<PreferencesContextValue | undefined>(undefined);
@@ -51,39 +43,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [selectedAgent, setSelectedAgentState] = useState<string | null>(null);
   const [selectedVariant, setSelectedVariantState] = useState<string | null>(null);
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(new Set());
-  const [detailedAnalyticsEnabled, setDetailedAnalyticsEnabledState] = useState(true);
-  const detailedAnalyticsEnabledRef = useRef(true);
 
   const connectedProviders = useConnectedProviders();
 
-  const setDetailedAnalyticsEnabled = useCallback((enabled: boolean) => {
-    const previous = detailedAnalyticsEnabledRef.current;
-    // Capture the preference change before toggling (ensures the opt-out
-    // event itself is still recorded with detailed analytics active).
-    posthog.capture(
-      "analytics_preference_changed",
-      analyticsProperties("app", { detailed_analytics_enabled: enabled }),
-    );
-    detailedAnalyticsEnabledRef.current = enabled;
-    setDetailedAnalyticsEnabledState(enabled);
-    setDetailedAnalyticsCollection(enabled);
-    patchConfig({ detailedAnalytics: enabled ? "enabled" : "disabled" }).catch(() => {
-      detailedAnalyticsEnabledRef.current = previous;
-      setDetailedAnalyticsEnabledState(previous);
-      setDetailedAnalyticsCollection(previous);
-    });
-  }, []);
-
-  // Initialize from config data when it arrives. Detailed analytics are on by
-  // default ("unset" and "enabled" both resolve to true); only an explicit
-  // "disabled" preference turns them off.
+  // Initialize from config data when it arrives.
   useEffect(() => {
     if (!configData) return;
     setHiddenModels(new Set(configData.hiddenModels));
-    const detailedEnabled = configData.detailedAnalytics !== "disabled";
-    detailedAnalyticsEnabledRef.current = detailedEnabled;
-    setDetailedAnalyticsEnabledState(detailedEnabled);
-    setDetailedAnalyticsCollection(detailedEnabled);
   }, [configData]);
 
   // Restore a valid last-used model and clear selections whose provider disconnected.
@@ -144,24 +110,20 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       selectedAgent,
       selectedVariant,
       hiddenModels,
-      detailedAnalyticsEnabled,
       setSelectedModel,
       setSelectedAgent,
       setSelectedVariant,
       toggleModelVisibility,
-      setDetailedAnalyticsEnabled,
     }),
     [
       selectedModel,
       selectedAgent,
       selectedVariant,
       hiddenModels,
-      detailedAnalyticsEnabled,
       setSelectedModel,
       setSelectedAgent,
       setSelectedVariant,
       toggleModelVisibility,
-      setDetailedAnalyticsEnabled,
     ],
   );
 

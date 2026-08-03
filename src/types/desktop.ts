@@ -13,7 +13,7 @@ import {
 const MutableStrings = Schema.mutable(Schema.Array(Schema.String));
 
 export const ThemePreferenceSchema = Schema.Literal("light", "dark", "system");
-export const DetailedAnalyticsPreferenceSchema = Schema.Literal("unset", "enabled", "disabled");
+export const TelemetryToggleSchema = Schema.Literal("on", "off");
 
 export type ThemePreference = typeof ThemePreferenceSchema.Type;
 
@@ -22,7 +22,9 @@ export const AppConfigSchema = Schema.mutable(
     lastModel: Schema.NullOr(Schema.String),
     hiddenModels: MutableStrings,
     theme: ThemePreferenceSchema,
-    detailedAnalytics: DetailedAnalyticsPreferenceSchema,
+    telemetryNoticeShown: Schema.Boolean,
+    usageAnalytics: TelemetryToggleSchema,
+    crashReports: TelemetryToggleSchema,
     studioTargetPrograms: Schema.NullOr(StudioTargetProgramsSchema),
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
   }),
@@ -34,7 +36,9 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   lastModel: null,
   hiddenModels: [],
   theme: "system",
-  detailedAnalytics: "unset",
+  telemetryNoticeShown: false,
+  usageAnalytics: "on",
+  crashReports: "on",
   studioTargetPrograms: null,
   studioTargetsBySession: {},
 };
@@ -83,6 +87,7 @@ export interface DesktopApi {
   patchConfig(patch: Partial<AppConfig>): Promise<void>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
+  getDoNotTrack(): Promise<boolean>;
   relaunch(): Promise<void>;
   installStudioTargetPrograms(
     envelopes: StudioTargetProgramEnvelopes,

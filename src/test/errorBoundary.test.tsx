@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { setCrashReportsEnabled } from "@/lib/analytics";
 
 const captureExceptionSpy = vi.fn();
 
@@ -18,6 +19,7 @@ describe("ErrorBoundary", () => {
   beforeEach(() => {
     // Suppress the expected React error boundary console output.
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    setCrashReportsEnabled(true);
   });
 
   afterEach(() => {
@@ -47,6 +49,17 @@ describe("ErrorBoundary", () => {
     );
 
     expect(screen.getByText("OK")).toBeInTheDocument();
+    expect(captureExceptionSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not call captureException when crash reports are disabled", () => {
+    setCrashReportsEnabled(false);
+    const error = new Error("silent");
+    render(
+      <ErrorBoundary>
+        <Thrower error={error} />
+      </ErrorBoundary>,
+    );
     expect(captureExceptionSpy).not.toHaveBeenCalled();
   });
 });

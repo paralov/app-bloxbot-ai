@@ -186,6 +186,14 @@ const registerIpcHandlers = Effect.sync(() => {
       OpenCode.pipe(Effect.flatMap((service) => service.info)),
     ),
   );
+  ipcMain.handle(channels.getDoNotTrack, () =>
+    runMain(
+      Effect.sync(() => {
+        const value = process.env.DO_NOT_TRACK?.trim().toLowerCase() ?? "";
+        return value === "1" || value === "true";
+      }),
+    ),
+  );
   ipcMain.handle(channels.getVersion, () => runMain(Effect.sync(() => app.getVersion())));
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));

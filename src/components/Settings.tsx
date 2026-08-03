@@ -11,6 +11,7 @@ import {
 } from "@/hooks/useProviders";
 import { desktop } from "@/lib/desktop";
 import { usePreferences } from "@/providers/PreferencesProvider";
+import { useTelemetry } from "@/providers/TelemetryProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
 import type { UpdateInfo } from "@/types/desktop";
 
@@ -1022,43 +1023,82 @@ function ThemePreview({ swatch }: { swatch: Theme }) {
 // Privacy Tab
 // ═══════════════════════════════════════════════════════════════════════
 
+function PrivacyToggle({
+  label,
+  description,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <div className="text-sm font-medium">{label}</div>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+          checked ? "bg-foreground" : "bg-border"
+        } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
+            checked ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
 function PrivacyTab() {
-  const { detailedAnalyticsEnabled, setDetailedAnalyticsEnabled } = usePreferences();
+  const { usageAnalytics, crashReports, doNotTrack, setUsageAnalytics, setCrashReports } =
+    useTelemetry();
 
   return (
     <div className="mx-auto w-full max-w-md px-6 py-8">
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
-        BloxBot collects usage analytics by default in official builds, including provider and model
-        names plus aggregate token counts. Prompts, responses, file contents, and agent names are
-        never collected.
+        BloxBot collects anonymous usage data and crash reports to improve the app. No prompts,
+        code, or file contents are ever collected.
       </p>
 
-      <div className="mt-6 rounded-lg border bg-card p-3.5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-sm font-medium">Detailed usage analytics</div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Shares provider and model names plus aggregate token counts. This is on by default.
-              Turn it off to limit collection to coarse feature-usage events only.
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={detailedAnalyticsEnabled}
-            aria-label="Detailed usage analytics"
-            onClick={() => setDetailedAnalyticsEnabled(!detailedAnalyticsEnabled)}
-            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-              detailedAnalyticsEnabled ? "bg-foreground" : "bg-border"
-            }`}
-          >
-            <span
-              className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
-                detailedAnalyticsEnabled ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
-          </button>
+      {doNotTrack && (
+        <p className="mt-3 text-xs font-medium text-muted-foreground">
+          Telemetry is disabled via the DO_NOT_TRACK environment variable.
+        </p>
+      )}
+
+      <div className="mt-6 space-y-4">
+        <div className="rounded-lg border bg-card p-3.5">
+          <PrivacyToggle
+            label="Usage analytics"
+            description="Shares provider and model names plus aggregate token counts. This is on by default."
+            checked={usageAnalytics}
+            disabled={doNotTrack}
+            onChange={setUsageAnalytics}
+          />
+        </div>
+        <div className="rounded-lg border bg-card p-3.5">
+          <PrivacyToggle
+            label="Crash reports"
+            description="Sends unhandled exceptions to help diagnose bugs. This is on by default."
+            checked={crashReports}
+            disabled={doNotTrack}
+            onChange={setCrashReports}
+          />
         </div>
       </div>
     </div>

@@ -24,7 +24,9 @@ describe("browser desktop fallback", () => {
       lastModel: "openai/gpt-5",
       hiddenModels: [],
       theme: "system",
-      detailedAnalytics: "unset",
+      telemetryNoticeShown: false,
+      usageAnalytics: "on",
+      crashReports: "on",
       studioTargetPrograms: null,
       studioTargetsBySession: {},
     });
@@ -41,7 +43,9 @@ describe("browser desktop fallback", () => {
       lastModel: null,
       hiddenModels: [],
       theme: "system",
-      detailedAnalytics: "unset",
+      telemetryNoticeShown: false,
+      usageAnalytics: "on",
+      crashReports: "on",
       studioTargetPrograms: null,
       studioTargetsBySession: {},
     });
@@ -56,17 +60,22 @@ describe("browser desktop fallback", () => {
       lastModel: null,
       hiddenModels: [],
       theme: "dark",
-      detailedAnalytics: "unset",
+      telemetryNoticeShown: false,
+      usageAnalytics: "on",
+      crashReports: "on",
       studioTargetPrograms: null,
       studioTargetsBySession: {},
     });
   });
 
-  it("persists detailed analytics consent separately from basic analytics", async () => {
+  it("persists telemetry toggles independently", async () => {
     const { desktop } = await import("@/lib/desktop");
 
-    await desktop.patchConfig({ detailedAnalytics: "enabled" });
+    await desktop.patchConfig({ usageAnalytics: "off" });
 
-    await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "enabled" });
+    await expect(desktop.loadConfig()).resolves.toMatchObject({
+      usageAnalytics: "off",
+      crashReports: "on",
+    });
   });
 });

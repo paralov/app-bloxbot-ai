@@ -3,6 +3,7 @@ export const channels = {
   checkForUpdate: "app:check-for-update",
   getOpenCodeInfo: "opencode:get-info",
   openCodeStartupProgress: "opencode:startup-progress",
+  getDoNotTrack: "app:get-do-not-track",
   getVersion: "app:get-version",
   installUpdate: "app:install-update",
   invokeExplorerProgram: "explorer:invoke-program",

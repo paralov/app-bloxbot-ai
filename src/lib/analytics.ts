@@ -3,13 +3,26 @@ import posthog, { type PostHogInterface, type Properties } from "posthog-js";
 export const POSTHOG_PROJECT_TOKEN = import.meta.env.VITE_POSTHOG_PROJECT_TOKEN?.trim() ?? "";
 export const POSTHOG_API_HOST = "https://eu.i.posthog.com";
 
-let detailedAnalyticsEnabled = true;
+let usageAnalyticsEnabled = true;
+let crashReportsEnabled = true;
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
-export function setDetailedAnalyticsEnabled(enabled: boolean): void {
-  detailedAnalyticsEnabled = enabled;
+export function setUsageAnalyticsEnabled(enabled: boolean): void {
+  usageAnalyticsEnabled = enabled;
   posthog.register({ analytics_detail_enabled: enabled });
+}
+
+export function setCrashReportsEnabled(enabled: boolean): void {
+  crashReportsEnabled = enabled;
+}
+
+export function isUsageAnalyticsEnabled(): boolean {
+  return usageAnalyticsEnabled;
+}
+
+export function isCrashReportsEnabled(): boolean {
+  return crashReportsEnabled;
 }
 
 export function analyticsProperties(feature: string, properties: Properties = {}): Properties {
@@ -35,7 +48,7 @@ export function errorAnalyticsProperties(
 }
 
 export function detailedAnalyticsProperties(properties: Properties): Properties {
-  return detailedAnalyticsEnabled ? properties : {};
+  return usageAnalyticsEnabled ? properties : {};
 }
 
 export function captureDetailedAnalytics(
@@ -43,7 +56,7 @@ export function captureDetailedAnalytics(
   event: string,
   properties: Properties,
 ): void {
-  if (detailedAnalyticsEnabled) {
+  if (usageAnalyticsEnabled) {
     posthog.capture(event, analyticsProperties("model", properties));
   }
 }

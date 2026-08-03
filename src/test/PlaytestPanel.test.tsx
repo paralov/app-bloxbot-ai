@@ -31,7 +31,11 @@ function Harness({
     lastModel: "anthropic/claude",
     hiddenModels: [],
     theme: "system",
-    detailedAnalytics: "disabled",
+    telemetryNoticeShown: true,
+    usageAnalytics: "on",
+    crashReports: "on",
+    studioTargetPrograms: null,
+    studioTargetsBySession: {},
   });
   queryClient.setQueryData<MessagesCache>(qk.messages("active"), {
     messageIds: ["m1"],
@@ -100,15 +104,21 @@ describe("PlaytestPanel", () => {
     expect(client.session.create).not.toHaveBeenCalled();
     expect(client.session.prompt).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
-    expect(capture).toHaveBeenCalledWith("generation_started", {
-      analytics_schema_version: 1,
-      feature: "playtest",
-    });
+    expect(capture).toHaveBeenCalledWith(
+      "generation_started",
+      expect.objectContaining({
+        analytics_schema_version: 1,
+        feature: "playtest",
+      }),
+    );
     expect(await screen.findByDisplayValue("Test rounds")).toBeInTheDocument();
-    expect(capture).toHaveBeenCalledWith("generation_succeeded", {
-      analytics_schema_version: 1,
-      feature: "playtest",
-    });
+    expect(capture).toHaveBeenCalledWith(
+      "generation_succeeded",
+      expect.objectContaining({
+        analytics_schema_version: 1,
+        feature: "playtest",
+      }),
+    );
     expect(client.session.prompt.mock.calls[0][0]).toMatchObject({
       sessionID: "planner",
       format: { type: "json_schema" },

@@ -5,7 +5,7 @@ import {
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
-  setDetailedAnalyticsEnabled,
+  setUsageAnalyticsEnabled,
 } from "@/lib/analytics";
 
 function posthogStub() {
@@ -18,9 +18,9 @@ function posthogStub() {
 }
 
 describe("PostHog analytics", () => {
-  // Detailed analytics are now on by default. Each test that exercises the
+  // Usage analytics are now on by default. Each test that exercises the
   // disabled path must explicitly opt out.
-  beforeEach(() => setDetailedAnalyticsEnabled(true));
+  beforeEach(() => setUsageAnalyticsEnabled(true));
 
   it("buckets counts without exposing exact larger values", () => {
     expect(countBucket(1)).toBe("1");
@@ -40,10 +40,10 @@ describe("PostHog analytics", () => {
   it("removes detailed properties after explicit opt-out", () => {
     const properties = { provider: "anthropic", model: "claude-sonnet-4" };
 
-    setDetailedAnalyticsEnabled(false);
+    setUsageAnalyticsEnabled(false);
     expect(detailedAnalyticsProperties(properties)).toEqual({});
 
-    setDetailedAnalyticsEnabled(true);
+    setUsageAnalyticsEnabled(true);
     expect(detailedAnalyticsProperties(properties)).toEqual(properties);
   });
 
@@ -61,7 +61,7 @@ describe("PostHog analytics", () => {
     });
 
     posthog.capture.mockClear();
-    setDetailedAnalyticsEnabled(false);
+    setUsageAnalyticsEnabled(false);
     captureDetailedAnalytics(posthog as never, "model_usage", usage);
     expect(posthog.capture).not.toHaveBeenCalled();
   });

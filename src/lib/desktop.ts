@@ -43,6 +43,7 @@ interface DesktopEffects {
     ? (input: Input) => Effect.Effect<Output, DesktopError>
     : never;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
+  readonly getDoNotTrack: Effect.Effect<boolean, DesktopError>;
   readonly getVersion: Effect.Effect<string, DesktopError>;
   readonly openUrl: (url: string) => Effect.Effect<void, DesktopError>;
   readonly loadConfig: Effect.Effect<AppConfig, DesktopError>;
@@ -86,6 +87,7 @@ const loadBrowserConfig = Effect.gen(function* () {
 const browserEffects: DesktopEffects = {
   compileExplorerProgram: () =>
     Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
+  getDoNotTrack: Effect.succeed(false),
   getOpenCodeInfo: Effect.fail(
     new DesktopError({
       message: "The desktop service is unavailable. Start BloxBot with pnpm dev.",
@@ -157,6 +159,9 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
       invoke("Failed to compile Explorer program", () => api.compileExplorerProgram(program)).pipe(
         decodeBridgeValue("Explorer program artifact is invalid", GeneratedProgramArtifactSchema),
       ),
+    getDoNotTrack: invoke("Failed to read DO_NOT_TRACK", () => api.getDoNotTrack()).pipe(
+      decodeBridgeValue("DO_NOT_TRACK value is invalid", Schema.Boolean),
+    ),
     getOpenCodeInfo: invoke("Failed to get OpenCode connection details", () =>
       api.getOpenCodeInfo(),
     ).pipe(decodeBridgeValue("OpenCode connection details are invalid", OpenCodeInfoSchema)),
@@ -202,6 +207,7 @@ const runPromise = <A>(effect: Effect.Effect<A, DesktopError>): Promise<A> =>
 /** Promise-only adapter consumed by React and exposed by the Electron bridge contract. */
 export const desktop: DesktopApi = {
   compileExplorerProgram: (program) => runPromise(desktopEffects.compileExplorerProgram(program)),
+  getDoNotTrack: () => runPromise(desktopEffects.getDoNotTrack),
   getOpenCodeInfo: () => runPromise(desktopEffects.getOpenCodeInfo),
   onOpenCodeStartupProgress: (listener: StartupProgressListener) =>
     window.bloxbot?.onOpenCodeStartupProgress(listener) ?? (() => {}),

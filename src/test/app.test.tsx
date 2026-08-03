@@ -22,6 +22,7 @@ import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
 import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
+import { TelemetryProvider } from "@/providers/TelemetryProvider";
 
 // Mock react-virtual so all items render in jsdom (no viewport measurement)
 vi.mock("@tanstack/react-virtual", () => ({
@@ -69,25 +70,27 @@ function TestApp({
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <OpenCodeClientContext.Provider
-          value={{
-            client: client as never,
-            status: "ready",
-            port: 4096,
-            ready: true,
-            initError: null,
-          }}
-        >
-          <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
-            <PreferencesProvider>
-              <ExplorerReferenceProvider>
-                <ChatWithSonner />
-              </ExplorerReferenceProvider>
-            </PreferencesProvider>
-          </ActiveSessionProvider>
-        </OpenCodeClientContext.Provider>
-      </ThemeProvider>
+      <TelemetryProvider>
+        <ThemeProvider>
+          <OpenCodeClientContext.Provider
+            value={{
+              client: client as never,
+              status: "ready",
+              port: 4096,
+              ready: true,
+              initError: null,
+            }}
+          >
+            <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
+              <PreferencesProvider>
+                <ExplorerReferenceProvider>
+                  <ChatWithSonner />
+                </ExplorerReferenceProvider>
+              </PreferencesProvider>
+            </ActiveSessionProvider>
+          </OpenCodeClientContext.Provider>
+        </ThemeProvider>
+      </TelemetryProvider>
     </QueryClientProvider>
   );
 }
@@ -180,10 +183,7 @@ function createQueryClient() {
 }
 
 /** Seed the query cache with the minimum state the app needs to be "ready" */
-function seedReadyState(
-  queryClient: QueryClient,
-  opts: { sessions?: Session[]; detailedAnalytics?: "unset" | "enabled" | "disabled" } = {},
-) {
+function seedReadyState(queryClient: QueryClient, opts: { sessions?: Session[] } = {}) {
   const sessions = opts.sessions ?? [];
 
   queryClient.setQueryData(qk.sessions, sessions);
@@ -207,7 +207,11 @@ function seedReadyState(
     lastModel: "anthropic/claude-3.5-sonnet",
     hiddenModels: [],
     theme: "system",
-    detailedAnalytics: opts.detailedAnalytics ?? "disabled",
+    telemetryNoticeShown: true,
+    usageAnalytics: "on",
+    crashReports: "on",
+    studioTargetPrograms: null,
+    studioTargetsBySession: {},
   });
 }
 
@@ -226,34 +230,34 @@ afterEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("User journeys", () => {
-  it("enables detailed analytics by default and allows opting out via Settings", async () => {
+  it("shows two telemetry toggles in Settings and allows toggling them", async () => {
     const client = createClient();
     const queryClient = createQueryClient();
-    seedReadyState(queryClient, { detailedAnalytics: "unset" });
+    seedReadyState(queryClient);
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
-    // No consent toast should appear — analytics are on by default.
+    // No consent dialog should appear -- telemetryNoticeShown is true.
     await screen.findByText("What would you like to build?");
-    expect(screen.queryByText("Help improve BloxBot")).not.toBeInTheDocument();
+    expect(screen.queryByText("Usage data & crash reports")).not.toBeInTheDocument();
 
-    // Open Settings > Privacy and verify the toggle is on.
+    // Open Settings > Privacy and verify both toggles are on.
     fireEvent.click(await screen.findByText("Settings"));
     fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
-    const analyticsSwitch = screen.getByRole("switch", {
-      name: "Detailed usage analytics",
-    });
-    expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
+    const usageSwitch = screen.getByRole("switch", { name: "Usage analytics" });
+    const crashSwitch = screen.getByRole("switch", { name: "Crash reports" });
+    expect(usageSwitch).toHaveAttribute("aria-checked", "true");
+    expect(crashSwitch).toHaveAttribute("aria-checked", "true");
 
-    // Opt out — toggle should flip and config should persist "disabled".
-    fireEvent.click(analyticsSwitch);
-    expect(analyticsSwitch).toHaveAttribute("aria-checked", "false");
-    await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "disabled" });
+    // Opt out of usage analytics.
+    fireEvent.click(usageSwitch);
+    expect(usageSwitch).toHaveAttribute("aria-checked", "false");
+    await expect(desktop.loadConfig()).resolves.toMatchObject({ usageAnalytics: "off" });
 
-    // Opt back in — toggle flips and config persists "enabled".
-    fireEvent.click(analyticsSwitch);
-    expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
-    await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "enabled" });
+    // Opt out of crash reports.
+    fireEvent.click(crashSwitch);
+    expect(crashSwitch).toHaveAttribute("aria-checked", "false");
+    await expect(desktop.loadConfig()).resolves.toMatchObject({ crashReports: "off" });
   });
 
   it("guides the user until Roblox Studio connects", async () => {
