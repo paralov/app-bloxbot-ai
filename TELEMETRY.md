@@ -1,8 +1,6 @@
 # Telemetry
 
-BloxBot includes three categories of outbound communication. All three are
-inactive in self-built binaries because the required build-time token is
-absent.
+BloxBot includes three categories of outbound communication.
 
 | Category | What is sent | Default | How to disable |
 |---|---|---|---|
@@ -14,5 +12,8 @@ absent.
 
 When you build BloxBot from source without setting `VITE_POSTHOG_PROJECT_TOKEN`,
 PostHog is completely inert: the SDK is never initialised, and no analytics or
-error-tracking network requests are made. Update checks still run in packaged
-builds unless `BLOXBOT_DISABLE_AUTOUPDATE` is set.
+error-tracking network requests are made.
+
+Update checks are independent of the PostHog token. They only run in packaged
+(installed) builds (`app.isPackaged`), so they are inactive during development.
+To disable them in a packaged build, set `BLOXBOT_DISABLE_AUTOUPDATE=1`.
