@@ -1,7 +1,9 @@
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { createElement, useEffect } from "react";
 import { toast } from "sonner";
 
 import { UpdateReleaseNotes } from "@/components/UpdateReleaseNotes";
+import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 
 // ── Semver helpers ──────────────────────────────────────────────────────
@@ -52,10 +54,23 @@ export function useUpdater(): void {
         const next = parseSemver(update.version);
         const patch = current && next ? isPatchOnly(current, next) : false;
 
+        posthog.capture(
+          "update_available",
+          analyticsProperties("updater", {
+            update_version: update.version,
+            current_version: currentVersion,
+            is_patch: patch,
+          }),
+        );
+
         if (patch) {
           // Patch update — auto-install silently.
           console.debug(
             `[updater] Auto-installing patch update ${currentVersion} → ${update.version}`,
+          );
+          posthog.capture(
+            "update_auto_installed",
+            analyticsProperties("updater", { update_version: update.version }),
           );
           await desktop.installUpdate();
         } else {

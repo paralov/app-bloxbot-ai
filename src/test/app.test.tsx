@@ -226,30 +226,34 @@ afterEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("User journeys", () => {
-  it("prompts once for detailed analytics and keeps the choice toggleable", async () => {
+  it("enables detailed analytics by default and allows opting out via Settings", async () => {
     const client = createClient();
     const queryClient = createQueryClient();
     seedReadyState(queryClient, { detailedAnalytics: "unset" });
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
-    const consentTitle = await screen.findByText("Help improve BloxBot");
-    expect(consentTitle).toBeVisible();
-    expect(consentTitle.closest("[data-sonner-toast]")).toHaveClass("analytics-consent-toast");
-    fireEvent.click(screen.getByRole("button", { name: "Share usage" }));
-    await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "enabled" });
+    // No consent toast should appear — analytics are on by default.
+    await screen.findByText("What would you like to build?");
+    expect(screen.queryByText("Help improve BloxBot")).not.toBeInTheDocument();
 
+    // Open Settings > Privacy and verify the toggle is on.
     fireEvent.click(await screen.findByText("Settings"));
     fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
     const analyticsSwitch = screen.getByRole("switch", {
-      name: "Share detailed usage analytics",
+      name: "Detailed usage analytics",
     });
     expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
 
+    // Opt out — toggle should flip and config should persist "disabled".
     fireEvent.click(analyticsSwitch);
-
     expect(analyticsSwitch).toHaveAttribute("aria-checked", "false");
     await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "disabled" });
+
+    // Opt back in — toggle flips and config persists "enabled".
+    fireEvent.click(analyticsSwitch);
+    expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
+    await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "enabled" });
   });
 
   it("guides the user until Roblox Studio connects", async () => {

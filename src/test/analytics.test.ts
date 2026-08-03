@@ -18,7 +18,9 @@ function posthogStub() {
 }
 
 describe("PostHog analytics", () => {
-  beforeEach(() => setDetailedAnalyticsEnabled(false));
+  // Detailed analytics are now on by default. Each test that exercises the
+  // disabled path must explicitly opt out.
+  beforeEach(() => setDetailedAnalyticsEnabled(true));
 
   it("buckets counts without exposing exact larger values", () => {
     expect(countBucket(1)).toBe("1");
@@ -29,24 +31,26 @@ describe("PostHog analytics", () => {
     expect(countBucket(42)).toBe("11+");
   });
 
-  it("removes detailed properties until the user opts in", () => {
+  it("includes detailed properties by default", () => {
     const properties = { provider: "anthropic", model: "claude-sonnet-4" };
-
-    expect(detailedAnalyticsProperties(properties)).toEqual({});
-
-    setDetailedAnalyticsEnabled(true);
 
     expect(detailedAnalyticsProperties(properties)).toEqual(properties);
   });
 
-  it("captures detailed token usage only after opt-in", () => {
+  it("removes detailed properties after explicit opt-out", () => {
+    const properties = { provider: "anthropic", model: "claude-sonnet-4" };
+
+    setDetailedAnalyticsEnabled(false);
+    expect(detailedAnalyticsProperties(properties)).toEqual({});
+
+    setDetailedAnalyticsEnabled(true);
+    expect(detailedAnalyticsProperties(properties)).toEqual(properties);
+  });
+
+  it("captures detailed token usage by default and stops after opt-out", () => {
     const posthog = posthogStub();
     const usage = { provider: "anthropic", model: "claude-sonnet-4", tokens_total: 42 };
 
-    captureDetailedAnalytics(posthog as never, "model_usage", usage);
-    expect(posthog.capture).not.toHaveBeenCalled();
-
-    setDetailedAnalyticsEnabled(true);
     captureDetailedAnalytics(posthog as never, "model_usage", usage);
 
     expect(posthog.capture).toHaveBeenCalledOnce();
@@ -55,6 +59,11 @@ describe("PostHog analytics", () => {
       feature: "model",
       ...usage,
     });
+
+    posthog.capture.mockClear();
+    setDetailedAnalyticsEnabled(false);
+    captureDetailedAnalytics(posthog as never, "model_usage", usage);
+    expect(posthog.capture).not.toHaveBeenCalled();
   });
 
   it("keeps Explorer analytics coarse and strips object content", () => {

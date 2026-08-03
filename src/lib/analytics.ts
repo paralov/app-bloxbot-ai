@@ -3,7 +3,7 @@ import posthog, { type PostHogInterface, type Properties } from "posthog-js";
 export const POSTHOG_PROJECT_TOKEN = import.meta.env.VITE_POSTHOG_PROJECT_TOKEN?.trim() ?? "";
 export const POSTHOG_API_HOST = "https://eu.i.posthog.com";
 
-let detailedAnalyticsEnabled = false;
+let detailedAnalyticsEnabled = true;
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 

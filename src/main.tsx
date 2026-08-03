@@ -26,7 +26,7 @@ if (import.meta.env.PROD && POSTHOG_PROJECT_TOKEN) {
     $pathname: "/loading",
     app: "bloxbot",
     analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
-    analytics_detail_enabled: false,
+    analytics_detail_enabled: true,
     app_platform: navigator.platform,
     app_runtime: window.bloxbot ? "electron" : "browser",
     app_screen: "loading",
