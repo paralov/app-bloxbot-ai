@@ -14,7 +14,9 @@ import { desktop } from "./lib/desktop";
 if (import.meta.env.PROD && POSTHOG_PROJECT_TOKEN) {
   posthog.init(POSTHOG_PROJECT_TOKEN, {
     api_host: POSTHOG_API_HOST,
-    person_profiles: "always",
+    // Anonymous events only: no identify() calls, so no person profile is created.
+    // The persisted random device id remains the stable fingerprint.
+    person_profiles: "identified_only",
     capture_pageview: false,
     // BloxBot intentionally contains "bot", which matches PostHog's bot heuristic.
     opt_out_useragent_filter: true,

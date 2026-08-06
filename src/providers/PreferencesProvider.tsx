@@ -12,7 +12,10 @@ import {
 import { toast } from "sonner";
 import { useAgents } from "@/hooks/useAgents";
 import { useConnectedProviders } from "@/hooks/useProviders";
-import { setDetailedAnalyticsEnabled as setDetailedAnalyticsCollection } from "@/lib/analytics";
+import {
+  ANALYTICS_NOTICE_VERSION,
+  setDetailedAnalyticsEnabled as setDetailedAnalyticsCollection,
+} from "@/lib/analytics";
 import { type AppConfig, loadConfig, patchConfig } from "@/lib/config";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
@@ -65,32 +68,46 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Initialize from config data when it arrives and prompt once when no choice exists.
+  // Initialize from config data when it arrives and notify once about opt-out metrics.
   useEffect(() => {
     if (!configData) return;
     setHiddenModels(new Set(configData.hiddenModels));
-    const detailedEnabled = configData.detailedAnalytics === "enabled";
-    detailedAnalyticsEnabledRef.current = detailedEnabled;
-    setDetailedAnalyticsEnabledState(detailedEnabled);
-    setDetailedAnalyticsCollection(detailedEnabled);
 
-    if (configData.detailedAnalytics === "unset") {
-      toast("Help improve BloxBot", {
-        id: "detailed-analytics-consent",
+    // Model usage metrics moved from opt-in to opt-out. Choices recorded under the
+    // old consent prompt (including clickaways) do not carry over: metrics start
+    // enabled and the one-time notice points at the Settings toggle.
+    if (configData.analyticsNoticeVersion < ANALYTICS_NOTICE_VERSION) {
+      detailedAnalyticsEnabledRef.current = true;
+      setDetailedAnalyticsEnabledState(true);
+      setDetailedAnalyticsCollection(true);
+      toast("BloxBot collects anonymized usage metrics", {
+        id: "analytics-optout-notice",
         className: "analytics-consent-toast",
         description:
-          "Share provider, model, and aggregate token usage. Prompts, responses, files, and agent names are never collected.",
+          "Provider, model, and aggregate token metrics are tied to an anonymous device identifier. Prompts, responses, and files are never collected. Turn this off any time in Settings → Privacy.",
         duration: Number.POSITIVE_INFINITY,
         action: {
-          label: "Share usage",
-          onClick: () => setDetailedAnalyticsEnabled(true),
+          label: "Got it",
+          onClick: () => {},
         },
         cancel: {
-          label: "Not now",
+          label: "Disable",
           onClick: () => setDetailedAnalyticsEnabled(false),
         },
       });
+      // Persist only after the notice is on screen, so a failure to show it
+      // leaves the version behind and the notice fires again next launch.
+      patchConfig({
+        detailedAnalytics: "enabled",
+        analyticsNoticeVersion: ANALYTICS_NOTICE_VERSION,
+      }).catch(() => {});
+      return;
     }
+
+    const detailedEnabled = configData.detailedAnalytics !== "disabled";
+    detailedAnalyticsEnabledRef.current = detailedEnabled;
+    setDetailedAnalyticsEnabledState(detailedEnabled);
+    setDetailedAnalyticsCollection(detailedEnabled);
   }, [configData, setDetailedAnalyticsEnabled]);
 
   // Restore a valid last-used model and clear selections whose provider disconnected.

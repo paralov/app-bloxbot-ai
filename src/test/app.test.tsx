@@ -182,7 +182,11 @@ function createQueryClient() {
 /** Seed the query cache with the minimum state the app needs to be "ready" */
 function seedReadyState(
   queryClient: QueryClient,
-  opts: { sessions?: Session[]; detailedAnalytics?: "unset" | "enabled" | "disabled" } = {},
+  opts: {
+    sessions?: Session[];
+    detailedAnalytics?: "unset" | "enabled" | "disabled";
+    analyticsNoticeVersion?: number;
+  } = {},
 ) {
   const sessions = opts.sessions ?? [];
 
@@ -208,6 +212,7 @@ function seedReadyState(
     hiddenModels: [],
     theme: "system",
     detailedAnalytics: opts.detailedAnalytics ?? "disabled",
+    analyticsNoticeVersion: opts.analyticsNoticeVersion ?? 1,
   });
 }
 
@@ -226,23 +231,27 @@ afterEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("User journeys", () => {
-  it("prompts once for detailed analytics and keeps the choice toggleable", async () => {
+  it("enables usage metrics by default, notifies once, and keeps opting out toggleable", async () => {
     const client = createClient();
     const queryClient = createQueryClient();
-    seedReadyState(queryClient, { detailedAnalytics: "unset" });
+    // An old clickaway ("disabled" without a notice version) does not carry over.
+    seedReadyState(queryClient, { detailedAnalytics: "disabled", analyticsNoticeVersion: 0 });
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
-    const consentTitle = await screen.findByText("Help improve BloxBot");
-    expect(consentTitle).toBeVisible();
-    expect(consentTitle.closest("[data-sonner-toast]")).toHaveClass("analytics-consent-toast");
-    fireEvent.click(screen.getByRole("button", { name: "Share usage" }));
-    await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "enabled" });
+    const noticeTitle = await screen.findByText("BloxBot collects anonymized usage metrics");
+    expect(noticeTitle).toBeVisible();
+    expect(noticeTitle.closest("[data-sonner-toast]")).toHaveClass("analytics-consent-toast");
+    await expect(desktop.loadConfig()).resolves.toMatchObject({
+      detailedAnalytics: "enabled",
+      analyticsNoticeVersion: 1,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
 
     fireEvent.click(await screen.findByText("Settings"));
     fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
     const analyticsSwitch = screen.getByRole("switch", {
-      name: "Share detailed usage analytics",
+      name: "Share model usage metrics",
     });
     expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
 
@@ -250,6 +259,22 @@ describe("User journeys", () => {
 
     expect(analyticsSwitch).toHaveAttribute("aria-checked", "false");
     await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "disabled" });
+  });
+
+  it("respects a recorded opt-out without renotifying", async () => {
+    const client = createClient();
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { detailedAnalytics: "disabled", analyticsNoticeVersion: 1 });
+
+    render(<TestApp client={client} queryClient={queryClient} />);
+
+    fireEvent.click(await screen.findByText("Settings"));
+    fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
+    expect(screen.queryByText("BloxBot collects anonymized usage metrics")).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Share model usage metrics" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 
   it("guides the user until Roblox Studio connects", async () => {

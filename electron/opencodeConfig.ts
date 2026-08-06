@@ -1,13 +1,26 @@
-import { join } from "node:path";
+import { win32 } from "node:path";
 
-export function studioMcpCommand(platform: NodeJS.Platform, localAppData?: string): string[] {
+export interface StudioMcpWindowsEnvironment {
+  localAppData?: string;
+  comSpec?: string;
+  systemRoot?: string;
+}
+
+export function studioMcpCommand(
+  platform: NodeJS.Platform,
+  environment: StudioMcpWindowsEnvironment = {},
+): string[] {
   if (platform === "darwin") {
     return ["/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP"];
   }
 
   if (platform === "win32") {
-    const dataDirectory = localAppData ?? "C:\\Users\\Default\\AppData\\Local";
-    return ["cmd.exe", "/c", join(dataDirectory, "Roblox", "mcp.bat")];
+    const dataDirectory = environment.localAppData ?? "C:\\Users\\Default\\AppData\\Local";
+    // Resolve cmd.exe absolutely: the MCP stdio transport spawns with a reduced
+    // environment, so a PATH without System32 makes a bare "cmd.exe" fail with ENOENT.
+    const systemRoot = environment.systemRoot ?? "C:\\Windows";
+    const comSpec = environment.comSpec ?? win32.join(systemRoot, "System32", "cmd.exe");
+    return [comSpec, "/c", win32.join(dataDirectory, "Roblox", "mcp.bat")];
   }
 
   return ["studio-mcp"];

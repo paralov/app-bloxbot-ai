@@ -211,6 +211,8 @@ export interface StudioMcpBrokerOptions {
   workspace: string;
   platform?: NodeJS.Platform;
   localAppData?: string;
+  comSpec?: string;
+  systemRoot?: string;
 }
 
 export function makeStudioMcpBrokerLayer(options: StudioMcpBrokerOptions) {
@@ -220,7 +222,11 @@ export function makeStudioMcpBrokerLayer(options: StudioMcpBrokerOptions) {
       Effect.tryPromise({
         try: async () => {
           const upstream = await SdkStudioMcpUpstream.connect(
-            studioMcpCommand(options.platform ?? process.platform, options.localAppData),
+            studioMcpCommand(options.platform ?? process.platform, {
+              localAppData: options.localAppData,
+              comSpec: options.comSpec,
+              systemRoot: options.systemRoot,
+            }),
             options.workspace,
           );
           return startStudioMcpBroker(upstream);

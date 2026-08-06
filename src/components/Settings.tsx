@@ -1030,24 +1030,24 @@ function PrivacyTab() {
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
-        identifiers plus a person profile. Feature flags and other PostHog products use the same
-        profile. Detailed usage is always your choice.
+        identifiers, but events stay anonymous: no person profile is created. Prompts, responses,
+        and files are never collected.
       </p>
 
       <div className="mt-6 rounded-lg border bg-card p-3.5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-sm font-medium">Share detailed usage analytics</div>
+            <div className="text-sm font-medium">Share model usage metrics</div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Additionally shares provider and model names plus aggregate token counts. This switch
-              controls those detailed fields; standard PostHog collection remains enabled.
+              Shares provider and model names plus aggregate token counts, on by default. Turn this
+              off to keep model usage out of analytics; basic app health events remain enabled.
             </p>
           </div>
           <button
             type="button"
             role="switch"
             aria-checked={detailedAnalyticsEnabled}
-            aria-label="Share detailed usage analytics"
+            aria-label="Share model usage metrics"
             onClick={() => setDetailedAnalyticsEnabled(!detailedAnalyticsEnabled)}
             className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
               detailedAnalyticsEnabled ? "bg-foreground" : "bg-border"
