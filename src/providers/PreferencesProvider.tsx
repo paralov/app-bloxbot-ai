@@ -80,10 +80,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       detailedAnalyticsEnabledRef.current = true;
       setDetailedAnalyticsEnabledState(true);
       setDetailedAnalyticsCollection(true);
-      patchConfig({
-        detailedAnalytics: "enabled",
-        analyticsNoticeVersion: ANALYTICS_NOTICE_VERSION,
-      }).catch(() => {});
       toast("BloxBot collects anonymized usage metrics", {
         id: "analytics-optout-notice",
         className: "analytics-consent-toast",
@@ -99,6 +95,12 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           onClick: () => setDetailedAnalyticsEnabled(false),
         },
       });
+      // Persist only after the notice is on screen, so a failure to show it
+      // leaves the version behind and the notice fires again next launch.
+      patchConfig({
+        detailedAnalytics: "enabled",
+        analyticsNoticeVersion: ANALYTICS_NOTICE_VERSION,
+      }).catch(() => {});
       return;
     }
 
