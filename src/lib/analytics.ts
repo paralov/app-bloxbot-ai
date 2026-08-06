@@ -7,6 +7,10 @@ let detailedAnalyticsEnabled = false;
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
+// Bump when the analytics policy changes enough that users must be re-notified.
+// Version 1 introduced opt-out model usage metrics with anonymized collection.
+export const ANALYTICS_NOTICE_VERSION = 1;
+
 export function setDetailedAnalyticsEnabled(enabled: boolean): void {
   detailedAnalyticsEnabled = enabled;
   posthog.register({ analytics_detail_enabled: enabled });

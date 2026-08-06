@@ -23,6 +23,8 @@ export const AppConfigSchema = Schema.mutable(
     hiddenModels: MutableStrings,
     theme: ThemePreferenceSchema,
     detailedAnalytics: DetailedAnalyticsPreferenceSchema,
+    // Highest analytics policy notice the user has seen; 0 predates the opt-out model.
+    analyticsNoticeVersion: Schema.Number,
     studioTargetPrograms: Schema.NullOr(StudioTargetProgramsSchema),
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
   }),
@@ -35,6 +37,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   hiddenModels: [],
   theme: "system",
   detailedAnalytics: "unset",
+  analyticsNoticeVersion: 0,
   studioTargetPrograms: null,
   studioTargetsBySession: {},
 };

@@ -32,6 +32,7 @@ function Harness({
     hiddenModels: [],
     theme: "system",
     detailedAnalytics: "disabled",
+    analyticsNoticeVersion: 1,
   });
   queryClient.setQueryData<MessagesCache>(qk.messages("active"), {
     messageIds: ["m1"],

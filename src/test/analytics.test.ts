@@ -29,7 +29,7 @@ describe("PostHog analytics", () => {
     expect(countBucket(42)).toBe("11+");
   });
 
-  it("removes detailed properties until the user opts in", () => {
+  it("removes detailed properties while model usage metrics are off", () => {
     const properties = { provider: "anthropic", model: "claude-sonnet-4" };
 
     expect(detailedAnalyticsProperties(properties)).toEqual({});
@@ -39,7 +39,7 @@ describe("PostHog analytics", () => {
     expect(detailedAnalyticsProperties(properties)).toEqual(properties);
   });
 
-  it("captures detailed token usage only after opt-in", () => {
+  it("captures detailed token usage only while model usage metrics are on", () => {
     const posthog = posthogStub();
     const usage = { provider: "anthropic", model: "claude-sonnet-4", tokens_total: 42 };
 

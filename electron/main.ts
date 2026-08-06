@@ -49,6 +49,8 @@ class DesktopMainError extends Data.TaggedError("DesktopMainError")<{
 const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
   workspace: join(app.getPath("home"), "BloxBot"),
   localAppData: process.env.LOCALAPPDATA,
+  comSpec: process.env.ComSpec,
+  systemRoot: process.env.SystemRoot,
 });
 
 const openCodeRuntime = ManagedRuntime.make(

@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Turned model usage metrics into an opt-out setting with a one-time in-app notice; choices recorded under the previous opt-in prompt do not carry over, and the Settings → Privacy toggle remains authoritative.
+- Anonymized all analytics: events no longer create a person profile, IP-based location enrichment is disabled, autocapture and session recording are off, and the raw user agent is no longer collected. A random device identifier is retained for aggregate counts.
+
+### Fixed
+
+- Fixed a startup failure on Windows when the system `PATH` does not include `System32` by resolving `cmd.exe` through `ComSpec` before launching the Roblox Studio MCP helper. ([#73](https://github.com/paralov/app-bloxbot-ai/issues/73))
+
 ## [0.8.0] - 2026-07-27
 
 ### Added
