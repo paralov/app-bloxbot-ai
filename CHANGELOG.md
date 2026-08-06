@@ -10,7 +10,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 
 - Turned model usage metrics into an opt-out setting with a one-time in-app notice; choices recorded under the previous opt-in prompt do not carry over, and the Settings → Privacy toggle remains authoritative.
-- Anonymized all analytics: events no longer create a person profile, IP-based location enrichment is disabled, autocapture and session recording are off, and the raw user agent is no longer collected. A random device identifier is retained for aggregate counts.
+- Anonymized analytics: events no longer create a person profile. A random device identifier is retained for aggregate counts.
 
 ### Fixed
 

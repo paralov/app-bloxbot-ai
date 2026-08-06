@@ -1029,9 +1029,9 @@ function PrivacyTab() {
     <div className="mx-auto w-full max-w-md px-6 py-8">
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
-        BloxBot collects anonymized usage analytics tied to a random device identifier. No person
-        profile is created, IP-based location is never recorded, and prompts, responses, and files
-        are never collected.
+        BloxBot uses PostHog's standard product analytics with persistent device and session
+        identifiers, but events stay anonymous: no person profile is created. Prompts, responses,
+        and files are never collected.
       </p>
 
       <div className="mt-6 rounded-lg border bg-card p-3.5">
