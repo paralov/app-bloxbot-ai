@@ -12,6 +12,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Context, Data, Effect, Layer } from "effect";
 
@@ -221,6 +222,7 @@ export function makeStudioMcpBrokerLayer(options: StudioMcpBrokerOptions) {
     Effect.acquireRelease(
       Effect.tryPromise({
         try: async () => {
+          await mkdir(options.workspace, { recursive: true });
           const upstream = await SdkStudioMcpUpstream.connect(
             studioMcpCommand(options.platform ?? process.platform, {
               localAppData: options.localAppData,

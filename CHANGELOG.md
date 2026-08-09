@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-09
+
+### Fixed
+
+- Fixed first-run setup failing with `StudioMcpBrokerError` (`spawn cmd.exe ENOENT`) by creating the `~/BloxBot` workspace before launching the Roblox Studio MCP helper; on fresh installs the workspace did not exist yet and Node reports a missing spawn `cwd` as ENOENT on the executable. ([#76](https://github.com/paralov/app-bloxbot-ai/issues/76))
+
 ## [0.9.0] - 2026-08-07
 
 ### Changed
