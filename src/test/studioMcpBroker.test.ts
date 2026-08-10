@@ -1,10 +1,18 @@
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { Effect, Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { StudioMcpUpstream } from "../../electron/services/StudioMcpBroker";
-import { startStudioMcpBroker } from "../../electron/services/StudioMcpBroker";
+import {
+  makeStudioMcpBrokerLayer,
+  startStudioMcpBroker,
+} from "../../electron/services/StudioMcpBroker";
 
 const tools: Tool[] = [
   {
@@ -64,5 +72,20 @@ describe("Studio MCP broker", () => {
 
     await broker.close();
     expect(upstream.close).toHaveBeenCalledOnce();
+  });
+
+  it("creates the workspace directory before spawning the upstream (#76)", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "bloxbot-test-"));
+    const workspace = join(tmp, "nested", "BloxBot");
+    try {
+      const layer = makeStudioMcpBrokerLayer({ workspace, platform: "linux" });
+      const result = await Effect.runPromiseExit(Effect.scoped(Layer.build(layer)));
+      // The spawn will fail because "studio-mcp" does not exist, but the
+      // workspace directory must have been created before the spawn attempt.
+      expect(result._tag).toBe("Failure");
+      expect(existsSync(workspace)).toBe(true);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 });
