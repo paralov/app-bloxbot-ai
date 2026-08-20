@@ -275,31 +275,36 @@ const registerIpcHandlers = Effect.sync(() => {
       }),
     ),
   );
-  ipcMain.handle(channels.invokeExplorerProgram, (_event, input: unknown) =>
-    openCodeRuntime.runPromise(
-      Effect.gen(function* () {
-        const artifact = yield* Schema.decodeUnknown(GeneratedProgramArtifactSchema)(input);
-        if (
-          artifact.contract.name !== "explorer-snapshot" ||
-          artifact.contract.outputSchemaVersion !== "explorer-snapshot-v1"
-        ) {
-          return yield* Effect.fail(
-            new DesktopMainError({ message: "Explorer program contract is invalid" }),
+  ipcMain.handle(
+    channels.invokeExplorerProgram,
+    (_event, input: unknown, studioIdInput: unknown) =>
+      openCodeRuntime.runPromise(
+        Effect.gen(function* () {
+          const artifact = yield* Schema.decodeUnknown(GeneratedProgramArtifactSchema)(input);
+          const studioId = yield* Schema.decodeUnknown(
+            Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
+          )(studioIdInput);
+          if (
+            artifact.contract.name !== "explorer-snapshot" ||
+            artifact.contract.outputSchemaVersion !== "explorer-snapshot-v1"
+          ) {
+            return yield* Effect.fail(
+              new DesktopMainError({ message: "Explorer program contract is invalid" }),
+            );
+          }
+          const runtime = yield* GeneratedProgramRuntime;
+          const result = yield* runtime.invoke({ artifact, input: { studioId } });
+          return yield* Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value).pipe(
+            Effect.mapError(
+              (cause) => new DesktopMainError({ message: "Explorer output is invalid", cause }),
+            ),
           );
-        }
-        const runtime = yield* GeneratedProgramRuntime;
-        const result = yield* runtime.invoke({ artifact, input: null });
-        return yield* Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value).pipe(
-          Effect.mapError(
-            (cause) => new DesktopMainError({ message: "Explorer output is invalid", cause }),
+        }).pipe(
+          Effect.tapErrorCause((cause) =>
+            Effect.logError(`[explorer] invocation failed: ${String(cause)}`),
           ),
-        );
-      }).pipe(
-        Effect.tapErrorCause((cause) =>
-          Effect.logError(`[explorer] invocation failed: ${String(cause)}`),
         ),
       ),
-    ),
   );
   ipcMain.handle(channels.relaunch, () =>
     runMain(

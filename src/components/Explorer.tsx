@@ -210,6 +210,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   useEffect(() => {
     if (!client || collapsed || !studioTarget?.selected) return;
     const activeClient = client;
+    const studioId = studioTarget.selected.key;
     let cancelled = false;
     let timer: number | undefined;
     let unchangedPolls = 0;
@@ -251,7 +252,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               ? BUILTIN_EXPLORER_PROGRAM
               : await generateExplorerProgram(activeClient, model, selectedAgent);
           const artifact = await desktop.compileExplorerProgram(program);
-          const snapshot = sortExplorerSnapshot(await desktop.invokeExplorerProgram(artifact));
+          const snapshot = sortExplorerSnapshot(
+            await desktop.invokeExplorerProgram(artifact, studioId),
+          );
           if (snapshot.roots.length === 0) {
             throw new Error("Studio has not returned an instance tree yet");
           }
@@ -295,7 +298,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         if (current) {
           try {
             const snapshot = sortExplorerSnapshot(
-              await desktop.invokeExplorerProgram(current.artifact),
+              await desktop.invokeExplorerProgram(current.artifact, studioId),
             );
             next = { ...current, snapshot };
           } catch (error) {

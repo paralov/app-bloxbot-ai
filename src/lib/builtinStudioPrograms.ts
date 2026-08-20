@@ -19,24 +19,36 @@ function normalizeMcpResult(result: unknown): any {
     try { return JSON.parse(content); } catch { return content; }
   }
   return content;
+}
+
+function normalizeMcpIdentifier(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : null;
 }`;
 
 const targetDiscoverySource = `
 ${NORMALIZE_MCP_RESULT}
 async function run({ callTool }: { input: unknown; callTool: (name: string, args: Record<string, unknown>) => Promise<unknown> }) {
   const data = normalizeMcpResult(await callTool("list_roblox_studios", {})) ?? {};
-  const studios = Array.isArray(data.studios) ? data.studios : [];
+  const studios = Array.isArray(data) ? data : Array.isArray(data.studios) ? data.studios : [];
   const targets = studios.flatMap((studio: any) => {
-    const key = typeof studio?.id === "string" ? studio.id : "";
+    const rawStudioId = studio?.studio_id ?? studio?.studioId ?? studio?.id;
+    const key = normalizeMcpIdentifier(rawStudioId) ?? "";
     if (!key) return [];
+    const rawPlaceId = studio?.place_id ?? studio?.placeId;
+    const placeId = normalizeMcpIdentifier(rawPlaceId);
+    const rawLabel = studio?.name ?? studio?.place_name ?? studio?.placeName;
     return [{
       key,
-      label: typeof studio.name === "string" && studio.name ? studio.name : key,
-      detail: studio.active === true ? "Active" : null,
+      label: typeof rawLabel === "string" && rawLabel ? rawLabel : key,
+      detail: placeId ? "Place " + placeId : "Local place",
+      placeId,
     }];
   });
-  const active = studios.find((studio: any) => studio?.active === true);
-  return { targets, selectedKey: typeof active?.id === "string" ? active.id : null };
+  return { targets, selectedKey: null };
 }`;
 
 const targetSelectionSource = `
@@ -44,16 +56,22 @@ ${NORMALIZE_MCP_RESULT}
 async function run({ input, callTool }: { input: any; callTool: (name: string, args: Record<string, unknown>) => Promise<unknown> }) {
   const targetKey = typeof input?.targetKey === "string" ? input.targetKey : "";
   if (!targetKey) throw new Error("A Studio target is required");
-  await callTool("set_active_studio", { studio_id: targetKey });
   const data = normalizeMcpResult(await callTool("list_roblox_studios", {})) ?? {};
-  const studios = Array.isArray(data.studios) ? data.studios : [];
-  const selected = studios.find((studio: any) => studio?.id === targetKey && studio?.active === true);
+  const studios = Array.isArray(data) ? data : Array.isArray(data.studios) ? data.studios : [];
+  const selected = studios.find((studio: any) => {
+    const rawStudioId = studio?.studio_id ?? studio?.studioId ?? studio?.id;
+    return normalizeMcpIdentifier(rawStudioId) === targetKey;
+  });
   if (!selected) throw new Error("Studio target could not be verified");
+  const rawPlaceId = selected?.place_id ?? selected?.placeId;
+  const placeId = normalizeMcpIdentifier(rawPlaceId);
+  const rawLabel = selected?.name ?? selected?.place_name ?? selected?.placeName;
   return {
     selected: {
       key: targetKey,
-      label: typeof selected.name === "string" && selected.name ? selected.name : targetKey,
-      detail: "Active",
+      label: typeof rawLabel === "string" && rawLabel ? rawLabel : targetKey,
+      detail: placeId ? "Place " + placeId : "Local place",
+      placeId,
     },
     verified: true,
   };
@@ -84,10 +102,16 @@ export const BUILTIN_STUDIO_TARGET_PROGRAMS: StudioTargetProgramEnvelopes = {
 
 const explorerSource = `
 ${NORMALIZE_MCP_RESULT}
-async function run({ callTool }: { input: unknown; callTool: (name: string, args: Record<string, unknown>) => Promise<unknown> }) {
+async function run({ input, callTool }: { input: { studioId: string }; callTool: (name: string, args: Record<string, unknown>) => Promise<unknown> }) {
+  const studioId = typeof input?.studioId === "string" ? input.studioId : "";
+  if (!studioId) throw new Error("A Studio target is required");
   // Studio currently caps max_depth at 10. Use that ceiling and an intentionally
   // generous result cap so ordinary places are collected in one pass.
-  const raw = normalizeMcpResult(await callTool("search_game_tree", { max_depth: 10, head_limit: 100000 }));
+  const raw = normalizeMcpResult(await callTool("search_game_tree", {
+    studio_id: studioId,
+    max_depth: 10,
+    head_limit: 100000,
+  }));
   const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
   // Match Studio Explorer's default service set. Studio hides less commonly
   // edited engine services unless the user explicitly enables them.

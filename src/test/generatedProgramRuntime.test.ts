@@ -1,6 +1,9 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { BUILTIN_EXPLORER_PROGRAM } from "@/lib/builtinStudioPrograms";
+import {
+  BUILTIN_EXPLORER_PROGRAM,
+  BUILTIN_STUDIO_TARGET_PROGRAMS,
+} from "@/lib/builtinStudioPrograms";
 import { ExplorerSnapshotSchema } from "@/lib/explorer";
 import {
   GeneratedProgramRuntimeError,
@@ -131,7 +134,9 @@ describe("GeneratedProgramRuntime", () => {
     });
     const runtime = startGeneratedProgramRuntime(callTool);
     const artifact = await Effect.runPromise(runtime.compile(BUILTIN_EXPLORER_PROGRAM));
-    const result = await Effect.runPromise(runtime.invoke({ artifact, input: null }));
+    const result = await Effect.runPromise(
+      runtime.invoke({ artifact, input: { studioId: "studio-123" } }),
+    );
     const snapshot = await Effect.runPromise(
       Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value),
     );
@@ -141,8 +146,72 @@ describe("GeneratedProgramRuntime", () => {
       "Player Spawn",
     );
     expect(callTool).toHaveBeenCalledWith("search_game_tree", {
+      studio_id: "studio-123",
       max_depth: 10,
       head_limit: 100_000,
     });
+  });
+
+  it("discovers Place IDs and verifies targets without mutating active Studio state", async () => {
+    const callTool = vi.fn().mockResolvedValue({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            studios: [
+              { studio_id: "studio-123", place_id: 987654, name: "Dungeon" },
+              { studio_id: " studio-local ", place_id: "   ", name: "Local File" },
+            ],
+          }),
+        },
+      ],
+    });
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const discoveryArtifact = await Effect.runPromise(
+      runtime.compile(BUILTIN_STUDIO_TARGET_PROGRAMS.discovery),
+    );
+    const selectionArtifact = await Effect.runPromise(
+      runtime.compile(BUILTIN_STUDIO_TARGET_PROGRAMS.selection),
+    );
+
+    const discovery = await Effect.runPromise(
+      runtime.invoke({ artifact: discoveryArtifact, input: {} }),
+    );
+    const selection = await Effect.runPromise(
+      runtime.invoke({ artifact: selectionArtifact, input: { targetKey: "studio-123" } }),
+    );
+    const localSelection = await Effect.runPromise(
+      runtime.invoke({ artifact: selectionArtifact, input: { targetKey: "studio-local" } }),
+    );
+
+    expect(discovery.value).toMatchObject({
+      targets: [
+        {
+          key: "studio-123",
+          label: "Dungeon",
+          detail: "Place 987654",
+          placeId: "987654",
+        },
+        {
+          key: "studio-local",
+          label: "Local File",
+          detail: "Local place",
+          placeId: null,
+        },
+      ],
+      selectedKey: null,
+    });
+    expect(selection.value).toMatchObject({
+      selected: { key: "studio-123", placeId: "987654" },
+      verified: true,
+    });
+    expect(localSelection.value).toMatchObject({
+      selected: { key: "studio-local", detail: "Local place", placeId: null },
+      verified: true,
+    });
+    expect(callTool).toHaveBeenCalledTimes(3);
+    expect(callTool).toHaveBeenNthCalledWith(1, "list_roblox_studios", {});
+    expect(callTool).toHaveBeenNthCalledWith(2, "list_roblox_studios", {});
+    expect(callTool).toHaveBeenNthCalledWith(3, "list_roblox_studios", {});
   });
 });

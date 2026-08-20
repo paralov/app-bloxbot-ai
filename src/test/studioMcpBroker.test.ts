@@ -66,6 +66,36 @@ describe("Studio MCP broker", () => {
     expect(upstream.callTool).toHaveBeenCalledWith("inspect_place", { depth: 3 });
   });
 
+  it("keeps concurrent clients stateless by forwarding each explicit studio_id", async () => {
+    const upstream = fakeUpstream();
+    const broker = await startStudioMcpBroker(upstream);
+    cleanups.push(() => broker.close());
+    const [firstClient, secondClient] = await Promise.all([
+      connect(broker.info),
+      connect(broker.info),
+    ]);
+
+    await Promise.all([
+      firstClient.callTool({
+        name: "inspect_place",
+        arguments: { studio_id: "studio-one", depth: 2 },
+      }),
+      secondClient.callTool({
+        name: "inspect_place",
+        arguments: { studio_id: "studio-two", depth: 4 },
+      }),
+    ]);
+
+    expect(upstream.callTool).toHaveBeenCalledWith("inspect_place", {
+      studio_id: "studio-one",
+      depth: 2,
+    });
+    expect(upstream.callTool).toHaveBeenCalledWith("inspect_place", {
+      studio_id: "studio-two",
+      depth: 4,
+    });
+  });
+
   it("closes the single upstream Studio client", async () => {
     const upstream = fakeUpstream();
     const broker = await startStudioMcpBroker(upstream);

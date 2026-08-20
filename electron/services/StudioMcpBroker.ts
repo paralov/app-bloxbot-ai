@@ -51,7 +51,7 @@ export class StudioMcpBroker extends Context.Tag("@bloxbot/StudioMcpBroker")<
 
 class SdkStudioMcpUpstream implements StudioMcpUpstream {
   private readonly client = new Client(
-    { name: "bloxbot-studio-broker", version: "1.0.0" },
+    { name: "BloxBot", version: "1.0.0" },
     { capabilities: {} },
   );
 

@@ -192,7 +192,7 @@ export const EXPLORER_SNAPSHOT_OUTPUT_SCHEMA = {
 
 const INITIAL_SYSTEM_PROMPT = `You generate the private TypeScript data provider for BloxBot's Explorer panel.
 Discover the currently available Studio MCP tools and return an import-free deterministic read-only TypeScript program.
-The source must define async function run({ input, callTool }) and return an Explorer snapshot matching the requested output contract. Use callTool directly with the exact discovered tool names and arguments. It must never modify the place.
+The source must define async function run({ input, callTool }), require input.studioId, and return an Explorer snapshot matching the requested output contract. Use callTool directly with the exact discovered tool names and arguments, passing { studio_id: input.studioId } on every Studio-specific tool call. It must never modify the place.
 Do not run a recurring model-mediated replay. The app will compile this source once and invoke it directly for every refresh.
 For every object include a compact set of useful, readable properties and all available attributes. Stringify values safely.
 Use each instance's Name property for node.name. Use ClassName only for node.className and type/icon metadata.

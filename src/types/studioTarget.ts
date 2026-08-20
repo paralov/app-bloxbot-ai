@@ -5,6 +5,9 @@ export const StudioTargetSchema = Schema.Struct({
   key: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
   label: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
   detail: Schema.NullOr(Schema.String.pipe(Schema.maxLength(512))),
+  placeId: Schema.optional(
+    Schema.NullOr(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64))),
+  ),
 });
 
 export type StudioTarget = typeof StudioTargetSchema.Type;

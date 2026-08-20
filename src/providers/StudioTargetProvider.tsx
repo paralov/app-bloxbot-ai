@@ -46,6 +46,10 @@ function countBucket(count: number): "0" | "1" | "2-4" | "5+" {
   return "5+";
 }
 
+export function createStudioTargetPromptReference(target: StudioTarget): string {
+  return `Route every Roblox Studio MCP tool call for this request to studio_id ${JSON.stringify(target.key)}. The selected Studio is ${JSON.stringify(target.label)}${target.placeId ? ` with Place ID ${JSON.stringify(target.placeId)}` : ""}. Do not call set_active_studio; routing is stateless. Re-list Studios and stop if this studio_id is no longer connected.`;
+}
+
 export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
@@ -121,17 +125,26 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       targetsRef.current = result.targets;
       setTargets(result.targets);
       const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
+      const placeMatches = remembered?.placeId
+        ? result.targets.filter((target) => target.placeId === remembered.placeId)
+        : [];
+      const labelMatches = remembered
+        ? result.targets.filter(
+            (target) => target.label.trim().toLowerCase() === remembered.label.trim().toLowerCase(),
+          )
+        : [];
       let nextSelected = remembered
         ? (result.targets.find((target) => target.key === remembered.key) ??
-          result.targets.find(
-            (target) => target.label.trim().toLowerCase() === remembered.label.trim().toLowerCase(),
-          ) ??
+          (placeMatches.length === 1 ? placeMatches[0] : undefined) ??
+          (labelMatches.length === 1 ? labelMatches[0] : undefined) ??
           null)
         : (result.targets.find((target) => target.key === result.selectedKey) ?? null);
       const selectionMode = nextSelected
         ? nextSelected.key === remembered?.key
           ? "session_id_match"
-          : "session_name_match"
+          : remembered?.placeId && nextSelected.placeId === remembered.placeId
+            ? "place_id_match"
+            : "session_name_match"
         : "automatic";
       if (nextSelected && result.selectedKey !== nextSelected.key) {
         setSelectingKey(nextSelected.key);
@@ -289,9 +302,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer);
   }, [client, discover, status]);
 
-  const promptReference = selected
-    ? `The app-selected Studio target is "${selected.label}". Treat that label as a hint; verify the active target before place-specific work.`
-    : null;
+  const promptReference = selected ? createStudioTargetPromptReference(selected) : null;
   const value = useMemo(
     () => ({
       targets,

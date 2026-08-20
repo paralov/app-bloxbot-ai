@@ -77,7 +77,10 @@ export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
 export interface DesktopApi {
   compileExplorerProgram(program: ExplorerProgramEnvelope): Promise<GeneratedProgramArtifact>;
-  invokeExplorerProgram(artifact: GeneratedProgramArtifact): Promise<ExplorerSnapshot>;
+  invokeExplorerProgram(
+    artifact: GeneratedProgramArtifact,
+    studioId: string,
+  ): Promise<ExplorerSnapshot>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
   onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
   getVersion(): Promise<string>;
