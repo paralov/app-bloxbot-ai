@@ -48,6 +48,8 @@ describe("Studio target program generation", () => {
       { throwOnError: true },
     );
     expect(remove).toHaveBeenCalledWith({ sessionID: "private" }, { throwOnError: true });
+    expect(prompt.mock.calls[0][0].system).toContain("exact Studio instance identifier");
+    expect(prompt.mock.calls[0][0].system).toContain("Do not call set_active_studio");
   });
 
   it("always deletes the private session after generation fails", async () => {

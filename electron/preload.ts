@@ -19,8 +19,8 @@ const api: DesktopApi = {
   patchConfig: (patch: Partial<AppConfig>) => ipcRenderer.invoke(channels.patchConfig, patch),
   checkForUpdate: () => ipcRenderer.invoke(channels.checkForUpdate),
   installUpdate: () => ipcRenderer.invoke(channels.installUpdate),
-  invokeExplorerProgram: (artifact) =>
-    ipcRenderer.invoke(channels.invokeExplorerProgram, artifact),
+  invokeExplorerProgram: (artifact, studioId) =>
+    ipcRenderer.invoke(channels.invokeExplorerProgram, artifact, studioId),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
   installStudioTargetPrograms: (envelopes) =>
     ipcRenderer.invoke(channels.installStudioTargetPrograms, envelopes),

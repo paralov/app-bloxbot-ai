@@ -1,5 +1,5 @@
 import { Data, Effect, Schema } from "effect";
-import { ExplorerSnapshotSchema } from "@/lib/explorer";
+import { type ExplorerSnapshot, ExplorerSnapshotSchema } from "@/lib/explorer";
 import {
   type AppConfig,
   AppConfigPatchSchema,
@@ -12,7 +12,10 @@ import {
   type UpdateInfo,
   UpdateInfoSchema,
 } from "@/types/desktop";
-import { GeneratedProgramArtifactSchema } from "@/types/generatedProgram";
+import {
+  type GeneratedProgramArtifact,
+  GeneratedProgramArtifactSchema,
+} from "@/types/generatedProgram";
 import {
   type StudioTargetDiscovery,
   StudioTargetDiscoverySchema,
@@ -37,11 +40,10 @@ interface DesktopEffects {
   ) => Promise<infer Output>
     ? (input: Input) => Effect.Effect<Output, DesktopError>
     : never;
-  readonly invokeExplorerProgram: DesktopApi["invokeExplorerProgram"] extends (
-    input: infer Input,
-  ) => Promise<infer Output>
-    ? (input: Input) => Effect.Effect<Output, DesktopError>
-    : never;
+  readonly invokeExplorerProgram: (
+    artifact: GeneratedProgramArtifact,
+    studioId: string,
+  ) => Effect.Effect<ExplorerSnapshot, DesktopError>;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
   readonly getVersion: Effect.Effect<string, DesktopError>;
   readonly openUrl: (url: string) => Effect.Effect<void, DesktopError>;
@@ -172,10 +174,10 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
       decodeBridgeValue("Update information is invalid", Schema.NullOr(UpdateInfoSchema)),
     ),
     installUpdate: invoke("Failed to install the update", () => api.installUpdate()),
-    invokeExplorerProgram: (artifact) =>
-      invoke("Failed to invoke Explorer program", () => api.invokeExplorerProgram(artifact)).pipe(
-        decodeBridgeValue("Explorer snapshot is invalid", ExplorerSnapshotSchema),
-      ),
+    invokeExplorerProgram: (artifact, studioId) =>
+      invoke("Failed to invoke Explorer program", () =>
+        api.invokeExplorerProgram(artifact, studioId),
+      ).pipe(decodeBridgeValue("Explorer snapshot is invalid", ExplorerSnapshotSchema)),
     relaunch: invoke("Failed to relaunch the app", () => api.relaunch()),
     installStudioTargetPrograms: (envelopes) =>
       invoke("Failed to install Studio target programs", () =>
@@ -211,7 +213,8 @@ export const desktop: DesktopApi = {
   patchConfig: (patch) => runPromise(desktopEffects.patchConfig(patch)),
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),
   installUpdate: () => runPromise(desktopEffects.installUpdate),
-  invokeExplorerProgram: (artifact) => runPromise(desktopEffects.invokeExplorerProgram(artifact)),
+  invokeExplorerProgram: (artifact, studioId) =>
+    runPromise(desktopEffects.invokeExplorerProgram(artifact, studioId)),
   relaunch: () => runPromise(desktopEffects.relaunch),
   installStudioTargetPrograms: (envelopes) =>
     runPromise(desktopEffects.installStudioTargetPrograms(envelopes)),

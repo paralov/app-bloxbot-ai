@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Updated multi-Studio routing for Roblox Studio MCP's stateless `studio_id` contract, including Place ID disambiguation, per-session target restoration, and BloxBot identification in Studio's connected AI client list.
+
+### Fixed
+
+- Removed the obsolete `set_active_studio` flow and now routes chat and Explorer tool calls to the selected Studio explicitly.
+
 ## [0.9.1] - 2026-08-09
 
 ### Fixed
