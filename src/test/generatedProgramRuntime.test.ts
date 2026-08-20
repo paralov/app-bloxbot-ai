@@ -160,7 +160,7 @@ describe("GeneratedProgramRuntime", () => {
           text: JSON.stringify({
             studios: [
               { studio_id: "studio-123", place_id: 987654, name: "Dungeon" },
-              { studio_id: "studio-local", name: "Local File" },
+              { studio_id: " studio-local ", place_id: "   ", name: "Local File" },
             ],
           }),
         },
@@ -179,6 +179,9 @@ describe("GeneratedProgramRuntime", () => {
     );
     const selection = await Effect.runPromise(
       runtime.invoke({ artifact: selectionArtifact, input: { targetKey: "studio-123" } }),
+    );
+    const localSelection = await Effect.runPromise(
+      runtime.invoke({ artifact: selectionArtifact, input: { targetKey: "studio-local" } }),
     );
 
     expect(discovery.value).toMatchObject({
@@ -202,8 +205,13 @@ describe("GeneratedProgramRuntime", () => {
       selected: { key: "studio-123", placeId: "987654" },
       verified: true,
     });
-    expect(callTool).toHaveBeenCalledTimes(2);
+    expect(localSelection.value).toMatchObject({
+      selected: { key: "studio-local", detail: "Local place", placeId: null },
+      verified: true,
+    });
+    expect(callTool).toHaveBeenCalledTimes(3);
     expect(callTool).toHaveBeenNthCalledWith(1, "list_roblox_studios", {});
     expect(callTool).toHaveBeenNthCalledWith(2, "list_roblox_studios", {});
+    expect(callTool).toHaveBeenNthCalledWith(3, "list_roblox_studios", {});
   });
 });

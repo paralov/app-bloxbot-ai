@@ -47,7 +47,7 @@ function countBucket(count: number): "0" | "1" | "2-4" | "5+" {
 }
 
 export function createStudioTargetPromptReference(target: StudioTarget): string {
-  return `Route every Roblox Studio MCP tool call for this request to studio_id ${JSON.stringify(target.key)}. The selected Studio is ${JSON.stringify(target.label)}${target.placeId ? ` with Place ID ${target.placeId}` : ""}. Do not call set_active_studio; routing is stateless. Re-list Studios and stop if this studio_id is no longer connected.`;
+  return `Route every Roblox Studio MCP tool call for this request to studio_id ${JSON.stringify(target.key)}. The selected Studio is ${JSON.stringify(target.label)}${target.placeId ? ` with Place ID ${JSON.stringify(target.placeId)}` : ""}. Do not call set_active_studio; routing is stateless. Re-list Studios and stop if this studio_id is no longer connected.`;
 }
 
 export function StudioTargetProvider({ children }: { children: ReactNode }) {

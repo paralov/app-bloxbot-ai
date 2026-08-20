@@ -19,6 +19,14 @@ function normalizeMcpResult(result: unknown): any {
     try { return JSON.parse(content); } catch { return content; }
   }
   return content;
+}
+
+function normalizeMcpIdentifier(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : null;
 }`;
 
 const targetDiscoverySource = `
@@ -28,16 +36,10 @@ async function run({ callTool }: { input: unknown; callTool: (name: string, args
   const studios = Array.isArray(data) ? data : Array.isArray(data.studios) ? data.studios : [];
   const targets = studios.flatMap((studio: any) => {
     const rawStudioId = studio?.studio_id ?? studio?.studioId ?? studio?.id;
-    const key =
-      typeof rawStudioId === "string" || typeof rawStudioId === "number"
-        ? String(rawStudioId)
-        : "";
+    const key = normalizeMcpIdentifier(rawStudioId) ?? "";
     if (!key) return [];
     const rawPlaceId = studio?.place_id ?? studio?.placeId;
-    const placeId =
-      typeof rawPlaceId === "string" || typeof rawPlaceId === "number"
-        ? String(rawPlaceId)
-        : null;
+    const placeId = normalizeMcpIdentifier(rawPlaceId);
     const rawLabel = studio?.name ?? studio?.place_name ?? studio?.placeName;
     return [{
       key,
@@ -58,15 +60,11 @@ async function run({ input, callTool }: { input: any; callTool: (name: string, a
   const studios = Array.isArray(data) ? data : Array.isArray(data.studios) ? data.studios : [];
   const selected = studios.find((studio: any) => {
     const rawStudioId = studio?.studio_id ?? studio?.studioId ?? studio?.id;
-    return (typeof rawStudioId === "string" || typeof rawStudioId === "number")
-      && String(rawStudioId) === targetKey;
+    return normalizeMcpIdentifier(rawStudioId) === targetKey;
   });
   if (!selected) throw new Error("Studio target could not be verified");
   const rawPlaceId = selected?.place_id ?? selected?.placeId;
-  const placeId =
-    typeof rawPlaceId === "string" || typeof rawPlaceId === "number"
-      ? String(rawPlaceId)
-      : null;
+  const placeId = normalizeMcpIdentifier(rawPlaceId);
   const rawLabel = selected?.name ?? selected?.place_name ?? selected?.placeName;
   return {
     selected: {
