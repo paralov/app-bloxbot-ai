@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-23
+
 ### Changed
 
 - Usage data now includes your AI chats and tool activity to help improve BloxBot. Turn it off in Settings → Privacy.
@@ -177,7 +179,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.8.0...v0.9.0
