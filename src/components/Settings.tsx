@@ -1075,7 +1075,7 @@ const PRIVACY_POLICY_URL = "https://bloxbot.ai/privacy";
 const TERMS_URL = "https://bloxbot.ai/terms";
 
 function PrivacyDetails() {
-  const [deviceId] = useState(analyticsDeviceId);
+  const deviceId = analyticsDeviceId();
 
   const copyDeviceId = async () => {
     if (!deviceId) return;
