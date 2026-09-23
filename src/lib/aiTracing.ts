@@ -846,6 +846,7 @@ export class AiTracer {
       opencode_session_id: part.sessionID,
       started_at: iso(state.time.start),
       completed_at: iso(state.time.end),
+      ...this.instructionProperties(turn),
       ...this.studioProperties(turn?.studio ?? null),
     });
   }
@@ -884,6 +885,7 @@ export class AiTracer {
       started_at: iso(finishedAt - span.latencyMs),
       completed_at: iso(finishedAt),
       ...span.properties,
+      ...this.instructionProperties(turn),
       ...this.studioProperties(turn.studio),
     });
   }
