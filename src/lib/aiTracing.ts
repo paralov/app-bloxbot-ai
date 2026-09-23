@@ -66,6 +66,7 @@ export interface AiTracerSources {
 interface InstructionsSnapshot {
   id: string;
   paths: string[];
+  files: readonly InstructionFile[];
 }
 
 type ContentBlock =
@@ -445,9 +446,7 @@ export class AiTracer {
           turn.errorMessage = errorMessage(error) ?? null;
         }
         if (this.rootOf(sessionID) === sessionID) {
-          setTimeout(() => {
-            if (this.turns.get(sessionID)?.includes(turn)) this.finishSession(sessionID);
-          }, ERROR_FINISH_DELAY_MS);
+          setTimeout(() => this.finishTurn(sessionID, turn), ERROR_FINISH_DELAY_MS);
         }
         break;
       }
@@ -584,20 +583,25 @@ export class AiTracer {
   private recordInstructions(files: readonly InstructionFile[]): InstructionsSnapshot | null {
     if (files.length === 0) return null;
     const id = contentId(JSON.stringify(files.map((file) => [file.path, file.content])));
-    const paths = files.map((file) => file.path);
-    if (!this.sentInstructions.has(id)) {
-      this.sentInstructions.add(id);
-      this.capture("ai_instructions", {
-        instructions_id: id,
-        instruction_files: files.map((file) => ({ ...file })),
-        instruction_file_count: files.length,
-        instruction_chars: files.reduce((total, file) => total + file.chars, 0),
-      });
-    }
-    return { id, paths };
+    return { id, paths: files.map((file) => file.path), files };
   }
 
+  /**
+   * Sends a turn's instruction files the first time an event references them, so
+   * a prompt that never reached OpenCode uploads nothing.
+   */
   private instructionProperties(turn: Turn | undefined): Properties {
+    const instructions = turn?.instructions;
+    if (turn && instructions && !this.sentInstructions.has(instructions.id)) {
+      this.sentInstructions.add(instructions.id);
+      this.capture("ai_instructions", {
+        instructions_id: instructions.id,
+        instruction_files: instructions.files.map((file) => ({ ...file })),
+        instruction_file_count: instructions.files.length,
+        instruction_chars: instructions.files.reduce((total, file) => total + file.chars, 0),
+        ...this.studioProperties(turn.studio),
+      });
+    }
     return {
       instructions_id: turn?.instructions?.id,
       instruction_files: turn?.instructions?.paths,
@@ -975,6 +979,16 @@ export class AiTracer {
       if (this.rootOf(request.sessionID) === sessionID) this.pending.delete(id);
     }
     for (const turn of turns ?? []) this.emitTrace(sessionID, turn);
+  }
+
+  /** Finishes one turn that never went idle, leaving later prompts running. */
+  private finishTurn(sessionID: string, turn: Turn): void {
+    const queue = this.turns.get(sessionID);
+    const index = queue?.indexOf(turn) ?? -1;
+    if (!queue || index < 0) return;
+    queue.splice(index, 1);
+    if (queue.length === 0) this.turns.delete(sessionID);
+    this.emitTrace(sessionID, turn);
   }
 
   private finishSubagent(sessionID: string): void {

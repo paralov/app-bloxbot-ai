@@ -233,7 +233,11 @@ describe("AI tracing", () => {
 
     const [snapshot] = events("ai_instructions");
     expect(events("ai_instructions")).toHaveLength(1);
-    expect(snapshot).toMatchObject({ instruction_files: files, instruction_file_count: 1 });
+    expect(snapshot).toMatchObject({
+      instruction_files: files,
+      instruction_file_count: 1,
+      roblox_place_id: "123456",
+    });
     const generations = events("$ai_generation");
     expect(generations.map((generation) => generation.instructions_id)).toEqual([
       snapshot.instructions_id,
@@ -419,6 +423,7 @@ describe("AI tracing", () => {
       });
       expect(events("$ai_trace")).toHaveLength(0);
 
+      tracer.beginTurn({ sessionID: "ses_1", text: "retry right away", imageCount: 0 });
       vi.advanceTimersByTime(3_000);
 
       expect(events("$ai_trace")).toEqual([
@@ -428,6 +433,12 @@ describe("AI tracing", () => {
           error_name: "APIError",
         }),
       ]);
+      send("message.updated", { info: userMessage("msg_next") });
+      send("session.idle", { sessionID: "ses_1" });
+      expect(events("$ai_trace")[1]).toMatchObject({
+        $ai_trace_id: "msg_next",
+        $ai_is_error: false,
+      });
     } finally {
       vi.useRealTimers();
     }
