@@ -9,7 +9,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { analyticsProperties, errorAnalyticsProperties } from "@/lib/analytics";
+import {
+  analyticsProperties,
+  detailedAnalyticsProperties,
+  errorAnalyticsProperties,
+  setStudioAnalyticsContext,
+} from "@/lib/analytics";
 import { BUILTIN_STUDIO_TARGET_PROGRAMS } from "@/lib/builtinStudioPrograms";
 import { desktop } from "@/lib/desktop";
 import { splitModelKey } from "@/lib/splitModelKey";
@@ -44,6 +49,10 @@ function countBucket(count: number): "0" | "1" | "2-4" | "5+" {
   if (count === 1) return "1";
   if (count < 5) return "2-4";
   return "5+";
+}
+
+function discoveredPlaceIds(targets: readonly StudioTarget[]): string[] {
+  return [...new Set(targets.flatMap((target) => (target.placeId ? [target.placeId] : [])))];
 }
 
 export function createStudioTargetPromptReference(target: StudioTarget): string {
@@ -181,6 +190,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           outcome: "success",
           count_bucket: countBucket(result.targets.length),
           selected: nextSelected !== null,
+          ...detailedAnalyticsProperties({
+            roblox_place_id: nextSelected?.placeId ?? undefined,
+            roblox_discovered_place_ids: discoveredPlaceIds(result.targets),
+            roblox_studio_count: result.targets.length,
+          }),
         }),
       );
     },
@@ -278,6 +292,20 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     },
     [generatePrograms, getPrograms, rememberTarget],
   );
+
+  // AI traces attach the Studio place the prompt was routed to.
+  useEffect(() => {
+    setStudioAnalyticsContext(
+      selected || targets.length > 0
+        ? {
+            placeId: selected?.placeId ?? null,
+            placeName: selected?.label ?? null,
+            discoveredPlaceIds: discoveredPlaceIds(targets),
+            discoveredCount: targets.length,
+          }
+        : null,
+    );
+  }, [selected, targets]);
 
   useEffect(() => {
     if (!client || !activeSessionId) {

@@ -14,7 +14,7 @@ import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
 const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
-  default: { capture },
+  default: { capture, register: vi.fn() },
 }));
 
 function Harness({
@@ -32,7 +32,7 @@ function Harness({
     hiddenModels: [],
     theme: "system",
     detailedAnalytics: "disabled",
-    analyticsNoticeVersion: 1,
+    analyticsNoticeVersion: 2,
   });
   queryClient.setQueryData<MessagesCache>(qk.messages("active"), {
     messageIds: ["m1"],

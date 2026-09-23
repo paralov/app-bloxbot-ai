@@ -17,7 +17,9 @@ import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
 const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
-vi.mock("posthog-js/dist/module.full.no-external.js", () => ({ default: { capture } }));
+vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
+  default: { capture, register: vi.fn() },
+}));
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -86,7 +88,7 @@ function seedState(qc: QueryClient, opts: { sessions?: Session[] } = {}) {
     hiddenModels: [],
     theme: "system",
     detailedAnalytics: "disabled",
-    analyticsNoticeVersion: 1,
+    analyticsNoticeVersion: 2,
   });
 }
 

@@ -45,7 +45,7 @@ vi.mock("@/providers/PreferencesProvider", () => ({
 }));
 
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
-  default: { capture },
+  default: { capture, register: vi.fn() },
 }));
 
 import StudioTargetPicker from "@/components/StudioTargetPicker";

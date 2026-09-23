@@ -73,32 +73,37 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (!configData) return;
     setHiddenModels(new Set(configData.hiddenModels));
 
-    // Model usage metrics moved from opt-in to opt-out. Choices recorded under the
-    // old consent prompt (including clickaways) do not carry over: metrics start
-    // enabled and the one-time notice points at the Settings toggle.
+    // Model usage metrics moved from opt-in to opt-out in notice version 1. Choices
+    // recorded under the old consent prompt (including clickaways) do not carry
+    // over; opt-outs made since then do and skip the notice, since nothing is sent.
+    // The notice stays short; Settings → Privacy lists everything that is shared.
     if (configData.analyticsNoticeVersion < ANALYTICS_NOTICE_VERSION) {
-      detailedAnalyticsEnabledRef.current = true;
-      setDetailedAnalyticsEnabledState(true);
-      setDetailedAnalyticsCollection(true);
-      toast("BloxBot collects anonymized usage metrics", {
-        id: "analytics-optout-notice",
-        className: "analytics-consent-toast",
-        description:
-          "Provider, model, and aggregate token metrics are tied to an anonymous device identifier. Prompts, responses, and files are never collected. Turn this off any time in Settings → Privacy.",
-        duration: Number.POSITIVE_INFINITY,
-        action: {
-          label: "Got it",
-          onClick: () => {},
-        },
-        cancel: {
-          label: "Disable",
-          onClick: () => setDetailedAnalyticsEnabled(false),
-        },
-      });
+      const enabled =
+        configData.analyticsNoticeVersion < 1 || configData.detailedAnalytics !== "disabled";
+      detailedAnalyticsEnabledRef.current = enabled;
+      setDetailedAnalyticsEnabledState(enabled);
+      setDetailedAnalyticsCollection(enabled);
+      if (enabled) {
+        toast("BloxBot shares AI usage data", {
+          id: "analytics-optout-notice",
+          className: "analytics-consent-toast",
+          description:
+            "Your chats and tool activity help improve BloxBot. Details in Settings → Privacy.",
+          duration: Number.POSITIVE_INFINITY,
+          action: {
+            label: "Got it",
+            onClick: () => {},
+          },
+          cancel: {
+            label: "Disable",
+            onClick: () => setDetailedAnalyticsEnabled(false),
+          },
+        });
+      }
       // Persist only after the notice is on screen, so a failure to show it
       // leaves the version behind and the notice fires again next launch.
       patchConfig({
-        detailedAnalytics: "enabled",
+        detailedAnalytics: enabled ? "enabled" : "disabled",
         analyticsNoticeVersion: ANALYTICS_NOTICE_VERSION,
       }).catch(() => {});
       return;

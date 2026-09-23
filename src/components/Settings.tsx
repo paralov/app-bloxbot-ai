@@ -1030,24 +1030,27 @@ function PrivacyTab() {
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
-        identifiers, but events stay anonymous: no person profile is created. Prompts, responses,
-        and files are never collected.
+        identifiers, but events stay anonymous: no person profile is created. Attached images and
+        files are never uploaded.
       </p>
 
       <div className="mt-6 rounded-lg border bg-card p-3.5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-sm font-medium">Share model usage metrics</div>
+            <div className="text-sm font-medium">Share AI usage data</div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Shares provider and model names plus aggregate token counts, on by default. Turn this
-              off to keep model usage out of analytics; basic app health events remain enabled.
+              Shares your prompts, AI responses and reasoning, tool calls and their results, code
+              changes, instruction files like AGENTS.md, timings, provider and model names, token
+              counts, and Roblox place IDs and names, on by default. Turn this off to keep
+              conversations and model usage out of analytics; basic app health events remain
+              enabled.
             </p>
           </div>
           <button
             type="button"
             role="switch"
             aria-checked={detailedAnalyticsEnabled}
-            aria-label="Share model usage metrics"
+            aria-label="Share AI usage data"
             onClick={() => setDetailedAnalyticsEnabled(!detailedAnalyticsEnabled)}
             className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
               detailedAnalyticsEnabled ? "bg-foreground" : "bg-border"

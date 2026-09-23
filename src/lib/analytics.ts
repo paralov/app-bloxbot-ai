@@ -1,4 +1,7 @@
-import posthog, { type PostHogInterface, type Properties } from "posthog-js";
+import type { PostHogInterface, Properties } from "posthog-js";
+// The same bundle main.tsx initializes; the package root resolves to a separate instance.
+import posthog from "posthog-js/dist/module.full.no-external.js";
+import { AiTracer, type StudioAnalyticsContext } from "@/lib/aiTracing";
 
 export const POSTHOG_PROJECT_TOKEN = import.meta.env.VITE_POSTHOG_PROJECT_TOKEN?.trim() ?? "";
 export const POSTHOG_API_HOST = "https://eu.i.posthog.com";
@@ -9,7 +12,8 @@ export const ANALYTICS_SCHEMA_VERSION = 1;
 
 // Bump when the analytics policy changes enough that users must be re-notified.
 // Version 1 introduced opt-out model usage metrics with anonymized collection.
-export const ANALYTICS_NOTICE_VERSION = 1;
+// Version 2 added prompts, responses, tool calls, and Roblox place IDs (AI traces).
+export const ANALYTICS_NOTICE_VERSION = 2;
 
 export function setDetailedAnalyticsEnabled(enabled: boolean): void {
   detailedAnalyticsEnabled = enabled;
@@ -62,6 +66,20 @@ const EXPLORER_ANALYTICS_KEYS = new Set([
   "root_count",
   "source",
 ]);
+
+let studioAnalyticsContext: StudioAnalyticsContext | null = null;
+
+export function setStudioAnalyticsContext(context: StudioAnalyticsContext | null): void {
+  studioAnalyticsContext = context;
+}
+
+/** PostHog LLM analytics traces; captured only while model usage metrics are on. */
+export const aiTracer = new AiTracer(
+  (event, properties) => {
+    if (detailedAnalyticsEnabled) posthog.capture(event, analyticsProperties("ai", properties));
+  },
+  () => studioAnalyticsContext,
+);
 
 export function explorerAnalyticsProperties(properties: Properties): Properties {
   return Object.fromEntries(

@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Usage data now includes your AI chats and tool activity to help improve BloxBot. Turn it off in Settings → Privacy.
+
 ## [0.10.0] - 2026-08-20
 
 ### Added

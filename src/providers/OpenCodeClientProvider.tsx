@@ -12,7 +12,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import LoadingScreen, { type StartupProgress } from "@/components/LoadingScreen";
-import { captureDetailedAnalytics } from "@/lib/analytics";
+import { aiTracer, captureDetailedAnalytics } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { sseDispatch } from "@/lib/sseDispatch";
@@ -271,6 +271,19 @@ export function OpenCodeClientProvider({
     };
   }, [ready, queryClient]);
 
+  // AI traces read session history and tool definitions from the local server.
+  useEffect(() => {
+    if (!client) return;
+    aiTracer.configure({
+      loadHistory: async (sessionID) =>
+        (await client.session.messages({ sessionID }, { throwOnError: true })).data,
+      loadTools: async (provider, model) =>
+        (await client.tool.list({ provider, model }, { throwOnError: true })).data,
+      loadInstructions: () => desktop.getInstructionFiles(),
+    });
+    return () => aiTracer.configure({});
+  }, [client]);
+
   // ── SSE subscription ────────────────────────────────────────────────
   useEffect(() => {
     if (!client || !ready) return;
@@ -326,6 +339,11 @@ export function OpenCodeClientProvider({
           sseDispatch(queryClient, event, activeSessionIdRef, (usage) => {
             captureDetailedAnalytics(posthog, "model_usage", usage);
           });
+          try {
+            aiTracer.handleEvent(event);
+          } catch (error) {
+            console.warn("AI trace capture failed:", error);
+          }
         }
 
         if (!abortController.signal.aborted) {

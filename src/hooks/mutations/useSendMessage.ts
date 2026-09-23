@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
 import {
+  aiTracer,
   analyticsProperties,
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
@@ -60,9 +61,23 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
       if (selectedAgent) opts.agent = selectedAgent;
       if (selectedVariant) opts.variant = selectedVariant;
 
-      await client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0], {
-        throwOnError: true,
+      aiTracer.beginTurn({
+        sessionID: activeSessionId,
+        text,
+        imageCount: images?.length ?? 0,
+        provider,
+        model,
+        agent: selectedAgent ?? undefined,
+        variant: selectedVariant ?? undefined,
       });
+      try {
+        await client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0], {
+          throwOnError: true,
+        });
+      } catch (error) {
+        aiTracer.cancelTurn(activeSessionId);
+        throw error;
+      }
       posthog.capture(
         "message_sent",
         analyticsProperties(

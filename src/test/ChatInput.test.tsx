@@ -105,7 +105,7 @@ function seedState(qc: QueryClient, session: Session) {
     hiddenModels: [],
     theme: "system",
     detailedAnalytics: "disabled",
-    analyticsNoticeVersion: 1,
+    analyticsNoticeVersion: 2,
   });
   qc.setQueryData<MessagesCache>(qk.messages(session.id), { messageIds: [], messagesById: {} });
   qc.setQueryData(qk.todos(session.id), []);

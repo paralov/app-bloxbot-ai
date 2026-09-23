@@ -6,6 +6,8 @@ import {
   AppConfigSchema,
   DEFAULT_APP_CONFIG,
   type DesktopApi,
+  type InstructionFile,
+  InstructionFileSchema,
   type OpenCodeInfo,
   OpenCodeInfoSchema,
   type OpenCodeStartupProgress,
@@ -46,6 +48,7 @@ interface DesktopEffects {
   ) => Effect.Effect<ExplorerSnapshot, DesktopError>;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
   readonly getVersion: Effect.Effect<string, DesktopError>;
+  readonly getInstructionFiles: Effect.Effect<readonly InstructionFile[], DesktopError>;
   readonly openUrl: (url: string) => Effect.Effect<void, DesktopError>;
   readonly loadConfig: Effect.Effect<AppConfig, DesktopError>;
   readonly patchConfig: (patch: Partial<AppConfig>) => Effect.Effect<void, DesktopError>;
@@ -94,6 +97,7 @@ const browserEffects: DesktopEffects = {
     }),
   ),
   getVersion: Effect.succeed("0.5.2"),
+  getInstructionFiles: Effect.succeed([]),
   openUrl: (url) =>
     Effect.sync(() => window.open(url, "_blank", "noopener,noreferrer")).pipe(Effect.asVoid),
   loadConfig: loadBrowserConfig,
@@ -165,6 +169,9 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     getVersion: invoke("Failed to get the app version", () => api.getVersion()).pipe(
       decodeBridgeValue("Desktop app version is invalid", Schema.String),
     ),
+    getInstructionFiles: invoke("Failed to read instruction files", () =>
+      api.getInstructionFiles(),
+    ).pipe(decodeBridgeValue("Instruction files are invalid", Schema.Array(InstructionFileSchema))),
     openUrl: (url) => invoke("Failed to open the URL", () => api.openUrl(url)),
     loadConfig: invoke("Failed to load configuration", () => api.loadConfig()).pipe(
       decodeBridgeValue("Desktop configuration is invalid", AppConfigSchema),
@@ -208,6 +215,7 @@ export const desktop: DesktopApi = {
   onOpenCodeStartupProgress: (listener: StartupProgressListener) =>
     window.bloxbot?.onOpenCodeStartupProgress(listener) ?? (() => {}),
   getVersion: () => runPromise(desktopEffects.getVersion),
+  getInstructionFiles: () => runPromise(desktopEffects.getInstructionFiles),
   openUrl: (url) => runPromise(desktopEffects.openUrl(url)),
   loadConfig: () => runPromise(desktopEffects.loadConfig),
   patchConfig: (patch) => runPromise(desktopEffects.patchConfig(patch)),

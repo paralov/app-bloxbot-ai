@@ -22,6 +22,7 @@ import {
   StudioTargetSelectionSchema,
 } from "../src/types/studioTarget";
 import { handleLastWindowClosed } from "./appLifecycle";
+import { findInstructionFiles } from "./instructionFiles";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 import {
@@ -182,6 +183,14 @@ const registerIpcHandlers = Effect.sync(() => {
     ),
   );
   ipcMain.handle(channels.getVersion, () => runMain(Effect.sync(() => app.getVersion())));
+  ipcMain.handle(channels.getInstructionFiles, () =>
+    findInstructionFiles({
+      workspace: join(app.getPath("home"), "BloxBot"),
+      // OpenCode runs with XDG_CONFIG_HOME inside the workspace (see services/OpenCode.ts).
+      globalConfigDirectory: join(app.getPath("home"), "BloxBot", ".opencode", "config", "opencode"),
+      home: app.getPath("home"),
+    }),
+  );
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));
   ipcMain.handle(channels.installStudioTargetPrograms, (_event, input: unknown) =>

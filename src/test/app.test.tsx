@@ -212,7 +212,7 @@ function seedReadyState(
     hiddenModels: [],
     theme: "system",
     detailedAnalytics: opts.detailedAnalytics ?? "disabled",
-    analyticsNoticeVersion: opts.analyticsNoticeVersion ?? 1,
+    analyticsNoticeVersion: opts.analyticsNoticeVersion ?? 2,
   });
 }
 
@@ -239,19 +239,19 @@ describe("User journeys", () => {
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
-    const noticeTitle = await screen.findByText("BloxBot collects anonymized usage metrics");
+    const noticeTitle = await screen.findByText("BloxBot shares AI usage data");
     expect(noticeTitle).toBeVisible();
     expect(noticeTitle.closest("[data-sonner-toast]")).toHaveClass("analytics-consent-toast");
     await expect(desktop.loadConfig()).resolves.toMatchObject({
       detailedAnalytics: "enabled",
-      analyticsNoticeVersion: 1,
+      analyticsNoticeVersion: 2,
     });
     fireEvent.click(screen.getByRole("button", { name: "Got it" }));
 
     fireEvent.click(await screen.findByText("Settings"));
     fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
     const analyticsSwitch = screen.getByRole("switch", {
-      name: "Share model usage metrics",
+      name: "Share AI usage data",
     });
     expect(analyticsSwitch).toHaveAttribute("aria-checked", "true");
 
@@ -261,17 +261,34 @@ describe("User journeys", () => {
     await expect(desktop.loadConfig()).resolves.toMatchObject({ detailedAnalytics: "disabled" });
   });
 
-  it("respects a recorded opt-out without renotifying", async () => {
+  it("keeps an earlier opt-out without showing the AI usage notice", async () => {
     const client = createClient();
     const queryClient = createQueryClient();
     seedReadyState(queryClient, { detailedAnalytics: "disabled", analyticsNoticeVersion: 1 });
 
     render(<TestApp client={client} queryClient={queryClient} />);
 
+    await waitFor(() =>
+      expect(desktop.loadConfig()).resolves.toMatchObject({ analyticsNoticeVersion: 2 }),
+    );
+    expect(screen.queryByText("BloxBot shares AI usage data")).not.toBeInTheDocument();
+    await expect(desktop.loadConfig()).resolves.toMatchObject({
+      detailedAnalytics: "disabled",
+      analyticsNoticeVersion: 2,
+    });
+  });
+
+  it("respects a recorded opt-out without renotifying", async () => {
+    const client = createClient();
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { detailedAnalytics: "disabled", analyticsNoticeVersion: 2 });
+
+    render(<TestApp client={client} queryClient={queryClient} />);
+
     fireEvent.click(await screen.findByText("Settings"));
     fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
-    expect(screen.queryByText("BloxBot collects anonymized usage metrics")).not.toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Share model usage metrics" })).toHaveAttribute(
+    expect(screen.queryByText("BloxBot shares AI usage data")).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Share AI usage data" })).toHaveAttribute(
       "aria-checked",
       "false",
     );

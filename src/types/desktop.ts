@@ -66,6 +66,15 @@ export type OpenCodeStartupProgress =
   | { phase: "installing" }
   | { phase: "starting" };
 
+export const InstructionFileSchema = Schema.Struct({
+  path: Schema.String,
+  scope: Schema.Literal("global", "project"),
+  chars: Schema.Number,
+  content: Schema.String,
+});
+
+export type InstructionFile = typeof InstructionFileSchema.Type;
+
 export const UpdateInfoSchema = Schema.mutable(
   Schema.Struct({
     version: Schema.String,
@@ -84,6 +93,7 @@ export interface DesktopApi {
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
   onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
   getVersion(): Promise<string>;
+  getInstructionFiles(): Promise<readonly InstructionFile[]>;
   openUrl(url: string): Promise<void>;
   loadConfig(): Promise<AppConfig>;
   patchConfig(patch: Partial<AppConfig>): Promise<void>;

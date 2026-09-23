@@ -782,6 +782,10 @@
 .update-release-notes {
   display: grid;
   gap: 8px;
+  /* Long changelogs scroll instead of pushing the install button off screen. */
+  max-height: min(240px, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .update-release-notes-title {
