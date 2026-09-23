@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-09-24
+
 ### Added
 
 - Settings → Privacy links to the Privacy Policy and Terms of Service, and shows your device ID for data requests.
@@ -183,7 +185,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.9.0...v0.9.1
