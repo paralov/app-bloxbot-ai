@@ -2,6 +2,7 @@ import type { Event } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it, vi } from "vitest";
 import { AiTracer, toConversation, trimConversation, truncateText } from "@/lib/aiTracing";
 import type { MessageWithParts } from "@/types";
+import type { InstructionFile } from "@/types/desktop";
 
 const studio = {
   placeId: "123456",
@@ -348,6 +349,106 @@ describe("AI tracing", () => {
       subagent_count: 1,
       user_wait_ms: 4_000,
     });
+  });
+
+  it("holds a generation until history, tools, and instructions have loaded", async () => {
+    const { tracer, send, events } = setup();
+    let resolveHistory: (history: MessageWithParts[]) => void = () => {};
+    tracer.configure({
+      loadHistory: () =>
+        new Promise((resolve) => {
+          resolveHistory = resolve;
+        }),
+    });
+
+    tracer.beginTurn({ sessionID: "ses_1", text: "fast", imageCount: 0 });
+    send("message.updated", { info: userMessage() });
+    send("message.updated", { info: assistantMessage({}, 1_200) });
+    send("session.idle", { sessionID: "ses_1" });
+    expect(events("$ai_generation")).toHaveLength(0);
+    expect(events("$ai_trace")).toHaveLength(0);
+
+    resolveHistory([
+      {
+        info: { ...userMessage("msg_old", "ses_1", 10), system: undefined } as never,
+        parts: [textPart("prt_old", "msg_old", "Earlier")] as never,
+      },
+    ]);
+    await flush();
+
+    expect(events("$ai_generation")[0].$ai_input[0]).toEqual({
+      role: "user",
+      content: [{ type: "text", text: "Earlier" }],
+    });
+    expect(events("$ai_trace")).toHaveLength(1);
+  });
+
+  it("drops buffered data on opt-out and ignores activity while opted out", () => {
+    let enabled = true;
+    const capture = vi.fn();
+    const tracer = new AiTracer(
+      capture,
+      () => null,
+      Date.now,
+      () => enabled,
+    );
+    const send = (type: string, properties: unknown) =>
+      tracer.handleEvent({ type, properties } as unknown as Event);
+
+    tracer.beginTurn({ sessionID: "ses_1", text: "private", imageCount: 0 });
+    send("message.updated", { info: userMessage() });
+    enabled = false;
+    tracer.reset();
+    tracer.beginTurn({ sessionID: "ses_1", text: "also private", imageCount: 0 });
+    send("message.updated", { info: assistantMessage({}, 1_200) });
+    enabled = true;
+    send("session.idle", { sessionID: "ses_1" });
+
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("finishes a turn after a terminal error even without an idle event", () => {
+    vi.useFakeTimers();
+    try {
+      const { tracer, send, events } = setup();
+      tracer.beginTurn({ sessionID: "ses_1", text: "fail", imageCount: 0 });
+      send("message.updated", { info: userMessage() });
+      send("session.error", {
+        sessionID: "ses_1",
+        error: { name: "APIError", data: { message: "Invalid API key", isRetryable: false } },
+      });
+      expect(events("$ai_trace")).toHaveLength(0);
+
+      vi.advanceTimersByTime(3_000);
+
+      expect(events("$ai_trace")).toEqual([
+        expect.objectContaining({
+          $ai_is_error: true,
+          $ai_error: "Invalid API key",
+          error_name: "APIError",
+        }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not upload instruction files for a prompt that failed to send", async () => {
+    const { tracer, events } = setup();
+    let resolveFiles: (files: InstructionFile[]) => void = () => {};
+    tracer.configure({
+      loadInstructions: () =>
+        new Promise((resolve) => {
+          resolveFiles = resolve;
+        }),
+    });
+
+    tracer.beginTurn({ sessionID: "ses_1", text: "offline", imageCount: 0 });
+    tracer.cancelTurn("ses_1");
+    resolveFiles([{ path: "~/AGENTS.md", scope: "project", chars: 1, content: "x" }]);
+    await flush();
+
+    expect(events("ai_instructions")).toHaveLength(0);
   });
 
   it("marks aborted turns and drops turns whose prompt failed to send", () => {

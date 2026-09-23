@@ -28,6 +28,11 @@ const MAX_CONVERSATION_CHARS = 400_000;
 const MAX_PATCH_LENGTH = 4_000;
 const MAX_TRACKED_MESSAGES = 2_000;
 const STUDIO_MCP_PREFIX = "roblox-studio_";
+// Snapshot loads (history, tools, instruction files) hold back a turn's events
+// until they settle, but never longer than this.
+const LOAD_TIMEOUT_MS = 5_000;
+// A session.error is normally followed by idle; finish the turn anyway if not.
+const ERROR_FINISH_DELAY_MS = 3_000;
 
 export interface StudioAnalyticsContext {
   placeId: string | null;
@@ -93,6 +98,9 @@ interface Turn {
   tools: ToolDefinition[] | null;
   toolsSentTo: Set<string>;
   instructions: InstructionsSnapshot | null;
+  pendingLoads: number;
+  waiters: Array<() => void>;
+  cancelled: boolean;
   firstOutputAt: number | null;
   generations: number;
   toolCalls: number;
@@ -307,6 +315,7 @@ export class AiTracer {
     private readonly capture: AiCapture,
     private readonly getStudioContext: () => StudioAnalyticsContext | null = () => null,
     private readonly now: () => number = Date.now,
+    private readonly isEnabled: () => boolean = () => true,
   ) {}
 
   configure(sources: AiTracerSources): void {
@@ -314,7 +323,22 @@ export class AiTracer {
     this.toolCache.clear();
   }
 
+  /** Discards everything buffered, so nothing observed while opted out is sent later. */
+  reset(): void {
+    for (const queue of this.turns.values()) {
+      for (const turn of queue) {
+        turn.cancelled = true;
+        turn.waiters.length = 0;
+      }
+    }
+    this.turns.clear();
+    this.messages.clear();
+    this.pending.clear();
+    this.lastRetry.clear();
+  }
+
   beginTurn(input: TurnInput): void {
+    if (!this.isEnabled()) return;
     const turn: Turn = {
       input: { ...input, text: truncateText(input.text) },
       studio: this.getStudioContext(),
@@ -325,6 +349,9 @@ export class AiTracer {
       tools: null,
       toolsSentTo: new Set(),
       instructions: null,
+      pendingLoads: 0,
+      waiters: [],
+      cancelled: false,
       firstOutputAt: null,
       generations: 0,
       toolCalls: 0,
@@ -354,18 +381,17 @@ export class AiTracer {
     queue.push(turn);
     this.turns.set(input.sessionID, queue);
 
-    this.sources
-      .loadHistory?.(input.sessionID)
-      .then((history) => {
+    const { loadHistory, loadInstructions } = this.sources;
+    if (loadHistory) {
+      this.awaitLoad(turn, loadHistory(input.sessionID), (history) => {
         turn.history = history;
-      })
-      .catch(() => {});
-    this.sources
-      .loadInstructions?.()
-      .then((files) => {
+      });
+    }
+    if (loadInstructions) {
+      this.awaitLoad(turn, loadInstructions(), (files) => {
         turn.instructions = this.recordInstructions(files);
-      })
-      .catch(() => {});
+      });
+    }
     if (input.provider && input.model) this.loadTools(turn, input.provider, input.model);
   }
 
@@ -375,6 +401,7 @@ export class AiTracer {
     if (!queue) return;
     for (let index = queue.length - 1; index >= 0; index--) {
       if (queue[index].traceId === null) {
+        queue[index].cancelled = true;
         queue.splice(index, 1);
         break;
       }
@@ -383,6 +410,7 @@ export class AiTracer {
   }
 
   handleEvent(event: Event): void {
+    if (!this.isEnabled()) return;
     switch (event.type) {
       case "session.created":
       case "session.updated": {
@@ -415,6 +443,11 @@ export class AiTracer {
         else {
           turn.error = error.name;
           turn.errorMessage = errorMessage(error) ?? null;
+        }
+        if (this.rootOf(sessionID) === sessionID) {
+          setTimeout(() => {
+            if (this.turns.get(sessionID)?.includes(turn)) this.finishSession(sessionID);
+          }, ERROR_FINISH_DELAY_MS);
         }
         break;
       }
@@ -515,9 +548,37 @@ export class AiTracer {
       tools = load(provider, model).catch(() => null);
       this.toolCache.set(key, tools);
     }
-    void tools.then((definitions) => {
+    this.awaitLoad(turn, tools, (definitions) => {
       turn.tools = definitions;
     });
+  }
+
+  /** Applies a snapshot load to the turn, holding its events until every load settles. */
+  private awaitLoad<T>(turn: Turn, load: Promise<T>, apply: (value: T) => void): void {
+    turn.pendingLoads += 1;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), LOAD_TIMEOUT_MS);
+    });
+    void Promise.race([
+      load.then(
+        (value) => ({ value }),
+        () => undefined,
+      ),
+      timeout,
+    ]).then((result) => {
+      clearTimeout(timer);
+      if (result && !turn.cancelled) apply(result.value);
+      turn.pendingLoads -= 1;
+      if (turn.pendingLoads === 0) {
+        for (const emit of turn.waiters.splice(0)) emit();
+      }
+    });
+  }
+
+  private whenReady(turn: Turn | undefined, emit: () => void): void {
+    if (!turn || turn.pendingLoads === 0) emit();
+    else if (!turn.cancelled) turn.waiters.push(emit);
   }
 
   private recordInstructions(files: readonly InstructionFile[]): InstructionsSnapshot | null {
@@ -617,10 +678,22 @@ export class AiTracer {
     if (turn && turn.firstOutputAt === null) turn.firstOutputAt = now;
   }
 
+  /** This session's observed messages, copied so a deferred emit sees them as they were. */
+  private observedMessages(sessionID: string): MessageWithParts[] {
+    const observed: MessageWithParts[] = [];
+    for (const tracked of this.messages.values()) {
+      if (tracked.info?.sessionID === sessionID) {
+        observed.push({ info: tracked.info, parts: [...tracked.parts.values()] });
+      }
+    }
+    return observed;
+  }
+
   /** What the model saw: prior history plus this session's messages before this call. */
   private conversationBefore(
     info: AssistantMessage,
     turn: Turn | undefined,
+    observed: readonly MessageWithParts[],
   ): ConversationMessage[] {
     const entries = new Map<string, MessageWithParts>();
     if (turn?.history && this.rootOf(info.sessionID) === info.sessionID) {
@@ -628,11 +701,7 @@ export class AiTracer {
         if (entry.info.sessionID === info.sessionID) entries.set(entry.info.id, entry);
       }
     }
-    for (const [id, tracked] of this.messages) {
-      if (tracked.info?.sessionID === info.sessionID) {
-        entries.set(id, { info: tracked.info, parts: [...tracked.parts.values()] });
-      }
-    }
+    for (const entry of observed) entries.set(entry.info.id, entry);
     const ordered = [...entries.values()]
       .filter((entry) => entry.info.id !== info.id && compareMessages(entry.info, info) < 0)
       .sort((left, right) => compareMessages(left.info, right.info));
@@ -664,15 +733,7 @@ export class AiTracer {
     const aborted = info.error?.name === "MessageAbortedError";
     const isError = Boolean(info.error) && !aborted;
 
-    let tools: unknown;
-    if (turn?.tools && !turn.toolsSentTo.has(info.sessionID)) {
-      turn.toolsSentTo.add(info.sessionID);
-      tools = turn.tools.map((tool) => ({
-        name: tool.id,
-        description: truncateText(tool.description, 4_000),
-        input_schema: truncateValue(tool.parameters, 16_000),
-      }));
-    }
+    const observed = this.observedMessages(info.sessionID);
 
     if (turn) {
       turn.generations += 1;
@@ -684,48 +745,60 @@ export class AiTracer {
       if (text && this.rootOf(info.sessionID) === info.sessionID) turn.lastOutputText = text;
     }
 
-    this.capture("$ai_generation", {
-      $ai_trace_id: this.traceIdFor(turn, info.parentID),
-      $ai_session_id: this.rootOf(info.sessionID),
-      $ai_span_id: info.id,
-      $ai_parent_id: this.nestingParent(info.sessionID, turn),
-      $ai_span_name: info.agent || info.mode,
-      $ai_provider: info.providerID,
-      $ai_model: info.modelID,
-      $ai_input: this.conversationBefore(info, turn),
-      $ai_output_choices: [{ role: "assistant", content: assistantBlocks(parts) }],
-      $ai_tools: tools,
-      $ai_input_tokens: inputTokens,
-      $ai_output_tokens: outputTokens,
-      $ai_reasoning_tokens: info.tokens.reasoning,
-      $ai_cache_read_input_tokens: info.tokens.cache.read,
-      $ai_cache_creation_input_tokens: info.tokens.cache.write,
-      $ai_total_cost_usd: info.cost,
-      $ai_latency: seconds((info.time.completed ?? info.time.created) - info.time.created),
-      $ai_time_to_first_token:
-        tracked.firstOutputAt === null
-          ? undefined
-          : seconds(tracked.firstOutputAt - info.time.created),
-      $ai_stop_reason: info.finish,
-      $ai_is_error: isError,
-      $ai_error: isError ? (errorMessage(info.error) ?? info.error?.name) : undefined,
-      error_name: info.error?.name,
-      aborted,
-      opencode_session_id: info.sessionID,
-      subagent: this.rootOf(info.sessionID) !== info.sessionID,
-      agent: info.agent,
-      mode: info.mode,
-      variant: info.variant,
-      summary_message: info.summary ?? false,
-      step_count: stepFinishes.length,
-      tool_call_count: toolCalls.length,
-      tool_names: [...new Set(toolCalls.map((part) => part.tool))],
-      reasoning_chars: reasoning.length,
-      output_chars: text.length,
-      started_at: iso(info.time.created),
-      completed_at: iso(info.time.completed),
-      ...this.instructionProperties(turn),
-      ...this.studioProperties(turn?.studio ?? null),
+    this.whenReady(turn, () => {
+      let tools: unknown;
+      if (turn?.tools && !turn.toolsSentTo.has(info.sessionID)) {
+        turn.toolsSentTo.add(info.sessionID);
+        tools = turn.tools.map((tool) => ({
+          name: tool.id,
+          description: truncateText(tool.description, 4_000),
+          input_schema: truncateValue(tool.parameters, 16_000),
+        }));
+      }
+
+      this.capture("$ai_generation", {
+        $ai_trace_id: this.traceIdFor(turn, info.parentID),
+        $ai_session_id: this.rootOf(info.sessionID),
+        $ai_span_id: info.id,
+        $ai_parent_id: this.nestingParent(info.sessionID, turn),
+        $ai_span_name: info.agent || info.mode,
+        $ai_provider: info.providerID,
+        $ai_model: info.modelID,
+        $ai_input: this.conversationBefore(info, turn, observed),
+        $ai_output_choices: [{ role: "assistant", content: assistantBlocks(parts) }],
+        $ai_tools: tools,
+        $ai_input_tokens: inputTokens,
+        $ai_output_tokens: outputTokens,
+        $ai_reasoning_tokens: info.tokens.reasoning,
+        $ai_cache_read_input_tokens: info.tokens.cache.read,
+        $ai_cache_creation_input_tokens: info.tokens.cache.write,
+        $ai_total_cost_usd: info.cost,
+        $ai_latency: seconds((info.time.completed ?? info.time.created) - info.time.created),
+        $ai_time_to_first_token:
+          tracked.firstOutputAt === null
+            ? undefined
+            : seconds(tracked.firstOutputAt - info.time.created),
+        $ai_stop_reason: info.finish,
+        $ai_is_error: isError,
+        $ai_error: isError ? (errorMessage(info.error) ?? info.error?.name) : undefined,
+        error_name: info.error?.name,
+        aborted,
+        opencode_session_id: info.sessionID,
+        subagent: this.rootOf(info.sessionID) !== info.sessionID,
+        agent: info.agent,
+        mode: info.mode,
+        variant: info.variant,
+        summary_message: info.summary ?? false,
+        step_count: stepFinishes.length,
+        tool_call_count: toolCalls.length,
+        tool_names: [...new Set(toolCalls.map((part) => part.tool))],
+        reasoning_chars: reasoning.length,
+        output_chars: text.length,
+        started_at: iso(info.time.created),
+        completed_at: iso(info.time.completed),
+        ...this.instructionProperties(turn),
+        ...this.studioProperties(turn?.studio ?? null),
+      });
     });
   }
 
@@ -940,70 +1013,72 @@ export class AiTracer {
     const finishedAt = this.now();
     const { input } = turn;
     const diffs = [...turn.diffs.entries()];
-    this.capture("$ai_trace", {
-      $ai_trace_id: turn.traceId ?? `unbound-${sessionID}-${turn.startedAt}`,
-      $ai_session_id: sessionID,
-      $ai_span_name: this.sessionTitles.get(sessionID) ?? "chat_turn",
-      $ai_input_state: [
-        ...(turn.system ? [{ role: "system", content: truncateText(turn.system) }] : []),
-        { role: "user", content: input.text },
-      ],
-      $ai_output_state: turn.lastOutputText
-        ? [{ role: "assistant", content: truncateText(turn.lastOutputText) }]
-        : undefined,
-      $ai_latency: seconds(finishedAt - turn.startedAt),
-      $ai_is_error: turn.error !== null,
-      $ai_error: turn.errorMessage ?? turn.error ?? undefined,
-      error_name: turn.error ?? undefined,
-      aborted: turn.aborted,
-      session_title: this.sessionTitles.get(sessionID),
-      provider: input.provider,
-      model: input.model,
-      agent: input.agent,
-      variant: input.variant,
-      prompt_chars: input.text.length,
-      image_count: input.imageCount,
-      wall_time_ms: finishedAt - turn.startedAt,
-      time_to_first_output_ms:
-        turn.firstOutputAt === null ? undefined : turn.firstOutputAt - turn.startedAt,
-      user_wait_ms: turn.userWaitMs,
-      generation_count: turn.generations,
-      tool_call_count: turn.toolCalls,
-      tool_error_count: turn.toolErrors,
-      studio_tool_call_count: turn.studioToolCalls,
-      tools_used: [...turn.toolsUsed].sort(),
-      permission_count: turn.permissions,
-      permission_rejected_count: turn.permissionsRejected,
-      question_count: turn.questions,
-      retry_count: turn.retries,
-      compaction_count: turn.compactions,
-      subagent_count: turn.subagents,
-      reasoning_chars: turn.reasoningChars,
-      tokens_input: turn.inputTokens,
-      tokens_output: turn.outputTokens,
-      tokens_reasoning: turn.reasoningTokens,
-      cost_usd: turn.costUsd,
-      todos: turn.todos.map((todo) => ({
-        content: truncateText(todo.content, 500),
-        status: todo.status,
-        priority: todo.priority,
-      })),
-      // OpenCode reports the session's cumulative diff, not only this turn's.
-      session_files_changed: diffs.map(([file, diff]) => ({
-        file,
-        status: diff.status,
-        additions: diff.additions,
-        deletions: diff.deletions,
-        patch: diff.patch ? truncateText(diff.patch, MAX_PATCH_LENGTH) : undefined,
-      })),
-      session_files_changed_count: diffs.length,
-      session_lines_added: diffs.reduce((total, [, diff]) => total + diff.additions, 0),
-      session_lines_deleted: diffs.reduce((total, [, diff]) => total + diff.deletions, 0),
-      started_at: iso(turn.startedAt),
-      completed_at: iso(finishedAt),
-      ...this.instructionProperties(turn),
-      ...this.studioProperties(turn.studio),
-    });
+    this.whenReady(turn, () =>
+      this.capture("$ai_trace", {
+        $ai_trace_id: turn.traceId ?? `unbound-${sessionID}-${turn.startedAt}`,
+        $ai_session_id: sessionID,
+        $ai_span_name: this.sessionTitles.get(sessionID) ?? "chat_turn",
+        $ai_input_state: [
+          ...(turn.system ? [{ role: "system", content: truncateText(turn.system) }] : []),
+          { role: "user", content: input.text },
+        ],
+        $ai_output_state: turn.lastOutputText
+          ? [{ role: "assistant", content: truncateText(turn.lastOutputText) }]
+          : undefined,
+        $ai_latency: seconds(finishedAt - turn.startedAt),
+        $ai_is_error: turn.error !== null,
+        $ai_error: turn.errorMessage ?? turn.error ?? undefined,
+        error_name: turn.error ?? undefined,
+        aborted: turn.aborted,
+        session_title: this.sessionTitles.get(sessionID),
+        provider: input.provider,
+        model: input.model,
+        agent: input.agent,
+        variant: input.variant,
+        prompt_chars: input.text.length,
+        image_count: input.imageCount,
+        wall_time_ms: finishedAt - turn.startedAt,
+        time_to_first_output_ms:
+          turn.firstOutputAt === null ? undefined : turn.firstOutputAt - turn.startedAt,
+        user_wait_ms: turn.userWaitMs,
+        generation_count: turn.generations,
+        tool_call_count: turn.toolCalls,
+        tool_error_count: turn.toolErrors,
+        studio_tool_call_count: turn.studioToolCalls,
+        tools_used: [...turn.toolsUsed].sort(),
+        permission_count: turn.permissions,
+        permission_rejected_count: turn.permissionsRejected,
+        question_count: turn.questions,
+        retry_count: turn.retries,
+        compaction_count: turn.compactions,
+        subagent_count: turn.subagents,
+        reasoning_chars: turn.reasoningChars,
+        tokens_input: turn.inputTokens,
+        tokens_output: turn.outputTokens,
+        tokens_reasoning: turn.reasoningTokens,
+        cost_usd: turn.costUsd,
+        todos: turn.todos.map((todo) => ({
+          content: truncateText(todo.content, 500),
+          status: todo.status,
+          priority: todo.priority,
+        })),
+        // OpenCode reports the session's cumulative diff, not only this turn's.
+        session_files_changed: diffs.map(([file, diff]) => ({
+          file,
+          status: diff.status,
+          additions: diff.additions,
+          deletions: diff.deletions,
+          patch: diff.patch ? truncateText(diff.patch, MAX_PATCH_LENGTH) : undefined,
+        })),
+        session_files_changed_count: diffs.length,
+        session_lines_added: diffs.reduce((total, [, diff]) => total + diff.additions, 0),
+        session_lines_deleted: diffs.reduce((total, [, diff]) => total + diff.deletions, 0),
+        started_at: iso(turn.startedAt),
+        completed_at: iso(finishedAt),
+        ...this.instructionProperties(turn),
+        ...this.studioProperties(turn.studio),
+      }),
+    );
   }
 
   private studioProperties(studio: StudioAnalyticsContext | null): Properties {

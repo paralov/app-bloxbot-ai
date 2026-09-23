@@ -18,6 +18,7 @@ export const ANALYTICS_NOTICE_VERSION = 2;
 export function setDetailedAnalyticsEnabled(enabled: boolean): void {
   detailedAnalyticsEnabled = enabled;
   posthog.register({ analytics_detail_enabled: enabled });
+  if (!enabled) aiTracer.reset();
 }
 
 export function analyticsProperties(feature: string, properties: Properties = {}): Properties {
@@ -79,6 +80,8 @@ export const aiTracer = new AiTracer(
     if (detailedAnalyticsEnabled) posthog.capture(event, analyticsProperties("ai", properties));
   },
   () => studioAnalyticsContext,
+  Date.now,
+  () => detailedAnalyticsEnabled,
 );
 
 export function explorerAnalyticsProperties(properties: Properties): Properties {
