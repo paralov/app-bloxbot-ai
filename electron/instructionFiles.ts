@@ -27,8 +27,11 @@ async function ancestors(start: string): Promise<string[]> {
   return directories;
 }
 
+/** Home-relative, forward-slash paths so analytics rows match across platforms. */
 function displayPath(path: string, home: string): string {
-  return path === home || path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+  const relative =
+    path === home || path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+  return sep === "\\" ? relative.replaceAll("\\", "/") : relative;
 }
 
 /**
