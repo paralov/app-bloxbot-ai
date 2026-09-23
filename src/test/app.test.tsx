@@ -288,6 +288,14 @@ describe("User journeys", () => {
     fireEvent.click(await screen.findByText("Settings"));
     fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
     expect(screen.queryByText("BloxBot shares AI usage data")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
+      "href",
+      "https://bloxbot.ai/privacy",
+    );
+    expect(screen.getByRole("link", { name: "Terms of Service" })).toHaveAttribute(
+      "href",
+      "https://bloxbot.ai/terms",
+    );
     expect(screen.getByRole("switch", { name: "Share AI usage data" })).toHaveAttribute(
       "aria-checked",
       "false",

@@ -21,6 +21,15 @@ export function setDetailedAnalyticsEnabled(enabled: boolean): void {
   if (!enabled) aiTracer.reset();
 }
 
+/** The anonymous device identifier users quote in privacy requests; null when analytics is off. */
+export function analyticsDeviceId(): string | null {
+  try {
+    return posthog.__loaded ? posthog.get_distinct_id() : null;
+  } catch {
+    return null;
+  }
+}
+
 export function analyticsProperties(feature: string, properties: Properties = {}): Properties {
   return {
     analytics_schema_version: ANALYTICS_SCHEMA_VERSION,

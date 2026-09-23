@@ -9,6 +9,7 @@ import {
   useAuthMethods,
   useConnectedProviders,
 } from "@/hooks/useProviders";
+import { analyticsDeviceId } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
@@ -1064,6 +1065,67 @@ function PrivacyTab() {
           </button>
         </div>
       </div>
+
+      <PrivacyDetails />
+    </div>
+  );
+}
+
+const PRIVACY_POLICY_URL = "https://bloxbot.ai/privacy";
+const TERMS_URL = "https://bloxbot.ai/terms";
+
+function PrivacyDetails() {
+  const [deviceId] = useState(analyticsDeviceId);
+
+  const copyDeviceId = async () => {
+    if (!deviceId) return;
+    try {
+      await navigator.clipboard.writeText(deviceId);
+      toast.success("Device ID copied");
+    } catch {
+      toast.error("Couldn't copy the device ID");
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-3 px-1 text-[11px] leading-relaxed text-muted-foreground">
+      {deviceId && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-foreground">Device ID</div>
+            <div className="truncate font-mono">{deviceId}</div>
+          </div>
+          <button
+            type="button"
+            onClick={copyDeviceId}
+            className="shrink-0 rounded-md border bg-card px-2.5 py-1 text-foreground transition-colors hover:bg-accent"
+          >
+            Copy
+          </button>
+        </div>
+      )}
+      <p>
+        Include your device ID when asking Paralov AS to access or delete your data at{" "}
+        <span className="select-text text-foreground">hello@paralov.com</span>. Read the{" "}
+        <a
+          href={PRIVACY_POLICY_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2"
+        >
+          Privacy Policy
+        </a>{" "}
+        and{" "}
+        <a
+          href={TERMS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2"
+        >
+          Terms of Service
+        </a>
+        .
+      </p>
     </div>
   );
 }

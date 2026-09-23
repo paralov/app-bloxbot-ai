@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Settings → Privacy links to the Privacy Policy and Terms of Service, and shows your device ID for data requests.
+
 ## [0.11.0] - 2026-09-24
 
 ### Changed
