@@ -147,9 +147,18 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         return await attempt(await getPrograms());
       } catch (error) {
         if (programsSourceRef.current !== "published") throw error;
+        const published = programsRef.current;
         publishedFailedRef.current = true;
         programsRef.current = null;
-        return attempt(await getPrograms());
+        try {
+          // The published programs only count as broken if the built-in ones work.
+          return await attempt(await getPrograms());
+        } catch {
+          publishedFailedRef.current = false;
+          programsRef.current = published;
+          programsSourceRef.current = "published";
+          throw error;
+        }
       }
     },
     [getPrograms],

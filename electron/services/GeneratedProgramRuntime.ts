@@ -15,8 +15,9 @@ import {
   GeneratedProgramResultSchema,
 } from "../../src/types/generatedProgram";
 import {
-  isBloxBotProgramToolAllowed,
+  BLOXBOT_PROGRAM_TOOLS,
   isKnownBloxBotProgramTool,
+  isReadOnlyStudioTool,
   type StudioToolAnnotations,
 } from "../../src/lib/bloxbotProgramManifest";
 import { StudioMcpBroker } from "./StudioMcpBroker";
@@ -58,6 +59,8 @@ export class GeneratedProgramRuntime extends Context.Tag("@bloxbot/GeneratedProg
 >() {}
 
 class ToolContractError extends Error {}
+
+const TOOL_LIST_TTL_MS = 30_000;
 
 function runtimeError(
   phase: GeneratedProgramFailurePhase,
@@ -145,7 +148,8 @@ export function startGeneratedProgramRuntime(
           // Programs may only read from Studio, whoever wrote them.
           const allowed =
             isKnownBloxBotProgramTool(contractName, name) ||
-            isBloxBotProgramToolAllowed(contractName, name, (await describeTool(name))?.annotations);
+            (contractName in BLOXBOT_PROGRAM_TOOLS &&
+              isReadOnlyStudioTool((await describeTool(name))?.annotations));
           if (!allowed) {
             throw new ToolContractError(`${contractName} programs may not call ${name}`);
           }
@@ -190,19 +194,20 @@ export const GeneratedProgramRuntimeLive = Layer.effect(
   GeneratedProgramRuntime,
   Effect.gen(function* () {
     const broker = yield* StudioMcpBroker;
-    // Studio's tool list, refetched when a program asks about a tool it doesn't
-    // have yet (a renamed or new tool).
-    let tools: Map<string, { annotations?: StudioToolAnnotations }> | null = null;
-    const loadTools = async () => {
-      const listed = await Effect.runPromise(broker.listTools);
-      tools = new Map(listed.map((tool) => [tool.name, tool]));
-      return tools;
-    };
+    // Studio's tool list, reused briefly so a looping program can't flood Studio
+    // with list requests, and refreshed often enough that changed annotations or
+    // renamed tools apply within seconds.
+    let cached: { tools: Map<string, { annotations?: StudioToolAnnotations }>; at: number } | null =
+      null;
     return startGeneratedProgramRuntime(
       (name, args) => Effect.runPromise(broker.callTool(name, args)),
       async (name) => {
         try {
-          return (tools ?? (await loadTools())).get(name) ?? (await loadTools()).get(name);
+          if (!cached || Date.now() - cached.at > TOOL_LIST_TTL_MS) {
+            const listed = await Effect.runPromise(broker.listTools);
+            cached = { tools: new Map(listed.map((tool) => [tool.name, tool])), at: Date.now() };
+          }
+          return cached.tools.get(name);
         } catch {
           return undefined;
         }

@@ -33,6 +33,16 @@ export const BUILTIN_BLOXBOT_PROGRAMS: ResolvedBloxBotPrograms = {
   targets: { ...BUILTIN_ORIGIN, programs: BUILTIN_STUDIO_TARGET_PROGRAMS },
 };
 
+/** A published program that doesn't fit the app's schema is treated as missing. */
+function decodeOrNull<A, I>(schema: Schema.Schema<A, I>, value: unknown): A | null {
+  if (value === undefined) return null;
+  try {
+    return Schema.decodeUnknownSync(schema)(value);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The BloxBot programs to run: a published copy when it is newer than the one
  * this app shipped with, program by program, falling back to the built-in
@@ -49,23 +59,17 @@ export async function resolveBloxBotPrograms(): Promise<ResolvedBloxBotPrograms>
 
   const origin: BloxBotProgramOrigin = { source: "published", sequence: published.sequence };
   const usable = usableBloxBotPrograms(published);
-  const explorer = usable["explorer-snapshot"];
-  const discovery = usable["studio-target-discovery"];
-  const selection = usable["studio-target-selection"];
+  const explorer = decodeOrNull(ExplorerProgramEnvelopeSchema, usable["explorer-snapshot"]);
+  // Discovery and selection work as a pair, so they come from one place.
+  const targets =
+    usable["studio-target-discovery"] && usable["studio-target-selection"]
+      ? decodeOrNull(StudioTargetProgramEnvelopesSchema, {
+          discovery: usable["studio-target-discovery"],
+          selection: usable["studio-target-selection"],
+        })
+      : null;
   return {
-    explorer: explorer
-      ? { ...origin, program: Schema.decodeUnknownSync(ExplorerProgramEnvelopeSchema)(explorer) }
-      : BUILTIN_BLOXBOT_PROGRAMS.explorer,
-    // Discovery and selection work as a pair, so they come from one place.
-    targets:
-      discovery && selection
-        ? {
-            ...origin,
-            programs: Schema.decodeUnknownSync(StudioTargetProgramEnvelopesSchema)({
-              discovery,
-              selection,
-            }),
-          }
-        : BUILTIN_BLOXBOT_PROGRAMS.targets,
+    explorer: explorer ? { ...origin, program: explorer } : BUILTIN_BLOXBOT_PROGRAMS.explorer,
+    targets: targets ? { ...origin, programs: targets } : BUILTIN_BLOXBOT_PROGRAMS.targets,
   };
 }

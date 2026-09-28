@@ -64,10 +64,22 @@ export function createBloxBotProgramStore(options: BloxBotProgramStoreOptions): 
       });
       if (!response.ok) return null;
       const declared = Number(response.headers.get("content-length") ?? "0");
-      if (declared > MAX_DOWNLOAD_BYTES) return null;
-      const bytes = await response.arrayBuffer();
-      if (bytes.byteLength > MAX_DOWNLOAD_BYTES) return null;
-      return new TextDecoder().decode(bytes);
+      if (declared > MAX_DOWNLOAD_BYTES || !response.body) return null;
+      // Count bytes as they arrive, so an oversized body is never buffered whole.
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_DOWNLOAD_BYTES) {
+          await reader.cancel();
+          return null;
+        }
+        chunks.push(value);
+      }
+      return new TextDecoder().decode(Buffer.concat(chunks));
     } catch {
       return null;
     }

@@ -37,15 +37,22 @@ export async function readShippedManifest(): Promise<BloxBotProgramManifest | nu
   }
 }
 
-export function samePrograms(a: BloxBotProgramManifest, b: BloxBotProgramManifest): boolean {
+export function samePrograms(a: { programs: unknown }, b: { programs: unknown }): boolean {
   return JSON.stringify(a.programs) === JSON.stringify(b.programs);
 }
 
-/** The manifest for the current sources; the sequence only moves when they change. */
-export async function expectedManifest(): Promise<BloxBotProgramManifest> {
+/**
+ * The manifest for the current sources. The sequence only moves when they
+ * change, and then past the published one too, so programs an app ships are
+ * never outranked by an older published copy (for example after a revert).
+ */
+export async function expectedManifest(publishedSequence = 0): Promise<BloxBotProgramManifest> {
   const sources = await readSources();
   const shipped = await readShippedManifest();
   const unchanged = buildBloxBotProgramManifest(sources, shipped?.sequence ?? 1);
   if (shipped && samePrograms(shipped, unchanged)) return shipped;
-  return buildBloxBotProgramManifest(sources, (shipped?.sequence ?? 0) + 1);
+  return buildBloxBotProgramManifest(
+    sources,
+    Math.max(shipped?.sequence ?? 0, publishedSequence) + 1,
+  );
 }

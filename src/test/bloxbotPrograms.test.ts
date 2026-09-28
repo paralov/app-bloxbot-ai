@@ -87,6 +87,10 @@ describe("studio program manifest", () => {
       }),
     ).toBe(false);
     expect(isBloxBotProgramToolAllowed("explorer-snapshot", "unlabelled_tool")).toBe(false);
+    // MCP treats a missing openWorldHint as open-world, so it doesn't count as read-only.
+    expect(
+      isBloxBotProgramToolAllowed("explorer-snapshot", "maybe_network", { readOnlyHint: true }),
+    ).toBe(false);
     expect(isBloxBotProgramToolAllowed("something-else", "list_roblox_studios", readOnly)).toBe(
       false,
     );
@@ -227,6 +231,23 @@ describe("resolveBloxBotPrograms", () => {
 
     getBloxBotPrograms.mockRejectedValue(new Error("bridge unavailable"));
     expect((await resolve()).resolved.explorer.source).toBe("builtin");
+  });
+
+  it("falls back to the built-in program when a published one doesn't fit the app's schema", async () => {
+    const { BUILTIN_BLOXBOT_PROGRAM_MANIFEST } = await import("@/lib/builtinBloxBotPrograms");
+    const newer = buildBloxBotProgramManifest(
+      sources(),
+      BUILTIN_BLOXBOT_PROGRAM_MANIFEST.sequence + 1,
+    );
+    const explorer = newer.programs["explorer-snapshot"];
+    if (!explorer) throw new Error("missing explorer");
+    newer.programs["explorer-snapshot"] = { ...explorer, source: "x".repeat(100_001) };
+    getBloxBotPrograms.mockResolvedValue(newer);
+
+    const { resolved } = await resolve();
+
+    expect(resolved.explorer.source).toBe("builtin");
+    expect(resolved.targets.source).toBe("published");
   });
 
   it("records each program's own origin when only some published programs are usable", async () => {

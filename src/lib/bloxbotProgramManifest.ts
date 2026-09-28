@@ -128,11 +128,27 @@ export interface StudioToolAnnotations {
   openWorldHint?: boolean;
 }
 
+/** Whether a program may call a tool without asking Studio for its annotations. */
+export function isKnownBloxBotProgramTool(contractName: string, toolName: string): boolean {
+  return (
+    contractName in BLOXBOT_PROGRAM_TOOLS &&
+    BLOXBOT_PROGRAM_TOOLS[contractName as BloxBotProgramName].includes(toolName)
+  );
+}
+
+/**
+ * Whether Studio says a tool only reads the place: read-only and explicitly
+ * closed-world (so not http_get, which reaches the internet). MCP treats a
+ * missing openWorldHint as open-world, so an unlabelled tool doesn't qualify.
+ */
+export function isReadOnlyStudioTool(annotations?: StudioToolAnnotations): boolean {
+  return annotations?.readOnlyHint === true && annotations.openWorldHint === false;
+}
+
 /**
  * Whether a program may call a Studio tool, whoever wrote the program. Programs
  * only read: they get the tools they're known to use, plus any tool Studio marks
- * read-only, non-destructive and closed-world (so not http_get, which reaches
- * the internet). Programs for contracts this app doesn't know get nothing.
+ * read-only. Programs for contracts this app doesn't know get nothing.
  */
 export function isBloxBotProgramToolAllowed(
   contractName: string,
@@ -140,18 +156,5 @@ export function isBloxBotProgramToolAllowed(
   annotations?: StudioToolAnnotations,
 ): boolean {
   if (!(contractName in BLOXBOT_PROGRAM_TOOLS)) return false;
-  if (BLOXBOT_PROGRAM_TOOLS[contractName as BloxBotProgramName].includes(toolName)) return true;
-  return (
-    annotations?.readOnlyHint === true &&
-    annotations.destructiveHint !== true &&
-    annotations.openWorldHint !== true
-  );
-}
-
-/** Whether a program may call a tool without asking Studio for its annotations. */
-export function isKnownBloxBotProgramTool(contractName: string, toolName: string): boolean {
-  return (
-    contractName in BLOXBOT_PROGRAM_TOOLS &&
-    BLOXBOT_PROGRAM_TOOLS[contractName as BloxBotProgramName].includes(toolName)
-  );
+  return isKnownBloxBotProgramTool(contractName, toolName) || isReadOnlyStudioTool(annotations);
 }

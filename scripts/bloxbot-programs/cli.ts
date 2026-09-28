@@ -28,8 +28,6 @@ import {
   buildBloxBotProgramManifest,
   BLOXBOT_PROGRAM_CONTRACTS,
   BLOXBOT_PROGRAM_NAMES,
-  type BloxBotProgramManifest,
-  BloxBotProgramManifestSchema,
   type BloxBotProgramName,
   serializeBloxBotProgramManifest,
 } from "../../src/lib/bloxbotProgramManifest";
@@ -52,7 +50,9 @@ const MAX_ATTEMPTS = 4;
 // ── Manifest ────────────────────────────────────────────────────────────
 
 async function build() {
-  const manifest = await expectedManifest();
+  // Number changed programs past what is already published; offline, past the local copy.
+  const published = await readPublishedManifest().catch(() => null);
+  const manifest = await expectedManifest(published?.sequence ?? 0);
   await writeFile(MANIFEST_PATH, serializeBloxBotProgramManifest(manifest));
   console.log(`bloxbot-programs/manifest.json at sequence ${manifest.sequence}`);
 }
@@ -67,12 +67,27 @@ async function check() {
   console.log("bloxbot-programs/manifest.json is up to date");
 }
 
-/** The currently published manifest, or null before the first publish. */
-async function readPublishedManifest(): Promise<BloxBotProgramManifest | null> {
-  const response = await fetch(BLOXBOT_PROGRAMS_MANIFEST_URL);
+interface PublishedManifest {
+  sequence: number;
+  programs: unknown;
+}
+
+/**
+ * The published manifest's sequence and programs, or null before the first
+ * publish. Read loosely, so a manifest in an older format never blocks the
+ * next publish.
+ */
+async function readPublishedManifest(): Promise<PublishedManifest | null> {
+  const response = await fetch(BLOXBOT_PROGRAMS_MANIFEST_URL, {
+    signal: AbortSignal.timeout(30_000),
+  });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Could not read the published manifest (${response.status})`);
-  return Schema.decodeUnknownSync(BloxBotProgramManifestSchema)(await response.json());
+  const data = (await response.json().catch(() => ({}))) as Partial<PublishedManifest>;
+  return {
+    sequence: typeof data.sequence === "number" && Number.isFinite(data.sequence) ? data.sequence : 0,
+    programs: data.programs ?? null,
+  };
 }
 
 async function sign(outDir: string | undefined) {
