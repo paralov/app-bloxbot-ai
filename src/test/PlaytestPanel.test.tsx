@@ -249,6 +249,12 @@ describe("PlaytestPanel", () => {
     expect(manual).toBeEnabled();
     fireEvent.click(manual);
     expect(screen.getByLabelText("Goal")).toHaveValue("");
+    // With a manual plan open, Regenerate is off and says why.
+    const regenerate = screen.getByRole("button", { name: "Regenerate" });
+    expect(regenerate).toBeDisabled();
+    expect(regenerate).toHaveAccessibleDescription(
+      "Regenerate builds a plan from this chat. Send a message first.",
+    );
   });
 
   it("opens blank manual fields without calling the planning agent", () => {

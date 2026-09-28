@@ -269,23 +269,34 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         )}
       </div>
       {plan ? (
-        <footer className="flex items-center justify-between gap-3 border-t px-5 py-4">
-          <button
-            type="button"
-            onClick={generatePlan}
-            disabled={generate.isPending || sendMessage.isPending || !canGenerate}
-            className="text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
-          >
-            Regenerate
-          </button>
-          <button
-            type="button"
-            onClick={runPlaytest}
-            disabled={sendMessage.isPending || generate.isPending}
-            className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
-          >
-            {sendMessage.isPending ? "Starting…" : "Run playtest"}
-          </button>
+        <footer className="border-t px-5 py-4">
+          {hasContext === false ? (
+            <p
+              id="playtest-regenerate-no-context"
+              className="mb-3 text-[11px] leading-4 text-muted-foreground"
+            >
+              Regenerate builds a plan from this chat. Send a message first.
+            </p>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={generatePlan}
+              disabled={generate.isPending || sendMessage.isPending || !canGenerate}
+              aria-describedby={hasContext === false ? "playtest-regenerate-no-context" : undefined}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              Regenerate
+            </button>
+            <button
+              type="button"
+              onClick={runPlaytest}
+              disabled={sendMessage.isPending || generate.isPending}
+              className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
+            >
+              {sendMessage.isPending ? "Starting…" : "Run playtest"}
+            </button>
+          </div>
         </footer>
       ) : null}
     </aside>
