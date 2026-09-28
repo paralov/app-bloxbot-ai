@@ -15,10 +15,13 @@ import {
   GeneratedProgramResultSchema,
 } from "../../src/types/generatedProgram";
 import {
+  allowedBloxBotProgramTools,
   BLOXBOT_PROGRAM_TOOLS,
+  type BloxBotProgramName,
   isKnownBloxBotProgramTool,
   isReadOnlyStudioTool,
   type StudioToolAnnotations,
+  studioToolName,
 } from "../../src/lib/bloxbotProgramManifest";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 
@@ -27,6 +30,10 @@ type CallTool = (name: string, args: Record<string, unknown>) => Promise<CallToo
 export type DescribeTool = (
   name: string,
 ) => Promise<{ annotations?: StudioToolAnnotations } | undefined>;
+/** The tools Studio lists now, with their annotations. */
+export type ListTools = () => Promise<
+  readonly { name: string; annotations?: StudioToolAnnotations }[]
+>;
 type ProgramFunction = (input: unknown, callTool: CallTool) => Promise<unknown>;
 
 export type GeneratedProgramFailurePhase =
@@ -51,6 +58,12 @@ export interface GeneratedProgramRuntimeService {
   readonly invoke: (
     invocation: GeneratedProgramInvocation,
   ) => Effect.Effect<GeneratedProgramResult, GeneratedProgramRuntimeError>;
+  /**
+   * The tools a program may call, by Studio's own name: those Studio lists now
+   * that the allow rule accepts, or the program's known tools when Studio
+   * lists none.
+   */
+  readonly allowedTools: (program: BloxBotProgramName) => Effect.Effect<string[]>;
 }
 
 export class GeneratedProgramRuntime extends Context.Tag("@bloxbot/GeneratedProgramRuntime")<
@@ -96,6 +109,7 @@ function makeFunction(compiledSource: string): ProgramFunction {
 export function startGeneratedProgramRuntime(
   callTool: CallTool,
   describeTool: DescribeTool = async () => undefined,
+  listTools: ListTools = async () => [],
 ): GeneratedProgramRuntimeService {
   const artifacts = new Map<string, GeneratedProgramArtifact>();
   const functions = new Map<string, ProgramFunction>();
@@ -120,6 +134,13 @@ export function startGeneratedProgramRuntime(
   };
 
   return {
+    allowedTools: (program) =>
+      Effect.promise(async () => {
+        const listed = await listTools().catch(() => []);
+        return listed.length > 0
+          ? allowedBloxBotProgramTools(program, listed).map((tool) => tool.name)
+          : [...BLOXBOT_PROGRAM_TOOLS[program]];
+      }),
     compile: (envelope) =>
       Effect.tryPromise({
         try: () => compile(envelope),
@@ -144,14 +165,18 @@ export function startGeneratedProgramRuntime(
           functions.set(invocation.artifact.cacheKey, program);
         }
         const contractName = invocation.artifact.contract.name;
-        const guardedCallTool: CallTool = async (name, args) => {
+        const guardedCallTool: CallTool = async (requestedName, args) => {
+          // A model-written program may use OpenCode's name for a tool
+          // (roblox-studio_search_game_tree). The rule below and Studio both
+          // see Studio's own name, so the prefix never changes what's allowed.
+          const name = studioToolName(requestedName);
           // Programs may only read from Studio, whoever wrote them.
           const allowed =
             isKnownBloxBotProgramTool(contractName, name) ||
             (contractName in BLOXBOT_PROGRAM_TOOLS &&
               isReadOnlyStudioTool((await describeTool(name))?.annotations));
           if (!allowed) {
-            throw new ToolContractError(`${contractName} programs may not call ${name}`);
+            throw new ToolContractError(`${contractName} programs may not call ${requestedName}`);
           }
           try {
             return await callTool(name, args);
@@ -197,21 +222,27 @@ export const GeneratedProgramRuntimeLive = Layer.effect(
     // Studio's tool list, reused briefly so a looping program can't flood Studio
     // with list requests, and refreshed often enough that changed annotations or
     // renamed tools apply within seconds.
-    let cached: { tools: Map<string, { annotations?: StudioToolAnnotations }>; at: number } | null =
-      null;
+    let cached: {
+      tools: Map<string, { name: string; annotations?: StudioToolAnnotations }>;
+      at: number;
+    } | null = null;
+    const listTools = async () => {
+      if (!cached || Date.now() - cached.at > TOOL_LIST_TTL_MS) {
+        const listed = await Effect.runPromise(broker.listTools);
+        cached = { tools: new Map(listed.map((tool) => [tool.name, tool])), at: Date.now() };
+      }
+      return cached.tools;
+    };
     return startGeneratedProgramRuntime(
       (name, args) => Effect.runPromise(broker.callTool(name, args)),
       async (name) => {
         try {
-          if (!cached || Date.now() - cached.at > TOOL_LIST_TTL_MS) {
-            const listed = await Effect.runPromise(broker.listTools);
-            cached = { tools: new Map(listed.map((tool) => [tool.name, tool])), at: Date.now() };
-          }
-          return cached.tools.get(name);
+          return (await listTools()).get(name);
         } catch {
           return undefined;
         }
       },
+      async () => [...(await listTools()).values()],
     );
   }),
 );

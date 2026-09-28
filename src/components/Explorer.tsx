@@ -25,12 +25,14 @@ import {
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
 } from "@/lib/analytics";
+import { BLOXBOT_PROGRAM_TOOLS } from "@/lib/bloxbotProgramManifest";
 import { BUILTIN_BLOXBOT_PROGRAMS, resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
 import {
   createExplorerReference,
   type ExplorerCollection,
   type ExplorerField,
+  ExplorerGenerationError,
   type ExplorerNode,
   type ExplorerProgramEnvelope,
   generateExplorerProgram,
@@ -285,21 +287,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           program_source: "model",
         };
         let origin: ExplorerCollection["origin"] = "model";
-        try {
-          let program: ExplorerProgramEnvelope;
-          if (modelMediated) {
-            program = await generateExplorerProgram(activeClient, model, selectedAgent);
-          } else {
-            const { explorer } =
-              reason === "initial" ? await resolveBloxBotPrograms() : BUILTIN_BLOXBOT_PROGRAMS;
-            program = explorer.program;
-            if (reason === "initial") initialSource = explorer.source;
-            origin = explorer.source;
-            programProperties = {
-              program_source: explorer.source,
-              program_sequence: explorer.sequence,
-            };
-          }
+        // How many programs the model wrote, for model-written programs.
+        let attemptProperties: { generation_attempts?: number } = {};
+        // Compiles a program and runs it once, as every program is checked
+        // before Explorer uses it.
+        const tryProgram = async (program: ExplorerProgramEnvelope) => {
           const artifact = await desktop.compileExplorerProgram(program);
           const snapshot = sortExplorerSnapshot(
             await desktop.invokeExplorerProgram(artifact, studioId),
@@ -307,7 +299,39 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           if (snapshot.roots.length === 0) {
             throw new Error("Studio has not returned an instance tree yet");
           }
-          const generated: ExplorerCollection = { program, artifact, snapshot, origin };
+          return { artifact, snapshot };
+        };
+        try {
+          let generated: ExplorerCollection;
+          if (modelMediated) {
+            // Name the tools the runtime allows. Without Studio's list, the
+            // known ones are still allowed.
+            const allowedTools = await desktop
+              .listExplorerProgramTools()
+              .catch(() => BLOXBOT_PROGRAM_TOOLS["explorer-snapshot"]);
+            const written = await generateExplorerProgram(activeClient, {
+              model,
+              agent: selectedAgent,
+              allowedTools,
+              validate: tryProgram,
+            });
+            attemptProperties = { generation_attempts: written.attempts };
+            generated = { program: written.program, ...written.result, origin };
+          } else {
+            const { explorer } =
+              reason === "initial" ? await resolveBloxBotPrograms() : BUILTIN_BLOXBOT_PROGRAMS;
+            if (reason === "initial") initialSource = explorer.source;
+            origin = explorer.source;
+            programProperties = {
+              program_source: explorer.source,
+              program_sequence: explorer.sequence,
+            };
+            generated = {
+              program: explorer.program,
+              ...(await tryProgram(explorer.program)),
+              origin,
+            };
+          }
           posthog.capture(
             "collector_generation_succeeded",
             analyticsProperties(
@@ -317,6 +341,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
                 model_mediated: modelMediated,
                 reason,
                 ...programProperties,
+                ...attemptProperties,
                 root_count: generated.snapshot.roots.length,
                 node_count: countNodes(generated.snapshot.roots),
               }),
@@ -325,17 +350,24 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           return generated;
         } catch (error) {
           console.error("[explorer] collector generation failed", error);
+          // Report the program's own error, as for the other programs.
+          let reported = error;
+          if (error instanceof ExplorerGenerationError) {
+            attemptProperties = { generation_attempts: error.attempts };
+            reported = error.cause;
+          }
           posthog.capture(
             "collector_generation_failed",
             errorAnalyticsProperties(
               "explorer",
               "collector_generation",
-              error,
+              reported,
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - startedAt),
                 model_mediated: modelMediated,
                 reason,
                 ...programProperties,
+                ...attemptProperties,
               }),
             ),
           );

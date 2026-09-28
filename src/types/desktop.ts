@@ -99,6 +99,8 @@ export interface DesktopApi {
     artifact: GeneratedProgramArtifact,
     studioId: string,
   ): Promise<ExplorerSnapshot>;
+  /** The Studio tools an Explorer program may call now, by Studio's own name. */
+  listExplorerProgramTools(): Promise<readonly string[]>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
   onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
   getVersion(): Promise<string>;

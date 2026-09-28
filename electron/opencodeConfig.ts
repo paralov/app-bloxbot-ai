@@ -1,5 +1,7 @@
 import { win32 } from "node:path";
 
+import { STUDIO_MCP_SERVER_NAME } from "../src/lib/bloxbotProgramManifest";
+
 export interface StudioMcpWindowsEnvironment {
   localAppData?: string;
   comSpec?: string;
@@ -33,7 +35,7 @@ export function createOpenCodeConfig(broker: { url: string }) {
       auto: true,
     },
     mcp: {
-      "roblox-studio": {
+      [STUDIO_MCP_SERVER_NAME]: {
         type: "remote",
         url: broker.url,
         enabled: true,

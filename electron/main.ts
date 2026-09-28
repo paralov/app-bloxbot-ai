@@ -222,6 +222,13 @@ const registerIpcHandlers = Effect.sync(() => {
       }),
     ),
   );
+  ipcMain.handle(channels.listExplorerProgramTools, () =>
+    openCodeRuntime.runPromise(
+      GeneratedProgramRuntime.pipe(
+        Effect.flatMap((runtime) => runtime.allowedTools("explorer-snapshot")),
+      ),
+    ),
+  );
   ipcMain.handle(channels.getOpenCodeInfo, () =>
     openCodeRuntime.runPromise(
       OpenCode.pipe(Effect.flatMap((service) => service.info)),

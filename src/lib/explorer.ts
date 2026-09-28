@@ -1,6 +1,7 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { Effect, Schema } from "effect";
 import type { GeneratedProgramArtifact, GeneratedProgramEnvelope } from "../types/generatedProgram";
+import { STUDIO_MCP_SERVER_NAME } from "./bloxbotProgramManifest";
 
 export const ExplorerFieldSchema = Schema.Struct({
   name: Schema.String,
@@ -194,19 +195,64 @@ export const EXPLORER_SNAPSHOT_OUTPUT_SCHEMA = {
   $defs: { node: NODE_JSON_SCHEMA },
 } as const;
 
-const INITIAL_SYSTEM_PROMPT = `You generate the private TypeScript data provider for BloxBot's Explorer panel.
+/**
+ * The system prompt for writing an Explorer program. It names the tools the
+ * runtime lets the program call, by Studio's own name: in its own session the
+ * model sees them with OpenCode's server prefix (roblox-studio_search_game_tree).
+ */
+export function explorerSystemPrompt(allowedTools: readonly string[]): string {
+  return `You generate the private TypeScript data provider for BloxBot's Explorer panel.
 Discover the currently available Studio MCP tools and return an import-free deterministic read-only TypeScript program.
-The source must define async function run({ input, callTool }), require input.studioId, and return an Explorer snapshot matching the requested output contract. Use callTool directly with the exact discovered tool names and arguments, passing { studio_id: input.studioId } on every Studio-specific tool call. It must never modify the place.
+The source must define async function run({ input, callTool }), require input.studioId, and return an Explorer snapshot matching the requested output contract. It must never modify the place.
+The program may only call these tools, by exactly these names: ${allowedTools.join(", ")}. The runtime refuses any other tool. Use these names in callTool even though your own tool list shows them with a "${STUDIO_MCP_SERVER_NAME}_" prefix. Pass { studio_id: input.studioId } on every Studio-specific tool call.
+callTool resolves to a raw MCP CallToolResult ({ content, isError }). When isError is true, content holds Studio's error text; it does not throw. Tool output is usually JSON inside a text content part, sometimes after a note, so parse it defensively.
+The words import and export must not appear anywhere in the source, not even in comments or strings. Use only standard JavaScript globals; there is no network or file access.
+The value run returns must be JSON-safe and match this JSON Schema exactly, with no extra properties:
+${JSON.stringify(EXPLORER_SNAPSHOT_OUTPUT_SCHEMA)}
 Do not run a recurring model-mediated replay. The app will compile this source once and invoke it directly for every refresh.
 For every object include a compact set of useful, readable properties and all available attributes. Stringify values safely.
 Use each instance's Name property for node.name. Use ClassName only for node.className and type/icon metadata.
 Request the deepest complete hierarchy and a very high result limit supported by the discovered tree tool; do not accept shallow defaults.
 Paths are dot-separated human-readable hints, not durable identifiers. Keep children in Studio order.
 Return only the requested structured output.`;
+}
+
+/** At most this many programs are written per attempt, the first plus one retry. */
+export const MAX_EXPLORER_GENERATIONS = 2;
+
+/** A failed model-written program, with how many programs the model wrote. */
+export class ExplorerGenerationError extends Error {
+  constructor(
+    readonly cause: unknown,
+    readonly attempts: number,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "ExplorerGenerationError";
+  }
+}
 
 interface ExplorerModel {
   providerID: string;
   modelID: string;
+}
+
+export interface GenerateExplorerProgramOptions<T> {
+  model?: ExplorerModel;
+  agent?: string | null;
+  /** The tools the runtime lets the program call, by Studio's own name. */
+  allowedTools: readonly string[];
+  /**
+   * Compiles the program and runs it once. A failure goes back to the model,
+   * which writes one more program.
+   */
+  validate: (program: ExplorerProgramEnvelope) => Promise<T>;
+}
+
+export interface GeneratedExplorerProgram<T> {
+  program: ExplorerProgramEnvelope;
+  result: T;
+  /** How many programs the model wrote. */
+  attempts: number;
 }
 
 async function withPrivateSession<T>(
@@ -229,33 +275,52 @@ async function withPrivateSession<T>(
   }
 }
 
-export async function generateExplorerProgram(
-  client: OpencodeClient,
-  model?: ExplorerModel,
-  agent?: string | null,
-): Promise<ExplorerProgramEnvelope> {
-  return withPrivateSession(client, async (sessionID) => {
-    const response = await client.session.prompt(
-      {
-        sessionID,
-        model,
-        agent: agent ?? undefined,
-        system: INITIAL_SYSTEM_PROMPT,
-        format: { type: "json_schema", schema: EXPLORER_PROGRAM_OUTPUT_SCHEMA, retryCount: 2 },
-        parts: [
-          {
-            type: "text",
-            text: "Discover the read-only Studio tools and generate the reusable TypeScript Explorer program.",
-          },
-        ],
-      },
-      { throwOnError: true },
-    );
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
-    return Effect.runPromise(
-      Schema.decodeUnknown(ExplorerProgramEnvelopeSchema)(response.data.info.structured),
-    );
-  });
+/**
+ * Has the model write an Explorer program in a private session and checks it
+ * with validate before accepting it. When the check fails, the error goes back
+ * to the model in the same session for one corrected program.
+ */
+export async function generateExplorerProgram<T>(
+  client: OpencodeClient,
+  { model, agent, allowedTools, validate }: GenerateExplorerProgramOptions<T>,
+): Promise<GeneratedExplorerProgram<T>> {
+  let attempts = 0;
+  try {
+    return await withPrivateSession(client, async (sessionID) => {
+      let request =
+        "Discover the read-only Studio tools and generate the reusable TypeScript Explorer program.";
+      for (;;) {
+        attempts += 1;
+        const response = await client.session.prompt(
+          {
+            sessionID,
+            model,
+            agent: agent ?? undefined,
+            system: explorerSystemPrompt(allowedTools),
+            format: { type: "json_schema", schema: EXPLORER_PROGRAM_OUTPUT_SCHEMA, retryCount: 2 },
+            parts: [{ type: "text", text: request }],
+          },
+          { throwOnError: true },
+        );
+        try {
+          const program = await Effect.runPromise(
+            Schema.decodeUnknown(ExplorerProgramEnvelopeSchema)(response.data.info.structured),
+          );
+          return { program, result: await validate(program), attempts };
+        } catch (error) {
+          if (attempts >= MAX_EXPLORER_GENERATIONS) throw error;
+          request = `BloxBot compiled and ran your program once, and it failed: ${errorMessage(error)}
+Fix the cause and return the complete corrected program. Call only these tools, by exactly these names: ${allowedTools.join(", ")}.`;
+        }
+      }
+    });
+  } catch (error) {
+    throw new ExplorerGenerationError(error, attempts);
+  }
 }
 
 export function createExplorerReference(node: ExplorerNode): string {

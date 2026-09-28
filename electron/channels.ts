@@ -7,6 +7,7 @@ export const channels = {
   getVersion: "app:get-version",
   installUpdate: "app:install-update",
   invokeExplorerProgram: "explorer:invoke-program",
+  listExplorerProgramTools: "explorer:list-program-tools",
   loadConfig: "config:load",
   openUrl: "app:open-url",
   patchConfig: "config:patch",

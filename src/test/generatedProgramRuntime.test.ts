@@ -84,6 +84,82 @@ describe("GeneratedProgramRuntime", () => {
     expect(callTool).toHaveBeenCalledWith("renamed_tree_tool", {});
   });
 
+  it("accepts OpenCode's prefixed name for an allowed tool and calls Studio's name", async () => {
+    const callTool = vi.fn().mockResolvedValue({ content: [] });
+    const describeTool = vi.fn(async (name: string) =>
+      name === "renamed_tree_tool"
+        ? { annotations: { readOnlyHint: true, openWorldHint: false } }
+        : undefined,
+    );
+    const runtime = startGeneratedProgramRuntime(callTool, describeTool);
+    const artifact = await Effect.runPromise(
+      runtime.compile(
+        envelope(
+          `async function run({ callTool }) {
+            await callTool("roblox-studio_search_game_tree", { depth: 2 });
+            await callTool("roblox-studio_renamed_tree_tool", {});
+            return 1;
+          }`,
+        ),
+      ),
+    );
+
+    await expect(Effect.runPromise(runtime.invoke({ artifact, input: {} }))).resolves.toMatchObject(
+      { value: 1 },
+    );
+    expect(callTool).toHaveBeenNthCalledWith(1, "search_game_tree", { depth: 2 });
+    expect(callTool).toHaveBeenNthCalledWith(2, "renamed_tree_tool", {});
+    expect(describeTool).toHaveBeenCalledWith("renamed_tree_tool");
+  });
+
+  it("refuses a prefixed tool the rule wouldn't allow by Studio's name", async () => {
+    const callTool = vi.fn();
+    const describeTool = vi.fn(async () => ({
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+    }));
+    const runtime = startGeneratedProgramRuntime(callTool, describeTool);
+    const artifact = await Effect.runPromise(
+      runtime.compile(
+        envelope(
+          `async function run({ callTool }) { return await callTool("roblox-studio_execute_luau", { code: "print(1)" }); }`,
+        ),
+      ),
+    );
+
+    const failure = await Effect.runPromise(Effect.flip(runtime.invoke({ artifact, input: {} })));
+
+    expect(failure).toMatchObject({ phase: "tool-contract" });
+    expect(failure.message).toContain("may not call roblox-studio_execute_luau");
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("lists the tools a program may call from Studio's list, or its known tools", async () => {
+    const readOnly = { readOnlyHint: true, openWorldHint: false };
+    const listTools = vi.fn(async () => [
+      { name: "search_game_tree", annotations: readOnly },
+      { name: "get_studio_state" },
+      { name: "script_read", annotations: readOnly },
+      { name: "execute_luau", annotations: { readOnlyHint: false } },
+      { name: "http_get", annotations: { readOnlyHint: true, openWorldHint: true } },
+    ]);
+    const runtime = startGeneratedProgramRuntime(vi.fn(), undefined, listTools);
+    await expect(Effect.runPromise(runtime.allowedTools("explorer-snapshot"))).resolves.toEqual([
+      "search_game_tree",
+      "get_studio_state",
+      "script_read",
+    ]);
+
+    const offline = startGeneratedProgramRuntime(vi.fn(), undefined, async () => {
+      throw new Error("Studio is not connected");
+    });
+    await expect(Effect.runPromise(offline.allowedTools("explorer-snapshot"))).resolves.toEqual([
+      "list_roblox_studios",
+      "get_studio_state",
+      "search_game_tree",
+      "inspect_instance",
+    ]);
+  });
+
   it("refuses every tool for a contract it doesn't know", async () => {
     const callTool = vi.fn();
     const runtime = startGeneratedProgramRuntime(callTool);

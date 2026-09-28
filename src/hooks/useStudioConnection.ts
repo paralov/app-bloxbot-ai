@@ -1,10 +1,11 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { useQuery } from "@tanstack/react-query";
 
+import { STUDIO_MCP_SERVER_NAME } from "@/lib/bloxbotProgramManifest";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
-const STUDIO_MCP_NAME = "roblox-studio";
+const STUDIO_MCP_NAME = STUDIO_MCP_SERVER_NAME;
 
 export type StudioConnectionState = "checking" | "connected" | "waiting";
 

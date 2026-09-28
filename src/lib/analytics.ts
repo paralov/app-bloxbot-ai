@@ -125,6 +125,7 @@ export function captureDetailedAnalytics(
 const EXPLORER_ANALYTICS_KEYS = new Set([
   "class_category",
   "duration_ms",
+  "generation_attempts",
   "has_attributes",
   "model_mediated",
   "node_count",
