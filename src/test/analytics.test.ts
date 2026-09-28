@@ -78,13 +78,50 @@ describe("PostHog analytics", () => {
     });
   });
 
-  it("adds standard metadata without including error messages", () => {
-    expect(errorAnalyticsProperties("explorer", "sync", new TypeError("private path"))).toEqual({
+  it("adds standard metadata with a scrubbed error message", () => {
+    expect(
+      errorAnalyticsProperties(
+        "explorer",
+        "sync",
+        new TypeError("cannot open /Users/oscar/BloxBot/place.rbxl"),
+      ),
+    ).toEqual({
       analytics_schema_version: 1,
+      error_message: "cannot open ~/BloxBot/place.rbxl",
       error_type: "TypeError",
       feature: "explorer",
       outcome: "failure",
       phase: "sync",
     });
+  });
+
+  it("reads the name and message of OpenCode SDK error bodies", () => {
+    expect(
+      errorAnalyticsProperties("chat", "send_message", {
+        name: "ProviderAuthError",
+        data: { providerID: "anthropic", message: "Invalid key sk-ant-api03-abcdefghijklmnop1234" },
+      }),
+    ).toMatchObject({
+      error_type: "ProviderAuthError",
+      error_message: "Invalid key [redacted]",
+    });
+  });
+
+  it("truncates long error messages and omits missing ones", () => {
+    const properties = errorAnalyticsProperties(
+      "chat",
+      "send_message",
+      new Error("x".repeat(5000)),
+    );
+    expect((properties.error_message as string).length).toBe(500);
+    expect(errorAnalyticsProperties("chat", "send_message", undefined)).not.toHaveProperty(
+      "error_message",
+    );
+  });
+
+  it("lets callers override the derived properties", () => {
+    expect(
+      errorAnalyticsProperties("providers", "oauth", new Error("x"), { error_type: "timeout" }),
+    ).toMatchObject({ error_type: "timeout" });
   });
 });

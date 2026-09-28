@@ -8,6 +8,8 @@ import {
   analyticsProperties,
   POSTHOG_API_HOST,
   POSTHOG_PROJECT_TOKEN,
+  scrubAnalyticsEvent,
+  subscribeToMainErrors,
 } from "./lib/analytics";
 import { desktop } from "./lib/desktop";
 
@@ -20,6 +22,10 @@ if (import.meta.env.PROD && POSTHOG_PROJECT_TOKEN) {
     capture_pageview: false,
     // BloxBot intentionally contains "bot", which matches PostHog's bot heuristic.
     opt_out_useragent_filter: true,
+    // Unhandled errors and rejections become $exception events for error tracking.
+    capture_exceptions: true,
+    // Removes home paths, usernames and keys from error text before anything is sent.
+    before_send: scrubAnalyticsEvent,
   });
   posthog.register({
     $current_url: "bloxbot://app/loading",
@@ -33,6 +39,8 @@ if (import.meta.env.PROD && POSTHOG_PROJECT_TOKEN) {
     app_screen: "loading",
     app_user_agent: navigator.userAgent,
   });
+  // Main-process errors arrive here so they share this device id, scrubbing and opt-out.
+  subscribeToMainErrors(desktop.onMainError);
   void desktop.getVersion().then(
     (version) => {
       posthog.register({ app_version: version });

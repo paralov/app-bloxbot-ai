@@ -844,7 +844,8 @@ function PrivacyTab() {
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
-        identifiers, but events stay anonymous: no person profile is created. Attached images and
+        identifiers, but events stay anonymous: no person profile is created. Error reports are
+        included, with personal file paths, usernames and API keys removed. Attached images and
         files are never uploaded.
       </p>
 

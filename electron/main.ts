@@ -1,10 +1,11 @@
 import { rename, readFile, rm, writeFile } from "node:fs/promises";
+import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import { autoUpdater } from "electron-updater";
-import { Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Cause, Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
 import {
   type AppConfig,
@@ -22,6 +23,7 @@ import {
   StudioTargetSelectionSchema,
 } from "../src/types/studioTarget";
 import { handleLastWindowClosed } from "./appLifecycle";
+import { createMainErrorReporter } from "./errorReporter";
 import { findInstructionFiles } from "./instructionFiles";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
@@ -43,6 +45,38 @@ function configPath(): string {
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
 
+function currentUsername(): string | undefined {
+  try {
+    return userInfo().username;
+  } catch {
+    return undefined;
+  }
+}
+
+const mainErrorReporter = createMainErrorReporter({
+  channel: channels.mainError,
+  home: app.getPath("home"),
+  username: currentUsername(),
+});
+
+/** Sends a main-process error to the renderer, which reports it if analytics is on. */
+function reportMainError(source: string, error: unknown): void {
+  mainErrorReporter.report(source, error);
+}
+
+// A monitor observes without replacing Electron's own uncaught-exception handling.
+process.on("uncaughtExceptionMonitor", (error) => reportMainError("main_uncaught_exception", error));
+// Electron only warns about unhandled rejections; keep that log line and report it.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection in the main process:", reason);
+  reportMainError("main_unhandled_rejection", reason);
+});
+
+const reportLayerFailure = (source: string) => (cause: Cause.Cause<unknown>) =>
+  Effect.sync(() => {
+    if (!Cause.isInterruptedOnly(cause)) reportMainError(source, Cause.squash(cause));
+  });
+
 class DesktopMainError extends Data.TaggedError("DesktopMainError")<{
   message: string;
   cause?: unknown;
@@ -53,7 +87,7 @@ const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
   localAppData: process.env.LOCALAPPDATA,
   comSpec: process.env.ComSpec,
   systemRoot: process.env.SystemRoot,
-});
+}).pipe(Layer.tapErrorCause(reportLayerFailure("studio_mcp_broker_start")));
 
 const openCodeRuntime = ManagedRuntime.make(
   Layer.merge(
@@ -65,7 +99,7 @@ const openCodeRuntime = ManagedRuntime.make(
           mainWindow.webContents.send(channels.openCodeStartupProgress, progress);
         }
       },
-    }),
+    }).pipe(Layer.tapErrorCause(reportLayerFailure("opencode_start"))),
     GeneratedProgramRuntimeLive.pipe(Layer.provide(studioMcpBrokerLayer)),
   ).pipe(Layer.provide(studioMcpBrokerLayer)),
 );
@@ -76,6 +110,7 @@ const BLOXBOT_PROGRAMS_REFRESH_MS = 6 * 60 * 60 * 1000;
 const bloxbotProgramStore = createBloxBotProgramStore({
   directory: join(app.getPath("userData"), "bloxbot-programs"),
   log: (message) => console.log(message),
+  onError: (error) => reportMainError("bloxbot_programs_refresh", error),
 });
 
 const expectedContract = (name: string) => ({
@@ -177,6 +212,7 @@ function patchConfig(input: unknown) {
 const runMain = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
 const registerIpcHandlers = Effect.sync(() => {
+  ipcMain.on(channels.mainErrorReady, (event) => mainErrorReporter.attach(event.sender));
   ipcMain.handle(channels.compileExplorerProgram, (_event, input: unknown) =>
     openCodeRuntime.runPromise(
       Effect.gen(function* () {
@@ -472,9 +508,19 @@ Effect.runFork(
     yield* Effect.sync(() =>
       app.on("activate", () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-          Effect.runFork(createWindow().pipe(Effect.catchAll(Effect.logError)));
+          Effect.runFork(
+            createWindow().pipe(
+              Effect.tapError((error) =>
+                Effect.sync(() => reportMainError("main_create_window", error)),
+              ),
+              Effect.catchAll(Effect.logError),
+            ),
+          );
         }
       }),
     );
-  }).pipe(Effect.catchAll(Effect.logError)),
+  }).pipe(
+    Effect.tapError((error) => Effect.sync(() => reportMainError("main_startup", error))),
+    Effect.catchAll(Effect.logError),
+  ),
 );

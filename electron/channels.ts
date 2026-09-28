@@ -16,4 +16,6 @@ export const channels = {
   selectStudioTarget: "studio-target:select",
   getBloxBotPrograms: "bloxbot-programs:get",
   bloxbotProgramsUpdated: "bloxbot-programs:updated",
+  mainError: "app:main-error",
+  mainErrorReady: "app:main-error-ready",
 } as const;
