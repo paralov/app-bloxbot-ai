@@ -11,14 +11,33 @@ function normalizeMcpResult(result: unknown): any {
       if (!part || typeof part !== "object") continue;
       if ((part as any).type === "json") return (part as any).json;
       if ((part as any).type === "text" && typeof (part as any).text === "string") {
-        try { return JSON.parse((part as any).text); } catch { return (part as any).text; }
+        return parseMcpText((part as any).text);
       }
     }
   }
-  if (typeof content === "string") {
-    try { return JSON.parse(content); } catch { return content; }
-  }
+  if (typeof content === "string") return parseMcpText(content);
   return content;
+}
+
+// Studio MCP can put a note such as "Note: Output limited to N nodes" before
+// the JSON, so fall back to parsing from the first bracket.
+function parseMcpText(text: string): any {
+  try { return JSON.parse(text); } catch {}
+  const starts = [text.indexOf("["), text.indexOf("{")].filter((index) => index > 0);
+  const start = starts.length > 0 ? Math.min(...starts) : -1;
+  if (start > 0) {
+    try { return JSON.parse(text.slice(start)); } catch {}
+  }
+  return text;
+}
+
+function mcpErrorText(result: unknown): string | null {
+  if (!result || typeof result !== "object" || (result as any).isError !== true) return null;
+  const content = (result as any).content;
+  const text = Array.isArray(content)
+    ? content.map((part: any) => (typeof part?.text === "string" ? part.text : "")).join(" ").trim()
+    : "";
+  return text || "Studio returned an error";
 }
 
 function normalizeMcpIdentifier(value: unknown): string | null {
@@ -105,13 +124,28 @@ ${NORMALIZE_MCP_RESULT}
 async function run({ input, callTool }: { input: { studioId: string }; callTool: (name: string, args: Record<string, unknown>) => Promise<unknown> }) {
   const studioId = typeof input?.studioId === "string" ? input.studioId : "";
   if (!studioId) throw new Error("A Studio target is required");
-  // Studio currently caps max_depth at 10. Use that ceiling and an intentionally
-  // generous result cap so ordinary places are collected in one pass.
-  const raw = normalizeMcpResult(await callTool("search_game_tree", {
-    studio_id: studioId,
-    max_depth: 10,
-    head_limit: 100000,
-  }));
+  // Studio caps max_depth at 10; use that ceiling and a generous result cap so
+  // ordinary places are collected in one pass. Studio requires datamodel_type:
+  // "Edit" normally, and it rejects "Edit" during a playtest, so fall back to
+  // the server data model then.
+  let raw: any = null;
+  let lastError = "";
+  for (const datamodelType of ["Edit", "Server"]) {
+    const result = await callTool("search_game_tree", {
+      studio_id: studioId,
+      datamodel_type: datamodelType,
+      max_depth: 10,
+      head_limit: 100000,
+    });
+    const error = mcpErrorText(result);
+    if (error) {
+      lastError = error;
+      continue;
+    }
+    raw = normalizeMcpResult(result);
+    break;
+  }
+  if (raw === null) throw new Error(lastError || "Studio did not return an instance tree");
   const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
   // Match Studio Explorer's default service set. Studio hides less commonly
   // edited engine services unless the user explicitly enables them.
@@ -121,7 +155,12 @@ async function run({ input, callTool }: { input: { studioId: string }; callTool:
     "StarterPack", "StarterPlayer", "Teams", "SoundService", "TextChatService",
   ]);
   const byPath = new Map<string, any>();
+  let placeName = "Roblox Studio";
   for (const row of rows) {
+    if (row?.className === "DataModel" && typeof row?.name === "string" && row.name) {
+      placeName = row.name;
+      continue;
+    }
     const path = typeof row?.fullPath === "string" ? row.fullPath : typeof row?.path === "string" ? row.path : "";
     if (!path) continue;
     const topLevel = path.split(".")[0];
@@ -147,7 +186,7 @@ async function run({ input, callTool }: { input: { studioId: string }; callTool:
     if (parent) { parent.children.push(node); parent.hasChildren = true; }
     else roots.push(node);
   }
-  return { placeName: "Roblox Studio", capturedAt: new Date().toISOString(), roots };
+  return { placeName, capturedAt: new Date().toISOString(), roots };
 }`;
 
 export const BUILTIN_EXPLORER_PROGRAM: ExplorerProgramEnvelope = {

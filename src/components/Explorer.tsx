@@ -45,6 +45,9 @@ import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 const ACTIVE_SYNC_MS = 2_500;
 const IDLE_SYNC_MS = 5_000;
 const MAX_UNCHANGED_SYNC_MS = 30_000;
+// After failures, wait longer each time up to this, so a broken Studio setup
+// doesn't retry (and re-ask the model for a program) every few seconds.
+const MAX_FAILURE_BACKOFF_MS = 5 * 60_000;
 
 interface ExplorerProps {
   collapsed: boolean;
@@ -186,6 +189,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const syncingRef = useRef(false);
   const resyncRequestedRef = useRef(false);
   const syncLatestRef = useRef<() => void>(() => undefined);
+  // The latest sync effect's scheduler, for a sync that finishes after its
+  // own effect was replaced.
+  const scheduleLatestRef = useRef<() => void>(() => {});
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -193,6 +199,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const [search, setSearch] = useState("");
   const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
   const generationBlockedRef = useRef(false);
+  // Consecutive failed syncs, which set the retry backoff.
+  const failuresRef = useRef(0);
 
   const model = useMemo(() => {
     if (!selectedModel) return undefined;
@@ -207,6 +215,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     );
   }, [collapsed]);
 
+  // Reopening Explorer or switching Studio gives a blocked setup a fresh try.
+  // This lives outside the sync effect, which also re-runs whenever the chat
+  // turns busy or idle and must not clear the block or the backoff then.
+  const studioKey = studioTarget?.selected?.key;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resets when Explorer opens or the Studio changes
+  useEffect(() => {
+    generationBlockedRef.current = false;
+    failuresRef.current = 0;
+  }, [collapsed, studioKey]);
+
   useEffect(() => {
     if (!client || collapsed || !studioTarget?.selected) return;
     const activeClient = client;
@@ -217,12 +235,20 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
     function scheduleNext() {
       if (cancelled) return;
+      // A setup that failed without ever loading waits for the user to reopen.
+      if (generationBlockedRef.current && !collectionRef.current) return;
       const baseDelay = sessionBusy ? ACTIVE_SYNC_MS : IDLE_SYNC_MS;
-      const delay = Math.min(baseDelay * 2 ** Math.min(unchangedPolls, 3), MAX_UNCHANGED_SYNC_MS);
+      const delay =
+        failuresRef.current > 0
+          ? Math.min(IDLE_SYNC_MS * 2 ** failuresRef.current, MAX_FAILURE_BACKOFF_MS)
+          : Math.min(baseDelay * 2 ** Math.min(unchangedPolls, 3), MAX_UNCHANGED_SYNC_MS);
+      // Replace any pending timer, so scheduling twice never runs two syncs.
+      if (timer !== undefined) window.clearTimeout(timer);
       timer = window.setTimeout(() => void sync(), delay);
     }
 
     async function sync() {
+      if (generationBlockedRef.current && !collectionRef.current) return;
       if (syncingRef.current) {
         resyncRequestedRef.current = true;
         return;
@@ -240,7 +266,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         posthog.capture("sync_started", analyticsProperties("explorer", { source: "initial" }));
       }
 
-      async function generate(reason: "initial" | "contract_recovery") {
+      async function generate(reason: "initial" | "initial_recovery" | "contract_recovery") {
         const startedAt = performance.now();
         posthog.capture(
           "collector_generation_started",
@@ -303,16 +329,23 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
             next = { ...current, snapshot };
           } catch (error) {
             telemetryRef.current.hadFailure = true;
-            posthog.capture(
-              "sync_failed",
-              errorAnalyticsProperties("explorer", "collector_runtime", error, {
-                reason: "collector_runtime",
-              }),
-            );
+            if (failuresRef.current === 0)
+              posthog.capture(
+                "sync_failed",
+                errorAnalyticsProperties("explorer", "collector_runtime", error, {
+                  reason: "collector_runtime",
+                }),
+              );
             next = await generate("contract_recovery");
           }
         } else if (!generationBlockedRef.current) {
-          next = await generate("initial");
+          try {
+            next = await generate("initial");
+          } catch {
+            // The built-in program no longer matches Studio's tools, so have
+            // the model write one against the tools Studio offers now.
+            next = await generate("initial_recovery");
+          }
         } else {
           throw new Error("Explorer setup needs repair before it can retry.");
         }
@@ -326,6 +359,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           roots: next.snapshot.roots,
         });
         unchangedPolls = previousComparable === nextComparable ? unchangedPolls + 1 : 0;
+        failuresRef.current = 0;
         collectionRef.current = next;
         setCollection(next);
         publishObjects(next.snapshot.roots);
@@ -354,32 +388,47 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         console.error("[explorer] sync failed", error);
         if (!collectionRef.current) generationBlockedRef.current = true;
         telemetryRef.current.hadFailure = true;
-        posthog.capture(
-          "sync_failed",
-          errorAnalyticsProperties(
-            "explorer",
-            "sync",
-            error,
-            explorerAnalyticsProperties({
-              duration_ms: Math.round(performance.now() - syncStartedAt),
-              reason: collectionRef.current ? "recovery_failed" : "initial_failed",
-            }),
-          ),
-        );
+        failuresRef.current += 1;
+        // Report the first failure of a streak, not every retry.
+        if (failuresRef.current === 1)
+          posthog.capture(
+            "sync_failed",
+            errorAnalyticsProperties(
+              "explorer",
+              "sync",
+              error,
+              explorerAnalyticsProperties({
+                duration_ms: Math.round(performance.now() - syncStartedAt),
+                reason: collectionRef.current ? "recovery_failed" : "initial_failed",
+              }),
+            ),
+          );
         if (!cancelled) setSyncError(error instanceof Error ? error.message : String(error));
       } finally {
         syncingRef.current = false;
         if (!cancelled) setSyncing(false);
-        if (resyncRequestedRef.current) {
+        // A re-sync requested while this one ran waits for the backoff if
+        // this one failed.
+        if (resyncRequestedRef.current && failuresRef.current === 0) {
           resyncRequestedRef.current = false;
           queueMicrotask(() => syncLatestRef.current());
-        } else scheduleNext();
+        } else {
+          resyncRequestedRef.current = false;
+          scheduleLatestRef.current();
+        }
       }
     }
 
     syncLatestRef.current = () => void sync();
-    void sync();
+    scheduleLatestRef.current = scheduleNext;
+    // This effect also re-runs when the chat turns busy or idle; during a
+    // failure streak, wait for the backoff instead of retrying straight away.
+    if (failuresRef.current > 0) scheduleNext();
+    else void sync();
     const resume = () => {
+      // While failing, wait for the backoff timer rather than retrying (and
+      // possibly asking the model again) every time the window regains focus.
+      if (failuresRef.current > 0) return;
       if (document.visibilityState === "visible" && document.hasFocus()) {
         if (timer !== undefined) window.clearTimeout(timer);
         void sync();
