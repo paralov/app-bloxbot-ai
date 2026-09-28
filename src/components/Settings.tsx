@@ -313,12 +313,14 @@ function ProvidersTab() {
 
   const needle = query.trim().toLowerCase();
   const matches = useCallback(
-    (p: ProviderInfo) =>
-      !needle || p.name.toLowerCase().includes(needle) || p.id.toLowerCase().includes(needle),
+    (p: ProviderInfo, label = p.name) =>
+      !needle || label.toLowerCase().includes(needle) || p.id.toLowerCase().includes(needle),
     [needle],
   );
 
-  const connected = allProviders.filter((p) => connectedProviders.includes(p.id) && matches(p));
+  const connected = allProviders.filter(
+    (p) => connectedProviders.includes(p.id) && matches(p, providerDisplayName(p)),
+  );
 
   const goProvider = allProviders.find((p) => p.id === OPENCODE_GO.providerId);
   const recommendGo =
@@ -340,7 +342,9 @@ function ProvidersTab() {
     const pop: ProviderInfo[] = [];
     const oth: ProviderInfo[] = [];
     for (const p of allProviders) {
-      if (connectedProviders.includes(p.id) || !matches(p)) continue;
+      // With only the free models connected, Zen is still offered as its own
+      // provider: a key turns the same OpenCode provider into a Zen account.
+      if ((connectedProviders.includes(p.id) && !isFreeZen(p)) || !matches(p)) continue;
       // The recommendation card already offers Go.
       if (recommendGo && p.id === OPENCODE_GO.providerId) continue;
       if (POPULAR_PROVIDERS.includes(p.id)) {
@@ -491,15 +495,9 @@ function ProvidersTab() {
                       {check === "checking" && <Loader2 className="h-3 w-3 animate-spin" />}
                       {check === "checking" ? "Checking" : "Check"}
                     </button>
-                    {isFreeZen(provider) ? (
-                      // Zen's free tier is always connected; a key unlocks the paid models.
-                      <button
-                        onClick={() => setConnecting(provider)}
-                        className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        Add Zen key
-                      </button>
-                    ) : hasOutsideZenKey(provider) ? null : (
+                    {/* The free models can't be disconnected, and BloxBot can't
+                        remove a Zen key it didn't store. */}
+                    {isFreeZen(provider) || hasOutsideZenKey(provider) ? null : (
                       <button
                         onClick={() => handleDisconnect(provider)}
                         disabled={disconnecting === provider.id}
@@ -520,12 +518,12 @@ function ProvidersTab() {
                       ) : (
                         <>
                           <span className="text-red-700 dark:text-red-400">{check.message}</span>
-                          {check.keyRejected && (
+                          {check.keyRejected && !isFreeZen(provider) && (
                             <button
                               onClick={() => setConnecting(provider)}
                               className="ml-1.5 font-medium text-foreground underline-offset-2 hover:underline"
                             >
-                              {isFreeZen(provider) ? "Add Zen key" : "Reconnect"}
+                              Reconnect
                             </button>
                           )}
                         </>

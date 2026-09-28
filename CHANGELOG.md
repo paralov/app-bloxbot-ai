@@ -13,7 +13,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Settings → Providers shows provider logos, says how each provider connects, and has a search box.
 - Providers that ask a question before signing in, such as GitHub Enterprise for Copilot, now ask it.
 - Check any connected provider from Settings → Providers. BloxBot sends one short test message through its cheapest model and shows whether the key or sign-in works, with a Reconnect link when the key is rejected. The toast after connecting offers the same check.
-- Add, replace or remove an OpenCode Zen key from Settings → Providers. Removing it keeps the free models.
+- OpenCode Zen is listed as its own provider in Settings → Providers, separate from the free models. Connect it with a Zen key, and remove the key to go back to the free models.
 - Settings → Providers recommends OpenCode Go ($10/month, or Go Plus at $40/month) to people using only the free models, and walks through setting it up.
 
 ### Fixed
