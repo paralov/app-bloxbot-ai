@@ -39,7 +39,7 @@ function useProvidersQuery() {
 export function useAllProviders(): ProviderInfo[] {
   const { data } = useProvidersQuery();
   if (!data?.all) return [];
-  return data.all.map((p) => ({ id: p.id, name: p.name, env: p.env }));
+  return data.all.map((p) => ({ id: p.id, name: p.name, env: p.env, source: p.source }));
 }
 
 export function useConnectedProviders(): string[] {

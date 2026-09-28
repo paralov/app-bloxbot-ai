@@ -108,6 +108,15 @@ describe("authErrorMessage", () => {
     ).toBeUndefined();
   });
 
+  it("falls back to the provider's response body when there is no message", () => {
+    expect(
+      authErrorMessage({
+        name: "APIError",
+        data: { message: "", responseBody: "Invalid API key." },
+      }),
+    ).toBe("Invalid API key.");
+  });
+
   it("reads thrown Errors and ignores anything else", () => {
     expect(authErrorMessage(new Error("No client"))).toBe("No client");
     expect(authErrorMessage("rejected")).toBeUndefined();

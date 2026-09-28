@@ -59,6 +59,14 @@ describe("checkFailure", () => {
     expect(checkFailure(error).keyRejected).toBe(true);
   });
 
+  it("uses the provider's response body when the message is empty", () => {
+    const error: ModelError = {
+      name: "APIError",
+      data: { message: "", statusCode: 400, isRetryable: false, responseBody: "model not found" },
+    };
+    expect(checkFailure(error).message).toBe("model not found");
+  });
+
   it("reports other failures without blaming the key", () => {
     const error: ModelError = {
       name: "APIError",

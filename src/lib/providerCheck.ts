@@ -22,12 +22,12 @@ type ModelError = NonNullable<AssistantMessage["error"]>;
 
 /** What a failed check tells the user, and whether a new key would fix it. */
 export function checkFailure(error: ModelError): Extract<ProviderCheckResult, { ok: false }> {
-  const data = error.data as { message?: unknown; statusCode?: unknown };
+  const data = error.data as { message?: unknown; responseBody?: unknown; statusCode?: unknown };
   const status = typeof data.statusCode === "number" ? data.statusCode : undefined;
   const keyRejected = error.name === "ProviderAuthError" || status === 401 || status === 403;
-  const message =
-    typeof data.message === "string" && data.message.trim()
-      ? data.message.trim()
-      : "The provider didn't answer the test message.";
+  const detail = [data.message, data.responseBody].find(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
+  );
+  const message = detail?.trim() ?? "The provider didn't answer the test message.";
   return { ok: false, message, keyRejected };
 }

@@ -34,6 +34,16 @@ const POPULAR_PROVIDERS = [
   "vercel",
 ];
 
+/** OpenCode Zen with no key: its free models are connected without one. */
+function isFreeZen(provider: ProviderInfo): boolean {
+  return provider.id === "opencode" && provider.source !== "api";
+}
+
+/** OpenCode Zen with a key, which falls back to the free models when removed. */
+function hasZenKey(provider: ProviderInfo): boolean {
+  return provider.id === "opencode" && provider.source === "api";
+}
+
 const TECHNOLOGIES = [
   { name: "OpenCode", url: "https://opencode.ai", description: "AI coding engine" },
   {
@@ -243,7 +253,21 @@ function ProvidersTab() {
   const [checks, setChecks] = useState<Record<string, "checking" | ProviderCheckResult>>({});
   const checkMutation = useCheckProvider();
 
+  // Bumped whenever a provider's credential changes, so a check that was
+  // running for the old credential can't report onto the new one.
+  const checkGeneration = useRef<Record<string, number>>({});
+
+  function forgetCheck(providerId: string) {
+    checkGeneration.current[providerId] = (checkGeneration.current[providerId] ?? 0) + 1;
+    setChecks((prev) => {
+      const { [providerId]: _stale, ...rest } = prev;
+      return rest;
+    });
+  }
+
   async function runCheck(provider: ProviderInfo) {
+    const generation = (checkGeneration.current[provider.id] ?? 0) + 1;
+    checkGeneration.current[provider.id] = generation;
     setChecks((prev) => ({ ...prev, [provider.id]: "checking" }));
     let result: ProviderCheckResult;
     try {
@@ -255,25 +279,28 @@ function ProvidersTab() {
         keyRejected: false,
       };
     }
+    if (checkGeneration.current[provider.id] !== generation) return;
     setChecks((prev) => ({ ...prev, [provider.id]: result }));
   }
 
   function handleConnected(provider: ProviderInfo) {
-    // A new credential makes any earlier result stale.
-    setChecks((prev) => {
-      const { [provider.id]: _stale, ...rest } = prev;
-      return rest;
-    });
+    // A new credential makes any earlier or running check stale.
+    forgetCheck(provider.id);
     toast.success(`${provider.name} connected`, {
       action: { label: "Check it works", onClick: () => runCheck(provider) },
     });
   }
 
-  async function handleDisconnect(providerId: string) {
-    setDisconnecting(providerId);
+  async function handleDisconnect(provider: ProviderInfo) {
+    setDisconnecting(provider.id);
     try {
-      await disconnectMutation.mutateAsync(providerId);
-      toast.success("Provider disconnected");
+      await disconnectMutation.mutateAsync(provider.id);
+      forgetCheck(provider.id);
+      toast.success(
+        hasZenKey(provider)
+          ? "OpenCode Zen key removed. The free models are still available."
+          : "Provider disconnected",
+      );
     } catch {
       toast.error("Failed to disconnect");
     } finally {
@@ -442,13 +469,25 @@ function ProvidersTab() {
                       {check === "checking" && <Loader2 className="h-3 w-3 animate-spin" />}
                       {check === "checking" ? "Checking" : "Check"}
                     </button>
-                    {provider.id !== "opencode" && (
+                    {isFreeZen(provider) ? (
+                      // Zen's free tier is always connected; a key unlocks the paid models.
                       <button
-                        onClick={() => handleDisconnect(provider.id)}
+                        onClick={() => setConnecting(provider)}
+                        className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        Add key
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleDisconnect(provider)}
                         disabled={disconnecting === provider.id}
                         className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
                       >
-                        {disconnecting === provider.id ? "..." : "Disconnect"}
+                        {disconnecting === provider.id
+                          ? "..."
+                          : hasZenKey(provider)
+                            ? "Remove key"
+                            : "Disconnect"}
                       </button>
                     )}
                   </div>
@@ -459,12 +498,12 @@ function ProvidersTab() {
                       ) : (
                         <>
                           <span className="text-red-700 dark:text-red-400">{check.message}</span>
-                          {check.keyRejected && provider.id !== "opencode" && (
+                          {check.keyRejected && (
                             <button
                               onClick={() => setConnecting(provider)}
                               className="ml-1.5 font-medium text-foreground underline-offset-2 hover:underline"
                             >
-                              Reconnect
+                              {isFreeZen(provider) ? "Add key" : "Reconnect"}
                             </button>
                           )}
                         </>

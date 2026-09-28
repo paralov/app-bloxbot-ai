@@ -91,8 +91,9 @@ export function authErrorMessage(error: unknown): string | undefined {
   if (error instanceof Error) {
     message = error.message;
   } else if (error && typeof error === "object" && "data" in error) {
-    const data = (error as { data?: { message?: unknown } }).data;
-    message = data?.message;
+    const data = (error as { data?: { message?: unknown; responseBody?: unknown } }).data;
+    message =
+      typeof data?.message === "string" && data.message.trim() ? data.message : data?.responseBody;
   }
   if (typeof message !== "string") return undefined;
   const trimmed = message.trim();

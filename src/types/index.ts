@@ -22,4 +22,6 @@ export interface ProviderInfo {
   id: string;
   name: string;
   env: string[];
+  /** "api" when a key or sign-in is stored; OpenCode Zen's free tier reports "custom". */
+  source?: "env" | "config" | "custom" | "api";
 }
