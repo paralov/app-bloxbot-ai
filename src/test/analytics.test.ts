@@ -5,6 +5,7 @@ import {
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
+  maskModelUsage,
   setDetailedAnalyticsEnabled,
 } from "@/lib/analytics";
 
@@ -123,5 +124,17 @@ describe("PostHog analytics", () => {
     expect(
       errorAnalyticsProperties("providers", "oauth", new Error("x"), { error_type: "timeout" }),
     ).toMatchObject({ error_type: "timeout" });
+  });
+
+  it("masks model and provider names in text unless detailed analytics is on", () => {
+    const message = "OpenAI: gpt-5.6-terra-pro (GPT-5.6 Terra Pro) is not available to this key";
+    const names = { provider: "openai", models: ["gpt-5.6-terra-pro", "GPT-5.6 Terra Pro"] };
+    setDetailedAnalyticsEnabled(false);
+    expect(maskModelUsage(message, names)).toBe(
+      "<provider>: <model> (<model>) is not available to this key",
+    );
+    setDetailedAnalyticsEnabled(true);
+    expect(maskModelUsage(message, names)).toBe(message);
+    setDetailedAnalyticsEnabled(false);
   });
 });

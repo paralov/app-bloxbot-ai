@@ -49,6 +49,11 @@ const SECRET_PATTERNS: ReadonlyArray<
   [/\bxox[abposr]-[A-Za-z0-9-]{10,}/g, REDACTED],
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, REDACTED],
   [/\b(?:gsk|xai|pplx|hf|glpat|npm)[_-][A-Za-z0-9_-]{16,}/g, REDACTED],
+  // Email addresses, such as the account a provider error names.
+  [
+    /(?<![\p{L}\p{N}._%+-])[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}(?![\p{L}\p{N}])/gu,
+    "<email>",
+  ],
   // JSON Web Tokens.
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, REDACTED],
 ];

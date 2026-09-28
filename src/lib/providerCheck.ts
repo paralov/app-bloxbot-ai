@@ -1,9 +1,15 @@
 import type { AssistantMessage, Model, Provider } from "@opencode-ai/sdk/v2/client";
 
-/** Why a check ran on the model it did; reported with the check's outcome. */
-export type CheckModelChoice = "selected" | "default" | "cheapest";
+import { splitModelKey } from "@/lib/splitModelKey";
 
-export type CheckModel = { model: Model; choice: CheckModelChoice };
+/**
+ * How the checked model relates to the user's setup: the model they chat
+ * with, the provider's default, or another one they picked for the check.
+ */
+export type CheckModelChoice = "selected" | "default" | "other";
+
+/** The models a check prefers: the user's chat model and the provider's default. */
+export type CheckPreference = { selected?: string; default?: string };
 
 /**
  * Whether a model can hold the check's conversation: text in, text out, and
@@ -21,33 +27,56 @@ export function canChat(model: Model): boolean {
 }
 
 /**
- * The model a connection check runs on. The user's selected chat model comes
- * first (it's what they actually use), then the provider's default, then the
- * cheapest model that can chat, so checking a pay-per-use key costs little.
- * A model that can't chat is never picked: it would report a working
- * connection as broken.
+ * The preferred check models for one provider: the user's selected chat model
+ * when it's from this provider, and the provider's default.
  */
+export function checkPreference(
+  providerID: string,
+  selectedModel: string | null | undefined,
+  defaults: Record<string, string> | undefined,
+): CheckPreference {
+  const [selectedProviderID, selectedModelID] = selectedModel ? splitModelKey(selectedModel) : [];
+  return {
+    selected: selectedProviderID === providerID ? selectedModelID : undefined,
+    default: defaults?.[providerID],
+  };
+}
+
+/**
+ * The provider's models a check can run on, in the order the picker lists
+ * them: the user's selected chat model, then the provider's default, then the
+ * rest by name with alpha models last. A model that can't chat is never
+ * listed: it would report a working connection as broken.
+ */
+export function checkModels(
+  provider: Pick<Provider, "models">,
+  preferred: CheckPreference = {},
+): Model[] {
+  const rank = (m: Model) =>
+    m.id === preferred.selected ? 0 : m.id === preferred.default ? 1 : m.status === "alpha" ? 3 : 2;
+  return Object.values(provider.models)
+    .filter(canChat)
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+/** The model a check starts on (the first of checkModels). */
 export function pickCheckModel(
   provider: Pick<Provider, "models">,
-  preferred: { selected?: string; default?: string } = {},
-): CheckModel | undefined {
-  for (const choice of ["selected", "default"] as const) {
-    const id = preferred[choice];
-    const model = id ? provider.models[id] : undefined;
-    if (model && canChat(model)) return { model, choice };
-  }
-  const usable = Object.values(provider.models).filter(canChat);
-  const stable = usable.filter((m) => m.status !== "alpha");
-  const model = [...(stable.length > 0 ? stable : usable)].sort(
-    (a, b) =>
-      a.cost.input + a.cost.output - (b.cost.input + b.cost.output) || a.id.localeCompare(b.id),
-  )[0];
-  return model ? { model, choice: "cheapest" } : undefined;
+  preferred: CheckPreference = {},
+): Model | undefined {
+  return checkModels(provider, preferred)[0];
+}
+
+/** How a checked model relates to the user's setup, for analytics. */
+export function checkModelChoice(modelID: string, preferred: CheckPreference): CheckModelChoice {
+  if (modelID === preferred.selected) return "selected";
+  if (modelID === preferred.default) return "default";
+  return "other";
 }
 
 export type ProviderCheckResult =
   | { ok: true; modelName: string }
-  | { ok: false; message: string; keyRejected: boolean };
+  | { ok: false; message: string; keyRejected: boolean; modelName?: string };
 
 type ModelError = NonNullable<AssistantMessage["error"]>;
 

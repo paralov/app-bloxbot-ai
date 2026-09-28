@@ -1,7 +1,13 @@
 import type { AssistantMessage, Model } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
 
-import { checkFailure, pickCheckModel } from "@/lib/providerCheck";
+import {
+  checkFailure,
+  checkModelChoice,
+  checkModels,
+  checkPreference,
+  pickCheckModel,
+} from "@/lib/providerCheck";
 
 type ModelError = NonNullable<AssistantMessage["error"]>;
 
@@ -29,30 +35,10 @@ function model(
 
 const imageOnly = { output: { ...chat.output, text: false, image: true } };
 
-describe("pickCheckModel", () => {
-  it("picks the cheapest chat model so a check costs as little as possible", () => {
-    const provider = {
-      models: {
-        big: model("big", 15, 75),
-        small: model("small", 0.15, 0.6),
-        mid: model("mid", 3, 15),
-      },
-    };
-    expect(pickCheckModel(provider)).toMatchObject({ model: { id: "small" }, choice: "cheapest" });
-  });
+describe("checkModels", () => {
+  const ids = (models: Model[]) => models.map((m) => m.id);
 
-  it("prefers free models and skips deprecated ones", () => {
-    const provider = {
-      models: {
-        old: model("old", 0, 0, "deprecated"),
-        free: model("free", 0, 0),
-        paid: model("paid", 1, 2),
-      },
-    };
-    expect(pickCheckModel(provider)?.model.id).toBe("free");
-  });
-
-  it("skips models that can't hold a chat with tools", () => {
+  it("lists only models that can hold a chat with tools, by name", () => {
     const provider = {
       models: {
         "chatgpt-image-latest": model("chatgpt-image-latest", 0, 0, "active", imageOnly),
@@ -60,36 +46,37 @@ describe("pickCheckModel", () => {
         "speech-in": model("speech-in", 0, 0, "active", {
           input: { ...chat.input, text: false, audio: true },
         }),
+        old: model("old", 0, 0, "deprecated"),
         "gpt-5": model("gpt-5", 1.25, 10),
+        "gpt-4.1": model("gpt-4.1", 2, 8),
       },
     };
-    expect(pickCheckModel(provider)?.model.id).toBe("gpt-5");
+    expect(ids(checkModels(provider))).toEqual(["gpt-4.1", "gpt-5"]);
   });
 
-  it("prefers stable models over alpha ones, but uses alpha when that's all there is", () => {
-    const alpha = model("alpha", 0, 0, "alpha");
-    expect(pickCheckModel({ models: { alpha, beta: model("beta", 1, 1, "beta") } })?.model.id).toBe(
-      "beta",
-    );
-    expect(pickCheckModel({ models: { alpha } })?.model.id).toBe("alpha");
+  it("puts alpha models after the others", () => {
+    const provider = {
+      models: {
+        aardvark: model("aardvark", 0, 0, "alpha"),
+        beta: model("beta", 1, 1, "beta"),
+        zed: model("zed", 1, 1),
+      },
+    };
+    expect(ids(checkModels(provider))).toEqual(["beta", "zed", "aardvark"]);
   });
 
-  it("uses the user's selected model first, then the provider's default", () => {
+  it("puts the user's selected model first, then the provider's default", () => {
     const provider = {
       models: {
         cheap: model("cheap", 0, 0),
-        chosen: model("chosen", 3, 15),
+        "gpt-5.6-terra-pro": model("gpt-5.6-terra-pro", 15, 120),
         standard: model("standard", 1, 5),
       },
     };
-    expect(pickCheckModel(provider, { selected: "chosen", default: "standard" })).toMatchObject({
-      model: { id: "chosen" },
-      choice: "selected",
-    });
-    expect(pickCheckModel(provider, { default: "standard" })).toMatchObject({
-      model: { id: "standard" },
-      choice: "default",
-    });
+    expect(
+      ids(checkModels(provider, { selected: "gpt-5.6-terra-pro", default: "standard" })),
+    ).toEqual(["gpt-5.6-terra-pro", "standard", "cheap"]);
+    expect(pickCheckModel(provider, { default: "standard" })?.id).toBe("standard");
   });
 
   it("passes over a selected or default model that can't chat or doesn't exist", () => {
@@ -100,14 +87,8 @@ describe("pickCheckModel", () => {
         fine: model("fine", 2, 8),
       },
     };
-    expect(pickCheckModel(provider, { selected: "image", default: "fine" })).toMatchObject({
-      model: { id: "fine" },
-      choice: "default",
-    });
-    expect(pickCheckModel(provider, { selected: "missing", default: "old" })).toMatchObject({
-      model: { id: "fine" },
-      choice: "cheapest",
-    });
+    expect(pickCheckModel(provider, { selected: "image", default: "old" })?.id).toBe("fine");
+    expect(pickCheckModel(provider, { selected: "missing" })?.id).toBe("fine");
   });
 
   it("returns nothing when no model can chat", () => {
@@ -115,12 +96,37 @@ describe("pickCheckModel", () => {
     expect(
       pickCheckModel(
         { models: { image: model("image", 0, 0, "active", imageOnly) } },
-        {
-          selected: "image",
-        },
+        { selected: "image" },
       ),
     ).toBeUndefined();
     expect(pickCheckModel({ models: {} })).toBeUndefined();
+  });
+});
+
+describe("checkPreference", () => {
+  it("uses the selected chat model only when it's from this provider", () => {
+    const defaults = { openrouter: "std" };
+    expect(checkPreference("openrouter", "openrouter/org/picked", defaults)).toEqual({
+      selected: "org/picked",
+      default: "std",
+    });
+    expect(checkPreference("openrouter", "anthropic/claude-sonnet", defaults)).toEqual({
+      selected: undefined,
+      default: "std",
+    });
+    expect(checkPreference("openai", null, undefined)).toEqual({
+      selected: undefined,
+      default: undefined,
+    });
+  });
+});
+
+describe("checkModelChoice", () => {
+  it("says whether the checked model is the selected one, the default, or another", () => {
+    const preferred = { selected: "a", default: "b" };
+    expect(checkModelChoice("a", preferred)).toBe("selected");
+    expect(checkModelChoice("b", preferred)).toBe("default");
+    expect(checkModelChoice("c", preferred)).toBe("other");
   });
 });
 

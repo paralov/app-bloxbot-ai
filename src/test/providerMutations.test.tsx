@@ -5,7 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { useCheckProvider } from "@/hooks/mutations/useCheckProvider";
 import { useDisconnectProvider, useSetApiKey } from "@/hooks/mutations/useSetApiKey";
+import { setDetailedAnalyticsEnabled } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
+
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
+  default: { capture, register: vi.fn() },
+}));
 
 const client = {
   auth: { set: vi.fn(), remove: vi.fn() },
@@ -124,7 +130,9 @@ describe("useCheckProvider", () => {
 
     const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
 
-    await expect(result.current.mutateAsync("opencode-go")).resolves.toEqual({
+    await expect(
+      result.current.mutateAsync({ providerID: "opencode-go", modelID: "kimi-k3" }),
+    ).resolves.toEqual({
       ok: true,
       modelName: "Kimi K3",
     });
@@ -141,57 +149,155 @@ describe("useCheckProvider", () => {
     );
   });
 
-  it("checks the model the user chats with when it's from this provider", async () => {
-    const qc = new QueryClient();
-    const models = {
-      cheap: {
-        id: "cheap",
-        name: "Cheap",
-        status: "active",
-        cost: { input: 0, output: 0 },
-        capabilities: chat,
-      },
-      std: {
-        id: "std",
-        name: "Standard",
-        status: "active",
-        cost: { input: 1, output: 5 },
-        capabilities: chat,
-      },
-      "org/picked": {
-        id: "org/picked",
-        name: "Picked",
-        status: "active",
-        cost: { input: 3, output: 15 },
-        capabilities: chat,
-      },
+  function chatModel(id: string, name = id) {
+    return {
+      id,
+      name,
+      status: "active",
+      cost: { input: 1, output: 1 },
+      capabilities: chat,
     };
+  }
+
+  function openaiProviders() {
+    const qc = new QueryClient();
     qc.setQueryData(qk.providers, {
-      all: [{ id: "openrouter", models }],
-      connected: ["openrouter"],
-      default: { openrouter: "std" },
+      all: [
+        {
+          id: "openai",
+          models: {
+            "gpt-5.6-terra-pro": chatModel("gpt-5.6-terra-pro", "GPT-5.6 Terra Pro"),
+            "gpt-5.6-terra": chatModel("gpt-5.6-terra", "GPT-5.6 Terra"),
+            "gpt-image": {
+              ...chatModel("gpt-image"),
+              capabilities: { ...chat, output: { ...chat.output, text: false, image: true } },
+            },
+          },
+        },
+      ],
+      connected: ["openai"],
+      default: { openai: "gpt-5.6-terra-pro" },
     });
+    client.session.create.mockReset();
     client.session.create.mockResolvedValue({ data: { id: "check-session" } });
+    client.session.delete.mockReset();
     client.session.delete.mockResolvedValue({ data: true });
+    client.session.prompt.mockReset();
     client.permission.list.mockResolvedValue({ data: [] });
+    capture.mockClear();
+    preferences.selectedModel = null;
+    setDetailedAnalyticsEnabled(false);
+    return qc;
+  }
+
+  it("checks the model the user picked, once", async () => {
+    const qc = openaiProviders();
+    setDetailedAnalyticsEnabled(true);
     client.session.prompt.mockResolvedValue({ data: { info: {}, parts: [] } });
-    preferences.selectedModel = "openrouter/org/picked";
-    const { result, rerender } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
-    await expect(result.current.mutateAsync("openrouter")).resolves.toEqual({
-      ok: true,
-      modelName: "Picked",
+
+    const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
+
+    await expect(
+      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-5.6-terra" }),
+    ).resolves.toEqual({ ok: true, modelName: "GPT-5.6 Terra" });
+    expect(client.session.prompt).toHaveBeenCalledOnce();
+    expect(client.session.prompt.mock.calls[0][0].model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.6-terra",
     });
-    expect(client.session.prompt.mock.lastCall?.[0].model).toEqual({
-      providerID: "openrouter",
-      modelID: "org/picked",
+    expect(capture).toHaveBeenCalledOnce();
+    const [event, properties] = capture.mock.calls[0];
+    expect(event).toBe("provider_checked");
+    expect(properties).toMatchObject({
+      outcome: "success",
+      model_choice: "other",
+      provider: "openai",
+      model: "gpt-5.6-terra",
+    });
+    expect(properties).not.toHaveProperty("error_message");
+  });
+
+  it("reports a failure once, with the model and a scrubbed message", async () => {
+    const qc = openaiProviders();
+    client.session.prompt.mockResolvedValue({
+      data: {
+        info: {
+          error: {
+            name: "APIError",
+            data: {
+              message:
+                "The model is not available on your plan (key sk-proj-abcdefghijklmnop1234).",
+              statusCode: 400,
+              isRetryable: false,
+            },
+          },
+        },
+        parts: [],
+      },
     });
 
-    // A model from another provider doesn't count; the provider's default is next.
-    preferences.selectedModel = "anthropic/claude-sonnet";
-    rerender();
-    await expect(result.current.mutateAsync("openrouter")).resolves.toMatchObject({
-      modelName: "Standard",
+    const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
+
+    await expect(
+      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-5.6-terra-pro" }),
+    ).resolves.toMatchObject({
+      ok: false,
+      keyRejected: false,
+      modelName: "GPT-5.6 Terra Pro",
+    });
+    // One attempt only, even though another model could chat.
+    expect(client.session.prompt).toHaveBeenCalledOnce();
+    expect(client.session.delete).toHaveBeenCalledOnce();
+    const properties = capture.mock.calls[0][1];
+    expect(properties).toMatchObject({
+      outcome: "failure",
+      model_choice: "default",
+      key_rejected: false,
+      error_name: "APIError",
+    });
+    expect(properties.error_message).toContain("not available on your plan");
+    expect(properties.error_message).not.toContain("sk-proj-abcdefghijklmnop1234");
+  });
+
+  it("says when the check ran on the model the user chats with", async () => {
+    const qc = openaiProviders();
+    preferences.selectedModel = "openai/gpt-5.6-terra";
+    client.session.prompt.mockResolvedValue({
+      data: {
+        info: {
+          error: { name: "ProviderAuthError", data: { providerID: "openai", message: "Expired" } },
+        },
+        parts: [],
+      },
+    });
+
+    const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
+
+    await expect(
+      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-5.6-terra" }),
+    ).resolves.toEqual({
+      ok: false,
+      message: "Expired",
+      keyRejected: true,
+      modelName: "GPT-5.6 Terra",
+    });
+    expect(capture.mock.calls[0][1]).toMatchObject({
+      model_choice: "selected",
+      key_rejected: true,
+      error_message: "Expired",
     });
     preferences.selectedModel = null;
+  });
+
+  it("doesn't send a check to a model that can't chat", async () => {
+    const qc = openaiProviders();
+
+    const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
+
+    await expect(
+      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-image" }),
+    ).resolves.toMatchObject({ ok: false, keyRejected: false });
+    expect(client.session.create).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
   });
 });

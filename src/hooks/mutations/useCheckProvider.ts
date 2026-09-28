@@ -2,19 +2,26 @@ import type { OpencodeClient, ProviderListResponse } from "@opencode-ai/sdk/v2/c
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
-import { analyticsProperties, detailedAnalyticsProperties } from "@/lib/analytics";
-import { checkFailure, type ProviderCheckResult, pickCheckModel } from "@/lib/providerCheck";
+import { analyticsProperties, detailedAnalyticsProperties, maskModelUsage } from "@/lib/analytics";
+import { scrubErrorMessage } from "@/lib/errorReporting";
+import {
+  canChat,
+  checkFailure,
+  checkModelChoice,
+  checkPreference,
+  type ProviderCheckResult,
+} from "@/lib/providerCheck";
 import { qk } from "@/lib/queryKeys";
-import { splitModelKey } from "@/lib/splitModelKey";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
 
+export type CheckProviderInput = { providerID: string; modelID: string };
+
 /**
- * Sends one short message through one of a provider's chat models (the user's
- * selected model if it's from this provider, else the provider's default, else
- * the cheapest one that can chat), the same way a chat would, to show whether
- * its key or sign-in actually works. Only runs when the user asks: checking on
- * save would spend their credits unasked.
+ * Sends one short message through the chat model the user picked, the same
+ * way a chat would, to show whether the provider's key or sign-in works with
+ * it. Only runs when the user asks: checking on save would spend their
+ * credits unasked.
  */
 export function useCheckProvider() {
   const { client } = useOpenCodeClient();
@@ -22,27 +29,21 @@ export function useCheckProvider() {
   const { selectedModel } = usePreferences();
 
   return useMutation({
-    mutationFn: async (providerID: string): Promise<ProviderCheckResult> => {
+    mutationFn: async ({
+      providerID,
+      modelID,
+    }: CheckProviderInput): Promise<ProviderCheckResult> => {
       if (!client) throw new Error("No client");
       const providers = queryClient.getQueryData<ProviderListResponse>(qk.providers);
       const provider = providers?.all.find((p) => p.id === providerID);
-      const [selectedProviderID, selectedModelID] = selectedModel
-        ? splitModelKey(selectedModel)
-        : [];
-      const picked = provider
-        ? pickCheckModel(provider, {
-            selected: selectedProviderID === providerID ? selectedModelID : undefined,
-            default: providers?.default[providerID],
-          })
-        : undefined;
-      if (!picked) {
+      const model = provider?.models[modelID];
+      if (!model || !canChat(model)) {
         return {
           ok: false,
-          message: "This provider has no chat models to test with.",
+          message: "This model can't be tested. Pick one that can chat.",
           keyRejected: false,
         };
       }
-      const { model, choice } = picked;
 
       const created = await client.session.create(
         {
@@ -70,14 +71,28 @@ export function useCheckProvider() {
         );
         const error = response.data.info.error;
         const result: ProviderCheckResult = error
-          ? checkFailure(error)
+          ? { ...checkFailure(error), modelName: model.name }
           : { ok: true, modelName: model.name };
         posthog.capture(
           "provider_checked",
           analyticsProperties("providers", {
             outcome: result.ok ? "success" : "failure",
-            model_choice: choice,
-            ...(result.ok ? {} : { key_rejected: result.keyRejected, error_name: error?.name }),
+            model_choice: checkModelChoice(
+              model.id,
+              checkPreference(providerID, selectedModel, providers?.default),
+            ),
+            ...(result.ok
+              ? {}
+              : {
+                  key_rejected: result.keyRejected,
+                  error_name: error?.name,
+                  error_message: scrubErrorMessage(
+                    maskModelUsage(result.message, {
+                      provider: providerID,
+                      models: [model.id, model.name],
+                    }),
+                  ),
+                }),
             ...detailedAnalyticsProperties({ provider: providerID, model: model.id }),
           }),
         );

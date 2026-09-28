@@ -43,6 +43,11 @@ export function useAllProviders(): ProviderInfo[] {
   return data.all.map((p) => ({ id: p.id, name: p.name, env: p.env, source: p.source }));
 }
 
+/** OpenCode's provider list as it comes, with each model's full details. */
+export function useProviderList(): ProviderListResponse | undefined {
+  return useProvidersQuery().data;
+}
+
 export function useConnectedProviders(): string[] {
   const { data } = useProvidersQuery();
   return data?.connected ?? [];
