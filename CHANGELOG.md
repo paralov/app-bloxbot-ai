@@ -10,6 +10,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 
 - Check's error reports include the model name again, since it helps tell where an error came from.
+- The Privacy settings say that error reports can name the provider and model an error came from, and stay on when Share AI usage data is off.
 
 ## [0.13.2] - 2026-09-28
 

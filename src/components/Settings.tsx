@@ -876,8 +876,9 @@ function PrivacyTab() {
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
         identifiers, but events stay anonymous: no person profile is created. Error reports are
-        included, with personal file paths, usernames and API keys removed. Attached images and
-        files are never uploaded.
+        included, with personal file paths, usernames, email addresses and API keys removed. They
+        can name the provider and model an error came from. Attached images and files are never
+        uploaded.
       </p>
 
       <div className="mt-6 rounded-lg border bg-card p-3.5">
@@ -888,8 +889,8 @@ function PrivacyTab() {
               Shares your prompts, AI responses and reasoning, tool calls and their results, code
               changes, instruction files like AGENTS.md, timings, provider and model names, token
               counts, and Roblox place IDs and names, on by default. Turn this off to keep
-              conversations and model usage out of analytics; basic app health events remain
-              enabled.
+              conversations and model usage out of analytics. Basic app health events and error
+              reports remain enabled.
             </p>
           </div>
           <button
