@@ -1,6 +1,6 @@
 import type { Model } from "@opencode-ai/sdk/v2/client";
 import { Loader2, Search, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -12,43 +12,52 @@ const SEARCH_THRESHOLD = 8;
  * The Check button for a connected provider. It opens a list of the
  * provider's chat models so the user can pick the one to test, since only
  * they know which models their plan includes. The first listed model is
- * picked to start with.
+ * picked to start with. Open state is controlled so other actions, like the
+ * toast after connecting, can open it too.
  */
 export default function ProviderCheckPopover({
   providerName,
   models,
   checking,
+  open,
+  onOpenChange,
   onCheck,
 }: {
   providerName: string;
   /** The provider's chat models, the preselected one first. */
   models: Model[];
   checking: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onCheck: (model: Model) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [pickedId, setPickedId] = useState<string>();
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const picked = models.find((m) => m.id === pickedId) ?? models[0];
   const needle = search.trim().toLowerCase();
   const visible = useMemo(
     () =>
       needle ? models.filter((m) => `${m.name} ${m.id}`.toLowerCase().includes(needle)) : models,
     [models, needle],
   );
+  // The Check button always names a model the list is showing.
+  const picked = visible.find((m) => m.id === pickedId) ?? visible[0];
 
-  function handleOpenChange(next: boolean) {
-    setOpen(next);
-    if (next) {
-      setPickedId(models[0]?.id);
+  // Each opening starts from the preselected model with no search. A model
+  // list refresh while open keeps the user's pick.
+  const firstId = models[0]?.id;
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setPickedId(firstId);
       setSearch("");
     }
-  }
+    wasOpen.current = open;
+  }, [open, firstId]);
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -138,7 +147,7 @@ export default function ProviderCheckPopover({
             <button
               type="button"
               onClick={() => {
-                setOpen(false);
+                onOpenChange(false);
                 onCheck(picked);
               }}
               className="w-full truncate rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

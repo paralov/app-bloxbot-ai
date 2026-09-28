@@ -264,6 +264,7 @@ function ProvidersTab() {
   // Bumped whenever a provider's credential changes, so a check that was
   // running for the old credential can't report onto the new one.
   const checkGeneration = useRef<Record<string, number>>({});
+  const [checkPickerFor, setCheckPickerFor] = useState<string | null>(null);
 
   function forgetCheck(providerId: string) {
     checkGeneration.current[providerId] = (checkGeneration.current[providerId] ?? 0) + 1;
@@ -317,7 +318,9 @@ function ProvidersTab() {
     toast.success(`${provider.name} connected`, {
       action: {
         label: "Check it works",
-        onClick: () => runCheck(provider, checkModelsFor.current(provider.id)[0]),
+        // Opens the picker rather than checking a guessed model: only the
+        // user knows which models their key or plan includes.
+        onClick: () => setCheckPickerFor(provider.id),
       },
     });
   }
@@ -518,6 +521,8 @@ function ProvidersTab() {
                       providerName={providerDisplayName(provider)}
                       models={checkModelsFor.current(provider.id)}
                       checking={check === "checking"}
+                      open={checkPickerFor === provider.id}
+                      onOpenChange={(open) => setCheckPickerFor(open ? provider.id : null)}
                       onCheck={(model) => runCheck(provider, model)}
                     />
                     {/* The free models can't be disconnected, and BloxBot can't
