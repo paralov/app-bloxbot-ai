@@ -12,6 +12,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Sign in to OpenAI with a device code as well as in the browser, so a ChatGPT Plus or Pro plan still connects when the browser sign-in can't finish.
 - Settings → Providers shows provider logos, says how each provider connects, and has a search box.
 - Providers that ask a question before signing in, such as GitHub Enterprise for Copilot, now ask it.
+- Settings → Providers recommends OpenCode Go ($10/month, or Go Plus at $40/month) to people using only the free models, and walks through setting it up.
 
 ### Fixed
 

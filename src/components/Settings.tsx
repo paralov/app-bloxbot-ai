@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import ProviderConnectDialog from "@/components/ProviderConnectDialog";
@@ -11,8 +12,9 @@ import {
   useAuthMethods,
   useConnectedProviders,
 } from "@/hooks/useProviders";
-import { analyticsDeviceId } from "@/lib/analytics";
+import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
+import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
 import { connectHint } from "@/lib/providerAuth";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
@@ -21,6 +23,7 @@ import type { UpdateInfo } from "@/types/desktop";
 // ── Popular providers (same order as OpenCode's web UI) ──────────────
 const POPULAR_PROVIDERS = [
   "opencode",
+  "opencode-go",
   "anthropic",
   "github-copilot",
   "openai",
@@ -256,12 +259,26 @@ function ProvidersTab() {
 
   const connected = allProviders.filter((p) => connectedProviders.includes(p.id) && matches(p));
 
+  const goProvider = allProviders.find((p) => p.id === OPENCODE_GO.providerId);
+  const recommendGo = !!goProvider && !needle && shouldRecommendOpenCodeGo(connectedProviders);
+
+  function setUpGo(source: "recommendation" | "list") {
+    if (!goProvider) return;
+    posthog.capture(
+      "provider_recommendation_clicked",
+      analyticsProperties("providers", { provider: OPENCODE_GO.providerId, source }),
+    );
+    setConnecting(goProvider);
+  }
+
   // Popular first in OpenCode's order, then everything else alphabetically
   const { popular, others } = useMemo(() => {
     const pop: ProviderInfo[] = [];
     const oth: ProviderInfo[] = [];
     for (const p of allProviders) {
       if (connectedProviders.includes(p.id) || !matches(p)) continue;
+      // The recommendation card already offers Go.
+      if (recommendGo && p.id === OPENCODE_GO.providerId) continue;
       if (POPULAR_PROVIDERS.includes(p.id)) {
         pop.push(p);
       } else {
@@ -271,7 +288,7 @@ function ProvidersTab() {
     pop.sort((a, b) => POPULAR_PROVIDERS.indexOf(a.id) - POPULAR_PROVIDERS.indexOf(b.id));
     oth.sort((a, b) => a.name.localeCompare(b.name));
     return { popular: pop, others: oth };
-  }, [allProviders, connectedProviders, matches]);
+  }, [allProviders, connectedProviders, matches, recommendGo]);
 
   const nothingMatches =
     allProviders.length > 0 && connected.length + popular.length + others.length === 0;
@@ -287,7 +304,9 @@ function ProvidersTab() {
           </div>
         </div>
         <button
-          onClick={() => setConnecting(provider)}
+          onClick={() =>
+            provider.id === OPENCODE_GO.providerId ? setUpGo("list") : setConnecting(provider)
+          }
           className="shrink-0 rounded-md border bg-background px-3 py-1 text-[11px] font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           Connect
@@ -314,6 +333,38 @@ function ProvidersTab() {
             aria-label="Search providers"
             className="h-8 w-full rounded-md border bg-background pr-2 pl-8 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
           />
+        </div>
+      )}
+
+      {recommendGo && (
+        <div className="mt-6 rounded-lg border bg-card p-4">
+          <div className="flex items-start gap-3">
+            <ProviderLogo providerId={OPENCODE_GO.providerId} name="OpenCode Go" />
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Want more than the free models?</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                OpenCode Go is a low-cost subscription to strong open coding models, such as Kimi,
+                GLM, Qwen and DeepSeek, in one plan. Go is {OPENCODE_GO.goPrice}; Go Plus is{" "}
+                {OPENCODE_GO.goPlusPrice} with higher limits.
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  onClick={() => setUpGo("recommendation")}
+                  className="rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  Set up OpenCode Go
+                </button>
+                <button
+                  onClick={() => {
+                    desktop.openUrl(OPENCODE_GO.plansUrl).catch(() => {});
+                  }}
+                  className="text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                >
+                  Compare plans
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

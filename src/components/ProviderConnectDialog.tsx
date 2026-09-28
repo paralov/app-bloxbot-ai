@@ -10,6 +10,7 @@ import {
 import { useSetApiKey } from "@/hooks/mutations/useSetApiKey";
 import { useAuthMethods, useConnectedProviders } from "@/hooks/useProviders";
 import { desktop } from "@/lib/desktop";
+import { OPENCODE_GO } from "@/lib/opencodeGo";
 import {
   type AuthMethodOption,
   authErrorMessage,
@@ -43,6 +44,9 @@ const PROVIDER_META: Record<string, { placeholder?: string; helpUrl?: string }> 
   openrouter: {
     placeholder: "sk-or-...",
     helpUrl: "https://openrouter.ai/keys",
+  },
+  [OPENCODE_GO.providerId]: {
+    helpUrl: OPENCODE_GO.consoleUrl,
   },
 };
 
@@ -479,6 +483,7 @@ function ProviderConnectDialog({ provider, onClose }: ProviderConnectDialogProps
 
         {state.step === "apikey" && (
           <div className="mt-4 space-y-2">
+            {provider.id === OPENCODE_GO.providerId && <OpenCodeGoSetup />}
             <div className="flex gap-2">
               <input
                 type="password"
@@ -505,7 +510,7 @@ function ProviderConnectDialog({ provider, onClose }: ProviderConnectDialogProps
                 {saving ? "..." : "Save"}
               </button>
             </div>
-            {meta?.helpUrl && (
+            {meta?.helpUrl && provider.id !== OPENCODE_GO.providerId && (
               <a
                 href={meta.helpUrl}
                 target="_blank"
@@ -519,6 +524,37 @@ function ProviderConnectDialog({ provider, onClose }: ProviderConnectDialogProps
         )}
       </div>
     </div>
+  );
+}
+
+function OpenCodeGoSetup() {
+  return (
+    <ol className="mb-3 space-y-2 text-[11px] leading-relaxed text-muted-foreground">
+      <li className="flex gap-2">
+        <span className="font-medium text-foreground">1.</span>
+        <span>
+          Subscribe to Go ({OPENCODE_GO.goPrice}) or Go Plus ({OPENCODE_GO.goPlusPrice}, higher
+          limits) in the OpenCode console.{" "}
+          <button
+            onClick={() => {
+              desktop.openUrl(OPENCODE_GO.consoleUrl).catch(() => {});
+            }}
+            className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            Open the console
+            <ExternalLink className="h-3 w-3" />
+          </button>
+        </span>
+      </li>
+      <li className="flex gap-2">
+        <span className="font-medium text-foreground">2.</span>
+        <span>Copy your API key from the console.</span>
+      </li>
+      <li className="flex gap-2">
+        <span className="font-medium text-foreground">3.</span>
+        <span>Paste it here. Both plans use the same key.</span>
+      </li>
+    </ol>
   );
 }
 

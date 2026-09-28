@@ -136,6 +136,7 @@ export function oauthRecovery(
 
 const CONNECT_HINTS: Record<string, string> = {
   opencode: "Free models, or an OpenCode Zen key",
+  "opencode-go": "Subscription for open coding models, from $10/month",
   openai: "ChatGPT Plus or Pro plan, or an API key",
   "github-copilot": "GitHub Copilot subscription",
 };
