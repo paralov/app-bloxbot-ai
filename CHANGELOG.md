@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-28
+
 ### Added
 
 - BloxBot downloads signed updates to the small programs it runs against Roblox Studio (Explorer, and finding and checking the Studio to work in), so a change in Studio's MCP can be fixed without a new BloxBot release. It keeps the last verified copy and falls back to the programs it shipped with.
@@ -222,7 +224,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.0...v0.11.1
