@@ -21,6 +21,7 @@ import {
   startStudioMcpBroker,
   studioMcpStartSchedule,
 } from "../../electron/services/StudioMcpBroker";
+import { nodeStudioMcpHelperProbe } from "../../electron/studioMcpHelper";
 import { describeError } from "../lib/errorReporting";
 
 const tools: Tool[] = [
@@ -243,6 +244,8 @@ describe("Studio MCP startup (#106)", () => {
                 // No Roblox\mcp.bat under this LOCALAPPDATA, as on a PC without Studio.
                 platform: "win32",
                 localAppData: tmp,
+                // No Studio registry entry either, even when the tests run on a PC with Studio.
+                helperProbe: { ...nodeStudioMcpHelperProbe, queryContentFolder: async () => null },
                 onStartFailure,
                 startSchedule: instantSchedule,
               }),
@@ -329,5 +332,16 @@ describe("Studio MCP startup (#106)", () => {
       "MCP error -32000: Connection closed (exit code 1, stderr: The system cannot find the path specified.)",
     );
     expect(describeConnectFailure(new Error("boom"), undefined, "")).toBe("boom");
+  });
+
+  it("says how the Windows helper was found, without its path", () => {
+    expect(
+      describeConnectFailure(
+        new Error("MCP error -32000: Connection closed"),
+        { code: 1, signal: null },
+        "",
+        "registry",
+      ),
+    ).toBe("MCP error -32000: Connection closed (helper_source: registry, exit code 1)");
   });
 });

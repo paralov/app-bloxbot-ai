@@ -18,7 +18,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { Context, Data, Effect, Layer, Schedule } from "effect";
 
 import type { StudioMcpStatus } from "../../src/types/desktop";
-import { studioMcpCommand, studioMcpInstallPath } from "../opencodeConfig";
+import {
+  resolveStudioMcpHelper,
+  type StudioMcpHelper,
+  type StudioMcpHelperProbe,
+} from "../studioMcpHelper";
 
 const LOOPBACK = "127.0.0.1";
 
@@ -101,18 +105,17 @@ class SdkStudioMcpUpstream implements StudioMcpUpstream {
 
   private constructor() {}
 
-  static async connect(
-    command: string[],
-    cwd: string,
-    installPath: string | null = null,
-  ): Promise<SdkStudioMcpUpstream> {
-    const [executable, ...args] = command;
+  static async connect(helper: StudioMcpHelper, cwd: string): Promise<SdkStudioMcpUpstream> {
+    const { installPath, source } = helper;
+    const [executable, ...args] = helper.command;
     if (!executable) throw new Error("Studio MCP command is empty");
     if (installPath && !(await exists(installPath))) {
       throw new StudioMcpNotInstalledError({
         message: `Studio MCP helper not found at ${installPath}`,
       });
     }
+    if (source) process.stderr.write(`[studio-mcp] starting helper source=${source}\n`);
+    // Spawned directly, not through a shell, so paths with spaces need no quoting.
     const transport = new ObservedStdioClientTransport({
       command: executable,
       args,
@@ -133,7 +136,7 @@ class SdkStudioMcpUpstream implements StudioMcpUpstream {
       await transport.close().catch(() => undefined);
       if (classifyStudioMcpStartFailure(cause) === "not_installed") throw cause;
       throw new StudioMcpConnectError({
-        message: describeConnectFailure(cause, transport.exit, stderrTail),
+        message: describeConnectFailure(cause, transport.exit, stderrTail, source),
         cause,
       });
     }
@@ -202,8 +205,11 @@ export function describeConnectFailure(
   cause: unknown,
   exit: ProcessExit | undefined,
   stderr: string,
+  helperSource: StudioMcpHelper["source"] = null,
 ): string {
   const details: string[] = [];
+  // Which way the Windows helper was found. Never a path, since this goes into error reports.
+  if (helperSource) details.push(`helper_source: ${helperSource}`);
   if (exit?.code != null) details.push(`exit code ${exit.code}`);
   if (exit?.signal) details.push(`signal ${exit.signal}`);
   const trimmed = stderr.trim().replace(/\s+/g, " ");
@@ -500,6 +506,8 @@ export interface StudioMcpBrokerOptions {
   /** Called once when the startup attempts fail for a reason worth reporting. */
   onStartFailure?: (error: StudioMcpBrokerError) => void;
   startSchedule?: Schedule.Schedule<unknown, StudioMcpStartFailure>;
+  /** Replaces the file system and registry reads used to find the helper, for tests. */
+  helperProbe?: StudioMcpHelperProbe;
 }
 
 export function makeStudioMcpBrokerLayer(options: StudioMcpBrokerOptions) {
@@ -517,11 +525,11 @@ export function makeStudioMcpBrokerLayer(options: StudioMcpBrokerOptions) {
         catch: (cause) =>
           new StudioMcpBrokerError({ message: "Failed to create the BloxBot workspace", cause }),
       });
-      const connection = new StudioMcpConnection(() =>
+      // Found again on every attempt, so a Studio update between attempts is picked up.
+      const connection = new StudioMcpConnection(async () =>
         SdkStudioMcpUpstream.connect(
-          studioMcpCommand(platform, environment),
+          await resolveStudioMcpHelper(platform, environment, options.helperProbe),
           options.workspace,
-          studioMcpInstallPath(platform, environment),
         ),
       );
       // The broker starts without Studio so the rest of the app works while Studio is set up.
