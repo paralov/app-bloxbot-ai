@@ -15,6 +15,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Fixed
 
 - When Explorer has the model write its own program, that program works more often. It can call Studio's tools by the names the model sees, the model is told exactly which tools it may use, and BloxBot tries each program once before using it and gives the model one chance to fix a program that fails.
+- BloxBot no longer stops at a setup error when it can't reach Roblox Studio's MCP helper at launch. It retries for about 30 seconds, keeps working while it waits, and the Studio setup screen says how to fix it if Studio isn't installed or its helper keeps closing.
 
 ## [0.13.2] - 2026-09-28
 

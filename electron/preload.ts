@@ -12,6 +12,7 @@ const api: DesktopApi = {
   compileExplorerProgram: (program) =>
     ipcRenderer.invoke(channels.compileExplorerProgram, program),
   getOpenCodeInfo: () => ipcRenderer.invoke(channels.getOpenCodeInfo),
+  getStudioMcpStatus: () => ipcRenderer.invoke(channels.getStudioMcpStatus),
   onOpenCodeStartupProgress: (listener) => {
     const handleProgress = (_event: Electron.IpcRendererEvent, progress: OpenCodeStartupProgress) =>
       listener(progress);

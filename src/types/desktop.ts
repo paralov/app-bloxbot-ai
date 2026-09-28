@@ -85,6 +85,16 @@ export const UpdateInfoSchema = Schema.mutable(
 
 export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
+/**
+ * Whether BloxBot could start Roblox Studio's MCP helper. `not_installed` means the helper
+ * isn't on this computer, `unavailable` means it started but closed before it connected.
+ */
+export const StudioMcpStatusSchema = Schema.Struct({
+  state: Schema.Literal("starting", "connected", "not_installed", "unavailable"),
+});
+
+export type StudioMcpStatus = typeof StudioMcpStatusSchema.Type;
+
 /** A main-process error forwarded to the renderer, which reports it through PostHog. */
 export interface MainErrorReport {
   source: string;
@@ -102,6 +112,7 @@ export interface DesktopApi {
   /** The Studio tools an Explorer program may call now, by Studio's own name. */
   listExplorerProgramTools(): Promise<readonly string[]>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
+  getStudioMcpStatus(): Promise<StudioMcpStatus>;
   onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
   getVersion(): Promise<string>;
   getInstructionFiles(): Promise<readonly InstructionFile[]>;

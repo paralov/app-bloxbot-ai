@@ -32,7 +32,7 @@ import {
   GeneratedProgramRuntimeLive,
 } from "./services/GeneratedProgramRuntime";
 import { createBloxBotProgramStore } from "./services/BloxBotProgramStore";
-import { makeStudioMcpBrokerLayer } from "./services/StudioMcpBroker";
+import { makeStudioMcpBrokerLayer, StudioMcpBroker } from "./services/StudioMcpBroker";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultConfig: AppConfig = DEFAULT_APP_CONFIG;
@@ -87,6 +87,8 @@ const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
   localAppData: process.env.LOCALAPPDATA,
   comSpec: process.env.ComSpec,
   systemRoot: process.env.SystemRoot,
+  // Reported once per launch, after the startup retries, and not when Studio isn't installed.
+  onStartFailure: (error) => reportMainError("studio_mcp_broker_start", error),
 }).pipe(Layer.tapErrorCause(reportLayerFailure("studio_mcp_broker_start")));
 
 const openCodeRuntime = ManagedRuntime.make(
@@ -101,7 +103,7 @@ const openCodeRuntime = ManagedRuntime.make(
       },
     }).pipe(Layer.tapErrorCause(reportLayerFailure("opencode_start"))),
     GeneratedProgramRuntimeLive.pipe(Layer.provide(studioMcpBrokerLayer)),
-  ).pipe(Layer.provide(studioMcpBrokerLayer)),
+  ).pipe(Layer.provideMerge(studioMcpBrokerLayer)),
 );
 
 // Published BloxBot programs: downloaded, signature-checked and cached here so a
@@ -233,6 +235,9 @@ const registerIpcHandlers = Effect.sync(() => {
     openCodeRuntime.runPromise(
       OpenCode.pipe(Effect.flatMap((service) => service.info)),
     ),
+  );
+  ipcMain.handle(channels.getStudioMcpStatus, () =>
+    openCodeRuntime.runPromise(StudioMcpBroker.pipe(Effect.flatMap((broker) => broker.status))),
   );
   ipcMain.handle(channels.getVersion, () => runMain(Effect.sync(() => app.getVersion())));
   ipcMain.handle(channels.getInstructionFiles, () =>
