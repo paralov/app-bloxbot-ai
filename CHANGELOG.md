@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Check's error reports include the model name again, since it helps tell where an error came from.
+
 ## [0.13.2] - 2026-09-28
 
 ### Fixed
