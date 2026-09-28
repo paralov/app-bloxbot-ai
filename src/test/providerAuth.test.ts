@@ -174,6 +174,14 @@ describe("providerDisplayName", () => {
     );
   });
 
+  it("keeps the Zen name for a key from the environment or config", () => {
+    for (const source of ["env", "config"]) {
+      expect(providerDisplayName({ id: "opencode", name: "OpenCode Zen", source })).toBe(
+        "OpenCode Zen",
+      );
+    }
+  });
+
   it("uses the real name once a Zen key is added, and for every other provider", () => {
     expect(providerDisplayName({ id: "opencode", name: "OpenCode Zen", source: "api" })).toBe(
       "OpenCode Zen",

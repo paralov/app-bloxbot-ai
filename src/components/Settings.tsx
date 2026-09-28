@@ -16,7 +16,7 @@ import {
 import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
-import { connectHint, providerDisplayName } from "@/lib/providerAuth";
+import { connectHint, isFreeTier, providerDisplayName } from "@/lib/providerAuth";
 import type { ProviderCheckResult } from "@/lib/providerCheck";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
@@ -34,14 +34,17 @@ const POPULAR_PROVIDERS = [
   "vercel",
 ];
 
-/** OpenCode Zen with no key: its free models are connected without one. */
-function isFreeZen(provider: ProviderInfo): boolean {
-  return provider.id === "opencode" && provider.source !== "api";
-}
+/** OpenCode Zen with only the built-in free models. */
+const isFreeZen = isFreeTier;
 
-/** OpenCode Zen with a key, which falls back to the free models when removed. */
+/** OpenCode Zen with a key added in BloxBot, which falls back to the free models when removed. */
 function hasZenKey(provider: ProviderInfo): boolean {
   return provider.id === "opencode" && provider.source === "api";
+}
+
+/** OpenCode Zen with a key from the environment or config, which BloxBot can't remove. */
+function hasOutsideZenKey(provider: ProviderInfo): boolean {
+  return provider.id === "opencode" && !isFreeZen(provider) && !hasZenKey(provider);
 }
 
 const TECHNOLOGIES = [
@@ -318,7 +321,10 @@ function ProvidersTab() {
   const connected = allProviders.filter((p) => connectedProviders.includes(p.id) && matches(p));
 
   const goProvider = allProviders.find((p) => p.id === OPENCODE_GO.providerId);
-  const recommendGo = !!goProvider && !needle && shouldRecommendOpenCodeGo(connectedProviders);
+  const recommendGo =
+    !!goProvider &&
+    !needle &&
+    shouldRecommendOpenCodeGo(allProviders.filter((p) => connectedProviders.includes(p.id)));
 
   function setUpGo(source: "recommendation" | "list") {
     if (!goProvider) return;
@@ -493,7 +499,7 @@ function ProvidersTab() {
                       >
                         Add Zen key
                       </button>
-                    ) : (
+                    ) : hasOutsideZenKey(provider) ? null : (
                       <button
                         onClick={() => handleDisconnect(provider)}
                         disabled={disconnecting === provider.id}

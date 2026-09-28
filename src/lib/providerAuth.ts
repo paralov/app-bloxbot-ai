@@ -158,5 +158,14 @@ export function connectHint(providerId: string, methods: ProviderAuthMethod[] | 
  * models BloxBot includes, so they shouldn't read as a Zen account.
  */
 export function providerDisplayName(provider: { id: string; name: string; source?: string }) {
-  return provider.id === "opencode" && provider.source !== "api" ? "Free models" : provider.name;
+  return isFreeTier(provider) ? "Free models" : provider.name;
+}
+
+/**
+ * OpenCode Zen with only its built-in free models. OpenCode reports that tier as
+ * source "custom"; a Zen key shows up as "api" (added in BloxBot), or as "env"
+ * or "config" (an OPENCODE_API_KEY BloxBot passes through), which are paid.
+ */
+export function isFreeTier(provider: { id: string; source?: string }): boolean {
+  return provider.id === "opencode" && provider.source === "custom";
 }
