@@ -246,4 +246,5 @@ export const desktop: DesktopApi = {
   getBloxBotPrograms: () => runPromise(desktopEffects.getBloxBotPrograms),
   onBloxBotProgramsUpdated: (listener) =>
     window.bloxbot?.onBloxBotProgramsUpdated(listener) ?? (() => {}),
+  onMainError: (listener) => window.bloxbot?.onMainError(listener) ?? (() => {}),
 };

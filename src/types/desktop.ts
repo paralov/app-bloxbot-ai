@@ -85,6 +85,14 @@ export const UpdateInfoSchema = Schema.mutable(
 
 export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
+/** A main-process error forwarded to the renderer, which reports it through PostHog. */
+export interface MainErrorReport {
+  source: string;
+  name: string;
+  message: string;
+  stack?: string;
+}
+
 export interface DesktopApi {
   compileExplorerProgram(program: ExplorerProgramEnvelope): Promise<GeneratedProgramArtifact>;
   invokeExplorerProgram(
@@ -113,4 +121,9 @@ export interface DesktopApi {
   getBloxBotPrograms(): Promise<BloxBotProgramManifest | null>;
   /** Called when newer published BloxBot programs arrive; returns an unsubscribe. */
   onBloxBotProgramsUpdated(listener: () => void): () => void;
+  /**
+   * Receives errors from the main process so the renderer can report them. Subscribing
+   * tells the main process the window is ready, which flushes errors buffered until then.
+   */
+  onMainError(listener: (report: MainErrorReport) => void): () => void;
 }

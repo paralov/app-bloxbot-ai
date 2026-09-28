@@ -19,6 +19,18 @@ vi.mock("@/providers/OpenCodeClientProvider", () => ({
   useOpenCodeClient: () => ({ client }),
 }));
 
+const preferences = { selectedModel: null as string | null };
+
+vi.mock("@/providers/PreferencesProvider", () => ({
+  usePreferences: () => preferences,
+}));
+
+const chat = {
+  toolcall: true,
+  input: { text: true, audio: false, image: false, video: false, pdf: false },
+  output: { text: true, audio: false, image: false, video: false, pdf: false },
+};
+
 function wrapper(qc: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
@@ -80,11 +92,13 @@ describe("useCheckProvider", () => {
               name: "Kimi K3",
               status: "active",
               cost: { input: 3, output: 15 },
+              capabilities: chat,
             },
           },
         },
       ],
       connected: ["opencode-go"],
+      default: {},
     });
     client.session.create.mockResolvedValue({ data: { id: "check-session" } });
     client.session.delete.mockResolvedValue({ data: true });
@@ -125,5 +139,59 @@ describe("useCheckProvider", () => {
       { sessionID: "check-session" },
       { throwOnError: true },
     );
+  });
+
+  it("checks the model the user chats with when it's from this provider", async () => {
+    const qc = new QueryClient();
+    const models = {
+      cheap: {
+        id: "cheap",
+        name: "Cheap",
+        status: "active",
+        cost: { input: 0, output: 0 },
+        capabilities: chat,
+      },
+      std: {
+        id: "std",
+        name: "Standard",
+        status: "active",
+        cost: { input: 1, output: 5 },
+        capabilities: chat,
+      },
+      "org/picked": {
+        id: "org/picked",
+        name: "Picked",
+        status: "active",
+        cost: { input: 3, output: 15 },
+        capabilities: chat,
+      },
+    };
+    qc.setQueryData(qk.providers, {
+      all: [{ id: "openrouter", models }],
+      connected: ["openrouter"],
+      default: { openrouter: "std" },
+    });
+    client.session.create.mockResolvedValue({ data: { id: "check-session" } });
+    client.session.delete.mockResolvedValue({ data: true });
+    client.permission.list.mockResolvedValue({ data: [] });
+    client.session.prompt.mockResolvedValue({ data: { info: {}, parts: [] } });
+    preferences.selectedModel = "openrouter/org/picked";
+    const { result, rerender } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
+    await expect(result.current.mutateAsync("openrouter")).resolves.toEqual({
+      ok: true,
+      modelName: "Picked",
+    });
+    expect(client.session.prompt.mock.lastCall?.[0].model).toEqual({
+      providerID: "openrouter",
+      modelID: "org/picked",
+    });
+
+    // A model from another provider doesn't count; the provider's default is next.
+    preferences.selectedModel = "anthropic/claude-sonnet";
+    rerender();
+    await expect(result.current.mutateAsync("openrouter")).resolves.toMatchObject({
+      modelName: "Standard",
+    });
+    preferences.selectedModel = null;
   });
 });

@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import type { AppConfig, DesktopApi, OpenCodeStartupProgress } from "../src/types/desktop";
+import type {
+  AppConfig,
+  DesktopApi,
+  MainErrorReport,
+  OpenCodeStartupProgress,
+} from "../src/types/desktop";
 import { channels } from "./channels";
 
 const api: DesktopApi = {
@@ -34,6 +39,14 @@ const api: DesktopApi = {
     const handleUpdate = () => listener();
     ipcRenderer.on(channels.bloxbotProgramsUpdated, handleUpdate);
     return () => ipcRenderer.removeListener(channels.bloxbotProgramsUpdated, handleUpdate);
+  },
+  onMainError: (listener) => {
+    const handleError = (_event: Electron.IpcRendererEvent, report: MainErrorReport) =>
+      listener(report);
+    ipcRenderer.on(channels.mainError, handleError);
+    // Errors from before the window was listening are buffered in main until this arrives.
+    ipcRenderer.send(channels.mainErrorReady);
+    return () => ipcRenderer.removeListener(channels.mainError, handleError);
   },
 };
 

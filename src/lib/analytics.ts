@@ -1,7 +1,16 @@
-import type { PostHogInterface, Properties } from "posthog-js";
+import type { CaptureResult, PostHogInterface, Properties } from "posthog-js";
 // The same bundle main.tsx initializes; the package root resolves to a separate instance.
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { AiTracer, type StudioAnalyticsContext } from "@/lib/aiTracing";
+import {
+  createErrorDeduper,
+  describeError,
+  ERROR_STACK_MAX_LENGTH,
+  errorFromMainReport,
+  scrubErrorMessage,
+  scrubEventProperties,
+} from "@/lib/errorReporting";
+import type { MainErrorReport } from "@/types/desktop";
 
 export const POSTHOG_PROJECT_TOKEN = import.meta.env.VITE_POSTHOG_PROJECT_TOKEN?.trim() ?? "";
 export const POSTHOG_API_HOST = "https://eu.i.posthog.com";
@@ -44,11 +53,58 @@ export function errorAnalyticsProperties(
   error: unknown,
   properties: Properties = {},
 ): Properties {
+  const { type, message } = describeError(error);
   return analyticsProperties(feature, {
     outcome: "failure",
     phase,
-    error_type: error instanceof Error ? error.name : typeof error,
+    error_type: type,
+    // Scrubbed of paths, usernames and keys here and again in PostHog's before_send.
+    ...(message ? { error_message: scrubErrorMessage(message) } : {}),
     ...properties,
+  });
+}
+
+/** PostHog `before_send` hook: scrubs error text from every event before it leaves the device. */
+export function scrubAnalyticsEvent(event: CaptureResult | null): CaptureResult | null {
+  if (!event) return event;
+  return { ...event, properties: scrubEventProperties(event.properties) };
+}
+
+/**
+ * Reports an exception to PostHog error tracking. A no-op in development and whenever
+ * PostHog isn't initialized; PostHog's own opt-out and `before_send` scrubbing still apply.
+ */
+export function reportException(error: unknown, properties: Properties = {}): void {
+  try {
+    if (!posthog.__loaded) return;
+    posthog.captureException(error, properties);
+  } catch {
+    // Reporting must never be the thing that fails.
+  }
+}
+
+/** Scrubs and shortens a React component stack for an error report. */
+export function componentStackProperty(componentStack: string | null | undefined): string | null {
+  return componentStack ? scrubErrorMessage(componentStack.trim(), 2000) : null;
+}
+
+const MAIN_ERROR_DEDUPE_MS = 60_000;
+
+/** Reports errors forwarded from the Electron main process; returns an unsubscribe. */
+export function subscribeToMainErrors(
+  subscribe: (listener: (report: MainErrorReport) => void) => () => void,
+): () => void {
+  const shouldReport = createErrorDeduper(MAIN_ERROR_DEDUPE_MS);
+  return subscribe((report) => {
+    if (!shouldReport(`${report.source}\u0000${report.name}\u0000${report.message}`)) return;
+    reportException(
+      errorFromMainReport({
+        ...report,
+        message: scrubErrorMessage(report.message),
+        stack: report.stack ? scrubErrorMessage(report.stack, ERROR_STACK_MAX_LENGTH) : undefined,
+      }),
+      { source: report.source, process: "main" },
+    );
   });
 }
 

@@ -5,30 +5,44 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import { analyticsProperties, detailedAnalyticsProperties } from "@/lib/analytics";
 import { checkFailure, type ProviderCheckResult, pickCheckModel } from "@/lib/providerCheck";
 import { qk } from "@/lib/queryKeys";
+import { splitModelKey } from "@/lib/splitModelKey";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
+import { usePreferences } from "@/providers/PreferencesProvider";
 
 /**
- * Sends one short message through a provider's cheapest model, the same way a
- * chat would, to show whether its key or sign-in actually works. Only runs when
- * the user asks: checking on save would spend their credits unasked.
+ * Sends one short message through one of a provider's chat models (the user's
+ * selected model if it's from this provider, else the provider's default, else
+ * the cheapest one that can chat), the same way a chat would, to show whether
+ * its key or sign-in actually works. Only runs when the user asks: checking on
+ * save would spend their credits unasked.
  */
 export function useCheckProvider() {
   const { client } = useOpenCodeClient();
   const queryClient = useQueryClient();
+  const { selectedModel } = usePreferences();
 
   return useMutation({
     mutationFn: async (providerID: string): Promise<ProviderCheckResult> => {
       if (!client) throw new Error("No client");
       const providers = queryClient.getQueryData<ProviderListResponse>(qk.providers);
       const provider = providers?.all.find((p) => p.id === providerID);
-      const model = provider ? pickCheckModel(provider) : undefined;
-      if (!model) {
+      const [selectedProviderID, selectedModelID] = selectedModel
+        ? splitModelKey(selectedModel)
+        : [];
+      const picked = provider
+        ? pickCheckModel(provider, {
+            selected: selectedProviderID === providerID ? selectedModelID : undefined,
+            default: providers?.default[providerID],
+          })
+        : undefined;
+      if (!picked) {
         return {
           ok: false,
-          message: "This provider has no models to test with.",
+          message: "This provider has no chat models to test with.",
           keyRejected: false,
         };
       }
+      const { model, choice } = picked;
 
       const created = await client.session.create(
         {
@@ -62,6 +76,7 @@ export function useCheckProvider() {
           "provider_checked",
           analyticsProperties("providers", {
             outcome: result.ok ? "success" : "failure",
+            model_choice: choice,
             ...(result.ok ? {} : { key_rejected: result.keyRejected, error_name: error?.name }),
             ...detailedAnalyticsProperties({ provider: providerID, model: model.id }),
           }),

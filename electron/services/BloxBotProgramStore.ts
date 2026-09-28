@@ -24,6 +24,8 @@ export interface BloxBotProgramStoreOptions {
   fetch?: typeof fetch;
   publicKey?: string;
   log?: (message: string) => void;
+  /** Called for failures worth reporting: a refresh that threw or a manifest that failed verification. */
+  onError?: (error: unknown) => void;
 }
 
 export type BloxBotProgramRefresh = "updated" | "unchanged" | "rejected" | "unavailable";
@@ -44,6 +46,7 @@ const CachedSchema = Schema.Struct({ manifest: Schema.String, signature: Schema.
 export function createBloxBotProgramStore(options: BloxBotProgramStoreOptions): BloxBotProgramStore {
   const fetchImpl = options.fetch ?? fetch;
   const log = options.log ?? (() => {});
+  const onError = options.onError ?? (() => {});
   const cachePath = join(options.directory, "cache.json");
   let current: BloxBotProgramManifest | null = null;
 
@@ -118,6 +121,7 @@ export function createBloxBotProgramStore(options: BloxBotProgramStoreOptions): 
         const manifest = accept(raw, signature);
         if (!manifest) {
           log("[bloxbot-programs] rejected a published manifest that failed verification");
+          onError(new Error("Published BloxBot programs manifest failed verification"));
           return "rejected";
         }
         // Never go back to an older manifest, even a validly signed one.
@@ -133,6 +137,7 @@ export function createBloxBotProgramStore(options: BloxBotProgramStoreOptions): 
       } catch (error) {
         // A failed cache write (read-only or full disk) leaves the app on what it has.
         log(`[bloxbot-programs] refresh failed: ${error instanceof Error ? error.message : error}`);
+        onError(error);
         return "unavailable";
       }
     },

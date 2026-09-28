@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- BloxBot reports errors from the app and its background process so we can find and fix them. Personal file paths, usernames and API keys are removed before anything is sent.
+
+### Fixed
+
+- Check in Providers tests the model you chat with, or the provider's default, instead of the cheapest model on the list. It had picked image-only and limited preview models, so working keys and sign-ins showed as failing.
+
 ## [0.13.0] - 2026-09-28
 
 ### Added
