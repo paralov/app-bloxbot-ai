@@ -130,7 +130,9 @@ describe("useCheckProvider", () => {
 
     const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
 
-    await expect(result.current.mutateAsync("opencode-go")).resolves.toEqual({
+    await expect(
+      result.current.mutateAsync({ providerID: "opencode-go", modelID: "kimi-k3" }),
+    ).resolves.toEqual({
       ok: true,
       modelName: "Kimi K3",
     });
@@ -147,66 +149,12 @@ describe("useCheckProvider", () => {
     );
   });
 
-  it("checks the model the user chats with when it's from this provider", async () => {
-    const qc = new QueryClient();
-    const models = {
-      cheap: {
-        id: "cheap",
-        name: "Cheap",
-        status: "active",
-        cost: { input: 0, output: 0 },
-        capabilities: chat,
-      },
-      std: {
-        id: "std",
-        name: "Standard",
-        status: "active",
-        cost: { input: 1, output: 5 },
-        capabilities: chat,
-      },
-      "org/picked": {
-        id: "org/picked",
-        name: "Picked",
-        status: "active",
-        cost: { input: 3, output: 15 },
-        capabilities: chat,
-      },
-    };
-    qc.setQueryData(qk.providers, {
-      all: [{ id: "openrouter", models }],
-      connected: ["openrouter"],
-      default: { openrouter: "std" },
-    });
-    client.session.create.mockResolvedValue({ data: { id: "check-session" } });
-    client.session.delete.mockResolvedValue({ data: true });
-    client.permission.list.mockResolvedValue({ data: [] });
-    client.session.prompt.mockResolvedValue({ data: { info: {}, parts: [] } });
-    preferences.selectedModel = "openrouter/org/picked";
-    const { result, rerender } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
-    await expect(result.current.mutateAsync("openrouter")).resolves.toEqual({
-      ok: true,
-      modelName: "Picked",
-    });
-    expect(client.session.prompt.mock.lastCall?.[0].model).toEqual({
-      providerID: "openrouter",
-      modelID: "org/picked",
-    });
-
-    // A model from another provider doesn't count; the provider's default is next.
-    preferences.selectedModel = "anthropic/claude-sonnet";
-    rerender();
-    await expect(result.current.mutateAsync("openrouter")).resolves.toMatchObject({
-      modelName: "Standard",
-    });
-    preferences.selectedModel = null;
-  });
-
-  function chatModel(id: string, cost: number) {
+  function chatModel(id: string, name = id) {
     return {
       id,
-      name: id,
+      name,
       status: "active",
-      cost: { input: cost, output: cost },
+      cost: { input: 1, output: 1 },
       capabilities: chat,
     };
   }
@@ -218,20 +166,20 @@ describe("useCheckProvider", () => {
         {
           id: "openai",
           models: {
-            "gpt-5.6-terra-pro": chatModel("gpt-5.6-terra-pro", 15),
-            "gpt-5.6-terra": chatModel("gpt-5.6-terra", 2),
-            "gpt-5.6-mini": chatModel("gpt-5.6-mini", 0.5),
+            "gpt-5.6-terra-pro": chatModel("gpt-5.6-terra-pro", "GPT-5.6 Terra Pro"),
+            "gpt-5.6-terra": chatModel("gpt-5.6-terra", "GPT-5.6 Terra"),
+            "gpt-image": {
+              ...chatModel("gpt-image"),
+              capabilities: { ...chat, output: { ...chat.output, text: false, image: true } },
+            },
           },
         },
       ],
       connected: ["openai"],
-      default: { openai: "gpt-5.6-terra" },
+      default: { openai: "gpt-5.6-terra-pro" },
     });
-    let sessions = 0;
     client.session.create.mockReset();
-    client.session.create.mockImplementation(async () => ({
-      data: { id: `check-${++sessions}` },
-    }));
+    client.session.create.mockResolvedValue({ data: { id: "check-session" } });
     client.session.delete.mockReset();
     client.session.delete.mockResolvedValue({ data: true });
     client.session.prompt.mockReset();
@@ -242,63 +190,47 @@ describe("useCheckProvider", () => {
     return qc;
   }
 
-  const planError = {
-    name: "APIError",
-    data: {
-      message:
-        "The model gpt-5.6-terra-pro is not available on your plan (key sk-proj-abcdefghijklmnop1234).",
-      statusCode: 400,
-      isRetryable: false,
-    },
-  };
-
-  it("tries the next model once when the first fails for a reason other than the key", async () => {
+  it("checks the model the user picked, once", async () => {
     const qc = openaiProviders();
-    preferences.selectedModel = "openai/gpt-5.6-terra-pro";
     setDetailedAnalyticsEnabled(true);
-    client.session.prompt
-      .mockResolvedValueOnce({ data: { info: { error: planError }, parts: [] } })
-      .mockResolvedValueOnce({ data: { info: {}, parts: [] } });
+    client.session.prompt.mockResolvedValue({ data: { info: {}, parts: [] } });
 
     const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
 
-    await expect(result.current.mutateAsync("openai")).resolves.toEqual({
-      ok: true,
-      modelName: "gpt-5.6-terra",
+    await expect(
+      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-5.6-terra" }),
+    ).resolves.toEqual({ ok: true, modelName: "GPT-5.6 Terra" });
+    expect(client.session.prompt).toHaveBeenCalledOnce();
+    expect(client.session.prompt.mock.calls[0][0].model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.6-terra",
     });
-    expect(client.session.prompt.mock.calls.map(([body]) => body.model.modelID)).toEqual([
-      "gpt-5.6-terra-pro",
-      "gpt-5.6-terra",
-    ]);
-    // Each attempt gets its own hidden session, and both are removed.
-    expect(client.session.create).toHaveBeenCalledTimes(2);
-    expect(client.session.delete.mock.calls.map(([body]) => body.sessionID)).toEqual([
-      "check-1",
-      "check-2",
-    ]);
     expect(capture).toHaveBeenCalledOnce();
     const [event, properties] = capture.mock.calls[0];
     expect(event).toBe("provider_checked");
     expect(properties).toMatchObject({
       outcome: "success",
-      model_choice: "default",
-      attempts: 2,
+      model_choice: "other",
+      provider: "openai",
       model: "gpt-5.6-terra",
-      first_model: "gpt-5.6-terra-pro",
     });
-    expect(properties.first_error_message).toContain("not available on your plan");
-    expect(properties.first_error_message).not.toContain("sk-proj-abcdefghijklmnop1234");
     expect(properties).not.toHaveProperty("error_message");
-    setDetailedAnalyticsEnabled(false);
-    preferences.selectedModel = null;
   });
 
-  it("reports the last failure when the second model fails too", async () => {
+  it("reports a failure once, with the model and a scrubbed message", async () => {
     const qc = openaiProviders();
     client.session.prompt.mockResolvedValue({
       data: {
         info: {
-          error: { name: "APIError", data: { message: "Overloaded", statusCode: 529 } },
+          error: {
+            name: "APIError",
+            data: {
+              message:
+                "The model is not available on your plan (key sk-proj-abcdefghijklmnop1234).",
+              statusCode: 400,
+              isRetryable: false,
+            },
+          },
         },
         parts: [],
       },
@@ -306,27 +238,30 @@ describe("useCheckProvider", () => {
 
     const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
 
-    await expect(result.current.mutateAsync("openai")).resolves.toEqual({
+    await expect(
+      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-5.6-terra-pro" }),
+    ).resolves.toMatchObject({
       ok: false,
-      message: "Overloaded",
       keyRejected: false,
+      modelName: "GPT-5.6 Terra Pro",
     });
-    // At most two attempts, though a third model is available.
-    expect(client.session.prompt).toHaveBeenCalledTimes(2);
-    expect(client.session.delete).toHaveBeenCalledTimes(2);
-    expect(capture.mock.calls[0][1]).toMatchObject({
+    // One attempt only, even though another model could chat.
+    expect(client.session.prompt).toHaveBeenCalledOnce();
+    expect(client.session.delete).toHaveBeenCalledOnce();
+    const properties = capture.mock.calls[0][1];
+    expect(properties).toMatchObject({
       outcome: "failure",
-      model_choice: "cheapest",
-      attempts: 2,
+      model_choice: "default",
       key_rejected: false,
       error_name: "APIError",
-      error_message: "Overloaded",
-      first_error_message: "Overloaded",
     });
+    expect(properties.error_message).toContain("not available on your plan");
+    expect(properties.error_message).not.toContain("sk-proj-abcdefghijklmnop1234");
   });
 
-  it("doesn't retry when the key or sign-in is rejected", async () => {
+  it("says when the check ran on the model the user chats with", async () => {
     const qc = openaiProviders();
+    preferences.selectedModel = "openai/gpt-5.6-terra";
     client.session.prompt.mockResolvedValue({
       data: {
         info: {
@@ -338,26 +273,31 @@ describe("useCheckProvider", () => {
 
     const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
 
-    await expect(result.current.mutateAsync("openai")).resolves.toEqual({
+    await expect(
+      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-5.6-terra" }),
+    ).resolves.toEqual({
       ok: false,
       message: "Expired",
       keyRejected: true,
+      modelName: "GPT-5.6 Terra",
     });
-    expect(client.session.prompt).toHaveBeenCalledOnce();
-    expect(client.session.delete).toHaveBeenCalledWith(
-      { sessionID: "check-1" },
-      { throwOnError: true },
-    );
-    const properties = capture.mock.calls[0][1];
-    expect(properties).toMatchObject({
-      outcome: "failure",
-      model_choice: "default",
-      attempts: 1,
+    expect(capture.mock.calls[0][1]).toMatchObject({
+      model_choice: "selected",
       key_rejected: true,
-      error_name: "ProviderAuthError",
       error_message: "Expired",
     });
-    expect(properties).not.toHaveProperty("first_error_message");
-    expect(properties).not.toHaveProperty("first_model");
+    preferences.selectedModel = null;
+  });
+
+  it("doesn't send a check to a model that can't chat", async () => {
+    const qc = openaiProviders();
+
+    const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
+
+    await expect(
+      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-image" }),
+    ).resolves.toMatchObject({ ok: false, keyRejected: false });
+    expect(client.session.create).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
   });
 });

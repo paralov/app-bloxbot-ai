@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import ModelStatusBadge from "@/components/ModelStatusBadge";
 import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
@@ -524,28 +525,6 @@ function ChatInput() {
     : 0;
   const variantDisplay = selectedVariant ?? "Default";
 
-  function statusBadge(status?: string) {
-    if (status === "beta")
-      return (
-        <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
-          beta
-        </span>
-      );
-    if (status === "alpha")
-      return (
-        <span className="shrink-0 rounded bg-purple-100 px-1 text-[9px] font-medium text-purple-700 dark:bg-purple-950/50 dark:text-purple-300">
-          alpha
-        </span>
-      );
-    if (status === "deprecated")
-      return (
-        <span className="shrink-0 rounded bg-muted px-1 text-[9px] font-medium text-muted-foreground">
-          deprecated
-        </span>
-      );
-    return null;
-  }
-
   function renderProviderGroup(
     providerId: string,
     group: { providerName: string; models: ModelInfo[] },
@@ -567,7 +546,7 @@ function ChatInput() {
               className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors ${isSelected ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
             >
               <span className="truncate">{model.name}</span>
-              {statusBadge(model.status)}
+              <ModelStatusBadge status={model.status} />
             </button>
           );
         })}

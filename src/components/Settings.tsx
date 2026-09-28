@@ -1,7 +1,9 @@
-import { Loader2, Search, Sparkles } from "lucide-react";
+import type { Model } from "@opencode-ai/sdk/v2/client";
+import { Search, Sparkles } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import ProviderCheckPopover from "@/components/ProviderCheckPopover";
 import ProviderConnectDialog from "@/components/ProviderConnectDialog";
 import ProviderLogo from "@/components/ProviderLogo";
 import { THEME_OPTIONS, type Theme, useTheme } from "@/components/theme-provider";
@@ -12,12 +14,13 @@ import {
   useAllProviders,
   useAuthMethods,
   useConnectedProviders,
+  useProviderList,
 } from "@/hooks/useProviders";
 import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
 import { connectHint, isFreeTier, providerDisplayName } from "@/lib/providerAuth";
-import type { ProviderCheckResult } from "@/lib/providerCheck";
+import { checkModels, checkPreference, type ProviderCheckResult } from "@/lib/providerCheck";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
 import type { UpdateInfo } from "@/types/desktop";
@@ -255,6 +258,8 @@ function ProvidersTab() {
   const [query, setQuery] = useState("");
   const [checks, setChecks] = useState<Record<string, "checking" | ProviderCheckResult>>({});
   const checkMutation = useCheckProvider();
+  const providerList = useProviderList();
+  const { selectedModel } = usePreferences();
 
   // Bumped whenever a provider's credential changes, so a check that was
   // running for the old credential can't report onto the new one.
@@ -268,19 +273,39 @@ function ProvidersTab() {
     });
   }
 
-  async function runCheck(provider: ProviderInfo) {
+  // A provider's chat models, the user's chat model or the provider's default
+  // first. Kept in a ref so the toast's check, clicked later, sees the models
+  // the new credential unlocked.
+  const checkModelsFor = useRef<(providerId: string) => Model[]>(() => []);
+  checkModelsFor.current = (providerId) => {
+    const provider = providerList?.all.find((p) => p.id === providerId);
+    return provider
+      ? checkModels(provider, checkPreference(providerId, selectedModel, providerList?.default))
+      : [];
+  };
+
+  async function runCheck(provider: ProviderInfo, model: Model | undefined) {
     const generation = (checkGeneration.current[provider.id] ?? 0) + 1;
     checkGeneration.current[provider.id] = generation;
-    setChecks((prev) => ({ ...prev, [provider.id]: "checking" }));
     let result: ProviderCheckResult;
-    try {
-      result = await checkMutation.mutateAsync(provider.id);
-    } catch {
+    if (!model) {
       result = {
         ok: false,
-        message: "BloxBot couldn't run the check. Try again.",
+        message: "This provider has no chat models to test with.",
         keyRejected: false,
       };
+    } else {
+      setChecks((prev) => ({ ...prev, [provider.id]: "checking" }));
+      try {
+        result = await checkMutation.mutateAsync({ providerID: provider.id, modelID: model.id });
+      } catch {
+        result = {
+          ok: false,
+          message: "BloxBot couldn't run the check. Try again.",
+          keyRejected: false,
+          modelName: model.name,
+        };
+      }
     }
     if (checkGeneration.current[provider.id] !== generation) return;
     setChecks((prev) => ({ ...prev, [provider.id]: result }));
@@ -290,7 +315,10 @@ function ProvidersTab() {
     // A new credential makes any earlier or running check stale.
     forgetCheck(provider.id);
     toast.success(`${provider.name} connected`, {
-      action: { label: "Check it works", onClick: () => runCheck(provider) },
+      action: {
+        label: "Check it works",
+        onClick: () => runCheck(provider, checkModelsFor.current(provider.id)[0]),
+      },
     });
   }
 
@@ -486,15 +514,12 @@ function ProvidersTab() {
                         {check.ok ? "Working" : "Not working"}
                       </span>
                     )}
-                    <button
-                      onClick={() => runCheck(provider)}
-                      disabled={check === "checking"}
-                      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
-                      title="Send one short test message to check this connection"
-                    >
-                      {check === "checking" && <Loader2 className="h-3 w-3 animate-spin" />}
-                      {check === "checking" ? "Checking" : "Check"}
-                    </button>
+                    <ProviderCheckPopover
+                      providerName={providerDisplayName(provider)}
+                      models={checkModelsFor.current(provider.id)}
+                      checking={check === "checking"}
+                      onCheck={(model) => runCheck(provider, model)}
+                    />
                     {/* The free models can't be disconnected, and BloxBot can't
                         remove a Zen key it didn't store. */}
                     {isFreeZen(provider) || hasOutsideZenKey(provider) ? null : (
@@ -514,9 +539,10 @@ function ProvidersTab() {
                   {check && check !== "checking" && (
                     <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground @md:pl-10">
                       {check.ok ? (
-                        `${check.modelName} answered a test message.`
+                        `Works with ${check.modelName}.`
                       ) : (
                         <>
+                          {check.modelName && `Didn't work with ${check.modelName}. `}
                           <span className="text-red-700 dark:text-red-400">{check.message}</span>
                           {check.keyRejected && !isFreeZen(provider) && (
                             <button

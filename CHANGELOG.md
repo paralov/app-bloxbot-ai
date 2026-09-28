@@ -9,7 +9,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- Check in Providers no longer reports a working sign-in as failing when your plan can't use the model it tried. It passes over plan-limited Pro models unless you chat with one, and if the first model fails for a reason other than your key or sign-in, it tries one other model.
+- Check in Providers lets you pick the model to test, starting with the model you chat with or the provider's default. It had tested models your plan might not include, so working sign-ins showed as failing. The result names the model it checked.
 
 ## [0.13.1] - 2026-09-28
 
