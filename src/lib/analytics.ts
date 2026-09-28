@@ -121,9 +121,9 @@ export function maskModelUsage(
   names: { provider?: string; models?: readonly (string | undefined)[] },
 ): string {
   if (detailedAnalyticsEnabled) return text;
-  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const replaceAll = (input: string, name: string | undefined, label: string) =>
-    name && name.length > 1 ? input.replace(new RegExp(escape(name), "gi"), label) : input;
+    name && name.length > 1 ? input.replace(new RegExp(escapeRegExp(name), "gi"), label) : input;
   // Longest first, so a model id isn't half-replaced by a shorter name inside it.
   const models = [...(names.models ?? [])]
     .filter((name): name is string => Boolean(name))
