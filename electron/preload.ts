@@ -27,6 +27,7 @@ const api: DesktopApi = {
   installUpdate: () => ipcRenderer.invoke(channels.installUpdate),
   invokeExplorerProgram: (artifact, studioId) =>
     ipcRenderer.invoke(channels.invokeExplorerProgram, artifact, studioId),
+  listExplorerProgramTools: () => ipcRenderer.invoke(channels.listExplorerProgramTools),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
   installStudioTargetPrograms: (envelopes) =>
     ipcRenderer.invoke(channels.installStudioTargetPrograms, envelopes),

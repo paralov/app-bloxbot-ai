@@ -12,6 +12,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Check's error reports include the model name again, since it helps tell where an error came from.
 - The Privacy settings say that error reports can name the provider and model an error came from, and stay on when Share AI usage data is off.
 
+### Fixed
+
+- When Explorer has the model write its own program, that program works more often. It can call Studio's tools by the names the model sees, the model is told exactly which tools it may use, and BloxBot tries each program once before using it and gives the model one chance to fix a program that fails.
+
 ## [0.13.2] - 2026-09-28
 
 ### Fixed

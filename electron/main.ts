@@ -222,6 +222,13 @@ const registerIpcHandlers = Effect.sync(() => {
       }),
     ),
   );
+  ipcMain.handle(channels.listExplorerProgramTools, () =>
+    openCodeRuntime.runPromise(
+      GeneratedProgramRuntime.pipe(
+        Effect.flatMap((runtime) => runtime.allowedTools("explorer-snapshot")),
+      ),
+    ),
+  );
   ipcMain.handle(channels.getOpenCodeInfo, () =>
     openCodeRuntime.runPromise(
       OpenCode.pipe(Effect.flatMap((service) => service.info)),
@@ -351,7 +358,12 @@ const registerIpcHandlers = Effect.sync(() => {
           const result = yield* runtime.invoke({ artifact, input: { studioId } });
           return yield* Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value).pipe(
             Effect.mapError(
-              (cause) => new DesktopMainError({ message: "Explorer output is invalid", cause }),
+              (cause) =>
+                new DesktopMainError({
+                  // The schema's own complaint, so a model-written program can be fixed.
+                  message: `Explorer output is invalid: ${cause.message.slice(0, 600)}`,
+                  cause,
+                }),
             ),
           );
         }).pipe(

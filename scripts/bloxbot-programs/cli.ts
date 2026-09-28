@@ -23,7 +23,7 @@ import {
 } from "../../electron/bloxbotProgramSignature";
 import { ExplorerSnapshotSchema } from "../../src/lib/explorer";
 import {
-  isBloxBotProgramToolAllowed,
+  allowedBloxBotProgramTools,
   buildBloxBotProgramManifest,
   BLOXBOT_PROGRAM_CONTRACTS,
   BLOXBOT_PROGRAM_NAMES,
@@ -136,8 +136,10 @@ async function connectStudio(): Promise<Studio> {
     (await client.callTool({ name, arguments: toolArgs })) as CallToolResult;
   const { tools } = await client.listTools();
   // The same runtime and tool rules the app uses, with Studio's annotations.
-  const runtime = startGeneratedProgramRuntime(callTool, async (name) =>
-    tools.find((tool) => tool.name === name),
+  const runtime = startGeneratedProgramRuntime(
+    callTool,
+    async (name) => tools.find((tool) => tool.name === name),
+    async () => tools,
   );
 
   const studios = parseStudios(await callTool("list_roblox_studios", {}));
@@ -279,9 +281,7 @@ async function brief(name: string | undefined) {
   const studio = await connectStudio();
   try {
     // Exactly the tools the runtime lets this program call, known or read-only.
-    const tools = studio.tools.filter((tool) =>
-      isBloxBotProgramToolAllowed(program, tool.name, tool.annotations),
-    );
+    const tools = allowedBloxBotProgramTools(program, studio.tools);
     console.log(`# Brief: the "${program}" BloxBot program
 
 Program file: bloxbot-programs/${program}.ts

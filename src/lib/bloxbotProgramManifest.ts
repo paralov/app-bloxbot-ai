@@ -158,3 +158,28 @@ export function isBloxBotProgramToolAllowed(
   if (!(contractName in BLOXBOT_PROGRAM_TOOLS)) return false;
   return isKnownBloxBotProgramTool(contractName, toolName) || isReadOnlyStudioTool(annotations);
 }
+
+/**
+ * The name OpenCode knows the Studio MCP server by. OpenCode shows the model
+ * Studio's tools as `roblox-studio_<tool>`, so a model-written program may use
+ * that form.
+ */
+export const STUDIO_MCP_SERVER_NAME = "roblox-studio";
+
+const STUDIO_TOOL_PREFIX = `${STUDIO_MCP_SERVER_NAME}_`;
+
+/** Studio's own name for a tool, without the prefix OpenCode adds. */
+export function studioToolName(name: string): string {
+  return name.startsWith(STUDIO_TOOL_PREFIX) ? name.slice(STUDIO_TOOL_PREFIX.length) : name;
+}
+
+/**
+ * The tools Studio lists that a program may call: the ones it is known to use
+ * plus any Studio marks read-only. The brief and the Explorer generation prompt
+ * both list these.
+ */
+export function allowedBloxBotProgramTools<
+  T extends { name: string; annotations?: StudioToolAnnotations },
+>(program: BloxBotProgramName, tools: readonly T[]): T[] {
+  return tools.filter((tool) => isBloxBotProgramToolAllowed(program, tool.name, tool.annotations));
+}
