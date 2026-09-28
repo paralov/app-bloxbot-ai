@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-28
+
 ### Added
 
 - Sign in to OpenAI with a device code as well as in the browser, so a ChatGPT Plus or Pro plan still connects when the browser sign-in can't finish.
@@ -20,7 +22,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - A failed sign-in explains what went wrong and suggests the method most likely to work, instead of "Failed to start sign-in flow".
 - A sign-in that stalls offers a way back to the other methods and a link to reopen the sign-in page.
-- A successful sign-in no longer shows as failed when refreshing the provider list afterwards fails.
+- Signing in, saving a key or removing one no longer shows as failed when refreshing the provider list afterwards fails.
+- Closing the dialog or going back while a sign-in is starting no longer opens the browser or resumes the abandoned sign-in.
 - Replacing the key of an already connected provider closes the dialog instead of leaving it open.
 - The models BloxBot includes for free show as "Free models" in Settings and the model picker, rather than "OpenCode Zen", until a Zen key is added.
 - Settings no longer squeezes its content into a sliver in narrow windows. When space is tight, its sections become a row of tabs on top.
@@ -203,7 +206,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.9.1...v0.10.0
