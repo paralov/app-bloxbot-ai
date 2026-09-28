@@ -7,9 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-09-28
+
 ### Fixed
 
 - Check in Providers lets you pick the model to test, starting with the model you chat with or the provider's default. It had picked models your key or plan might not include, so working connections showed as failing. The result names the model it checked.
+- Error reports also remove email addresses, and Check's error reports leave out model names unless Share AI usage data is on.
 
 ## [0.13.1] - 2026-09-28
 
@@ -238,7 +241,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.2...HEAD
+[0.13.2]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.0...v0.12.1
