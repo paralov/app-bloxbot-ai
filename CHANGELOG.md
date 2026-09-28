@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-09-28
+
+### Fixed
+
+- Explorer loads the Studio place tree again. Roblox Studio's MCP now requires a data model for `search_game_tree`, which BloxBot didn't send, so Explorer had failed for everyone since mid-August. During a playtest it shows the server data model, and it names the place.
+- When the built-in Explorer setup fails on first load, BloxBot has the model write one against Studio's current tools instead of giving up.
+- Reopening Explorer retries a setup that failed, and a failing Explorer backs off to a retry every few minutes at most instead of every few seconds.
+
 ## [0.12.0] - 2026-09-28
 
 ### Added
@@ -206,7 +214,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.10.0...v0.11.0

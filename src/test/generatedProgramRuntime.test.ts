@@ -147,9 +147,92 @@ describe("GeneratedProgramRuntime", () => {
     );
     expect(callTool).toHaveBeenCalledWith("search_game_tree", {
       studio_id: "studio-123",
+      datamodel_type: "Edit",
       max_depth: 10,
       head_limit: 100_000,
     });
+  });
+
+  // Shapes captured from Roblox Studio's MCP on 2026-09-28.
+  const studioTree = [
+    { fullPath: "Fund or Pass", name: "Fund or Pass", className: "DataModel" },
+    {
+      parentName: "Fund or Pass",
+      fullPath: "Workspace",
+      name: "Workspace",
+      className: "Workspace",
+    },
+    {
+      parentName: "Fund or Pass",
+      fullPath: "ServerScriptService",
+      name: "ServerScriptService",
+      className: "ServerScriptService",
+    },
+    {
+      parentName: "ServerScriptService",
+      fullPath: "ServerScriptService.FundOrPassServer",
+      name: "FundOrPassServer",
+      className: "Script",
+    },
+  ];
+
+  async function runExplorer(callTool: ReturnType<typeof vi.fn>) {
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const artifact = await Effect.runPromise(runtime.compile(BUILTIN_EXPLORER_PROGRAM));
+    const result = await Effect.runPromise(
+      runtime.invoke({ artifact, input: { studioId: "studio-123" } }),
+    );
+    return Effect.runPromise(Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value));
+  }
+
+  it("reads Studio's tree when a truncation note comes before the JSON", async () => {
+    const callTool = vi.fn().mockResolvedValue({
+      content: [
+        {
+          type: "text",
+          text: `Note: Output limited to 4 nodes (results truncated)\n\n${JSON.stringify(studioTree)}`,
+        },
+      ],
+    });
+
+    const snapshot = await runExplorer(callTool);
+
+    expect(snapshot.placeName).toBe("Fund or Pass");
+    expect(snapshot.roots.map((node) => node.name)).toEqual(["Workspace", "ServerScriptService"]);
+    expect(snapshot.roots[1]?.children[0]?.name).toBe("FundOrPassServer");
+  });
+
+  it("falls back to the server data model when Studio rejects Edit during a playtest", async () => {
+    const callTool = vi
+      .fn()
+      .mockResolvedValueOnce({
+        isError: true,
+        content: [{ type: "text", text: "Edit datamodel is not available while playing" }],
+      })
+      .mockResolvedValueOnce({ content: [{ type: "text", text: JSON.stringify(studioTree) }] });
+
+    const snapshot = await runExplorer(callTool);
+
+    expect(callTool).toHaveBeenNthCalledWith(
+      2,
+      "search_game_tree",
+      expect.objectContaining({ datamodel_type: "Server" }),
+    );
+    expect(snapshot.roots).toHaveLength(2);
+  });
+
+  it("reports Studio's own error when no data model can be read", async () => {
+    const callTool = vi.fn().mockResolvedValue({
+      isError: true,
+      content: [{ type: "text", text: "Studio is not responding" }],
+    });
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const artifact = await Effect.runPromise(runtime.compile(BUILTIN_EXPLORER_PROGRAM));
+
+    const failure = await Effect.runPromise(
+      Effect.flip(runtime.invoke({ artifact, input: { studioId: "studio-123" } })),
+    );
+    expect(String((failure as { cause?: unknown }).cause)).toContain("Studio is not responding");
   });
 
   it("discovers Place IDs and verifies targets without mutating active Studio state", async () => {
