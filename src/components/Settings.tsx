@@ -1,8 +1,10 @@
+import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import ProviderConnectDialog from "@/components/ProviderConnectDialog";
+import ProviderLogo from "@/components/ProviderLogo";
 import { THEME_OPTIONS, type Theme, useTheme } from "@/components/theme-provider";
-import { useCompleteOAuth, useStartOAuth } from "@/hooks/mutations/useOAuth";
-import { useDisconnectProvider, useSetApiKey } from "@/hooks/mutations/useSetApiKey";
+import { useDisconnectProvider } from "@/hooks/mutations/useSetApiKey";
 import {
   useAllModels,
   useAllProviders,
@@ -11,6 +13,7 @@ import {
 } from "@/hooks/useProviders";
 import { analyticsDeviceId } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
+import { connectHint } from "@/lib/providerAuth";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
 import type { UpdateInfo } from "@/types/desktop";
@@ -25,30 +28,6 @@ const POPULAR_PROVIDERS = [
   "openrouter",
   "vercel",
 ];
-
-// ── Provider-specific metadata for auth UX ───────────────────────────
-const PROVIDER_META: Record<string, { placeholder?: string; helpUrl?: string }> = {
-  opencode: {
-    placeholder: "opencode-...",
-    helpUrl: "https://opencode.ai/zen",
-  },
-  anthropic: {
-    placeholder: "sk-ant-...",
-    helpUrl: "https://console.anthropic.com/settings/keys",
-  },
-  openai: {
-    placeholder: "sk-...",
-    helpUrl: "https://platform.openai.com/api-keys",
-  },
-  google: {
-    placeholder: "AIza...",
-    helpUrl: "https://aistudio.google.com/app/apikey",
-  },
-  openrouter: {
-    placeholder: "sk-or-...",
-    helpUrl: "https://openrouter.ai/keys",
-  },
-};
 
 const TECHNOLOGIES = [
   { name: "OpenCode", url: "https://opencode.ai", description: "AI coding engine" },
@@ -243,192 +222,18 @@ function Settings({ onClose }: SettingsProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Providers Tab — matches OpenCode's two-section layout with connect dialog
+// Providers Tab — connected, popular, and every other provider, searchable
 // ═══════════════════════════════════════════════════════════════════════
-
-type ConnectDialogState =
-  | { step: "closed" }
-  | { step: "methods"; provider: ProviderInfo }
-  | {
-      step: "oauth";
-      provider: ProviderInfo;
-      methodIndex: number;
-      method: "auto" | "code" | null;
-      instructions: string | null;
-    }
-  | { step: "apikey"; provider: ProviderInfo };
 
 function ProvidersTab() {
   const allProviders = useAllProviders();
   const connectedProviders = useConnectedProviders();
   const authMethods = useAuthMethods();
-  const setApiKeyMutation = useSetApiKey();
-  const startOAuthMutation = useStartOAuth();
-  const completeOAuthMutation = useCompleteOAuth();
   const disconnectMutation = useDisconnectProvider();
 
-  const [dialog, setDialog] = useState<ConnectDialogState>({ step: "closed" });
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [oauthCodeInput, setOauthCodeInput] = useState("");
+  const [connecting, setConnecting] = useState<ProviderInfo | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const oauthAbortRef = useRef<AbortController | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-
-  const closeDialog = useCallback(() => {
-    oauthAbortRef.current?.abort();
-    oauthAbortRef.current = null;
-    setDialog({ step: "closed" });
-    setApiKeyInput("");
-    setOauthCodeInput("");
-    setError(null);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      oauthAbortRef.current?.abort();
-    };
-  }, []);
-
-  // Close dialog on click outside
-  useEffect(() => {
-    if (dialog.step === "closed") return;
-    function handleClick(e: MouseEvent) {
-      if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
-        closeDialog();
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [dialog.step, closeDialog]);
-
-  // Auto-close dialog when provider becomes connected
-  const prevConnectedRef = useRef(connectedProviders);
-  useEffect(() => {
-    const prev = prevConnectedRef.current;
-    prevConnectedRef.current = connectedProviders;
-    if (dialog.step === "closed") return;
-    const providerId = dialog.provider.id;
-    if (connectedProviders.includes(providerId) && !prev.includes(providerId)) {
-      toast.success(`${dialog.provider.name} connected`);
-      closeDialog();
-    }
-  }, [connectedProviders, dialog, closeDialog]);
-
-  function getOAuthMethodIndex(providerId: string): number | null {
-    const methods = authMethods[providerId];
-    if (!methods) return null;
-    const idx = methods.findIndex((m) => m.type === "oauth");
-    return idx >= 0 ? idx : null;
-  }
-
-  function hasApiKeyAuth(providerId: string): boolean {
-    const methods = authMethods[providerId];
-    if (!methods || methods.length === 0) return true;
-    return methods.some((m) => m.type === "api");
-  }
-
-  function openConnect(provider: ProviderInfo) {
-    const oauthIdx = getOAuthMethodIndex(provider.id);
-    const apiKey = hasApiKeyAuth(provider.id);
-
-    // If only one method, skip method selection
-    if (oauthIdx !== null && !apiKey) {
-      startOAuthFlow(provider, oauthIdx);
-    } else if (oauthIdx === null && apiKey) {
-      setDialog({ step: "apikey", provider });
-    } else if (oauthIdx !== null && apiKey) {
-      setDialog({ step: "methods", provider });
-    } else {
-      // No auth methods available
-      setError(
-        `No authentication methods available. Required env vars: ${provider.env.join(", ")}`,
-      );
-      setDialog({ step: "methods", provider });
-    }
-  }
-
-  async function startOAuthFlow(provider: ProviderInfo, methodIndex: number) {
-    setDialog({ step: "oauth", provider, methodIndex, method: null, instructions: null });
-    setError(null);
-    try {
-      const authResult = await startOAuthMutation.mutateAsync({
-        providerID: provider.id,
-        methodIndex,
-      });
-      if (!authResult) {
-        closeDialog();
-        return;
-      }
-      setDialog({
-        step: "oauth",
-        provider,
-        methodIndex,
-        method: authResult.method,
-        instructions: authResult.instructions ?? null,
-      });
-      if (authResult.method === "auto") {
-        const abort = new AbortController();
-        oauthAbortRef.current = abort;
-        try {
-          const success = await completeOAuthMutation.mutateAsync({
-            providerID: provider.id,
-            methodIndex,
-          });
-          if (!abort.signal.aborted) {
-            if (success) {
-              // Auto-close handled by the connectedProviders effect
-            } else {
-              setError("Authorization failed. Please try again.");
-              setDialog({ step: "methods", provider });
-            }
-          }
-        } catch {
-          if (!abort.signal.aborted) {
-            setError("Sign-in timed out or was cancelled");
-            setDialog({ step: "methods", provider });
-          }
-        }
-      }
-    } catch {
-      setError("Failed to start sign-in flow");
-      setDialog({ step: "methods", provider });
-    }
-  }
-
-  async function handleOAuthCode(providerId: string) {
-    if (dialog.step !== "oauth" || !oauthCodeInput.trim()) return;
-    try {
-      const success = await completeOAuthMutation.mutateAsync({
-        providerID: providerId,
-        methodIndex: dialog.methodIndex,
-        code: oauthCodeInput.trim(),
-      });
-      if (!success) {
-        setError("Authorization failed. Please try again.");
-      }
-      // Success auto-closes via connectedProviders effect
-    } catch {
-      setError("Invalid code. Please try again.");
-    }
-    setOauthCodeInput("");
-  }
-
-  async function handleSaveKey(providerId: string) {
-    if (!apiKeyInput.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await setApiKeyMutation.mutateAsync({ providerID: providerId, key: apiKeyInput.trim() });
-      // Success auto-closes via connectedProviders effect
-    } catch {
-      setError("Invalid key or connection failed");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const [query, setQuery] = useState("");
 
   async function handleDisconnect(providerId: string) {
     setDisconnecting(providerId);
@@ -442,15 +247,21 @@ function ProvidersTab() {
     }
   }
 
-  // Split providers into connected and unconnected
-  const connected = allProviders.filter((p) => connectedProviders.includes(p.id));
-  const unconnected = allProviders.filter((p) => !connectedProviders.includes(p.id));
+  const needle = query.trim().toLowerCase();
+  const matches = useCallback(
+    (p: ProviderInfo) =>
+      !needle || p.name.toLowerCase().includes(needle) || p.id.toLowerCase().includes(needle),
+    [needle],
+  );
 
-  // Sort unconnected: popular first, then alphabetical
-  const sortedUnconnected = useMemo(() => {
+  const connected = allProviders.filter((p) => connectedProviders.includes(p.id) && matches(p));
+
+  // Popular first in OpenCode's order, then everything else alphabetically
+  const { popular, others } = useMemo(() => {
     const pop: ProviderInfo[] = [];
     const oth: ProviderInfo[] = [];
-    for (const p of unconnected) {
+    for (const p of allProviders) {
+      if (connectedProviders.includes(p.id) || !matches(p)) continue;
       if (POPULAR_PROVIDERS.includes(p.id)) {
         pop.push(p);
       } else {
@@ -459,15 +270,52 @@ function ProvidersTab() {
     }
     pop.sort((a, b) => POPULAR_PROVIDERS.indexOf(a.id) - POPULAR_PROVIDERS.indexOf(b.id));
     oth.sort((a, b) => a.name.localeCompare(b.name));
-    return [...pop, ...oth];
-  }, [unconnected]);
+    return { popular: pop, others: oth };
+  }, [allProviders, connectedProviders, matches]);
+
+  const nothingMatches =
+    allProviders.length > 0 && connected.length + popular.length + others.length === 0;
+
+  function renderAvailable(provider: ProviderInfo) {
+    return (
+      <div key={provider.id} className="flex items-center gap-3 px-3 py-2.5">
+        <ProviderLogo providerId={provider.id} name={provider.name} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{provider.name}</div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {connectHint(provider.id, authMethods[provider.id])}
+          </div>
+        </div>
+        <button
+          onClick={() => setConnecting(provider)}
+          className="shrink-0 rounded-md border bg-background px-3 py-1 text-[11px] font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          Connect
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-md px-6 py-8">
       <h4 className="font-serif text-lg italic text-foreground">Providers</h4>
       <p className="mt-1 text-xs text-muted-foreground">
-        Connect AI providers to use their models.
+        Connect an AI provider to chat with its models.
       </p>
+
+      {allProviders.length > 0 && (
+        <div className="relative mt-5">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Search ${allProviders.length} providers`}
+            aria-label="Search providers"
+            className="h-8 w-full rounded-md border bg-background pr-2 pl-8 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      )}
 
       {/* Connected providers */}
       {connected.length > 0 && (
@@ -475,19 +323,15 @@ function ProvidersTab() {
           <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Connected
           </div>
-          <div className="space-y-1.5">
+          <div className="divide-y rounded-lg border bg-card">
             {connected.map((provider) => (
-              <div
-                key={provider.id}
-                className="flex items-center justify-between rounded-lg border bg-card px-3.5 py-2.5"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{provider.name}</span>
-                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Connected
-                  </span>
-                </div>
+              <div key={provider.id} className="flex items-center gap-3 px-3 py-2.5">
+                <ProviderLogo providerId={provider.id} name={provider.name} />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{provider.name}</span>
+                <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  Connected
+                </span>
                 {provider.id !== "opencode" && (
                   <button
                     onClick={() => handleDisconnect(provider.id)}
@@ -503,28 +347,33 @@ function ProvidersTab() {
         </div>
       )}
 
-      {/* Unconnected providers */}
-      {sortedUnconnected.length > 0 && (
+      {popular.length > 0 && (
         <div className="mt-6">
           <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {connected.length > 0 ? "Available" : "Providers"}
+            Popular
           </div>
-          <div className="space-y-1.5">
-            {sortedUnconnected.map((provider) => (
-              <div
-                key={provider.id}
-                className="flex items-center justify-between rounded-lg border bg-card px-3.5 py-2.5"
-              >
-                <span className="text-sm font-medium">{provider.name}</span>
-                <button
-                  onClick={() => openConnect(provider)}
-                  className="rounded-md border bg-background px-3 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
-                >
-                  Connect
-                </button>
-              </div>
-            ))}
+          <div className="divide-y rounded-lg border bg-card">{popular.map(renderAvailable)}</div>
+        </div>
+      )}
+
+      {others.length > 0 && (
+        <div className="mt-6">
+          <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {popular.length > 0 || connected.length > 0 ? "More providers" : "Providers"}
           </div>
+          <div className="divide-y rounded-lg border bg-card">{others.map(renderAvailable)}</div>
+        </div>
+      )}
+
+      {nothingMatches && (
+        <div className="mt-8 text-center text-xs text-muted-foreground">
+          No provider matches “{query.trim()}”.
+          <button
+            onClick={() => setQuery("")}
+            className="ml-1 text-foreground underline-offset-2 hover:underline"
+          >
+            Clear search
+          </button>
         </div>
       )}
 
@@ -534,238 +383,8 @@ function ProvidersTab() {
         </div>
       )}
 
-      {/* Connect dialog overlay */}
-      {dialog.step !== "closed" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div
-            ref={dialogRef}
-            className="mx-4 w-full max-w-sm rounded-xl border bg-card p-5 shadow-lg"
-          >
-            <div className="flex items-center justify-between">
-              <h5 className="text-sm font-semibold">Connect {dialog.provider.name}</h5>
-              <button
-                onClick={closeDialog}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-
-            {error && <p className="mt-3 text-[11px] text-destructive">{error}</p>}
-
-            {/* Method selection */}
-            {dialog.step === "methods" && (
-              <div className="mt-4 space-y-2">
-                {getOAuthMethodIndex(dialog.provider.id) !== null && (
-                  <button
-                    onClick={() => {
-                      const idx = getOAuthMethodIndex(dialog.provider.id);
-                      if (idx !== null) {
-                        setError(null);
-                        startOAuthFlow(dialog.provider, idx);
-                      }
-                    }}
-                    className="flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium transition-colors hover:bg-accent"
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                      <polyline points="10 17 15 12 10 7" />
-                      <line x1="15" y1="12" x2="3" y2="12" />
-                    </svg>
-                    Sign in with {dialog.provider.name}
-                  </button>
-                )}
-                {getOAuthMethodIndex(dialog.provider.id) !== null &&
-                  hasApiKeyAuth(dialog.provider.id) && (
-                    <div className="flex items-center gap-2">
-                      <div className="h-px flex-1 bg-border" />
-                      <span className="text-[10px] text-muted-foreground">or</span>
-                      <div className="h-px flex-1 bg-border" />
-                    </div>
-                  )}
-                {hasApiKeyAuth(dialog.provider.id) && (
-                  <button
-                    onClick={() => {
-                      setError(null);
-                      setDialog({ step: "apikey", provider: dialog.provider });
-                    }}
-                    className="flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium transition-colors hover:bg-accent"
-                  >
-                    Use an API key
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* OAuth flow */}
-            {dialog.step === "oauth" && (
-              <div className="mt-4 space-y-3">
-                {!dialog.method && (
-                  <div className="flex items-center justify-center py-4">
-                    <svg
-                      className="h-4 w-4 animate-spin text-muted-foreground"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                    </svg>
-                  </div>
-                )}
-                {dialog.method === "auto" && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
-                      <svg
-                        className="h-3 w-3 animate-spin"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                      </svg>
-                      Waiting for authorization...
-                    </div>
-                    {dialog.instructions && (
-                      <div className="rounded-md border bg-muted/50 p-2.5">
-                        <p className="text-[11px] leading-relaxed text-muted-foreground">
-                          {dialog.instructions}
-                        </p>
-                        <button
-                          onClick={() => {
-                            const code = dialog.instructions?.match(/[A-Z0-9]{4,}-[A-Z0-9]{4,}/i);
-                            if (code) {
-                              navigator.clipboard.writeText(code[0]);
-                              toast("Code copied to clipboard");
-                            }
-                          }}
-                          className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent"
-                        >
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
-                          Copy code
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {dialog.method === "code" && (
-                  <div className="space-y-2">
-                    {dialog.instructions && (
-                      <p className="text-[11px] text-muted-foreground">{dialog.instructions}</p>
-                    )}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={oauthCodeInput}
-                        onChange={(e) => setOauthCodeInput(e.target.value)}
-                        placeholder="Paste authorization code..."
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && oauthCodeInput.trim()) {
-                            e.preventDefault();
-                            handleOAuthCode(dialog.provider.id);
-                          }
-                        }}
-                        className="h-8 flex-1 rounded border bg-background px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => handleOAuthCode(dialog.provider.id)}
-                        disabled={!oauthCodeInput.trim()}
-                        className="h-8 rounded bg-foreground px-3 text-xs font-medium text-background transition-opacity disabled:opacity-40"
-                      >
-                        Submit
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* API key input */}
-            {dialog.step === "apikey" && (
-              <div className="mt-4 space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={apiKeyInput}
-                    onChange={(e) => {
-                      setApiKeyInput(e.target.value);
-                      setError(null);
-                    }}
-                    placeholder={PROVIDER_META[dialog.provider.id]?.placeholder ?? "API key..."}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && apiKeyInput.trim() && !saving) {
-                        e.preventDefault();
-                        handleSaveKey(dialog.provider.id);
-                      }
-                    }}
-                    className="h-8 flex-1 rounded border bg-background px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
-                    autoFocus
-                  />
-                  <button
-                    onClick={() => handleSaveKey(dialog.provider.id)}
-                    disabled={saving || !apiKeyInput.trim()}
-                    className="h-8 rounded bg-foreground px-3 text-xs font-medium text-background transition-opacity disabled:opacity-40"
-                  >
-                    {saving ? "..." : "Save"}
-                  </button>
-                </div>
-                {PROVIDER_META[dialog.provider.id]?.helpUrl && (
-                  <a
-                    href={PROVIDER_META[dialog.provider.id]?.helpUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-block text-[10px] text-muted-foreground underline hover:text-foreground"
-                  >
-                    Get an API key
-                  </a>
-                )}
-                {getOAuthMethodIndex(dialog.provider.id) !== null && (
-                  <button
-                    onClick={() => setDialog({ step: "methods", provider: dialog.provider })}
-                    className="block text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    Back to sign-in options
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+      {connecting && (
+        <ProviderConnectDialog provider={connecting} onClose={() => setConnecting(null)} />
       )}
     </div>
   );
