@@ -90,13 +90,14 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const oauthAbortRef = useRef<AbortController | null>(null);
+  // Bumped whenever the user leaves a sign-in (back, another method, close), so
+  // a request that finishes afterwards knows its flow was abandoned.
+  const oauthFlowRef = useRef(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
 
   const cancelPendingOAuth = useCallback(() => {
-    oauthAbortRef.current?.abort();
-    oauthAbortRef.current = null;
+    oauthFlowRef.current += 1;
   }, []);
 
   const close = useCallback(() => {
@@ -160,6 +161,8 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
 
   async function startOAuthFlow(option: AuthMethodOption, inputs: Record<string, string>) {
     cancelPendingOAuth();
+    const flow = oauthFlowRef.current;
+    const abandoned = () => oauthFlowRef.current !== flow;
     setError(null);
     setState({ step: "oauth", option, method: null, instructions: null, url: null });
 
@@ -171,6 +174,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
         inputs: submittedPromptInputs(option.prompts, inputs),
       });
     } catch (err) {
+      if (abandoned()) return;
       captureProviderConnectFailure(provider.id, "oauth_start", err, option.label);
       backToMethods({
         message: authErrorMessage(err) ?? `Couldn't start “${option.title}”.`,
@@ -178,10 +182,14 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
       });
       return;
     }
+    if (abandoned()) return;
     if (!authResult) {
       backToMethods({ message: `Couldn't start “${option.title}”.` });
       return;
     }
+    // OpenCode can't open a browser itself, so open the sign-in page here, and
+    // only for a flow the user is still in.
+    if (authResult.url) desktop.openUrl(authResult.url).catch(() => {});
 
     setState({
       step: "oauth",
@@ -192,14 +200,12 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
     });
     if (authResult.method !== "auto") return;
 
-    const abort = new AbortController();
-    oauthAbortRef.current = abort;
     try {
       const success = await completeOAuthMutation.mutateAsync({
         providerID: provider.id,
         methodIndex: option.index,
       });
-      if (abort.signal.aborted) return;
+      if (abandoned()) return;
       if (!success) {
         captureProviderConnectFailure(provider.id, "oauth_complete", "rejected", option.label);
         backToMethods({
@@ -212,7 +218,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
         finish();
       }
     } catch (err) {
-      if (abort.signal.aborted) return;
+      if (abandoned()) return;
       captureProviderConnectFailure(provider.id, "oauth_complete", err, option.label);
       backToMethods({
         message: authErrorMessage(err) ?? "Sign-in timed out or was cancelled.",

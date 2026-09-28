@@ -6,7 +6,6 @@ import {
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
 } from "@/lib/analytics";
-import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 
@@ -33,10 +32,8 @@ export function useStartOAuth() {
         { throwOnError: true },
       );
       if (!res.data) return undefined;
-      // The sidecar cannot open a browser itself, so use the safe desktop bridge.
-      if (res.data.url) {
-        await desktop.openUrl(res.data.url);
-      }
+      // The caller opens res.data.url through the desktop bridge once it knows
+      // the user is still waiting for this sign-in.
       return { method: res.data.method, instructions: res.data.instructions, url: res.data.url };
     },
   });
