@@ -13,10 +13,10 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, JSONSchema, Schema } from "effect";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { studioMcpCommand } from "../../electron/opencodeConfig";
+import { BLOXBOT_PROGRAMS_MANIFEST_URL } from "../../electron/services/BloxBotProgramStore";
 import { startGeneratedProgramRuntime } from "../../electron/services/GeneratedProgramRuntime";
 import {
   signBloxBotProgramManifest,
@@ -24,58 +24,32 @@ import {
 } from "../../electron/bloxbotProgramSignature";
 import { ExplorerSnapshotSchema } from "../../src/lib/explorer";
 import {
-  allowedBloxBotProgramTools,
+  isBloxBotProgramToolAllowed,
   buildBloxBotProgramManifest,
   BLOXBOT_PROGRAM_CONTRACTS,
   BLOXBOT_PROGRAM_NAMES,
   type BloxBotProgramManifest,
   BloxBotProgramManifestSchema,
   type BloxBotProgramName,
-  type BloxBotProgramSources,
   serializeBloxBotProgramManifest,
 } from "../../src/lib/bloxbotProgramManifest";
 import type { GeneratedProgramEnvelope } from "../../src/types/generatedProgram";
+import {
+  expectedManifest,
+  MANIFEST_PATH,
+  PROGRAMS_DIR as DIR,
+  readSources,
+  samePrograms,
+} from "./manifestFiles";
 import {
   StudioTargetDiscoverySchema,
   StudioTargetSelectionSchema,
 } from "../../src/types/studioTarget";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const DIR = join(ROOT, "bloxbot-programs");
-const MANIFEST_PATH = join(DIR, "manifest.json");
 const MODEL = "claude-opus-5";
 const MAX_ATTEMPTS = 4;
 
-// ── Sources and manifest ────────────────────────────────────────────────
-
-async function readSources(): Promise<BloxBotProgramSources> {
-  const programs = {} as Record<BloxBotProgramName, string>;
-  for (const name of BLOXBOT_PROGRAM_NAMES) {
-    programs[name] = await readFile(join(DIR, `${name}.ts`), "utf8");
-  }
-  return { lib: await readFile(join(DIR, "lib", "mcp.ts"), "utf8"), programs };
-}
-
-async function readShippedManifest(): Promise<BloxBotProgramManifest | null> {
-  try {
-    return Schema.decodeUnknownSync(BloxBotProgramManifestSchema)(
-      JSON.parse(await readFile(MANIFEST_PATH, "utf8")),
-    );
-  } catch {
-    return null;
-  }
-}
-
-/** The manifest for the current sources; the sequence only moves when they change. */
-async function expectedManifest(): Promise<BloxBotProgramManifest> {
-  const sources = await readSources();
-  const shipped = await readShippedManifest();
-  const unchanged = buildBloxBotProgramManifest(sources, shipped?.sequence ?? 1);
-  if (shipped && JSON.stringify(shipped.programs) === JSON.stringify(unchanged.programs)) {
-    return shipped;
-  }
-  return buildBloxBotProgramManifest(sources, (shipped?.sequence ?? 0) + 1);
-}
+// ── Manifest ────────────────────────────────────────────────────────────
 
 async function build() {
   const manifest = await expectedManifest();
@@ -93,12 +67,29 @@ async function check() {
   console.log("bloxbot-programs/manifest.json is up to date");
 }
 
+/** The currently published manifest, or null before the first publish. */
+async function readPublishedManifest(): Promise<BloxBotProgramManifest | null> {
+  const response = await fetch(BLOXBOT_PROGRAMS_MANIFEST_URL);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Could not read the published manifest (${response.status})`);
+  return Schema.decodeUnknownSync(BloxBotProgramManifestSchema)(await response.json());
+}
+
 async function sign(outDir: string | undefined) {
   if (!outDir) throw new Error("Usage: bloxbot-programs sign <output-directory>");
   const key = process.env.BLOXBOT_PROGRAMS_SIGNING_KEY;
   if (!key) throw new Error("BLOXBOT_PROGRAMS_SIGNING_KEY is not set");
   await check();
-  const manifest = await readFile(MANIFEST_PATH, "utf8");
+  const committed = await expectedManifest();
+  const published = await readPublishedManifest();
+  if (published && samePrograms(published, committed)) {
+    console.log(`Already published at sequence ${published.sequence}; nothing to sign`);
+    return;
+  }
+  // Apps never go back to a lower sequence, so a revert (which restores an
+  // older manifest.json) must still publish above what is already out there.
+  const sequence = Math.max(committed.sequence, (published?.sequence ?? 0) + 1);
+  const manifest = serializeBloxBotProgramManifest({ ...committed, sequence });
   const signature = signBloxBotProgramManifest(manifest, key);
   // Refuse to publish anything the app would reject.
   if (!verifyBloxBotProgramManifest(manifest, signature)) {
@@ -107,7 +98,7 @@ async function sign(outDir: string | undefined) {
   await mkdir(outDir, { recursive: true });
   await writeFile(join(outDir, "manifest.json"), manifest);
   await writeFile(join(outDir, "manifest.json.sig"), `${signature}\n`);
-  console.log(`Signed manifest into ${outDir}`);
+  console.log(`Signed sequence ${sequence} into ${outDir}`);
 }
 
 // ── Live Studio ─────────────────────────────────────────────────────────
@@ -131,13 +122,13 @@ async function connectStudio(): Promise<Studio> {
   );
   const callTool = async (name: string, toolArgs: Record<string, unknown>) =>
     (await client.callTool({ name, arguments: toolArgs })) as CallToolResult;
-  // The same runtime (and tool allow-list) the app uses.
-  const runtime = startGeneratedProgramRuntime(callTool);
   const { tools } = await client.listTools();
+  // The same runtime and tool rules the app uses, with Studio's annotations.
+  const runtime = startGeneratedProgramRuntime(callTool, async (name) =>
+    tools.find((tool) => tool.name === name),
+  );
 
-  const listed = (await callTool("list_roblox_studios", {})).content;
-  const text = Array.isArray(listed) && listed[0]?.type === "text" ? listed[0].text : "{}";
-  const studios = (JSON.parse(text) as { studios?: { id: string; name: string }[] }).studios ?? [];
+  const studios = parseStudios(await callTool("list_roblox_studios", {}));
   const wanted = process.env.STUDIO_NAME;
   const studio = wanted ? studios.find((s) => s.name.includes(wanted)) : studios[0];
   if (!studio) {
@@ -156,6 +147,35 @@ async function connectStudio(): Promise<Studio> {
     },
     close: () => client.close(),
   };
+}
+
+/**
+ * Reads list_roblox_studios as forgivingly as the programs do: text or JSON
+ * content, a note before the JSON, and id / studio_id / studioId.
+ */
+function parseStudios(result: CallToolResult): { id: string; name: string }[] {
+  const part = result.content.find((item) => item.type === "text");
+  const text = part && part.type === "text" ? part.text : "";
+  const start = Math.min(...["{", "["].map((c) => text.indexOf(c)).filter((i) => i >= 0));
+  let data: unknown;
+  try {
+    data = JSON.parse(Number.isFinite(start) ? text.slice(start) : text);
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { studios?: unknown })?.studios)
+      ? (data as { studios: unknown[] }).studios
+      : [];
+  return list.flatMap((entry) => {
+    const item = (entry ?? {}) as Record<string, unknown>;
+    const rawId = item.id ?? item.studio_id ?? item.studioId;
+    const id = typeof rawId === "string" || typeof rawId === "number" ? String(rawId).trim() : "";
+    if (!id) return [];
+    const rawName = item.name ?? item.place_name ?? item.placeName;
+    return [{ id, name: typeof rawName === "string" && rawName ? rawName : id }];
+  });
 }
 
 /** Runs one program against Studio and checks its output like the app would. */
@@ -240,8 +260,11 @@ async function generate(name: string | undefined) {
   const program = name as BloxBotProgramName;
   const sources = await readSources();
   const studio = await connectStudio();
-  const allowed = allowedBloxBotProgramTools(program);
-  const tools = studio.tools.filter((tool) => allowed.includes(tool.name));
+  // Exactly the tools the runtime lets this program call, known or read-only.
+  const tools = studio.tools.filter((tool) =>
+    isBloxBotProgramToolAllowed(program, tool.name, tool.annotations),
+  );
+  const allowed = tools.map((tool) => tool.name);
 
   const system = `You write small TypeScript programs that BloxBot, a desktop app for Roblox development, runs against the Roblox Studio MCP server.
 

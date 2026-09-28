@@ -62,6 +62,28 @@ describe("GeneratedProgramRuntime", () => {
     expect(callTool).not.toHaveBeenCalled();
   });
 
+  it("allows a tool Studio marks read-only even when programs don't know it yet", async () => {
+    const callTool = vi.fn().mockResolvedValue({ content: [] });
+    const describeTool = vi.fn(async (name: string) =>
+      name === "renamed_tree_tool"
+        ? { annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } }
+        : undefined,
+    );
+    const runtime = startGeneratedProgramRuntime(callTool, describeTool);
+    const artifact = await Effect.runPromise(
+      runtime.compile(
+        envelope(
+          `async function run({ callTool }) { await callTool("renamed_tree_tool", {}); return 1; }`,
+        ),
+      ),
+    );
+
+    await expect(Effect.runPromise(runtime.invoke({ artifact, input: {} }))).resolves.toMatchObject(
+      { value: 1 },
+    );
+    expect(callTool).toHaveBeenCalledWith("renamed_tree_tool", {});
+  });
+
   it("refuses every tool for a contract it doesn't know", async () => {
     const callTool = vi.fn();
     const runtime = startGeneratedProgramRuntime(callTool);

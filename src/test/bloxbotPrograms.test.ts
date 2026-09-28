@@ -4,16 +4,17 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  allowedBloxBotProgramTools,
   BLOXBOT_PROGRAM_NAMES,
   type BloxBotProgramManifest,
   type BloxBotProgramName,
   buildBloxBotProgramManifest,
+  isBloxBotProgramToolAllowed,
   serializeBloxBotProgramManifest,
   usableBloxBotPrograms,
 } from "@/lib/bloxbotProgramManifest";
 import { signBloxBotProgramManifest } from "../../electron/bloxbotProgramSignature";
 import { createBloxBotProgramStore } from "../../electron/services/BloxBotProgramStore";
+import { expectedManifest } from "../../scripts/bloxbot-programs/manifestFiles";
 
 const getBloxBotPrograms = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/desktop", () => ({ desktop: { getBloxBotPrograms } }));
@@ -65,24 +66,37 @@ describe("studio program manifest", () => {
     expect(Object.keys(usable).sort()).toEqual(["explorer-snapshot", "studio-target-selection"]);
   });
 
-  it("gives programs read-only Studio tools and unknown contracts none", () => {
-    expect(allowedBloxBotProgramTools("explorer-snapshot")).toContain("search_game_tree");
-    expect(allowedBloxBotProgramTools("explorer-snapshot")).not.toContain("execute_luau");
-    expect(allowedBloxBotProgramTools("something-else")).toEqual([]);
+  it("lets programs use their known tools and any tool Studio marks read-only", () => {
+    // Annotations as Roblox Studio's MCP reports them (2026-09-28).
+    const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+    expect(isBloxBotProgramToolAllowed("explorer-snapshot", "search_game_tree")).toBe(true);
+    expect(isBloxBotProgramToolAllowed("explorer-snapshot", "renamed_tree_tool", readOnly)).toBe(
+      true,
+    );
+    expect(
+      isBloxBotProgramToolAllowed("explorer-snapshot", "execute_luau", {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      }),
+    ).toBe(false);
+    expect(
+      isBloxBotProgramToolAllowed("explorer-snapshot", "http_get", {
+        ...readOnly,
+        openWorldHint: true,
+      }),
+    ).toBe(false);
+    expect(isBloxBotProgramToolAllowed("explorer-snapshot", "unlabelled_tool")).toBe(false);
+    expect(isBloxBotProgramToolAllowed("something-else", "list_roblox_studios", readOnly)).toBe(
+      false,
+    );
   });
 
   it("ships a manifest.json that matches bloxbot-programs/ (run `pnpm bloxbot-programs build`)", async () => {
-    const read = (path: string) => readFile(join(ROOT, "bloxbot-programs", path), "utf8");
-    const shipped = JSON.parse(await read("manifest.json")) as BloxBotProgramManifest;
-    const programs = {} as Record<BloxBotProgramName, string>;
-    for (const name of BLOXBOT_PROGRAM_NAMES) programs[name] = await read(`${name}.ts`);
-
-    const rebuilt = buildBloxBotProgramManifest(
-      { lib: await read("lib/mcp.ts"), programs },
-      shipped.sequence,
+    // The same check as `pnpm bloxbot-programs check`, including the sequence bump.
+    expect(serializeBloxBotProgramManifest(await expectedManifest())).toBe(
+      await readFile(join(ROOT, "bloxbot-programs", "manifest.json"), "utf8"),
     );
-
-    expect(serializeBloxBotProgramManifest(rebuilt)).toBe(await read("manifest.json"));
   });
 });
 
@@ -144,7 +158,7 @@ describe("studio program store", () => {
   it("ignores a cached manifest that was changed on disk", async () => {
     const { dir, store: first } = await store(published(buildBloxBotProgramManifest(sources(), 4)));
     await first.refresh();
-    const path = join(dir, "manifest.json");
+    const path = join(dir, "cache.json");
     await writeFile(path, (await readFile(path, "utf8")).replace("return {}", "return evil()"));
 
     const { store: reloaded } = await store(
@@ -154,6 +168,18 @@ describe("studio program store", () => {
     await reloaded.load();
 
     expect(reloaded.current()).toBeNull();
+  });
+
+  it("reports a failed cache write instead of throwing", async () => {
+    const blocked = join(await mkdtemp(join(tmpdir(), "bloxbot-programs-")), "file");
+    await writeFile(blocked, "not a directory");
+    const { store: unwritable } = await store(
+      published(buildBloxBotProgramManifest(sources(), 5)),
+      join(blocked, "cache"),
+    );
+
+    await expect(unwritable.refresh()).resolves.toBe("unavailable");
+    expect(unwritable.current()).toBeNull();
   });
 
   it("stays on what it has when the download fails", async () => {
@@ -187,8 +213,9 @@ describe("resolveBloxBotPrograms", () => {
 
     const { resolved } = await resolve();
 
-    expect(resolved.source).toBe("published");
-    expect(resolved.explorer.source).toBe(newer.programs["explorer-snapshot"]?.source);
+    expect(resolved.explorer.source).toBe("published");
+    expect(resolved.explorer.program.source).toBe(newer.programs["explorer-snapshot"]?.source);
+    expect(resolved.targets.source).toBe("published");
   });
 
   it("keeps the built-in programs when the published copy isn't newer or can't be read", async () => {
@@ -196,9 +223,29 @@ describe("resolveBloxBotPrograms", () => {
     getBloxBotPrograms.mockResolvedValue(
       buildBloxBotProgramManifest(sources(), BUILTIN_BLOXBOT_PROGRAM_MANIFEST.sequence),
     );
-    expect((await resolve()).resolved.source).toBe("builtin");
+    expect((await resolve()).resolved.explorer.source).toBe("builtin");
 
     getBloxBotPrograms.mockRejectedValue(new Error("bridge unavailable"));
-    expect((await resolve()).resolved.source).toBe("builtin");
+    expect((await resolve()).resolved.explorer.source).toBe("builtin");
+  });
+
+  it("records each program's own origin when only some published programs are usable", async () => {
+    const { BUILTIN_BLOXBOT_PROGRAM_MANIFEST } = await import("@/lib/builtinBloxBotPrograms");
+    const newer = buildBloxBotProgramManifest(
+      sources(),
+      BUILTIN_BLOXBOT_PROGRAM_MANIFEST.sequence + 1,
+    );
+    const explorer = newer.programs["explorer-snapshot"];
+    if (!explorer) throw new Error("missing explorer");
+    newer.programs["explorer-snapshot"] = {
+      ...explorer,
+      contract: { ...explorer.contract, version: "2" },
+    };
+    getBloxBotPrograms.mockResolvedValue(newer);
+
+    const { resolved } = await resolve();
+
+    expect(resolved.explorer.source).toBe("builtin");
+    expect(resolved.targets.source).toBe("published");
   });
 });

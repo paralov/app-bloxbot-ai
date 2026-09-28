@@ -25,7 +25,7 @@ import {
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
 } from "@/lib/analytics";
-import { resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
+import { BUILTIN_BLOXBOT_PROGRAMS, resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
 import {
   createExplorerReference,
@@ -266,9 +266,14 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         posthog.capture("sync_started", analyticsProperties("explorer", { source: "initial" }));
       }
 
-      async function generate(reason: "initial" | "initial_recovery" | "contract_recovery") {
+      // Where the first-load program came from, to decide the next fallback.
+      let initialSource: "published" | "builtin" | null = null;
+
+      async function generate(
+        reason: "initial" | "builtin_fallback" | "initial_recovery" | "contract_recovery",
+      ) {
         const startedAt = performance.now();
-        const modelMediated = reason !== "initial";
+        const modelMediated = reason === "initial_recovery" || reason === "contract_recovery";
         posthog.capture(
           "collector_generation_started",
           analyticsProperties("explorer", { model_mediated: modelMediated, reason }),
@@ -282,11 +287,13 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           if (modelMediated) {
             program = await generateExplorerProgram(activeClient, model, selectedAgent);
           } else {
-            const resolved = await resolveBloxBotPrograms();
-            program = resolved.explorer;
+            const { explorer } =
+              reason === "initial" ? await resolveBloxBotPrograms() : BUILTIN_BLOXBOT_PROGRAMS;
+            program = explorer.program;
+            if (reason === "initial") initialSource = explorer.source;
             programProperties = {
-              program_source: resolved.source,
-              program_sequence: resolved.sequence,
+              program_source: explorer.source,
+              program_sequence: explorer.sequence,
             };
           }
           const artifact = await desktop.compileExplorerProgram(program);
@@ -356,9 +363,15 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           try {
             next = await generate("initial");
           } catch {
-            // The built-in program no longer matches Studio's tools, so have
-            // the model write one against the tools Studio offers now.
-            next = await generate("initial_recovery");
+            try {
+              // A broken published program falls back to the one this app shipped.
+              if (initialSource !== "published") throw new Error("No built-in fallback left");
+              next = await generate("builtin_fallback");
+            } catch {
+              // No shipped program matches Studio's tools any more, so have the
+              // model write one against the tools Studio offers now.
+              next = await generate("initial_recovery");
+            }
           }
         } else {
           throw new Error("Explorer setup needs repair before it can retry.");

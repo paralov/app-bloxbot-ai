@@ -12,19 +12,25 @@ import {
   StudioTargetProgramEnvelopesSchema,
 } from "@/types/studioTarget";
 
-export interface ResolvedBloxBotPrograms {
-  /** "published" when any program came from a newer published manifest. */
+/** Where a program came from, recorded in analytics so broken ones are traceable. */
+export interface BloxBotProgramOrigin {
   source: "published" | "builtin";
   sequence: number;
-  explorer: ExplorerProgramEnvelope;
-  targets: StudioTargetProgramEnvelopes;
 }
 
-const BUILTIN: ResolvedBloxBotPrograms = {
+export interface ResolvedBloxBotPrograms {
+  explorer: BloxBotProgramOrigin & { program: ExplorerProgramEnvelope };
+  targets: BloxBotProgramOrigin & { programs: StudioTargetProgramEnvelopes };
+}
+
+const BUILTIN_ORIGIN: BloxBotProgramOrigin = {
   source: "builtin",
   sequence: BUILTIN_BLOXBOT_PROGRAM_MANIFEST.sequence,
-  explorer: BUILTIN_EXPLORER_PROGRAM,
-  targets: BUILTIN_STUDIO_TARGET_PROGRAMS,
+};
+
+export const BUILTIN_BLOXBOT_PROGRAMS: ResolvedBloxBotPrograms = {
+  explorer: { ...BUILTIN_ORIGIN, program: BUILTIN_EXPLORER_PROGRAM },
+  targets: { ...BUILTIN_ORIGIN, programs: BUILTIN_STUDIO_TARGET_PROGRAMS },
 };
 
 /**
@@ -39,21 +45,27 @@ export async function resolveBloxBotPrograms(): Promise<ResolvedBloxBotPrograms>
   } catch {
     // Anything wrong with the published copy just means the built-in programs.
   }
-  if (!published || published.sequence <= BUILTIN.sequence) return BUILTIN;
+  if (!published || published.sequence <= BUILTIN_ORIGIN.sequence) return BUILTIN_BLOXBOT_PROGRAMS;
+
+  const origin: BloxBotProgramOrigin = { source: "published", sequence: published.sequence };
   const usable = usableBloxBotPrograms(published);
   const explorer = usable["explorer-snapshot"];
   const discovery = usable["studio-target-discovery"];
   const selection = usable["studio-target-selection"];
-  if (!explorer && !discovery && !selection) return BUILTIN;
   return {
-    source: "published",
-    sequence: published.sequence,
     explorer: explorer
-      ? Schema.decodeUnknownSync(ExplorerProgramEnvelopeSchema)(explorer)
-      : BUILTIN.explorer,
-    targets: Schema.decodeUnknownSync(StudioTargetProgramEnvelopesSchema)({
-      discovery: discovery ?? BUILTIN.targets.discovery,
-      selection: selection ?? BUILTIN.targets.selection,
-    }),
+      ? { ...origin, program: Schema.decodeUnknownSync(ExplorerProgramEnvelopeSchema)(explorer) }
+      : BUILTIN_BLOXBOT_PROGRAMS.explorer,
+    // Discovery and selection work as a pair, so they come from one place.
+    targets:
+      discovery && selection
+        ? {
+            ...origin,
+            programs: Schema.decodeUnknownSync(StudioTargetProgramEnvelopesSchema)({
+              discovery,
+              selection,
+            }),
+          }
+        : BUILTIN_BLOXBOT_PROGRAMS.targets,
   };
 }

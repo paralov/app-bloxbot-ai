@@ -55,6 +55,10 @@ jobs:
 
       - name: Publish to the bloxbot-programs prerelease
         run: |
+          if [ ! -f signed/manifest.json ]; then
+            echo "Nothing new to publish."
+            exit 0
+          fi
           if ! gh release view bloxbot-programs >/dev/null 2>&1; then
             gh release create bloxbot-programs --prerelease --latest=false \
               --title "BloxBot programs" \

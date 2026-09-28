@@ -45,8 +45,9 @@ export type BloxBotProgramName = keyof typeof BLOXBOT_PROGRAM_CONTRACTS;
 export const BLOXBOT_PROGRAM_NAMES = Object.keys(BLOXBOT_PROGRAM_CONTRACTS) as BloxBotProgramName[];
 
 /**
- * Studio MCP tools a BloxBot program may call. All read-only: a program that is
- * compromised or simply wrong can inspect the place but never change it.
+ * Studio MCP tools each program is known to use. Beyond these, a program may
+ * call any tool Studio itself marks read-only (see isBloxBotProgramToolAllowed),
+ * so a renamed or new read-only tool works without an app release.
  */
 export const BLOXBOT_PROGRAM_TOOLS: Record<BloxBotProgramName, readonly string[]> = {
   "explorer-snapshot": [
@@ -120,9 +121,37 @@ export function usableBloxBotPrograms(
   return usable;
 }
 
-/** Tools a program with this contract name may call; unknown contracts get none. */
-export function allowedBloxBotProgramTools(contractName: string): readonly string[] {
-  return contractName in BLOXBOT_PROGRAM_TOOLS
-    ? BLOXBOT_PROGRAM_TOOLS[contractName as BloxBotProgramName]
-    : [];
+/** The MCP tool annotations Studio sends with its tool list. */
+export interface StudioToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  openWorldHint?: boolean;
+}
+
+/**
+ * Whether a program may call a Studio tool, whoever wrote the program. Programs
+ * only read: they get the tools they're known to use, plus any tool Studio marks
+ * read-only, non-destructive and closed-world (so not http_get, which reaches
+ * the internet). Programs for contracts this app doesn't know get nothing.
+ */
+export function isBloxBotProgramToolAllowed(
+  contractName: string,
+  toolName: string,
+  annotations?: StudioToolAnnotations,
+): boolean {
+  if (!(contractName in BLOXBOT_PROGRAM_TOOLS)) return false;
+  if (BLOXBOT_PROGRAM_TOOLS[contractName as BloxBotProgramName].includes(toolName)) return true;
+  return (
+    annotations?.readOnlyHint === true &&
+    annotations.destructiveHint !== true &&
+    annotations.openWorldHint !== true
+  );
+}
+
+/** Whether a program may call a tool without asking Studio for its annotations. */
+export function isKnownBloxBotProgramTool(contractName: string, toolName: string): boolean {
+  return (
+    contractName in BLOXBOT_PROGRAM_TOOLS &&
+    BLOXBOT_PROGRAM_TOOLS[contractName as BloxBotProgramName].includes(toolName)
+  );
 }

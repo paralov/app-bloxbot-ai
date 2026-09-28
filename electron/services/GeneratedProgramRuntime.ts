@@ -14,10 +14,18 @@ import {
   type GeneratedProgramResult,
   GeneratedProgramResultSchema,
 } from "../../src/types/generatedProgram";
-import { allowedBloxBotProgramTools } from "../../src/lib/bloxbotProgramManifest";
+import {
+  isBloxBotProgramToolAllowed,
+  isKnownBloxBotProgramTool,
+  type StudioToolAnnotations,
+} from "../../src/lib/bloxbotProgramManifest";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 
 type CallTool = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
+/** Studio's annotations for a tool, or undefined when Studio doesn't list it. */
+export type DescribeTool = (
+  name: string,
+) => Promise<{ annotations?: StudioToolAnnotations } | undefined>;
 type ProgramFunction = (input: unknown, callTool: CallTool) => Promise<unknown>;
 
 export type GeneratedProgramFailurePhase =
@@ -82,7 +90,10 @@ function makeFunction(compiledSource: string): ProgramFunction {
   );
 }
 
-export function startGeneratedProgramRuntime(callTool: CallTool): GeneratedProgramRuntimeService {
+export function startGeneratedProgramRuntime(
+  callTool: CallTool,
+  describeTool: DescribeTool = async () => undefined,
+): GeneratedProgramRuntimeService {
   const artifacts = new Map<string, GeneratedProgramArtifact>();
   const functions = new Map<string, ProgramFunction>();
 
@@ -129,13 +140,14 @@ export function startGeneratedProgramRuntime(callTool: CallTool): GeneratedProgr
           });
           functions.set(invocation.artifact.cacheKey, program);
         }
-        const allowedTools = allowedBloxBotProgramTools(invocation.artifact.contract.name);
+        const contractName = invocation.artifact.contract.name;
         const guardedCallTool: CallTool = async (name, args) => {
           // Programs may only read from Studio, whoever wrote them.
-          if (!allowedTools.includes(name)) {
-            throw new ToolContractError(
-              `${invocation.artifact.contract.name} programs may not call ${name}`,
-            );
+          const allowed =
+            isKnownBloxBotProgramTool(contractName, name) ||
+            isBloxBotProgramToolAllowed(contractName, name, (await describeTool(name))?.annotations);
+          if (!allowed) {
+            throw new ToolContractError(`${contractName} programs may not call ${name}`);
           }
           try {
             return await callTool(name, args);
@@ -178,8 +190,23 @@ export const GeneratedProgramRuntimeLive = Layer.effect(
   GeneratedProgramRuntime,
   Effect.gen(function* () {
     const broker = yield* StudioMcpBroker;
-    return startGeneratedProgramRuntime((name, args) =>
-      Effect.runPromise(broker.callTool(name, args)),
+    // Studio's tool list, refetched when a program asks about a tool it doesn't
+    // have yet (a renamed or new tool).
+    let tools: Map<string, { annotations?: StudioToolAnnotations }> | null = null;
+    const loadTools = async () => {
+      const listed = await Effect.runPromise(broker.listTools);
+      tools = new Map(listed.map((tool) => [tool.name, tool]));
+      return tools;
+    };
+    return startGeneratedProgramRuntime(
+      (name, args) => Effect.runPromise(broker.callTool(name, args)),
+      async (name) => {
+        try {
+          return (tools ?? (await loadTools())).get(name) ?? (await loadTools()).get(name);
+        } catch {
+          return undefined;
+        }
+      },
     );
   }),
 );
