@@ -21,28 +21,63 @@ export function canChat(model: Model): boolean {
 }
 
 /**
- * The model a connection check runs on. The user's selected chat model comes
- * first (it's what they actually use), then the provider's default, then the
- * cheapest model that can chat, so checking a pay-per-use key costs little.
- * A model that can't chat is never picked: it would report a working
+ * Whether a model is likely limited to a higher plan tier (such as OpenAI's
+ * "-pro" models on a ChatGPT sign-in), so a working key or sign-in can still
+ * fail on it.
+ */
+export function isTierGated(model: Pick<Model, "id">): boolean {
+  return model.id.endsWith("-pro") || model.id.includes("-pro-");
+}
+
+type CheckPreference = { selected?: string; default?: string };
+
+/**
+ * The models a connection check can run on, best first. The user's selected
+ * chat model comes first (it's what they actually use), then the provider's
+ * default, then the cheapest models that can chat, so checking a pay-per-use
+ * key costs little. Tier-gated models and then alpha models go last, since a
+ * working key can fail on them, and a tier-gated default waits with them. A
+ * model that can't chat is never listed: it would report a working
  * connection as broken.
  */
+export function checkModelCandidates(
+  provider: Pick<Provider, "models">,
+  preferred: CheckPreference = {},
+): CheckModel[] {
+  const find = (id?: string) => {
+    const model = id ? provider.models[id] : undefined;
+    return model && canChat(model) ? model : undefined;
+  };
+  const selected = find(preferred.selected);
+  const fallback = find(preferred.default);
+  // Alpha last, tier-gated before it; the default keeps first place unless
+  // it's tier-gated, and otherwise leads its own group.
+  const group = (m: Model) =>
+    m === fallback && !isTierGated(m) ? -1 : m.status === "alpha" ? 2 : isTierGated(m) ? 1 : 0;
+  const rest = Object.values(provider.models)
+    .filter((m) => canChat(m) && m !== selected)
+    .sort(
+      (a, b) =>
+        group(a) - group(b) ||
+        Number(b === fallback) - Number(a === fallback) ||
+        a.cost.input + a.cost.output - (b.cost.input + b.cost.output) ||
+        a.id.localeCompare(b.id),
+    );
+  return [
+    ...(selected ? [{ model: selected, choice: "selected" as const }] : []),
+    ...rest.map((model) => ({
+      model,
+      choice: model === fallback ? ("default" as const) : ("cheapest" as const),
+    })),
+  ];
+}
+
+/** The first model a connection check runs on (see checkModelCandidates). */
 export function pickCheckModel(
   provider: Pick<Provider, "models">,
-  preferred: { selected?: string; default?: string } = {},
+  preferred: CheckPreference = {},
 ): CheckModel | undefined {
-  for (const choice of ["selected", "default"] as const) {
-    const id = preferred[choice];
-    const model = id ? provider.models[id] : undefined;
-    if (model && canChat(model)) return { model, choice };
-  }
-  const usable = Object.values(provider.models).filter(canChat);
-  const stable = usable.filter((m) => m.status !== "alpha");
-  const model = [...(stable.length > 0 ? stable : usable)].sort(
-    (a, b) =>
-      a.cost.input + a.cost.output - (b.cost.input + b.cost.output) || a.id.localeCompare(b.id),
-  )[0];
-  return model ? { model, choice: "cheapest" } : undefined;
+  return checkModelCandidates(provider, preferred)[0];
 }
 
 export type ProviderCheckResult =

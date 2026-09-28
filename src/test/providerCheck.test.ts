@@ -1,7 +1,7 @@
 import type { AssistantMessage, Model } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
 
-import { checkFailure, pickCheckModel } from "@/lib/providerCheck";
+import { checkFailure, checkModelCandidates, pickCheckModel } from "@/lib/providerCheck";
 
 type ModelError = NonNullable<AssistantMessage["error"]>;
 
@@ -108,6 +108,80 @@ describe("pickCheckModel", () => {
       model: { id: "fine" },
       choice: "cheapest",
     });
+  });
+
+  it("puts tier-gated -pro models behind other chat models, even as the default", () => {
+    const provider = {
+      models: {
+        "gpt-5.6-terra-pro": model("gpt-5.6-terra-pro", 0, 0),
+        "gpt-5-pro-preview": model("gpt-5-pro-preview", 0, 0),
+        "gpt-5.6-terra": model("gpt-5.6-terra", 2, 8),
+        "gpt-5.6-mini": model("gpt-5.6-mini", 0.5, 2),
+        prompt: model("prompt", 0, 0, "alpha"),
+      },
+    };
+    expect(pickCheckModel(provider)).toMatchObject({
+      model: { id: "gpt-5.6-mini" },
+      choice: "cheapest",
+    });
+    expect(
+      checkModelCandidates(provider, { default: "gpt-5.6-terra-pro" }).map((c) => [
+        c.model.id,
+        c.choice,
+      ]),
+    ).toEqual([
+      ["gpt-5.6-mini", "cheapest"],
+      ["gpt-5.6-terra", "cheapest"],
+      ["gpt-5.6-terra-pro", "default"],
+      ["gpt-5-pro-preview", "cheapest"],
+      ["prompt", "cheapest"],
+    ]);
+    // Only tier-gated models: the default still comes first among them.
+    expect(
+      pickCheckModel(
+        { models: { "a-pro": model("a-pro", 0, 0), "b-pro": model("b-pro", 1, 1) } },
+        { default: "b-pro" },
+      ),
+    ).toMatchObject({ model: { id: "b-pro" }, choice: "default" });
+  });
+
+  it("still uses a selected -pro model first", () => {
+    const provider = {
+      models: {
+        "gpt-5.6-terra-pro": model("gpt-5.6-terra-pro", 15, 120),
+        "gpt-5.6-mini": model("gpt-5.6-mini", 0.5, 2),
+      },
+    };
+    expect(
+      checkModelCandidates(provider, { selected: "gpt-5.6-terra-pro" }).map((c) => [
+        c.model.id,
+        c.choice,
+      ]),
+    ).toEqual([
+      ["gpt-5.6-terra-pro", "selected"],
+      ["gpt-5.6-mini", "cheapest"],
+    ]);
+  });
+
+  it("lists each usable model once, selected then default then the rest", () => {
+    const provider = {
+      models: {
+        cheap: model("cheap", 0, 0),
+        chosen: model("chosen", 3, 15),
+        standard: model("standard", 1, 5),
+        image: model("image", 0, 0, "active", imageOnly),
+      },
+    };
+    expect(
+      checkModelCandidates(provider, { selected: "chosen", default: "standard" }).map(
+        (c) => c.model.id,
+      ),
+    ).toEqual(["chosen", "standard", "cheap"]);
+    expect(
+      checkModelCandidates(provider, { selected: "chosen", default: "chosen" }).map(
+        (c) => c.choice,
+      ),
+    ).toEqual(["selected", "cheapest", "cheapest"]);
   });
 
   it("returns nothing when no model can chat", () => {

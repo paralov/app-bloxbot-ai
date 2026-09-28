@@ -47,6 +47,15 @@ describe("scrubErrorText", () => {
     );
   });
 
+  it("masks email addresses", () => {
+    expect(scrubErrorText("Your plan for jane.doe+ai@example.co.uk can't use this model")).toBe(
+      "Your plan for <email> can't use this model",
+    );
+    expect(scrubErrorText("anthropic/claude-sonnet-4@latest")).toBe(
+      "anthropic/claude-sonnet-4@latest",
+    );
+  });
+
   it("redacts numeric credential values but keeps token counts", () => {
     expect(scrubErrorText("api_key=12345678 rejected")).toBe("api_key=[redacted] rejected");
     expect(scrubErrorText('{"password": "4242"}')).toBe('{"password": "[redacted]"}');
