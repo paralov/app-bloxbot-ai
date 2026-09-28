@@ -1,6 +1,5 @@
 import { Check, ChevronLeft, Copy, ExternalLink, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import ProviderLogo from "@/components/ProviderLogo";
 import {
   captureProviderConnectFailure,
@@ -72,9 +71,11 @@ type Step =
 interface ProviderConnectDialogProps {
   provider: ProviderInfo;
   onClose: () => void;
+  /** Called once the provider is connected, or its credential replaced. */
+  onConnected: (provider: ProviderInfo) => void;
 }
 
-function ProviderConnectDialog({ provider, onClose }: ProviderConnectDialogProps) {
+function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConnectDialogProps) {
   const authMethods = useAuthMethods();
   const connectedProviders = useConnectedProviders();
   const startOAuthMutation = useStartOAuth();
@@ -105,16 +106,19 @@ function ProviderConnectDialog({ provider, onClose }: ProviderConnectDialogProps
 
   useEffect(() => cancelPendingOAuth, [cancelPendingOAuth]);
 
+  const finish = useCallback(() => {
+    onConnected(provider);
+    close();
+  }, [onConnected, provider, close]);
+
   // Close once the provider shows up as connected, whichever method got it there.
   const wasConnectedRef = useRef(connectedProviders.includes(provider.id));
+  const alreadyConnected = useRef(wasConnectedRef.current).current;
   useEffect(() => {
     const isConnected = connectedProviders.includes(provider.id);
-    if (isConnected && !wasConnectedRef.current) {
-      toast.success(`${provider.name} connected`);
-      close();
-    }
+    if (isConnected && !wasConnectedRef.current) finish();
     wasConnectedRef.current = isConnected;
-  }, [connectedProviders, provider, close]);
+  }, [connectedProviders, provider, finish]);
 
   const waitingForSignIn = state.step === "oauth" && state.method === "auto";
 
@@ -201,8 +205,11 @@ function ProviderConnectDialog({ provider, onClose }: ProviderConnectDialogProps
           message: `${provider.name} didn't accept the sign-in.`,
           ...oauthRecovery(provider.id, option, options),
         });
+      } else if (alreadyConnected) {
+        // A new connection closes through the connected-providers effect; a
+        // replaced credential never changes that list, so finish here.
+        finish();
       }
-      // Success closes the dialog through the connected-providers effect.
     } catch (err) {
       if (abort.signal.aborted) return;
       captureProviderConnectFailure(provider.id, "oauth_complete", err, option.label);
@@ -231,6 +238,8 @@ function ProviderConnectDialog({ provider, onClose }: ProviderConnectDialogProps
           state.option.label,
         );
         setError({ message: "That code didn't work. Copy it again and paste the whole code." });
+      } else if (alreadyConnected) {
+        finish();
       }
     } catch (err) {
       captureProviderConnectFailure(provider.id, "oauth_complete", err, state.option.label);
@@ -250,6 +259,7 @@ function ProviderConnectDialog({ provider, onClose }: ProviderConnectDialogProps
     setError(null);
     try {
       await setApiKeyMutation.mutateAsync({ providerID: provider.id, key: apiKeyInput.trim() });
+      if (alreadyConnected) finish();
     } catch (err) {
       captureProviderConnectFailure(provider.id, "api_key", err);
       setError({ message: authErrorMessage(err) ?? "Couldn't save the API key. Try again." });

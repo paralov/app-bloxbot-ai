@@ -1,10 +1,11 @@
-import { Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import ProviderConnectDialog from "@/components/ProviderConnectDialog";
 import ProviderLogo from "@/components/ProviderLogo";
 import { THEME_OPTIONS, type Theme, useTheme } from "@/components/theme-provider";
+import { useCheckProvider } from "@/hooks/mutations/useCheckProvider";
 import { useDisconnectProvider } from "@/hooks/mutations/useSetApiKey";
 import {
   useAllModels,
@@ -16,6 +17,7 @@ import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
 import { connectHint } from "@/lib/providerAuth";
+import type { ProviderCheckResult } from "@/lib/providerCheck";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
 import type { UpdateInfo } from "@/types/desktop";
@@ -237,6 +239,34 @@ function ProvidersTab() {
   const [connecting, setConnecting] = useState<ProviderInfo | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [checks, setChecks] = useState<Record<string, "checking" | ProviderCheckResult>>({});
+  const checkMutation = useCheckProvider();
+
+  async function runCheck(provider: ProviderInfo) {
+    setChecks((prev) => ({ ...prev, [provider.id]: "checking" }));
+    let result: ProviderCheckResult;
+    try {
+      result = await checkMutation.mutateAsync(provider.id);
+    } catch {
+      result = {
+        ok: false,
+        message: "BloxBot couldn't run the check. Try again.",
+        keyRejected: false,
+      };
+    }
+    setChecks((prev) => ({ ...prev, [provider.id]: result }));
+  }
+
+  function handleConnected(provider: ProviderInfo) {
+    // A new credential makes any earlier result stale.
+    setChecks((prev) => {
+      const { [provider.id]: _stale, ...rest } = prev;
+      return rest;
+    });
+    toast.success(`${provider.name} connected`, {
+      action: { label: "Check it works", onClick: () => runCheck(provider) },
+    });
+  }
 
   async function handleDisconnect(providerId: string) {
     setDisconnecting(providerId);
@@ -375,25 +405,70 @@ function ProvidersTab() {
             Connected
           </div>
           <div className="divide-y rounded-lg border bg-card">
-            {connected.map((provider) => (
-              <div key={provider.id} className="flex items-center gap-3 px-3 py-2.5">
-                <ProviderLogo providerId={provider.id} name={provider.name} />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{provider.name}</span>
-                <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Connected
-                </span>
-                {provider.id !== "opencode" && (
-                  <button
-                    onClick={() => handleDisconnect(provider.id)}
-                    disabled={disconnecting === provider.id}
-                    className="text-[11px] text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
-                  >
-                    {disconnecting === provider.id ? "..." : "Disconnect"}
-                  </button>
-                )}
-              </div>
-            ))}
+            {connected.map((provider) => {
+              const check = checks[provider.id];
+              return (
+                <div key={provider.id} className="px-3 py-2.5">
+                  <div className="flex items-center gap-3">
+                    <ProviderLogo providerId={provider.id} name={provider.name} />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {provider.name}
+                    </span>
+                    {check && check !== "checking" && (
+                      <span
+                        className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          check.ok
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                            : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${check.ok ? "bg-emerald-500" : "bg-red-500"}`}
+                        />
+                        {check.ok ? "Working" : "Not working"}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => runCheck(provider)}
+                      disabled={check === "checking"}
+                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+                      title="Send one short test message to check this connection"
+                    >
+                      {check === "checking" && <Loader2 className="h-3 w-3 animate-spin" />}
+                      {check === "checking" ? "Checking" : "Check"}
+                    </button>
+                    {provider.id !== "opencode" && (
+                      <button
+                        onClick={() => handleDisconnect(provider.id)}
+                        disabled={disconnecting === provider.id}
+                        className="text-[11px] text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
+                      >
+                        {disconnecting === provider.id ? "..." : "Disconnect"}
+                      </button>
+                    )}
+                  </div>
+                  {check && check !== "checking" && (
+                    <p className="mt-1.5 pl-10 text-[11px] leading-relaxed text-muted-foreground">
+                      {check.ok ? (
+                        `${check.modelName} answered a test message.`
+                      ) : (
+                        <>
+                          <span className="text-red-700 dark:text-red-400">{check.message}</span>
+                          {check.keyRejected && provider.id !== "opencode" && (
+                            <button
+                              onClick={() => setConnecting(provider)}
+                              className="ml-1.5 font-medium text-foreground underline-offset-2 hover:underline"
+                            >
+                              Reconnect
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -435,7 +510,11 @@ function ProvidersTab() {
       )}
 
       {connecting && (
-        <ProviderConnectDialog provider={connecting} onClose={() => setConnecting(null)} />
+        <ProviderConnectDialog
+          provider={connecting}
+          onClose={() => setConnecting(null)}
+          onConnected={handleConnected}
+        />
       )}
     </div>
   );
