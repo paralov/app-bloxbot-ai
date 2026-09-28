@@ -9,7 +9,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- Check in Providers lets you pick the model to test, starting with the model you chat with or the provider's default. It had tested models your plan might not include, so working sign-ins showed as failing. The result names the model it checked.
+- Check in Providers lets you pick the model to test, starting with the model you chat with or the provider's default. It had picked models your key or plan might not include, so working connections showed as failing. The result names the model it checked.
 
 ## [0.13.1] - 2026-09-28
 
