@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-28
+
 ### Added
 
 - BloxBot reports errors from the app and its background process so we can find and fix them. Personal file paths, usernames and API keys are removed before anything is sent.
@@ -232,7 +234,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.11.1...v0.12.0
