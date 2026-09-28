@@ -2,11 +2,10 @@
 //
 //   pnpm bloxbot-programs build             rebuild bloxbot-programs/manifest.json from sources
 //   pnpm bloxbot-programs check             fail if manifest.json is out of date (CI)
-//   pnpm bloxbot-programs test              run every program against a live Roblox Studio
-//   pnpm bloxbot-programs generate <name>   have Claude rewrite a program until it passes `test`
+//   pnpm bloxbot-programs test [name]       run programs against a live Roblox Studio
+//   pnpm bloxbot-programs brief <name>      print what an author needs to (re)write a program
 //   pnpm bloxbot-programs sign <dir>        sign manifest.json into <dir> (CI, needs the key)
 
-import Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -35,7 +34,6 @@ import type { GeneratedProgramEnvelope } from "../../src/types/generatedProgram"
 import {
   expectedManifest,
   MANIFEST_PATH,
-  PROGRAMS_DIR as DIR,
   readSources,
   samePrograms,
 } from "./manifestFiles";
@@ -44,8 +42,6 @@ import {
   StudioTargetSelectionSchema,
 } from "../../src/types/studioTarget";
 
-const MODEL = "claude-opus-5";
-const MAX_ATTEMPTS = 4;
 
 // ── Manifest ────────────────────────────────────────────────────────────
 
@@ -230,12 +226,14 @@ function errorText(error: unknown): string {
   return String(error);
 }
 
-async function test() {
-  const manifest = await expectedManifest();
+async function test(only: string | undefined) {
+  const names = only ? [programName(only, "test")] : BLOXBOT_PROGRAM_NAMES;
+  // Built from the files on disk, so an edited program is tested before `build`.
+  const manifest = buildBloxBotProgramManifest(await readSources(), 1);
   const studio = await connectStudio();
   let failed = false;
   try {
-    for (const name of BLOXBOT_PROGRAM_NAMES) {
+    for (const name of names) {
       try {
         console.log(`✓ ${name}: ${await testProgram(studio, name, manifest.programs[name])}`);
       } catch (error) {
@@ -249,7 +247,11 @@ async function test() {
   if (failed) process.exit(1);
 }
 
-// ── Generation with Claude ──────────────────────────────────────────────
+// ── Authoring brief ─────────────────────────────────────────────────────
+//
+// Programs are written by the bloxbot-program-author agent in Claude Code
+// (.claude/agents/bloxbot-program-author.md), not by an API call from here. The
+// brief gives it everything this app knows about a program; `test` is its check.
 
 const OUTPUT_SCHEMAS: Record<BloxBotProgramName, Schema.Schema.Any> = {
   "explorer-snapshot": ExplorerSnapshotSchema,
@@ -258,113 +260,74 @@ const OUTPUT_SCHEMAS: Record<BloxBotProgramName, Schema.Schema.Any> = {
 };
 
 const INPUTS: Record<BloxBotProgramName, string> = {
-  "explorer-snapshot": "{ studioId: string } — the Studio instance to read, as accepted by studio_id",
-  "studio-target-discovery": "{} — no input",
-  "studio-target-selection": "{ targetKey: string } — the studio_id of the target to verify",
+  "explorer-snapshot": "{ studioId: string }: the Studio instance to read, as accepted by studio_id",
+  "studio-target-discovery": "{}: no input",
+  "studio-target-selection": "{ targetKey: string }: the studio_id of the target to verify",
 };
 
-function extractSource(text: string): string | null {
-  const match = text.match(/```(?:ts|typescript)?\n([\s\S]*?)```/);
-  return match ? match[1].trim() : null;
+function programName(name: string | undefined, command: string): BloxBotProgramName {
+  if (!name || !BLOXBOT_PROGRAM_NAMES.includes(name as BloxBotProgramName)) {
+    throw new Error(`Usage: bloxbot-programs ${command} <${BLOXBOT_PROGRAM_NAMES.join("|")}>`);
+  }
+  return name as BloxBotProgramName;
 }
 
-async function generate(name: string | undefined) {
-  if (!name || !BLOXBOT_PROGRAM_NAMES.includes(name as BloxBotProgramName)) {
-    throw new Error(`Usage: bloxbot-programs generate <${BLOXBOT_PROGRAM_NAMES.join("|")}>`);
-  }
-  const program = name as BloxBotProgramName;
+async function brief(name: string | undefined) {
+  const program = programName(name, "brief");
   const sources = await readSources();
   const studio = await connectStudio();
-  // Exactly the tools the runtime lets this program call, known or read-only.
-  const tools = studio.tools.filter((tool) =>
-    isBloxBotProgramToolAllowed(program, tool.name, tool.annotations),
-  );
-  const allowed = tools.map((tool) => tool.name);
+  try {
+    // Exactly the tools the runtime lets this program call, known or read-only.
+    const tools = studio.tools.filter((tool) =>
+      isBloxBotProgramToolAllowed(program, tool.name, tool.annotations),
+    );
+    console.log(`# Brief: the "${program}" BloxBot program
 
-  const system = `You write small TypeScript programs that BloxBot, a desktop app for Roblox development, runs against the Roblox Studio MCP server.
+Program file: bloxbot-programs/${program}.ts
+Contract: ${JSON.stringify(BLOXBOT_PROGRAM_CONTRACTS[program])}
+Input: ${INPUTS[program]}
 
-A program is a single self-contained source that defines:
+## Rules the runtime enforces
 
-async function run({ input, callTool }: { input: any; callTool: (name: string, args: Record<string, unknown>) => Promise<unknown> }): Promise<unknown>
-
-Rules the runtime enforces:
-- No imports or exports, no globals beyond standard JavaScript, no network or file access. Only callTool reaches Studio.
-- callTool may only call these tools: ${allowed.join(", ")}. Any other tool is refused.
-- callTool resolves to a raw MCP CallToolResult. When isError is true, content holds Studio's error text; errors are not thrown.
+- The file defines \`async function run({ input, callTool })\` and nothing is imported or exported.
+- No globals beyond standard JavaScript, and no network or file access. Only callTool reaches Studio.
+- callTool may only call: ${tools.map((tool) => tool.name).join(", ")}. Anything else is refused.
+- callTool resolves to a raw MCP CallToolResult; when isError is true, content holds Studio's error text (it does not throw).
 - Return only JSON-safe values. Throw an Error with a clear message when Studio can't provide the data.
 
-These helpers are prepended to every program, so call them without redefining them:
+## Helpers prepended to every program (bloxbot-programs/lib/mcp.ts; call, don't redefine)
 
 \`\`\`ts
 ${sources.lib.trim()}
-\`\`\``;
+\`\`\`
 
-  const task = `Write the "${program}" program (contract ${JSON.stringify(BLOXBOT_PROGRAM_CONTRACTS[program])}).
+## The return value must validate against this JSON Schema
 
-Input: ${INPUTS[program]}
-
-The return value must validate against this JSON Schema:
+\`\`\`json
 ${JSON.stringify(JSONSchema.make(OUTPUT_SCHEMAS[program]), null, 2)}
+\`\`\`
 
-The Studio MCP tools it may call, with their current schemas:
-${JSON.stringify(tools.map(({ name: toolName, description, inputSchema }) => ({ name: toolName, description, inputSchema })), null, 2)}
+## Studio MCP tools this program may call, as the open Studio describes them now
 
-The current program, which you should keep where it still fits Studio's tools:
+\`\`\`json
+${JSON.stringify(
+  tools.map(({ name: toolName, description, inputSchema, annotations }) => ({
+    name: toolName,
+    description,
+    inputSchema,
+    annotations,
+  })),
+  null,
+  2,
+)}
+\`\`\`
+
+## The current program
+
 \`\`\`ts
 ${sources.programs[program].trim()}
 \`\`\`
-
-Reply with the complete program (without the prepended helpers) in a single \`\`\`ts code block.`;
-
-  const client = new Anthropic();
-  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: task }];
-  try {
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      console.log(`Attempt ${attempt}: asking ${MODEL}…`);
-      const response = await client.beta.messages.create({
-        model: MODEL,
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "high" },
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
-        system,
-        messages,
-      });
-      if (response.stop_reason === "refusal") {
-        throw new Error(`The model declined: ${response.stop_details?.explanation ?? "no reason given"}`);
-      }
-      // Append the whole turn, thinking included, so the conversation stays append-only.
-      messages.push({ role: "assistant", content: response.content });
-      const text = response.content
-        .flatMap((block) => (block.type === "text" ? [block.text] : []))
-        .join("\n");
-      const candidate = extractSource(text);
-      if (!candidate) {
-        messages.push({ role: "user", content: "Reply with the program in a single ```ts code block." });
-        continue;
-      }
-
-      const envelope = buildBloxBotProgramManifest(
-        { ...sources, programs: { ...sources.programs, [program]: candidate } },
-        1,
-      ).programs[program];
-      try {
-        const summary = await testProgram(studio, program, envelope);
-        await writeFile(join(DIR, `${program}.ts`), `${candidate}\n`);
-        await build();
-        console.log(`✓ ${program}: ${summary}. Wrote bloxbot-programs/${program}.ts; review and open a PR.`);
-        return;
-      } catch (error) {
-        const failure = errorText(error);
-        console.error(`✗ Attempt ${attempt} failed: ${failure}`);
-        messages.push({
-          role: "user",
-          content: `Running that program against the open Studio failed:\n\n${failure}\n\nFix it and reply with the complete program in a single \`\`\`ts code block.`,
-        });
-      }
-    }
-    throw new Error(`No working ${program} program after ${MAX_ATTEMPTS} attempts`);
+`);
   } finally {
     await studio.close();
   }
@@ -376,8 +339,8 @@ const [command, argument] = process.argv.slice(2);
 const commands: Record<string, () => Promise<void>> = {
   build,
   check,
-  test,
-  generate: () => generate(argument),
+  test: () => test(argument),
+  brief: () => brief(argument),
   sign: () => sign(argument),
 };
 

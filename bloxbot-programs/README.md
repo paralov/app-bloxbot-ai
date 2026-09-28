@@ -28,19 +28,21 @@ tools listed in `src/lib/bloxbotProgramManifest.ts`, whoever wrote them.
 Open a place in Roblox Studio, then:
 
 ```sh
-pnpm bloxbot-programs test                        # run every program against Studio
-pnpm bloxbot-programs generate explorer-snapshot  # have Claude rewrite one until it passes
-pnpm bloxbot-programs build                       # rebuild manifest.json after hand edits
+pnpm bloxbot-programs test                     # run every program against Studio
+pnpm bloxbot-programs test explorer-snapshot   # run one
+pnpm bloxbot-programs brief explorer-snapshot  # contract, output schema, Studio's current tools, source
+pnpm bloxbot-programs build                    # rebuild manifest.json after editing a program
 ```
 
-`generate` uses Claude Opus 5 through the Anthropic API (set `ANTHROPIC_API_KEY`,
-or sign in with `ant auth login`). It gives Claude Studio's current tool schemas
-and the program's contract, runs each attempt against the open Studio, feeds
-failures back, and only writes the program once it passes. Set `STUDIO_NAME` to
-pick one of several open places.
+To have a program written or repaired, ask Claude Code to use the
+`bloxbot-program-author` agent (`.claude/agents/bloxbot-program-author.md`), for
+example: "use the bloxbot-program-author agent to fix explorer-snapshot". It
+reads the brief, edits the program, and runs `test` against the open Studio
+until it passes, using the session's own model. No API key is needed. Set
+`STUDIO_NAME` to pick one of several open places.
 
 Review the change, commit the program and `manifest.json` together, and open a
-PR. CI fails if `manifest.json` is out of date.
+PR. CI fails if `manifest.json` is out of date or would be rejected by the app.
 
 A program's contract (its input and output shape) only changes with an app
 release: bump it in `BLOXBOT_PROGRAM_CONTRACTS`, and older apps keep using the

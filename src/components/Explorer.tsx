@@ -201,6 +201,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const generationBlockedRef = useRef(false);
   // Consecutive failed syncs, which set the retry backoff.
   const failuresRef = useRef(0);
+  // Set when newer published programs arrive; the next sync loads them.
+  const programsUpdatedRef = useRef(false);
 
   const model = useMemo(() => {
     if (!selectedModel) return undefined;
@@ -282,6 +284,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         let programProperties: { program_source: string; program_sequence?: number } = {
           program_source: "model",
         };
+        let origin: ExplorerCollection["origin"] = "model";
         try {
           let program: ExplorerProgramEnvelope;
           if (modelMediated) {
@@ -291,6 +294,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               reason === "initial" ? await resolveBloxBotPrograms() : BUILTIN_BLOXBOT_PROGRAMS;
             program = explorer.program;
             if (reason === "initial") initialSource = explorer.source;
+            origin = explorer.source;
             programProperties = {
               program_source: explorer.source,
               program_sequence: explorer.sequence,
@@ -303,7 +307,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           if (snapshot.roots.length === 0) {
             throw new Error("Studio has not returned an instance tree yet");
           }
-          const generated: ExplorerCollection = { program, artifact, snapshot };
+          const generated: ExplorerCollection = { program, artifact, snapshot, origin };
           posthog.capture(
             "collector_generation_succeeded",
             analyticsProperties(
@@ -339,6 +343,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }
       }
 
+      if (programsUpdatedRef.current) {
+        programsUpdatedRef.current = false;
+        if (collectionRef.current?.origin !== "model") collectionRef.current = null;
+      }
       try {
         const current = collectionRef.current;
         let next: ExplorerCollection;
@@ -357,7 +365,17 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
                   reason: "collector_runtime",
                 }),
               );
-            next = await generate("contract_recovery");
+            // Same order as the first load: a published program that stopped
+            // working falls back to the shipped one before asking the model.
+            if (current.origin === "published") {
+              try {
+                next = await generate("builtin_fallback");
+              } catch {
+                next = await generate("contract_recovery");
+              }
+            } else {
+              next = await generate("contract_recovery");
+            }
           }
         } else if (!generationBlockedRef.current) {
           try {
@@ -478,6 +496,22 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     sessionBusy,
     studioTarget?.selected,
   ]);
+
+  // Newer published programs replace a shipped or published program at the next
+  // sync (a working model-written one is kept), and retry a setup that failed.
+  useEffect(
+    () =>
+      desktop.onBloxBotProgramsUpdated(() => {
+        if (collectionRef.current?.origin === "model") return;
+        // Applied at the start of the next sync, so a sync already running
+        // can't put the old program back afterwards.
+        programsUpdatedRef.current = true;
+        generationBlockedRef.current = false;
+        failuresRef.current = 0;
+        syncLatestRef.current();
+      }),
+    [],
+  );
 
   const toggleNode = useCallback((path: string) => {
     setExpanded((current) => {

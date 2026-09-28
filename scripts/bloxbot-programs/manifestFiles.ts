@@ -49,10 +49,24 @@ export function samePrograms(a: { programs: unknown }, b: { programs: unknown })
 export async function expectedManifest(publishedSequence = 0): Promise<BloxBotProgramManifest> {
   const sources = await readSources();
   const shipped = await readShippedManifest();
-  const unchanged = buildBloxBotProgramManifest(sources, shipped?.sequence ?? 1);
+  const unchanged = validated(buildBloxBotProgramManifest(sources, shipped?.sequence ?? 1));
   if (shipped && samePrograms(shipped, unchanged)) return shipped;
-  return buildBloxBotProgramManifest(
-    sources,
-    Math.max(shipped?.sequence ?? 0, publishedSequence) + 1,
+  return validated(
+    buildBloxBotProgramManifest(sources, Math.max(shipped?.sequence ?? 0, publishedSequence) + 1),
   );
+}
+
+/**
+ * Checks the built manifest against the schema the app decodes it with, so a
+ * program that only fails once the shared helpers are prepended (the envelope
+ * size limit) is caught here rather than shipped or published.
+ */
+export function validated(manifest: BloxBotProgramManifest): BloxBotProgramManifest {
+  try {
+    return Schema.decodeUnknownSync(BloxBotProgramManifestSchema)(manifest);
+  } catch (error) {
+    throw new Error(
+      `The built manifest would be rejected by the app: ${error instanceof Error ? error.message : error}`,
+    );
+  }
 }

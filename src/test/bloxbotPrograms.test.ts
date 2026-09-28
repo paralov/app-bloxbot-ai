@@ -14,7 +14,7 @@ import {
 } from "@/lib/bloxbotProgramManifest";
 import { signBloxBotProgramManifest } from "../../electron/bloxbotProgramSignature";
 import { createBloxBotProgramStore } from "../../electron/services/BloxBotProgramStore";
-import { expectedManifest } from "../../scripts/bloxbot-programs/manifestFiles";
+import { expectedManifest, validated } from "../../scripts/bloxbot-programs/manifestFiles";
 
 const getBloxBotPrograms = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/desktop", () => ({ desktop: { getBloxBotPrograms } }));
@@ -49,6 +49,15 @@ describe("studio program manifest", () => {
     );
     expect(manifest.programs["explorer-snapshot"]?.contract.outputSchemaVersion).toBe(
       "explorer-snapshot-v1",
+    );
+  });
+
+  it("refuses to build a manifest the app would reject once the helpers are prepended", () => {
+    // Under the 100,000-character envelope limit alone, over it with the helpers.
+    const nearLimit = `async function run() { return "${"x".repeat(99_950)}"; }`;
+
+    expect(() => validated(buildBloxBotProgramManifest(sources(nearLimit), 1))).toThrow(
+      "would be rejected by the app",
     );
   });
 

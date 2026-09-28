@@ -111,4 +111,6 @@ export interface DesktopApi {
   ): Promise<StudioTargetSelection>;
   /** The newest verified published BloxBot programs, or null to use the built-in ones. */
   getBloxBotPrograms(): Promise<BloxBotProgramManifest | null>;
+  /** Called when newer published BloxBot programs arrive; returns an unsubscribe. */
+  onBloxBotProgramsUpdated(listener: () => void): () => void;
 }

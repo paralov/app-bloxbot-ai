@@ -457,7 +457,13 @@ Effect.runFork(
     yield* Effect.promise(() => bloxbotProgramStore.load());
     yield* registerIpcHandlers;
     yield* Effect.sync(() => {
-      const refresh = () => void bloxbotProgramStore.refresh();
+      // Tell the window when newer programs arrive, so they apply without a restart.
+      const refresh = () =>
+        void bloxbotProgramStore.refresh().then((result) => {
+          if (result === "updated" && mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(channels.bloxbotProgramsUpdated);
+          }
+        });
       refresh();
       setInterval(refresh, BLOXBOT_PROGRAMS_REFRESH_MS).unref();
     });

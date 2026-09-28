@@ -76,6 +76,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   // for the rest of the session in favour of the built-in programs.
   const programsSourceRef = useRef<"published" | "builtin" | "model" | null>(null);
   const publishedFailedRef = useRef(false);
+  const programsUpdatedRef = useRef(false);
   const builtinInstallRef = useRef<Promise<StudioTargetPrograms> | null>(null);
   const discoveryRef = useRef<Promise<void> | null>(null);
   const generationRef = useRef<Promise<StudioTargetPrograms> | null>(null);
@@ -117,6 +118,10 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   }, [client, selectedAgent, selectedModel]);
 
   const getPrograms = useCallback(async () => {
+    if (programsUpdatedRef.current) {
+      programsUpdatedRef.current = false;
+      if (programsSourceRef.current !== "model") programsRef.current = null;
+    }
     if (programsRef.current) return programsRef.current;
     if (!builtinInstallRef.current) {
       // Published programs when newer than the built-in ones (see bloxbotPrograms.ts).
@@ -139,6 +144,19 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     }
     return programsRef.current;
   }, []);
+
+  // Newer published programs replace shipped or published ones on next use; a
+  // working model-written pair is kept. A new version gets a fresh chance.
+  useEffect(
+    () =>
+      desktop.onBloxBotProgramsUpdated(() => {
+        publishedFailedRef.current = false;
+        // Applied on the next getPrograms, so an install already running
+        // can't put the old programs back afterwards.
+        programsUpdatedRef.current = true;
+      }),
+    [],
+  );
 
   /** Runs with the current programs, retrying with the built-in ones if published ones fail. */
   const withProgramFallbacks = useCallback(
