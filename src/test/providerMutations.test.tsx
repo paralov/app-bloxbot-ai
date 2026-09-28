@@ -226,7 +226,7 @@ describe("useCheckProvider", () => {
             name: "APIError",
             data: {
               message:
-                "The model is not available on your plan (key sk-proj-abcdefghijklmnop1234).",
+                "gpt-5.6-terra-pro is not available on your plan (key sk-proj-abcdefghijklmnop1234).",
               statusCode: 400,
               isRetryable: false,
             },
@@ -255,8 +255,11 @@ describe("useCheckProvider", () => {
       key_rejected: false,
       error_name: "APIError",
     });
-    expect(properties.error_message).toContain("not available on your plan");
+    // The model an error names stays in the message, which helps tell where it
+    // came from, even with detailed analytics off; the model field stays gated.
+    expect(properties.error_message).toContain("gpt-5.6-terra-pro is not available on your plan");
     expect(properties.error_message).not.toContain("sk-proj-abcdefghijklmnop1234");
+    expect(properties).not.toHaveProperty("model");
   });
 
   it("says when the check ran on the model the user chats with", async () => {
