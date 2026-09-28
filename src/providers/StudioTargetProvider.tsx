@@ -15,7 +15,7 @@ import {
   errorAnalyticsProperties,
   setStudioAnalyticsContext,
 } from "@/lib/analytics";
-import { BUILTIN_STUDIO_TARGET_PROGRAMS } from "@/lib/builtinStudioPrograms";
+import { BUILTIN_BLOXBOT_PROGRAMS, resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { generateStudioTargetPrograms } from "@/lib/studioTargetPrograms";
@@ -72,6 +72,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const operationRef = useRef(0);
   const targetsRef = useRef<readonly StudioTarget[]>([]);
   const programsRef = useRef<StudioTargetPrograms | null>(null);
+  // Where the installed programs came from; a failed published copy is skipped
+  // for the rest of the session in favour of the built-in programs.
+  const programsSourceRef = useRef<"published" | "builtin" | "model" | null>(null);
+  const publishedFailedRef = useRef(false);
+  const programsUpdatedRef = useRef(false);
   const builtinInstallRef = useRef<Promise<StudioTargetPrograms> | null>(null);
   const discoveryRef = useRef<Promise<void> | null>(null);
   const generationRef = useRef<Promise<StudioTargetPrograms> | null>(null);
@@ -101,6 +106,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       .then((envelopes) => desktop.installStudioTargetPrograms(envelopes))
       .then(async (programs) => {
         programsRef.current = programs;
+        programsSourceRef.current = "model";
         await desktop.patchConfig({ studioTargetPrograms: programs });
         return programs;
       })
@@ -112,10 +118,22 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   }, [client, selectedAgent, selectedModel]);
 
   const getPrograms = useCallback(async () => {
+    if (programsUpdatedRef.current) {
+      programsUpdatedRef.current = false;
+      if (programsSourceRef.current !== "model") programsRef.current = null;
+    }
     if (programsRef.current) return programsRef.current;
     if (!builtinInstallRef.current) {
-      builtinInstallRef.current = desktop
-        .installStudioTargetPrograms(BUILTIN_STUDIO_TARGET_PROGRAMS)
+      // Published programs when newer than the built-in ones (see bloxbotPrograms.ts).
+      builtinInstallRef.current = (
+        publishedFailedRef.current
+          ? Promise.resolve(BUILTIN_BLOXBOT_PROGRAMS)
+          : resolveBloxBotPrograms()
+      )
+        .then((resolved) => {
+          programsSourceRef.current = resolved.targets.source;
+          return desktop.installStudioTargetPrograms(resolved.targets.programs);
+        })
         .finally(() => {
           builtinInstallRef.current = null;
         });
@@ -126,6 +144,43 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     }
     return programsRef.current;
   }, []);
+
+  // Newer published programs replace shipped or published ones on next use; a
+  // working model-written pair is kept. A new version gets a fresh chance.
+  useEffect(
+    () =>
+      desktop.onBloxBotProgramsUpdated(() => {
+        publishedFailedRef.current = false;
+        // Applied on the next getPrograms, so an install already running
+        // can't put the old programs back afterwards.
+        programsUpdatedRef.current = true;
+      }),
+    [],
+  );
+
+  /** Runs with the current programs, retrying with the built-in ones if published ones fail. */
+  const withProgramFallbacks = useCallback(
+    async <T,>(attempt: (programs: StudioTargetPrograms) => Promise<T>): Promise<T> => {
+      try {
+        return await attempt(await getPrograms());
+      } catch (error) {
+        if (programsSourceRef.current !== "published") throw error;
+        const published = programsRef.current;
+        publishedFailedRef.current = true;
+        programsRef.current = null;
+        try {
+          // The published programs only count as broken if the built-in ones work.
+          return await attempt(await getPrograms());
+        } catch {
+          publishedFailedRef.current = false;
+          programsRef.current = published;
+          programsSourceRef.current = "published";
+          throw error;
+        }
+      }
+    },
+    [getPrograms],
+  );
 
   const applyDiscovery = useCallback(
     async (programs: StudioTargetPrograms, operation: number) => {
@@ -210,8 +265,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         else setRefreshing(true);
         setError(null);
         try {
-          const programs = await getPrograms();
-          await applyDiscovery(programs, operation);
+          await withProgramFallbacks((programs) => applyDiscovery(programs, operation));
         } catch {
           if (operation !== operationRef.current) return;
           try {
@@ -239,7 +293,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       discoveryRef.current = discovery;
       return discovery;
     },
-    [applyDiscovery, generatePrograms, getPrograms],
+    [applyDiscovery, generatePrograms, withProgramFallbacks],
   );
 
   const select = useCallback(
@@ -259,7 +313,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       try {
         let result: StudioTargetSelection;
         try {
-          result = await attempt(await getPrograms());
+          result = await withProgramFallbacks(attempt);
         } catch {
           programsRef.current = null;
           result = await attempt(await generatePrograms());
@@ -290,7 +344,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         if (operation === operationRef.current) setSelectingKey(null);
       }
     },
-    [generatePrograms, getPrograms, rememberTarget],
+    [generatePrograms, rememberTarget, withProgramFallbacks],
   );
 
   // AI traces attach the Studio place the prompt was routed to.

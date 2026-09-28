@@ -29,6 +29,12 @@ const api: DesktopApi = {
     ipcRenderer.invoke(channels.discoverStudioTargets, programs),
   selectStudioTarget: (programs, targetKey) =>
     ipcRenderer.invoke(channels.selectStudioTarget, programs, targetKey),
+  getBloxBotPrograms: () => ipcRenderer.invoke(channels.getBloxBotPrograms),
+  onBloxBotProgramsUpdated: (listener) => {
+    const handleUpdate = () => listener();
+    ipcRenderer.on(channels.bloxbotProgramsUpdated, handleUpdate);
+    return () => ipcRenderer.removeListener(channels.bloxbotProgramsUpdated, handleUpdate);
+  },
 };
 
 contextBridge.exposeInMainWorld("bloxbot", api);

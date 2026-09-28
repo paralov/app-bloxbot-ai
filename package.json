@@ -26,7 +26,8 @@
     "test:release": "node --test scripts/*.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit && tsc -p scripts/bloxbot-programs/tsconfig.json --noEmit",
+    "bloxbot-programs": "jiti scripts/bloxbot-programs/cli.ts"
   },
   "dependencies": {
     "@lexical/react": "^0.48.0",
@@ -67,6 +68,7 @@
     "@vitest/coverage-v8": "^4.1.10",
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
+    "jiti": "^2.7.0",
     "jsdom": "^29.0.1",
     "shadcn": "^3.8.4",
     "tailwindcss": "^4.3.3",

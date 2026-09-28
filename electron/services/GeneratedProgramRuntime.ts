@@ -14,9 +14,19 @@ import {
   type GeneratedProgramResult,
   GeneratedProgramResultSchema,
 } from "../../src/types/generatedProgram";
+import {
+  BLOXBOT_PROGRAM_TOOLS,
+  isKnownBloxBotProgramTool,
+  isReadOnlyStudioTool,
+  type StudioToolAnnotations,
+} from "../../src/lib/bloxbotProgramManifest";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 
 type CallTool = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
+/** Studio's annotations for a tool, or undefined when Studio doesn't list it. */
+export type DescribeTool = (
+  name: string,
+) => Promise<{ annotations?: StudioToolAnnotations } | undefined>;
 type ProgramFunction = (input: unknown, callTool: CallTool) => Promise<unknown>;
 
 export type GeneratedProgramFailurePhase =
@@ -50,6 +60,8 @@ export class GeneratedProgramRuntime extends Context.Tag("@bloxbot/GeneratedProg
 
 class ToolContractError extends Error {}
 
+const TOOL_LIST_TTL_MS = 30_000;
+
 function runtimeError(
   phase: GeneratedProgramFailurePhase,
   message: string,
@@ -81,7 +93,10 @@ function makeFunction(compiledSource: string): ProgramFunction {
   );
 }
 
-export function startGeneratedProgramRuntime(callTool: CallTool): GeneratedProgramRuntimeService {
+export function startGeneratedProgramRuntime(
+  callTool: CallTool,
+  describeTool: DescribeTool = async () => undefined,
+): GeneratedProgramRuntimeService {
   const artifacts = new Map<string, GeneratedProgramArtifact>();
   const functions = new Map<string, ProgramFunction>();
 
@@ -128,7 +143,16 @@ export function startGeneratedProgramRuntime(callTool: CallTool): GeneratedProgr
           });
           functions.set(invocation.artifact.cacheKey, program);
         }
+        const contractName = invocation.artifact.contract.name;
         const guardedCallTool: CallTool = async (name, args) => {
+          // Programs may only read from Studio, whoever wrote them.
+          const allowed =
+            isKnownBloxBotProgramTool(contractName, name) ||
+            (contractName in BLOXBOT_PROGRAM_TOOLS &&
+              isReadOnlyStudioTool((await describeTool(name))?.annotations));
+          if (!allowed) {
+            throw new ToolContractError(`${contractName} programs may not call ${name}`);
+          }
           try {
             return await callTool(name, args);
           } catch (cause) {
@@ -170,8 +194,24 @@ export const GeneratedProgramRuntimeLive = Layer.effect(
   GeneratedProgramRuntime,
   Effect.gen(function* () {
     const broker = yield* StudioMcpBroker;
-    return startGeneratedProgramRuntime((name, args) =>
-      Effect.runPromise(broker.callTool(name, args)),
+    // Studio's tool list, reused briefly so a looping program can't flood Studio
+    // with list requests, and refreshed often enough that changed annotations or
+    // renamed tools apply within seconds.
+    let cached: { tools: Map<string, { annotations?: StudioToolAnnotations }>; at: number } | null =
+      null;
+    return startGeneratedProgramRuntime(
+      (name, args) => Effect.runPromise(broker.callTool(name, args)),
+      async (name) => {
+        try {
+          if (!cached || Date.now() - cached.at > TOOL_LIST_TTL_MS) {
+            const listed = await Effect.runPromise(broker.listTools);
+            cached = { tools: new Map(listed.map((tool) => [tool.name, tool])), at: Date.now() };
+          }
+          return cached.tools.get(name);
+        } catch {
+          return undefined;
+        }
+      },
     );
   }),
 );

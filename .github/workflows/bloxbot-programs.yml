@@ -1,0 +1,67 @@
+name: BloxBot programs
+
+# Signs bloxbot-programs/manifest.json and publishes it to the rolling
+# `bloxbot-programs` prerelease, where BloxBot downloads it (see
+# electron/services/BloxBotProgramStore.ts). A prerelease is never the
+# repository's "latest" release, so electron-updater never mistakes it for an
+# app update.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bloxbot-programs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bloxbot-programs
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require the default branch
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "BloxBot programs are only published from main, not ${GITHUB_REF}."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Sign the manifest
+        env:
+          BLOXBOT_PROGRAMS_SIGNING_KEY: ${{ secrets.BLOXBOT_PROGRAMS_SIGNING_KEY }}
+        run: pnpm bloxbot-programs sign signed
+
+      - name: Publish to the bloxbot-programs prerelease
+        run: |
+          if [ ! -f signed/manifest.json ]; then
+            echo "Nothing new to publish."
+            exit 0
+          fi
+          if ! gh release view bloxbot-programs >/dev/null 2>&1; then
+            gh release create bloxbot-programs --prerelease --latest=false \
+              --title "BloxBot programs" \
+              --notes "Signed BloxBot programs that BloxBot downloads. Published automatically from bloxbot-programs/ on main; not an app release."
+          fi
+          gh release upload bloxbot-programs signed/manifest.json signed/manifest.json.sig --clobber

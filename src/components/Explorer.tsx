@@ -25,7 +25,7 @@ import {
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
 } from "@/lib/analytics";
-import { BUILTIN_EXPLORER_PROGRAM } from "@/lib/builtinStudioPrograms";
+import { BUILTIN_BLOXBOT_PROGRAMS, resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
 import {
   createExplorerReference,
@@ -201,6 +201,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const generationBlockedRef = useRef(false);
   // Consecutive failed syncs, which set the retry backoff.
   const failuresRef = useRef(0);
+  // Set when newer published programs arrive; the next sync loads them.
+  const programsUpdatedRef = useRef(false);
 
   const model = useMemo(() => {
     if (!selectedModel) return undefined;
@@ -266,17 +268,38 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         posthog.capture("sync_started", analyticsProperties("explorer", { source: "initial" }));
       }
 
-      async function generate(reason: "initial" | "initial_recovery" | "contract_recovery") {
+      // Where the first-load program came from, to decide the next fallback.
+      let initialSource: "published" | "builtin" | null = null;
+
+      async function generate(
+        reason: "initial" | "builtin_fallback" | "initial_recovery" | "contract_recovery",
+      ) {
         const startedAt = performance.now();
+        const modelMediated = reason === "initial_recovery" || reason === "contract_recovery";
         posthog.capture(
           "collector_generation_started",
-          analyticsProperties("explorer", { model_mediated: true, reason }),
+          analyticsProperties("explorer", { model_mediated: modelMediated, reason }),
         );
+        // Where the program came from, so a broken published program shows up.
+        let programProperties: { program_source: string; program_sequence?: number } = {
+          program_source: "model",
+        };
+        let origin: ExplorerCollection["origin"] = "model";
         try {
-          const program: ExplorerProgramEnvelope =
-            reason === "initial"
-              ? BUILTIN_EXPLORER_PROGRAM
-              : await generateExplorerProgram(activeClient, model, selectedAgent);
+          let program: ExplorerProgramEnvelope;
+          if (modelMediated) {
+            program = await generateExplorerProgram(activeClient, model, selectedAgent);
+          } else {
+            const { explorer } =
+              reason === "initial" ? await resolveBloxBotPrograms() : BUILTIN_BLOXBOT_PROGRAMS;
+            program = explorer.program;
+            if (reason === "initial") initialSource = explorer.source;
+            origin = explorer.source;
+            programProperties = {
+              program_source: explorer.source,
+              program_sequence: explorer.sequence,
+            };
+          }
           const artifact = await desktop.compileExplorerProgram(program);
           const snapshot = sortExplorerSnapshot(
             await desktop.invokeExplorerProgram(artifact, studioId),
@@ -284,15 +307,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           if (snapshot.roots.length === 0) {
             throw new Error("Studio has not returned an instance tree yet");
           }
-          const generated: ExplorerCollection = { program, artifact, snapshot };
+          const generated: ExplorerCollection = { program, artifact, snapshot, origin };
           posthog.capture(
             "collector_generation_succeeded",
             analyticsProperties(
               "explorer",
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - startedAt),
-                model_mediated: true,
+                model_mediated: modelMediated,
                 reason,
+                ...programProperties,
                 root_count: generated.snapshot.roots.length,
                 node_count: countNodes(generated.snapshot.roots),
               }),
@@ -309,8 +333,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               error,
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - startedAt),
-                model_mediated: true,
+                model_mediated: modelMediated,
                 reason,
+                ...programProperties,
               }),
             ),
           );
@@ -318,6 +343,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }
       }
 
+      if (programsUpdatedRef.current) {
+        programsUpdatedRef.current = false;
+        if (collectionRef.current?.origin !== "model") collectionRef.current = null;
+      }
       try {
         const current = collectionRef.current;
         let next: ExplorerCollection;
@@ -336,15 +365,31 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
                   reason: "collector_runtime",
                 }),
               );
-            next = await generate("contract_recovery");
+            // Same order as the first load: a published program that stopped
+            // working falls back to the shipped one before asking the model.
+            if (current.origin === "published") {
+              try {
+                next = await generate("builtin_fallback");
+              } catch {
+                next = await generate("contract_recovery");
+              }
+            } else {
+              next = await generate("contract_recovery");
+            }
           }
         } else if (!generationBlockedRef.current) {
           try {
             next = await generate("initial");
           } catch {
-            // The built-in program no longer matches Studio's tools, so have
-            // the model write one against the tools Studio offers now.
-            next = await generate("initial_recovery");
+            try {
+              // A broken published program falls back to the one this app shipped.
+              if (initialSource !== "published") throw new Error("No built-in fallback left");
+              next = await generate("builtin_fallback");
+            } catch {
+              // No shipped program matches Studio's tools any more, so have the
+              // model write one against the tools Studio offers now.
+              next = await generate("initial_recovery");
+            }
           }
         } else {
           throw new Error("Explorer setup needs repair before it can retry.");
@@ -451,6 +496,22 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     sessionBusy,
     studioTarget?.selected,
   ]);
+
+  // Newer published programs replace a shipped or published program at the next
+  // sync (a working model-written one is kept), and retry a setup that failed.
+  useEffect(
+    () =>
+      desktop.onBloxBotProgramsUpdated(() => {
+        if (collectionRef.current?.origin === "model") return;
+        // Applied at the start of the next sync, so a sync already running
+        // can't put the old program back afterwards.
+        programsUpdatedRef.current = true;
+        generationBlockedRef.current = false;
+        failuresRef.current = 0;
+        syncLatestRef.current();
+      }),
+    [],
+  );
 
   const toggleNode = useCallback((path: string) => {
     setExpanded((current) => {

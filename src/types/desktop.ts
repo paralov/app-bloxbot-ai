@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import type { BloxBotProgramManifest } from "../lib/bloxbotProgramManifest";
 import type { ExplorerProgramEnvelope, ExplorerSnapshot } from "../lib/explorer";
 import type { GeneratedProgramArtifact } from "./generatedProgram";
 import {
@@ -108,4 +109,8 @@ export interface DesktopApi {
     programs: StudioTargetPrograms,
     targetKey: string,
   ): Promise<StudioTargetSelection>;
+  /** The newest verified published BloxBot programs, or null to use the built-in ones. */
+  getBloxBotPrograms(): Promise<BloxBotProgramManifest | null>;
+  /** Called when newer published BloxBot programs arrive; returns an unsubscribe. */
+  onBloxBotProgramsUpdated(listener: () => void): () => void;
 }

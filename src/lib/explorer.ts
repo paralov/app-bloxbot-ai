@@ -17,7 +17,9 @@ export const ExplorerNodeSchema = Schema.Struct({
   properties: Schema.Array(ExplorerFieldSchema),
   attributes: Schema.Array(ExplorerFieldSchema),
   children: Schema.Array(Schema.suspend((): Schema.Schema<ExplorerNode> => ExplorerNodeSchema)),
-});
+  // The identifier lets the recursive schema be written out as JSON Schema
+  // (for `pnpm bloxbot-programs brief`).
+}).annotations({ identifier: "ExplorerNode" });
 
 export interface ExplorerNode {
   readonly name: string;
@@ -129,6 +131,8 @@ export type ExplorerProgramEnvelope = typeof ExplorerProgramEnvelopeSchema.Type;
 
 export interface ExplorerCollection {
   readonly program: GeneratedProgramEnvelope;
+  /** Where the program came from, which decides how a later failure recovers. */
+  readonly origin: "published" | "builtin" | "model";
   readonly artifact: GeneratedProgramArtifact;
   readonly snapshot: ExplorerSnapshot;
 }

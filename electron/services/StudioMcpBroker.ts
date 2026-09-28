@@ -42,6 +42,7 @@ export interface StudioMcpBrokerService {
     name: string,
     args: Record<string, unknown>,
   ) => Effect.Effect<CallToolResult, StudioMcpBrokerError>;
+  readonly listTools: Effect.Effect<Tool[], StudioMcpBrokerError>;
 }
 
 export class StudioMcpBroker extends Context.Tag("@bloxbot/StudioMcpBroker")<
@@ -200,6 +201,11 @@ export async function startStudioMcpBroker(
         try: () => upstream.callTool(name, args),
         catch: (cause) => new StudioMcpBrokerError({ message: "Studio MCP call failed", cause }),
       }),
+    listTools: Effect.tryPromise({
+      try: async () => (await upstream.listTools()).tools,
+      catch: (cause) =>
+        new StudioMcpBrokerError({ message: "Studio MCP tool list failed", cause }),
+    }),
     close: async () => {
       for (const { server } of sessions.values()) await server.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
