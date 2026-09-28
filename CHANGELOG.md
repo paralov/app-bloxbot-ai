@@ -21,6 +21,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - A sign-in that stalls offers a way back to the other methods and a link to reopen the sign-in page.
 - A successful sign-in no longer shows as failed when refreshing the provider list afterwards fails.
 - Replacing the key of an already connected provider closes the dialog instead of leaving it open.
+- Settings no longer squeezes its content into a sliver in narrow windows. When space is tight, its sections become a row of tabs on top.
 
 ## [0.11.1] - 2026-09-24
 

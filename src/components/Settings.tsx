@@ -61,7 +61,7 @@ function Settings({ onClose }: SettingsProps) {
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="@container flex min-h-0 flex-1 flex-col">
       {/* Header */}
       <div className="flex h-10 shrink-0 items-center gap-3 border-b px-4">
         <button
@@ -85,16 +85,17 @@ function Settings({ onClose }: SettingsProps) {
         <h3 className="text-xs font-semibold">Settings</h3>
       </div>
 
-      {/* Body: sidebar + content */}
-      <div className="flex min-h-0 flex-1">
+      {/* Body: sidebar + content. When narrow (e.g. the sessions sidebar is
+          open in a small window) the sidebar becomes a tab row on top. */}
+      <div className="flex min-h-0 flex-1 flex-col @xl:flex-row">
         {/* Sidebar */}
-        <div className="flex w-40 shrink-0 flex-col border-r py-3">
-          <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-1.5 py-2 @xl:w-40 @xl:flex-col @xl:gap-0 @xl:overflow-visible @xl:border-r @xl:border-b-0 @xl:px-0 @xl:py-3">
+          <div className="hidden px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground @xl:block">
             Server
           </div>
           <button
             onClick={() => setTab("providers")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "providers"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -117,7 +118,7 @@ function Settings({ onClose }: SettingsProps) {
           </button>
           <button
             onClick={() => setTab("models")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "models"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -138,12 +139,12 @@ function Settings({ onClose }: SettingsProps) {
             Models
           </button>
 
-          <div className="mt-4 px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="mt-4 hidden px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground @xl:block">
             App
           </div>
           <button
             onClick={() => setTab("appearance")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "appearance"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -166,7 +167,7 @@ function Settings({ onClose }: SettingsProps) {
           </button>
           <button
             onClick={() => setTab("about")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "about"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -191,7 +192,7 @@ function Settings({ onClose }: SettingsProps) {
           <button
             type="button"
             onClick={() => setTab("privacy")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "privacy"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -325,9 +326,9 @@ function ProvidersTab() {
 
   function renderAvailable(provider: ProviderInfo) {
     return (
-      <div key={provider.id} className="flex items-center gap-3 px-3 py-2.5">
+      <div key={provider.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
         <ProviderLogo providerId={provider.id} name={provider.name} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[7rem] flex-1">
           <div className="truncate text-sm font-medium">{provider.name}</div>
           <div className="truncate text-[11px] text-muted-foreground">
             {connectHint(provider.id, authMethods[provider.id])}
@@ -337,7 +338,7 @@ function ProvidersTab() {
           onClick={() =>
             provider.id === OPENCODE_GO.providerId ? setUpGo("list") : setConnecting(provider)
           }
-          className="shrink-0 rounded-md border bg-background px-3 py-1 text-[11px] font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="shrink-0 whitespace-nowrap rounded-md border bg-background px-3 py-1 text-[11px] font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           Connect
         </button>
@@ -346,7 +347,7 @@ function ProvidersTab() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">Providers</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Connect an AI provider to chat with its models.
@@ -369,18 +370,22 @@ function ProvidersTab() {
       {recommendGo && (
         <div className="mt-6 rounded-lg border bg-card p-4">
           <div className="flex items-start gap-3">
-            <ProviderLogo providerId={OPENCODE_GO.providerId} name="OpenCode Go" />
+            <ProviderLogo
+              providerId={OPENCODE_GO.providerId}
+              name="OpenCode Go"
+              className="hidden @md:flex"
+            />
             <div className="min-w-0">
               <div className="text-sm font-medium">Want more than the free models?</div>
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                OpenCode Go is a low-cost subscription to strong open coding models, such as Kimi,
-                GLM, Qwen and DeepSeek, in one plan. Go is {OPENCODE_GO.goPrice}; Go Plus is{" "}
+                OpenCode Go is a low-cost subscription to strong open coding models like Kimi, GLM,
+                Qwen and DeepSeek. Go is {OPENCODE_GO.goPrice}, and Go Plus is{" "}
                 {OPENCODE_GO.goPlusPrice} with higher limits.
               </p>
-              <div className="mt-3 flex items-center gap-3">
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <button
                   onClick={() => setUpGo("recommendation")}
-                  className="rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   Set up OpenCode Go
                 </button>
@@ -388,7 +393,7 @@ function ProvidersTab() {
                   onClick={() => {
                     desktop.openUrl(OPENCODE_GO.plansUrl).catch(() => {});
                   }}
-                  className="text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                  className="whitespace-nowrap text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
                 >
                   Compare plans
                 </button>
@@ -409,14 +414,14 @@ function ProvidersTab() {
               const check = checks[provider.id];
               return (
                 <div key={provider.id} className="px-3 py-2.5">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                     <ProviderLogo providerId={provider.id} name={provider.name} />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    <span className="min-w-[7rem] flex-1 truncate text-sm font-medium">
                       {provider.name}
                     </span>
                     {check && check !== "checking" && (
                       <span
-                        className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${
                           check.ok
                             ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
                             : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
@@ -431,7 +436,7 @@ function ProvidersTab() {
                     <button
                       onClick={() => runCheck(provider)}
                       disabled={check === "checking"}
-                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+                      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
                       title="Send one short test message to check this connection"
                     >
                       {check === "checking" && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -441,14 +446,14 @@ function ProvidersTab() {
                       <button
                         onClick={() => handleDisconnect(provider.id)}
                         disabled={disconnecting === provider.id}
-                        className="text-[11px] text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
+                        className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
                       >
                         {disconnecting === provider.id ? "..." : "Disconnect"}
                       </button>
                     )}
                   </div>
                   {check && check !== "checking" && (
-                    <p className="mt-1.5 pl-10 text-[11px] leading-relaxed text-muted-foreground">
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground @md:pl-10">
                       {check.ok ? (
                         `${check.modelName} answered a test message.`
                       ) : (
@@ -584,7 +589,7 @@ function ModelsTab() {
   const totalModels = allModels.filter((m) => connectedProviders.includes(m.providerId)).length;
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">Models</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Toggle which models appear in the model selector.
@@ -707,7 +712,7 @@ function AppearanceTab() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">Appearance</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Choose how BloxBot looks. System follows your OS preference.
@@ -776,7 +781,7 @@ function PrivacyTab() {
   const { detailedAnalyticsEnabled, setDetailedAnalyticsEnabled } = usePreferences();
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
@@ -927,7 +932,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">About BloxBot</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         AI-assisted Roblox development, right from your desktop.
