@@ -26,7 +26,7 @@ async function run({ input, callTool }: { input: { studioId: string }; callTool:
   if (raw === null) {
     const [editError, serverError] = errors;
     const message =
-      serverError && !/not available in Edit mode/i.test(serverError)
+      serverError && serverError !== editError && !/not available in Edit mode/i.test(serverError)
         ? `${editError} (server data model: ${serverError})`
         : editError;
     throw new Error(message || "Studio did not return an instance tree");
