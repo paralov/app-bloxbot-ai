@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- BloxBot now connects to Roblox Studio on Windows even when Studio's own MCP launcher is broken after a Studio update. It finds and starts Studio's MCP helper itself.
+
 ## [0.13.3] - 2026-09-29
 
 ### Changed
