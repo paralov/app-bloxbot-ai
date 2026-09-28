@@ -189,6 +189,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const syncingRef = useRef(false);
   const resyncRequestedRef = useRef(false);
   const syncLatestRef = useRef<() => void>(() => undefined);
+  // The latest sync effect's scheduler, for a sync that finishes after its
+  // own effect was replaced.
+  const scheduleLatestRef = useRef<() => void>(() => {});
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -239,6 +242,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         failuresRef.current > 0
           ? Math.min(IDLE_SYNC_MS * 2 ** failuresRef.current, MAX_FAILURE_BACKOFF_MS)
           : Math.min(baseDelay * 2 ** Math.min(unchangedPolls, 3), MAX_UNCHANGED_SYNC_MS);
+      // Replace any pending timer, so scheduling twice never runs two syncs.
+      if (timer !== undefined) window.clearTimeout(timer);
       timer = window.setTimeout(() => void sync(), delay);
     }
 
@@ -402,14 +407,20 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       } finally {
         syncingRef.current = false;
         if (!cancelled) setSyncing(false);
-        if (resyncRequestedRef.current) {
+        // A re-sync requested while this one ran waits for the backoff if
+        // this one failed.
+        if (resyncRequestedRef.current && failuresRef.current === 0) {
           resyncRequestedRef.current = false;
           queueMicrotask(() => syncLatestRef.current());
-        } else scheduleNext();
+        } else {
+          resyncRequestedRef.current = false;
+          scheduleLatestRef.current();
+        }
       }
     }
 
     syncLatestRef.current = () => void sync();
+    scheduleLatestRef.current = scheduleNext;
     // This effect also re-runs when the chat turns busy or idle; during a
     // failure streak, wait for the backoff instead of retrying straight away.
     if (failuresRef.current > 0) scheduleNext();
