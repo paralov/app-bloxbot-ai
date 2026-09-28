@@ -29,6 +29,7 @@ import {
   GeneratedProgramRuntime,
   GeneratedProgramRuntimeLive,
 } from "./services/GeneratedProgramRuntime";
+import { createBloxBotProgramStore } from "./services/BloxBotProgramStore";
 import { makeStudioMcpBrokerLayer } from "./services/StudioMcpBroker";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -68,6 +69,14 @@ const openCodeRuntime = ManagedRuntime.make(
     GeneratedProgramRuntimeLive.pipe(Layer.provide(studioMcpBrokerLayer)),
   ).pipe(Layer.provide(studioMcpBrokerLayer)),
 );
+
+// Published BloxBot programs: downloaded, signature-checked and cached here so a
+// Roblox Studio MCP change can be fixed without an app release.
+const BLOXBOT_PROGRAMS_REFRESH_MS = 6 * 60 * 60 * 1000;
+const bloxbotProgramStore = createBloxBotProgramStore({
+  directory: join(app.getPath("userData"), "bloxbot-programs"),
+  log: (message) => console.log(message),
+});
 
 const expectedContract = (name: string) => ({
   name,
@@ -191,6 +200,7 @@ const registerIpcHandlers = Effect.sync(() => {
       home: app.getPath("home"),
     }),
   );
+  ipcMain.handle(channels.getBloxBotPrograms, () => bloxbotProgramStore.current());
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));
   ipcMain.handle(channels.installStudioTargetPrograms, (_event, input: unknown) =>
@@ -442,7 +452,15 @@ Effect.runFork(
       try: () => app.whenReady(),
       catch: (cause) => new DesktopMainError({ message: "Electron failed to become ready", cause }),
     });
+    // The cached copy is ready before the window asks for it; the download
+    // happens in the background and applies from the next time a program loads.
+    yield* Effect.promise(() => bloxbotProgramStore.load());
     yield* registerIpcHandlers;
+    yield* Effect.sync(() => {
+      const refresh = () => void bloxbotProgramStore.refresh();
+      refresh();
+      setInterval(refresh, BLOXBOT_PROGRAMS_REFRESH_MS).unref();
+    });
     yield* Effect.sync(() => Menu.setApplicationMenu(null));
     yield* createWindow();
     yield* Effect.sync(() =>

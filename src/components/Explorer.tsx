@@ -25,7 +25,7 @@ import {
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
 } from "@/lib/analytics";
-import { BUILTIN_EXPLORER_PROGRAM } from "@/lib/builtinStudioPrograms";
+import { resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
 import {
   createExplorerReference,
@@ -268,15 +268,27 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       async function generate(reason: "initial" | "initial_recovery" | "contract_recovery") {
         const startedAt = performance.now();
+        const modelMediated = reason !== "initial";
         posthog.capture(
           "collector_generation_started",
-          analyticsProperties("explorer", { model_mediated: true, reason }),
+          analyticsProperties("explorer", { model_mediated: modelMediated, reason }),
         );
+        // Where the program came from, so a broken published program shows up.
+        let programProperties: { program_source: string; program_sequence?: number } = {
+          program_source: "model",
+        };
         try {
-          const program: ExplorerProgramEnvelope =
-            reason === "initial"
-              ? BUILTIN_EXPLORER_PROGRAM
-              : await generateExplorerProgram(activeClient, model, selectedAgent);
+          let program: ExplorerProgramEnvelope;
+          if (modelMediated) {
+            program = await generateExplorerProgram(activeClient, model, selectedAgent);
+          } else {
+            const resolved = await resolveBloxBotPrograms();
+            program = resolved.explorer;
+            programProperties = {
+              program_source: resolved.source,
+              program_sequence: resolved.sequence,
+            };
+          }
           const artifact = await desktop.compileExplorerProgram(program);
           const snapshot = sortExplorerSnapshot(
             await desktop.invokeExplorerProgram(artifact, studioId),
@@ -291,8 +303,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               "explorer",
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - startedAt),
-                model_mediated: true,
+                model_mediated: modelMediated,
                 reason,
+                ...programProperties,
                 root_count: generated.snapshot.roots.length,
                 node_count: countNodes(generated.snapshot.roots),
               }),
@@ -309,8 +322,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               error,
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - startedAt),
-                model_mediated: true,
+                model_mediated: modelMediated,
                 reason,
+                ...programProperties,
               }),
             ),
           );

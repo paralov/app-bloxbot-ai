@@ -14,6 +14,7 @@ import {
   type GeneratedProgramResult,
   GeneratedProgramResultSchema,
 } from "../../src/types/generatedProgram";
+import { allowedBloxBotProgramTools } from "../../src/lib/bloxbotProgramManifest";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 
 type CallTool = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -128,7 +129,14 @@ export function startGeneratedProgramRuntime(callTool: CallTool): GeneratedProgr
           });
           functions.set(invocation.artifact.cacheKey, program);
         }
+        const allowedTools = allowedBloxBotProgramTools(invocation.artifact.contract.name);
         const guardedCallTool: CallTool = async (name, args) => {
+          // Programs may only read from Studio, whoever wrote them.
+          if (!allowedTools.includes(name)) {
+            throw new ToolContractError(
+              `${invocation.artifact.contract.name} programs may not call ${name}`,
+            );
+          }
           try {
             return await callTool(name, args);
           } catch (cause) {

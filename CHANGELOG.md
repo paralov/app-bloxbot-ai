@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- BloxBot downloads signed updates to the small programs it runs against Roblox Studio (Explorer, and finding and checking the Studio to work in), so a change in Studio's MCP can be fixed without a new BloxBot release. It keeps the last verified copy and falls back to the programs it shipped with.
+
+### Changed
+
+- Programs BloxBot runs against Studio, including ones the model writes, can only use read-only Studio tools.
+
 ## [0.12.1] - 2026-09-28
 
 ### Fixed

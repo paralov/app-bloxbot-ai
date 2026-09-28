@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BUILTIN_EXPLORER_PROGRAM,
   BUILTIN_STUDIO_TARGET_PROGRAMS,
-} from "@/lib/builtinStudioPrograms";
+} from "@/lib/builtinBloxBotPrograms";
 import { ExplorerSnapshotSchema } from "@/lib/explorer";
 import {
   GeneratedProgramRuntimeError,
@@ -13,7 +13,7 @@ import {
 const envelope = (source: string) => ({
   version: 1 as const,
   contract: {
-    name: "test-program",
+    name: "explorer-snapshot",
     version: "1",
     inputSchemaVersion: "input-v1",
     outputSchemaVersion: "output-v1",
@@ -27,7 +27,7 @@ describe("GeneratedProgramRuntime", () => {
     const runtime = startGeneratedProgramRuntime(callTool);
     const source = `
       async function run({ input, callTool }: { input: { depth: number }; callTool: Function }) {
-        const result = await callTool("inspect_place", { depth: input.depth });
+        const result = await callTool("search_game_tree", { depth: input.depth });
         return { result, depth: input.depth };
       }
     `;
@@ -41,7 +41,43 @@ describe("GeneratedProgramRuntime", () => {
       contract: { outputSchemaVersion: "output-v1" },
       value: { depth: 3, result: { content: [{ type: "text", text: "ok" }] } },
     });
-    expect(callTool).toHaveBeenCalledWith("inspect_place", { depth: 3 });
+    expect(callTool).toHaveBeenCalledWith("search_game_tree", { depth: 3 });
+  });
+
+  it("refuses Studio tools outside the program's read-only allow-list", async () => {
+    const callTool = vi.fn();
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const artifact = await Effect.runPromise(
+      runtime.compile(
+        envelope(
+          `async function run({ callTool }) { return await callTool("execute_luau", { code: "print(1)" }); }`,
+        ),
+      ),
+    );
+
+    const failure = await Effect.runPromise(Effect.flip(runtime.invoke({ artifact, input: {} })));
+
+    expect(failure).toMatchObject({ phase: "tool-contract" });
+    expect(failure.message).toContain("explorer-snapshot programs may not call execute_luau");
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("refuses every tool for a contract it doesn't know", async () => {
+    const callTool = vi.fn();
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const artifact = await Effect.runPromise(
+      runtime.compile({
+        ...envelope(
+          `async function run({ callTool }) { return await callTool("list_roblox_studios", {}); }`,
+        ),
+        contract: { ...envelope("x").contract, name: "unknown-program" },
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(Effect.flip(runtime.invoke({ artifact, input: {} }))),
+    ).resolves.toMatchObject({ phase: "tool-contract" });
+    expect(callTool).not.toHaveBeenCalled();
   });
 
   it("restores a compiled function from a persisted artifact", async () => {
@@ -74,7 +110,7 @@ describe("GeneratedProgramRuntime", () => {
     const runtime = startGeneratedProgramRuntime(vi.fn().mockRejectedValue(new Error("gone")));
     const artifact = await Effect.runPromise(
       runtime.compile(
-        envelope('async function run({ callTool }) { return callTool("missing", {}); }'),
+        envelope('async function run({ callTool }) { return callTool("search_game_tree", {}); }'),
       ),
     );
     await expect(

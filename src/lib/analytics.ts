@@ -72,6 +72,8 @@ const EXPLORER_ANALYTICS_KEYS = new Set([
   "has_attributes",
   "model_mediated",
   "node_count",
+  "program_sequence",
+  "program_source",
   "reason",
   "root_count",
   "source",

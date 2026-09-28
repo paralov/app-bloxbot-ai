@@ -15,7 +15,7 @@ import {
   errorAnalyticsProperties,
   setStudioAnalyticsContext,
 } from "@/lib/analytics";
-import { BUILTIN_STUDIO_TARGET_PROGRAMS } from "@/lib/builtinStudioPrograms";
+import { resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { generateStudioTargetPrograms } from "@/lib/studioTargetPrograms";
@@ -114,8 +114,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const getPrograms = useCallback(async () => {
     if (programsRef.current) return programsRef.current;
     if (!builtinInstallRef.current) {
-      builtinInstallRef.current = desktop
-        .installStudioTargetPrograms(BUILTIN_STUDIO_TARGET_PROGRAMS)
+      // Published programs when newer than the built-in ones (see bloxbotPrograms.ts).
+      builtinInstallRef.current = resolveBloxBotPrograms()
+        .then((resolved) => desktop.installStudioTargetPrograms(resolved.targets))
         .finally(() => {
           builtinInstallRef.current = null;
         });

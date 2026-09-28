@@ -14,4 +14,5 @@ export const channels = {
   discoverStudioTargets: "studio-target:discover",
   installStudioTargetPrograms: "studio-target:install-programs",
   selectStudioTarget: "studio-target:select",
+  getBloxBotPrograms: "bloxbot-programs:get",
 } as const;
