@@ -13,16 +13,24 @@ export function useSetApiKey() {
     mutationFn: async ({ providerID, key }: { providerID: string; key: string }) => {
       if (!client) throw new Error("No client");
       await client.auth.set({ providerID, auth: { type: "api", key } }, { throwOnError: true });
-      await client.instance.dispose({}, { throwOnError: true });
-      // First call after dispose triggers server reinitialization; may return stale data
-      await client.provider.list({}, { throwOnError: true });
-      const [provRes, authRes] = await Promise.all([
-        client.provider.list({}, { throwOnError: true }),
-        client.provider.auth({}, { throwOnError: true }).catch(() => ({ data: undefined })),
-      ]);
-      if (!provRes.data) throw new Error("No provider data after setting API key");
-      const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
-      queryClient.setQueryData(qk.providers, merged);
+
+      // The key is saved at this point. A failed refresh must not report the save
+      // as failed, so fall back to refetching the provider list.
+      try {
+        await client.instance.dispose({}, { throwOnError: true });
+        // First call after dispose triggers server reinitialization; may return stale data
+        await client.provider.list({}, { throwOnError: true });
+        const [provRes, authRes] = await Promise.all([
+          client.provider.list({}, { throwOnError: true }),
+          client.provider.auth({}, { throwOnError: true }).catch(() => ({ data: undefined })),
+        ]);
+        if (!provRes.data) throw new Error("No provider data after setting API key");
+        const merged = authRes.data ? { ...provRes.data, authMethods: authRes.data } : provRes.data;
+        queryClient.setQueryData(qk.providers, merged);
+      } catch {
+        await queryClient.invalidateQueries({ queryKey: qk.providers });
+      }
+
       posthog.capture(
         "provider_connected",
         analyticsProperties("providers", {

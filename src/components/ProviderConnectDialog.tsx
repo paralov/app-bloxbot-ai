@@ -120,7 +120,8 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
     wasConnectedRef.current = isConnected;
   }, [connectedProviders, provider, finish]);
 
-  const waitingForSignIn = state.step === "oauth" && state.method === "auto";
+  // Covers starting, waiting for approval, and waiting for a pasted code.
+  const signInInProgress = state.step === "oauth";
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -128,7 +129,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
     }
     // A stray click must not throw away a sign-in the user is halfway through.
     function handleClick(e: MouseEvent) {
-      if (waitingForSignIn) return;
+      if (signInInProgress) return;
       if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) close();
     }
     document.addEventListener("keydown", handleKey);
@@ -137,7 +138,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
       document.removeEventListener("keydown", handleKey);
       document.removeEventListener("mousedown", handleClick);
     };
-  }, [close, waitingForSignIn]);
+  }, [close, signInInProgress]);
 
   function backToMethods(nextError: ConnectError | null = null) {
     cancelPendingOAuth();
