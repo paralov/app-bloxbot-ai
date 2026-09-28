@@ -35,7 +35,7 @@ const STEPS = [
 
 const PROBLEM_COPY: Record<StudioMcpProblem, string> = {
   not_installed:
-    "Roblox Studio isn't installed on this computer. Install it, open it once, then check again.",
+    "BloxBot can't find Roblox Studio's MCP helper. Install or update Roblox Studio, open it, turn on the MCP server in Assistant settings, then check again.",
   unavailable:
     "Studio's MCP helper stopped right after it started. Open Roblox Studio so it can finish any update, then check again. If this keeps happening, reinstall Studio.",
 };

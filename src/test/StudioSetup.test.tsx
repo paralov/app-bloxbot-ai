@@ -74,7 +74,7 @@ describe("StudioSetup", () => {
     );
 
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Roblox Studio isn't installed on this computer. Install it, open it once, then check again.",
+      "BloxBot can't find Roblox Studio's MCP helper. Install or update Roblox Studio, open it, turn on the MCP server in Assistant settings, then check again.",
     );
     expect(screen.queryByText("Looking for Roblox Studio")).toBeNull();
 
