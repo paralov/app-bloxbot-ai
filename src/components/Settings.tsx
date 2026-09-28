@@ -1,16 +1,23 @@
+import { Loader2, Search, Sparkles } from "lucide-react";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import ProviderConnectDialog from "@/components/ProviderConnectDialog";
+import ProviderLogo from "@/components/ProviderLogo";
 import { THEME_OPTIONS, type Theme, useTheme } from "@/components/theme-provider";
-import { useCompleteOAuth, useStartOAuth } from "@/hooks/mutations/useOAuth";
-import { useDisconnectProvider, useSetApiKey } from "@/hooks/mutations/useSetApiKey";
+import { useCheckProvider } from "@/hooks/mutations/useCheckProvider";
+import { useDisconnectProvider } from "@/hooks/mutations/useSetApiKey";
 import {
   useAllModels,
   useAllProviders,
   useAuthMethods,
   useConnectedProviders,
 } from "@/hooks/useProviders";
-import { analyticsDeviceId } from "@/lib/analytics";
+import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
+import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
+import { connectHint, isFreeTier, providerDisplayName } from "@/lib/providerAuth";
+import type { ProviderCheckResult } from "@/lib/providerCheck";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
 import type { UpdateInfo } from "@/types/desktop";
@@ -18,6 +25,7 @@ import type { UpdateInfo } from "@/types/desktop";
 // ── Popular providers (same order as OpenCode's web UI) ──────────────
 const POPULAR_PROVIDERS = [
   "opencode",
+  "opencode-go",
   "anthropic",
   "github-copilot",
   "openai",
@@ -26,29 +34,18 @@ const POPULAR_PROVIDERS = [
   "vercel",
 ];
 
-// ── Provider-specific metadata for auth UX ───────────────────────────
-const PROVIDER_META: Record<string, { placeholder?: string; helpUrl?: string }> = {
-  opencode: {
-    placeholder: "opencode-...",
-    helpUrl: "https://opencode.ai/zen",
-  },
-  anthropic: {
-    placeholder: "sk-ant-...",
-    helpUrl: "https://console.anthropic.com/settings/keys",
-  },
-  openai: {
-    placeholder: "sk-...",
-    helpUrl: "https://platform.openai.com/api-keys",
-  },
-  google: {
-    placeholder: "AIza...",
-    helpUrl: "https://aistudio.google.com/app/apikey",
-  },
-  openrouter: {
-    placeholder: "sk-or-...",
-    helpUrl: "https://openrouter.ai/keys",
-  },
-};
+/** OpenCode Zen with only the built-in free models. */
+const isFreeZen = isFreeTier;
+
+/** OpenCode Zen with a key added in BloxBot, which falls back to the free models when removed. */
+function hasZenKey(provider: ProviderInfo): boolean {
+  return provider.id === "opencode" && provider.source === "api";
+}
+
+/** OpenCode Zen with a key from the environment or config, which BloxBot can't remove. */
+function hasOutsideZenKey(provider: ProviderInfo): boolean {
+  return provider.id === "opencode" && !isFreeZen(provider) && !hasZenKey(provider);
+}
 
 const TECHNOLOGIES = [
   { name: "OpenCode", url: "https://opencode.ai", description: "AI coding engine" },
@@ -77,7 +74,7 @@ function Settings({ onClose }: SettingsProps) {
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="@container flex min-h-0 flex-1 flex-col">
       {/* Header */}
       <div className="flex h-10 shrink-0 items-center gap-3 border-b px-4">
         <button
@@ -101,16 +98,17 @@ function Settings({ onClose }: SettingsProps) {
         <h3 className="text-xs font-semibold">Settings</h3>
       </div>
 
-      {/* Body: sidebar + content */}
-      <div className="flex min-h-0 flex-1">
+      {/* Body: sidebar + content. When narrow (e.g. the sessions sidebar is
+          open in a small window) the sidebar becomes a tab row on top. */}
+      <div className="flex min-h-0 flex-1 flex-col @xl:flex-row">
         {/* Sidebar */}
-        <div className="flex w-40 shrink-0 flex-col border-r py-3">
-          <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-1.5 py-2 @xl:w-40 @xl:flex-col @xl:gap-0 @xl:overflow-visible @xl:border-r @xl:border-b-0 @xl:px-0 @xl:py-3">
+          <div className="hidden px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground @xl:block">
             Server
           </div>
           <button
             onClick={() => setTab("providers")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "providers"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -133,7 +131,7 @@ function Settings({ onClose }: SettingsProps) {
           </button>
           <button
             onClick={() => setTab("models")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "models"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -154,12 +152,12 @@ function Settings({ onClose }: SettingsProps) {
             Models
           </button>
 
-          <div className="mt-4 px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="mt-4 hidden px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground @xl:block">
             App
           </div>
           <button
             onClick={() => setTab("appearance")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "appearance"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -182,7 +180,7 @@ function Settings({ onClose }: SettingsProps) {
           </button>
           <button
             onClick={() => setTab("about")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "about"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -207,7 +205,7 @@ function Settings({ onClose }: SettingsProps) {
           <button
             type="button"
             onClick={() => setTab("privacy")}
-            className={`mx-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "privacy"
                 ? "bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -243,198 +241,69 @@ function Settings({ onClose }: SettingsProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Providers Tab — matches OpenCode's two-section layout with connect dialog
+// Providers Tab — connected, popular, and every other provider, searchable
 // ═══════════════════════════════════════════════════════════════════════
-
-type ConnectDialogState =
-  | { step: "closed" }
-  | { step: "methods"; provider: ProviderInfo }
-  | {
-      step: "oauth";
-      provider: ProviderInfo;
-      methodIndex: number;
-      method: "auto" | "code" | null;
-      instructions: string | null;
-    }
-  | { step: "apikey"; provider: ProviderInfo };
 
 function ProvidersTab() {
   const allProviders = useAllProviders();
   const connectedProviders = useConnectedProviders();
   const authMethods = useAuthMethods();
-  const setApiKeyMutation = useSetApiKey();
-  const startOAuthMutation = useStartOAuth();
-  const completeOAuthMutation = useCompleteOAuth();
   const disconnectMutation = useDisconnectProvider();
 
-  const [dialog, setDialog] = useState<ConnectDialogState>({ step: "closed" });
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [oauthCodeInput, setOauthCodeInput] = useState("");
+  const [connecting, setConnecting] = useState<ProviderInfo | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [checks, setChecks] = useState<Record<string, "checking" | ProviderCheckResult>>({});
+  const checkMutation = useCheckProvider();
 
-  const oauthAbortRef = useRef<AbortController | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  // Bumped whenever a provider's credential changes, so a check that was
+  // running for the old credential can't report onto the new one.
+  const checkGeneration = useRef<Record<string, number>>({});
 
-  const closeDialog = useCallback(() => {
-    oauthAbortRef.current?.abort();
-    oauthAbortRef.current = null;
-    setDialog({ step: "closed" });
-    setApiKeyInput("");
-    setOauthCodeInput("");
-    setError(null);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      oauthAbortRef.current?.abort();
-    };
-  }, []);
-
-  // Close dialog on click outside
-  useEffect(() => {
-    if (dialog.step === "closed") return;
-    function handleClick(e: MouseEvent) {
-      if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
-        closeDialog();
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [dialog.step, closeDialog]);
-
-  // Auto-close dialog when provider becomes connected
-  const prevConnectedRef = useRef(connectedProviders);
-  useEffect(() => {
-    const prev = prevConnectedRef.current;
-    prevConnectedRef.current = connectedProviders;
-    if (dialog.step === "closed") return;
-    const providerId = dialog.provider.id;
-    if (connectedProviders.includes(providerId) && !prev.includes(providerId)) {
-      toast.success(`${dialog.provider.name} connected`);
-      closeDialog();
-    }
-  }, [connectedProviders, dialog, closeDialog]);
-
-  function getOAuthMethodIndex(providerId: string): number | null {
-    const methods = authMethods[providerId];
-    if (!methods) return null;
-    const idx = methods.findIndex((m) => m.type === "oauth");
-    return idx >= 0 ? idx : null;
+  function forgetCheck(providerId: string) {
+    checkGeneration.current[providerId] = (checkGeneration.current[providerId] ?? 0) + 1;
+    setChecks((prev) => {
+      const { [providerId]: _stale, ...rest } = prev;
+      return rest;
+    });
   }
 
-  function hasApiKeyAuth(providerId: string): boolean {
-    const methods = authMethods[providerId];
-    if (!methods || methods.length === 0) return true;
-    return methods.some((m) => m.type === "api");
+  async function runCheck(provider: ProviderInfo) {
+    const generation = (checkGeneration.current[provider.id] ?? 0) + 1;
+    checkGeneration.current[provider.id] = generation;
+    setChecks((prev) => ({ ...prev, [provider.id]: "checking" }));
+    let result: ProviderCheckResult;
+    try {
+      result = await checkMutation.mutateAsync(provider.id);
+    } catch {
+      result = {
+        ok: false,
+        message: "BloxBot couldn't run the check. Try again.",
+        keyRejected: false,
+      };
+    }
+    if (checkGeneration.current[provider.id] !== generation) return;
+    setChecks((prev) => ({ ...prev, [provider.id]: result }));
   }
 
-  function openConnect(provider: ProviderInfo) {
-    const oauthIdx = getOAuthMethodIndex(provider.id);
-    const apiKey = hasApiKeyAuth(provider.id);
+  function handleConnected(provider: ProviderInfo) {
+    // A new credential makes any earlier or running check stale.
+    forgetCheck(provider.id);
+    toast.success(`${provider.name} connected`, {
+      action: { label: "Check it works", onClick: () => runCheck(provider) },
+    });
+  }
 
-    // If only one method, skip method selection
-    if (oauthIdx !== null && !apiKey) {
-      startOAuthFlow(provider, oauthIdx);
-    } else if (oauthIdx === null && apiKey) {
-      setDialog({ step: "apikey", provider });
-    } else if (oauthIdx !== null && apiKey) {
-      setDialog({ step: "methods", provider });
-    } else {
-      // No auth methods available
-      setError(
-        `No authentication methods available. Required env vars: ${provider.env.join(", ")}`,
+  async function handleDisconnect(provider: ProviderInfo) {
+    setDisconnecting(provider.id);
+    try {
+      await disconnectMutation.mutateAsync(provider.id);
+      forgetCheck(provider.id);
+      toast.success(
+        hasZenKey(provider)
+          ? "OpenCode Zen key removed. The free models are still available."
+          : "Provider disconnected",
       );
-      setDialog({ step: "methods", provider });
-    }
-  }
-
-  async function startOAuthFlow(provider: ProviderInfo, methodIndex: number) {
-    setDialog({ step: "oauth", provider, methodIndex, method: null, instructions: null });
-    setError(null);
-    try {
-      const authResult = await startOAuthMutation.mutateAsync({
-        providerID: provider.id,
-        methodIndex,
-      });
-      if (!authResult) {
-        closeDialog();
-        return;
-      }
-      setDialog({
-        step: "oauth",
-        provider,
-        methodIndex,
-        method: authResult.method,
-        instructions: authResult.instructions ?? null,
-      });
-      if (authResult.method === "auto") {
-        const abort = new AbortController();
-        oauthAbortRef.current = abort;
-        try {
-          const success = await completeOAuthMutation.mutateAsync({
-            providerID: provider.id,
-            methodIndex,
-          });
-          if (!abort.signal.aborted) {
-            if (success) {
-              // Auto-close handled by the connectedProviders effect
-            } else {
-              setError("Authorization failed. Please try again.");
-              setDialog({ step: "methods", provider });
-            }
-          }
-        } catch {
-          if (!abort.signal.aborted) {
-            setError("Sign-in timed out or was cancelled");
-            setDialog({ step: "methods", provider });
-          }
-        }
-      }
-    } catch {
-      setError("Failed to start sign-in flow");
-      setDialog({ step: "methods", provider });
-    }
-  }
-
-  async function handleOAuthCode(providerId: string) {
-    if (dialog.step !== "oauth" || !oauthCodeInput.trim()) return;
-    try {
-      const success = await completeOAuthMutation.mutateAsync({
-        providerID: providerId,
-        methodIndex: dialog.methodIndex,
-        code: oauthCodeInput.trim(),
-      });
-      if (!success) {
-        setError("Authorization failed. Please try again.");
-      }
-      // Success auto-closes via connectedProviders effect
-    } catch {
-      setError("Invalid code. Please try again.");
-    }
-    setOauthCodeInput("");
-  }
-
-  async function handleSaveKey(providerId: string) {
-    if (!apiKeyInput.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await setApiKeyMutation.mutateAsync({ providerID: providerId, key: apiKeyInput.trim() });
-      // Success auto-closes via connectedProviders effect
-    } catch {
-      setError("Invalid key or connection failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDisconnect(providerId: string) {
-    setDisconnecting(providerId);
-    try {
-      await disconnectMutation.mutateAsync(providerId);
-      toast.success("Provider disconnected");
     } catch {
       toast.error("Failed to disconnect");
     } finally {
@@ -442,15 +311,42 @@ function ProvidersTab() {
     }
   }
 
-  // Split providers into connected and unconnected
-  const connected = allProviders.filter((p) => connectedProviders.includes(p.id));
-  const unconnected = allProviders.filter((p) => !connectedProviders.includes(p.id));
+  const needle = query.trim().toLowerCase();
+  const matches = useCallback(
+    (p: ProviderInfo, label = p.name) =>
+      !needle || label.toLowerCase().includes(needle) || p.id.toLowerCase().includes(needle),
+    [needle],
+  );
 
-  // Sort unconnected: popular first, then alphabetical
-  const sortedUnconnected = useMemo(() => {
+  const connected = allProviders.filter(
+    (p) => connectedProviders.includes(p.id) && matches(p, providerDisplayName(p)),
+  );
+
+  const goProvider = allProviders.find((p) => p.id === OPENCODE_GO.providerId);
+  const recommendGo =
+    !!goProvider &&
+    !needle &&
+    shouldRecommendOpenCodeGo(allProviders.filter((p) => connectedProviders.includes(p.id)));
+
+  function setUpGo(source: "recommendation" | "list") {
+    if (!goProvider) return;
+    posthog.capture(
+      "provider_recommendation_clicked",
+      analyticsProperties("providers", { provider: OPENCODE_GO.providerId, source }),
+    );
+    setConnecting(goProvider);
+  }
+
+  // Popular first in OpenCode's order, then everything else alphabetically
+  const { popular, others } = useMemo(() => {
     const pop: ProviderInfo[] = [];
     const oth: ProviderInfo[] = [];
-    for (const p of unconnected) {
+    for (const p of allProviders) {
+      // With only the free models connected, Zen is still offered as its own
+      // provider: a key turns the same OpenCode provider into a Zen account.
+      if ((connectedProviders.includes(p.id) && !isFreeZen(p)) || !matches(p)) continue;
+      // The recommendation card already offers Go.
+      if (recommendGo && p.id === OPENCODE_GO.providerId) continue;
       if (POPULAR_PROVIDERS.includes(p.id)) {
         pop.push(p);
       } else {
@@ -459,15 +355,90 @@ function ProvidersTab() {
     }
     pop.sort((a, b) => POPULAR_PROVIDERS.indexOf(a.id) - POPULAR_PROVIDERS.indexOf(b.id));
     oth.sort((a, b) => a.name.localeCompare(b.name));
-    return [...pop, ...oth];
-  }, [unconnected]);
+    return { popular: pop, others: oth };
+  }, [allProviders, connectedProviders, matches, recommendGo]);
+
+  const nothingMatches =
+    allProviders.length > 0 && connected.length + popular.length + others.length === 0;
+
+  function renderAvailable(provider: ProviderInfo) {
+    return (
+      <div key={provider.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
+        <ProviderLogo providerId={provider.id} name={provider.name} />
+        <div className="min-w-[7rem] flex-1">
+          <div className="truncate text-sm font-medium">{provider.name}</div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {connectHint(provider.id, authMethods[provider.id])}
+          </div>
+        </div>
+        <button
+          onClick={() =>
+            provider.id === OPENCODE_GO.providerId ? setUpGo("list") : setConnecting(provider)
+          }
+          className="shrink-0 whitespace-nowrap rounded-md border bg-background px-3 py-1 text-[11px] font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          Connect
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">Providers</h4>
       <p className="mt-1 text-xs text-muted-foreground">
-        Connect AI providers to use their models.
+        Connect an AI provider to chat with its models.
       </p>
+
+      {allProviders.length > 0 && (
+        <div className="relative mt-5">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Search ${allProviders.length} providers`}
+            aria-label="Search providers"
+            className="h-8 w-full rounded-md border bg-background pr-2 pl-8 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      )}
+
+      {recommendGo && (
+        <div className="mt-6 rounded-lg border bg-card p-4">
+          <div className="flex items-start gap-3">
+            <ProviderLogo
+              providerId={OPENCODE_GO.providerId}
+              name="OpenCode Go"
+              className="hidden @md:flex"
+            />
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Want more than the free models?</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                OpenCode Go is a low-cost subscription to strong open coding models like Kimi, GLM,
+                Qwen and DeepSeek. Go is {OPENCODE_GO.goPrice}, and Go Plus is{" "}
+                {OPENCODE_GO.goPlusPrice} with higher limits.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <button
+                  onClick={() => setUpGo("recommendation")}
+                  className="whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  Set up OpenCode Go
+                </button>
+                <button
+                  onClick={() => {
+                    desktop.openUrl(OPENCODE_GO.plansUrl).catch(() => {});
+                  }}
+                  className="whitespace-nowrap text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                >
+                  Compare plans
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Connected providers */}
       {connected.length > 0 && (
@@ -475,56 +446,124 @@ function ProvidersTab() {
           <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Connected
           </div>
-          <div className="space-y-1.5">
-            {connected.map((provider) => (
-              <div
-                key={provider.id}
-                className="flex items-center justify-between rounded-lg border bg-card px-3.5 py-2.5"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{provider.name}</span>
-                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Connected
-                  </span>
+          <div className="divide-y rounded-lg border bg-card">
+            {connected.map((provider) => {
+              const check = checks[provider.id];
+              return (
+                <div key={provider.id} className="px-3 py-2.5">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    {isFreeZen(provider) ? (
+                      <span
+                        aria-hidden="true"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-foreground"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                      </span>
+                    ) : (
+                      <ProviderLogo providerId={provider.id} name={provider.name} />
+                    )}
+                    <div className="min-w-[7rem] flex-1">
+                      <div className="truncate text-sm font-medium">
+                        {providerDisplayName(provider)}
+                      </div>
+                      {isFreeZen(provider) && (
+                        <div className="truncate text-[11px] text-muted-foreground">
+                          Included with BloxBot
+                        </div>
+                      )}
+                    </div>
+                    {check && check !== "checking" && (
+                      <span
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          check.ok
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                            : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${check.ok ? "bg-emerald-500" : "bg-red-500"}`}
+                        />
+                        {check.ok ? "Working" : "Not working"}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => runCheck(provider)}
+                      disabled={check === "checking"}
+                      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+                      title="Send one short test message to check this connection"
+                    >
+                      {check === "checking" && <Loader2 className="h-3 w-3 animate-spin" />}
+                      {check === "checking" ? "Checking" : "Check"}
+                    </button>
+                    {/* The free models can't be disconnected, and BloxBot can't
+                        remove a Zen key it didn't store. */}
+                    {isFreeZen(provider) || hasOutsideZenKey(provider) ? null : (
+                      <button
+                        onClick={() => handleDisconnect(provider)}
+                        disabled={disconnecting === provider.id}
+                        className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
+                      >
+                        {disconnecting === provider.id
+                          ? "..."
+                          : hasZenKey(provider)
+                            ? "Remove key"
+                            : "Disconnect"}
+                      </button>
+                    )}
+                  </div>
+                  {check && check !== "checking" && (
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground @md:pl-10">
+                      {check.ok ? (
+                        `${check.modelName} answered a test message.`
+                      ) : (
+                        <>
+                          <span className="text-red-700 dark:text-red-400">{check.message}</span>
+                          {check.keyRejected && !isFreeZen(provider) && (
+                            <button
+                              onClick={() => setConnecting(provider)}
+                              className="ml-1.5 font-medium text-foreground underline-offset-2 hover:underline"
+                            >
+                              Reconnect
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </p>
+                  )}
                 </div>
-                {provider.id !== "opencode" && (
-                  <button
-                    onClick={() => handleDisconnect(provider.id)}
-                    disabled={disconnecting === provider.id}
-                    className="text-[11px] text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
-                  >
-                    {disconnecting === provider.id ? "..." : "Disconnect"}
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Unconnected providers */}
-      {sortedUnconnected.length > 0 && (
+      {popular.length > 0 && (
         <div className="mt-6">
           <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {connected.length > 0 ? "Available" : "Providers"}
+            Popular
           </div>
-          <div className="space-y-1.5">
-            {sortedUnconnected.map((provider) => (
-              <div
-                key={provider.id}
-                className="flex items-center justify-between rounded-lg border bg-card px-3.5 py-2.5"
-              >
-                <span className="text-sm font-medium">{provider.name}</span>
-                <button
-                  onClick={() => openConnect(provider)}
-                  className="rounded-md border bg-background px-3 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
-                >
-                  Connect
-                </button>
-              </div>
-            ))}
+          <div className="divide-y rounded-lg border bg-card">{popular.map(renderAvailable)}</div>
+        </div>
+      )}
+
+      {others.length > 0 && (
+        <div className="mt-6">
+          <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {popular.length > 0 || connected.length > 0 ? "More providers" : "Providers"}
           </div>
+          <div className="divide-y rounded-lg border bg-card">{others.map(renderAvailable)}</div>
+        </div>
+      )}
+
+      {nothingMatches && (
+        <div className="mt-8 text-center text-xs text-muted-foreground">
+          No provider matches “{query.trim()}”.
+          <button
+            onClick={() => setQuery("")}
+            className="ml-1 text-foreground underline-offset-2 hover:underline"
+          >
+            Clear search
+          </button>
         </div>
       )}
 
@@ -534,238 +573,12 @@ function ProvidersTab() {
         </div>
       )}
 
-      {/* Connect dialog overlay */}
-      {dialog.step !== "closed" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div
-            ref={dialogRef}
-            className="mx-4 w-full max-w-sm rounded-xl border bg-card p-5 shadow-lg"
-          >
-            <div className="flex items-center justify-between">
-              <h5 className="text-sm font-semibold">Connect {dialog.provider.name}</h5>
-              <button
-                onClick={closeDialog}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-
-            {error && <p className="mt-3 text-[11px] text-destructive">{error}</p>}
-
-            {/* Method selection */}
-            {dialog.step === "methods" && (
-              <div className="mt-4 space-y-2">
-                {getOAuthMethodIndex(dialog.provider.id) !== null && (
-                  <button
-                    onClick={() => {
-                      const idx = getOAuthMethodIndex(dialog.provider.id);
-                      if (idx !== null) {
-                        setError(null);
-                        startOAuthFlow(dialog.provider, idx);
-                      }
-                    }}
-                    className="flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium transition-colors hover:bg-accent"
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                      <polyline points="10 17 15 12 10 7" />
-                      <line x1="15" y1="12" x2="3" y2="12" />
-                    </svg>
-                    Sign in with {dialog.provider.name}
-                  </button>
-                )}
-                {getOAuthMethodIndex(dialog.provider.id) !== null &&
-                  hasApiKeyAuth(dialog.provider.id) && (
-                    <div className="flex items-center gap-2">
-                      <div className="h-px flex-1 bg-border" />
-                      <span className="text-[10px] text-muted-foreground">or</span>
-                      <div className="h-px flex-1 bg-border" />
-                    </div>
-                  )}
-                {hasApiKeyAuth(dialog.provider.id) && (
-                  <button
-                    onClick={() => {
-                      setError(null);
-                      setDialog({ step: "apikey", provider: dialog.provider });
-                    }}
-                    className="flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-background text-xs font-medium transition-colors hover:bg-accent"
-                  >
-                    Use an API key
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* OAuth flow */}
-            {dialog.step === "oauth" && (
-              <div className="mt-4 space-y-3">
-                {!dialog.method && (
-                  <div className="flex items-center justify-center py-4">
-                    <svg
-                      className="h-4 w-4 animate-spin text-muted-foreground"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                    </svg>
-                  </div>
-                )}
-                {dialog.method === "auto" && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
-                      <svg
-                        className="h-3 w-3 animate-spin"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                      </svg>
-                      Waiting for authorization...
-                    </div>
-                    {dialog.instructions && (
-                      <div className="rounded-md border bg-muted/50 p-2.5">
-                        <p className="text-[11px] leading-relaxed text-muted-foreground">
-                          {dialog.instructions}
-                        </p>
-                        <button
-                          onClick={() => {
-                            const code = dialog.instructions?.match(/[A-Z0-9]{4,}-[A-Z0-9]{4,}/i);
-                            if (code) {
-                              navigator.clipboard.writeText(code[0]);
-                              toast("Code copied to clipboard");
-                            }
-                          }}
-                          className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-accent"
-                        >
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
-                          Copy code
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {dialog.method === "code" && (
-                  <div className="space-y-2">
-                    {dialog.instructions && (
-                      <p className="text-[11px] text-muted-foreground">{dialog.instructions}</p>
-                    )}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={oauthCodeInput}
-                        onChange={(e) => setOauthCodeInput(e.target.value)}
-                        placeholder="Paste authorization code..."
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && oauthCodeInput.trim()) {
-                            e.preventDefault();
-                            handleOAuthCode(dialog.provider.id);
-                          }
-                        }}
-                        className="h-8 flex-1 rounded border bg-background px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => handleOAuthCode(dialog.provider.id)}
-                        disabled={!oauthCodeInput.trim()}
-                        className="h-8 rounded bg-foreground px-3 text-xs font-medium text-background transition-opacity disabled:opacity-40"
-                      >
-                        Submit
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* API key input */}
-            {dialog.step === "apikey" && (
-              <div className="mt-4 space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={apiKeyInput}
-                    onChange={(e) => {
-                      setApiKeyInput(e.target.value);
-                      setError(null);
-                    }}
-                    placeholder={PROVIDER_META[dialog.provider.id]?.placeholder ?? "API key..."}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && apiKeyInput.trim() && !saving) {
-                        e.preventDefault();
-                        handleSaveKey(dialog.provider.id);
-                      }
-                    }}
-                    className="h-8 flex-1 rounded border bg-background px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
-                    autoFocus
-                  />
-                  <button
-                    onClick={() => handleSaveKey(dialog.provider.id)}
-                    disabled={saving || !apiKeyInput.trim()}
-                    className="h-8 rounded bg-foreground px-3 text-xs font-medium text-background transition-opacity disabled:opacity-40"
-                  >
-                    {saving ? "..." : "Save"}
-                  </button>
-                </div>
-                {PROVIDER_META[dialog.provider.id]?.helpUrl && (
-                  <a
-                    href={PROVIDER_META[dialog.provider.id]?.helpUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-block text-[10px] text-muted-foreground underline hover:text-foreground"
-                  >
-                    Get an API key
-                  </a>
-                )}
-                {getOAuthMethodIndex(dialog.provider.id) !== null && (
-                  <button
-                    onClick={() => setDialog({ step: "methods", provider: dialog.provider })}
-                    className="block text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    Back to sign-in options
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+      {connecting && (
+        <ProviderConnectDialog
+          provider={connecting}
+          onClose={() => setConnecting(null)}
+          onConnected={handleConnected}
+        />
       )}
     </div>
   );
@@ -835,7 +648,7 @@ function ModelsTab() {
   const totalModels = allModels.filter((m) => connectedProviders.includes(m.providerId)).length;
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">Models</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Toggle which models appear in the model selector.
@@ -958,7 +771,7 @@ function AppearanceTab() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">Appearance</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Choose how BloxBot looks. System follows your OS preference.
@@ -1027,7 +840,7 @@ function PrivacyTab() {
   const { detailedAnalyticsEnabled, setDetailedAnalyticsEnabled } = usePreferences();
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
@@ -1178,7 +991,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-8">
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="font-serif text-lg italic text-foreground">About BloxBot</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         AI-assisted Roblox development, right from your desktop.

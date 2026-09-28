@@ -7,6 +7,24 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Sign in to OpenAI with a device code as well as in the browser, so a ChatGPT Plus or Pro plan still connects when the browser sign-in can't finish.
+- Settings → Providers shows provider logos, says how each provider connects, and has a search box.
+- Providers that ask a question before signing in, such as GitHub Enterprise for Copilot, now ask it.
+- Check any connected provider from Settings → Providers. BloxBot sends one short test message through its cheapest model and shows whether the key or sign-in works, with a Reconnect link when the key is rejected. The toast after connecting offers the same check.
+- OpenCode Zen is listed as its own provider in Settings → Providers, separate from the free models. Connect it with a Zen key, and remove the key to go back to the free models.
+- Settings → Providers recommends OpenCode Go ($10/month, or Go Plus at $40/month) to people using only the free models, and walks through setting it up.
+
+### Fixed
+
+- A failed sign-in explains what went wrong and suggests the method most likely to work, instead of "Failed to start sign-in flow".
+- A sign-in that stalls offers a way back to the other methods and a link to reopen the sign-in page.
+- A successful sign-in no longer shows as failed when refreshing the provider list afterwards fails.
+- Replacing the key of an already connected provider closes the dialog instead of leaving it open.
+- The models BloxBot includes for free show as "Free models" in Settings and the model picker, rather than "OpenCode Zen", until a Zen key is added.
+- Settings no longer squeezes its content into a sliver in narrow windows. When space is tight, its sections become a row of tabs on top.
+
 ## [0.11.1] - 2026-09-24
 
 ### Added
