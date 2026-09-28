@@ -4,11 +4,11 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { useCheckProvider } from "@/hooks/mutations/useCheckProvider";
-import { useSetApiKey } from "@/hooks/mutations/useSetApiKey";
+import { useDisconnectProvider, useSetApiKey } from "@/hooks/mutations/useSetApiKey";
 import { qk } from "@/lib/queryKeys";
 
 const client = {
-  auth: { set: vi.fn() },
+  auth: { set: vi.fn(), remove: vi.fn() },
   instance: { dispose: vi.fn() },
   provider: { list: vi.fn(), auth: vi.fn() },
   session: { create: vi.fn(), prompt: vi.fn(), delete: vi.fn() },
@@ -50,6 +50,20 @@ describe("useSetApiKey", () => {
     await expect(
       result.current.mutateAsync({ providerID: "opencode-go", key: "sk-test" }),
     ).rejects.toMatchObject({ name: "BadRequest" });
+  });
+});
+
+describe("useDisconnectProvider", () => {
+  it("reports a removed credential as removed when the refresh afterwards fails", async () => {
+    client.auth.remove.mockResolvedValue({ data: true });
+    client.instance.dispose.mockRejectedValue(new Error("instance busy"));
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries").mockResolvedValue();
+
+    const { result } = renderHook(() => useDisconnectProvider(), { wrapper: wrapper(qc) });
+
+    await expect(result.current.mutateAsync("opencode")).resolves.toBe("opencode");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.providers });
   });
 });
 
