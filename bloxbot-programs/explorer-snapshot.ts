@@ -4,9 +4,10 @@ async function run({ input, callTool }: { input: { studioId: string }; callTool:
   // Studio caps max_depth at 10; use that ceiling and a generous result cap so
   // ordinary places are collected in one pass. Studio requires datamodel_type:
   // "Edit" normally, and it rejects "Edit" during a playtest, so fall back to
-  // the server data model then.
+  // the server data model then. Outside a playtest the server attempt only
+  // says "not available in Edit mode", so the edit error is the one to report.
   let raw: any = null;
-  let lastError = "";
+  const errors: string[] = [];
   for (const datamodelType of ["Edit", "Server"]) {
     const result = await callTool("search_game_tree", {
       studio_id: studioId,
@@ -16,13 +17,20 @@ async function run({ input, callTool }: { input: { studioId: string }; callTool:
     });
     const error = mcpErrorText(result);
     if (error) {
-      lastError = error;
+      errors.push(error);
       continue;
     }
     raw = normalizeMcpResult(result);
     break;
   }
-  if (raw === null) throw new Error(lastError || "Studio did not return an instance tree");
+  if (raw === null) {
+    const [editError, serverError] = errors;
+    const message =
+      serverError && !/not available in Edit mode/i.test(serverError)
+        ? `${editError} (server data model: ${serverError})`
+        : editError;
+    throw new Error(message || "Studio did not return an instance tree");
+  }
   const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
   // Match Studio Explorer's default service set. Studio hides less commonly
   // edited engine services unless the user explicitly enables them.
