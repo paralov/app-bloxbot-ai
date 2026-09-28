@@ -22,16 +22,24 @@ export interface ScrubOptions {
 // A preceding host or word character means a URL path such as `example.com/home/…`.
 const HOME_PATH =
   /(?<![A-Za-z0-9.-])(?:[A-Za-z]:)?(?:\\{1,2}|\/)(?:Users|home)(?:\\{1,2}|\/)([^\\/\s"'`<>|:;,()[\]{}]+)/g;
-// Windows account folders may contain spaces (`C:\Users\Jane Doe\…`); matched up to the next separator.
-const WINDOWS_HOME_PATH = /(?:\b[A-Za-z]:)?\\{1,2}Users\\{1,2}([^\\/\r\n"'`<>|:*?]+?)(?=\\)/g;
+// Windows account folders may contain spaces (`C:\Users\Jane Doe\…`, `C:/Users/Jane Doe/…`);
+// matched up to the next separator or the end of the line.
+const WINDOWS_HOME_PATH =
+  /(?:(?:\b[A-Za-z]:)?\\{1,2}Users\\{1,2}|\b[A-Za-z]:\/Users\/)([^\\/\r\n"'`<>|:*?]+?)(?=[\\/]|$)/gm;
 
-const SECRET_PATTERNS: ReadonlyArray<[RegExp, string]> = [
+const SECRET_PATTERNS: ReadonlyArray<
+  [RegExp, string | ((match: string, ...groups: string[]) => string)]
+> = [
   // HTTP authorization values.
   [/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi, `$1 ${REDACTED}`],
   // `api_key=…`, `"token": "…"`, `password: …`, `x-api-key: …`.
+  // Plain numbers are kept only for token counts such as `max_tokens: 4096`.
   [
-    /\b((?:[A-Za-z]+[_-])*(?:api[_-]?key|apikey|token|secret|password|passwd|authorization|auth|credential)s?)(["']?\s*[:=]\s*["']?)(?!\[redacted\]|\d+\b)[^\s"',;&)}]+/gi,
-    `$1$2${REDACTED}`,
+    /\b((?:[A-Za-z]+[_-])*(?:api[_-]?key|apikey|token|secret|password|passwd|authorization|auth|credential)s?)(["']?\s*[:=]\s*["']?)(?!\[redacted\])([^\s"',;&)}]+)/gi,
+    (_match: string, key: string, separator: string, value: string) =>
+      /[_-]tokens$/i.test(key) && /^\d+$/.test(value)
+        ? `${key}${separator}${value}`
+        : `${key}${separator}${REDACTED}`,
   ],
   // Provider keys: OpenAI/Anthropic/OpenRouter (`sk-…`, `sk-ant-…`, `sk-or-…`), Google (`AIza…`),
   // GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`), AWS access keys, Groq (`gsk_…`), xAI (`xai-…`).
@@ -85,7 +93,10 @@ export function scrubErrorText(text: string, options: ScrubOptions = {}): string
   // The username found in a path often appears elsewhere, e.g. in a hostname or email.
   for (const name of names) result = maskName(result, name);
   for (const [pattern, replacement] of SECRET_PATTERNS) {
-    result = result.replace(pattern, replacement);
+    result =
+      typeof replacement === "string"
+        ? result.replace(pattern, replacement)
+        : result.replace(pattern, replacement);
   }
   return result.replace(OPAQUE_TOKEN, (candidate) =>
     looksLikeSecret(candidate) ? REDACTED : candidate,

@@ -24,6 +24,9 @@ describe("scrubErrorText", () => {
     expect(scrubErrorText('{"path":"C:\\\\Users\\\\jdoe\\\\BloxBot"}')).toBe(
       '{"path":"~\\\\BloxBot"}',
     );
+    expect(scrubErrorText("EPERM C:/Users/Jane Doe/AppData/x")).toBe("EPERM ~/AppData/x");
+    expect(scrubErrorText("profile at C:\\Users\\Jane Doe")).toBe("profile at ~");
+    expect(scrubErrorText("profile at C:/Users/Jane Doe")).toBe("profile at ~");
     expect(scrubErrorText("file:///Users/oscar/app.asar/index.js")).toBe(
       "file://~/app.asar/index.js",
     );
@@ -41,6 +44,14 @@ describe("scrubErrorText", () => {
   it("replaces a known home directory", () => {
     expect(scrubErrorText("/opt/homes/os/BloxBot missing", { home: "/opt/homes/os" })).toBe(
       "~/BloxBot missing",
+    );
+  });
+
+  it("redacts numeric credential values but keeps token counts", () => {
+    expect(scrubErrorText("api_key=12345678 rejected")).toBe("api_key=[redacted] rejected");
+    expect(scrubErrorText('{"password": "4242"}')).toBe('{"password": "[redacted]"}');
+    expect(scrubErrorText("input_tokens: 812, max_tokens: 4096")).toBe(
+      "input_tokens: 812, max_tokens: 4096",
     );
   });
 
