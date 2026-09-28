@@ -151,3 +151,12 @@ export function connectHint(providerId: string, methods: ProviderAuthMethod[] | 
   if (hasOAuth) return "Sign in with your account";
   return "API key";
 }
+
+/**
+ * The name to show for a provider. OpenCode's built-in free models come from
+ * the OpenCode Zen provider, but until someone adds a Zen key they are just the
+ * models BloxBot includes, so they shouldn't read as a Zen account.
+ */
+export function providerDisplayName(provider: { id: string; name: string; source?: string }) {
+  return provider.id === "opencode" && provider.source !== "api" ? "Free models" : provider.name;
+}

@@ -1,4 +1,4 @@
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, Sparkles } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -16,7 +16,7 @@ import {
 import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
-import { connectHint } from "@/lib/providerAuth";
+import { connectHint, providerDisplayName } from "@/lib/providerAuth";
 import type { ProviderCheckResult } from "@/lib/providerCheck";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
@@ -442,10 +442,26 @@ function ProvidersTab() {
               return (
                 <div key={provider.id} className="px-3 py-2.5">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <ProviderLogo providerId={provider.id} name={provider.name} />
-                    <span className="min-w-[7rem] flex-1 truncate text-sm font-medium">
-                      {provider.name}
-                    </span>
+                    {isFreeZen(provider) ? (
+                      <span
+                        aria-hidden="true"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-foreground"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                      </span>
+                    ) : (
+                      <ProviderLogo providerId={provider.id} name={provider.name} />
+                    )}
+                    <div className="min-w-[7rem] flex-1">
+                      <div className="truncate text-sm font-medium">
+                        {providerDisplayName(provider)}
+                      </div>
+                      {isFreeZen(provider) && (
+                        <div className="truncate text-[11px] text-muted-foreground">
+                          Included with BloxBot
+                        </div>
+                      )}
+                    </div>
                     {check && check !== "checking" && (
                       <span
                         className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -475,7 +491,7 @@ function ProvidersTab() {
                         onClick={() => setConnecting(provider)}
                         className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-foreground"
                       >
-                        Add key
+                        Add Zen key
                       </button>
                     ) : (
                       <button
@@ -503,7 +519,7 @@ function ProvidersTab() {
                               onClick={() => setConnecting(provider)}
                               className="ml-1.5 font-medium text-foreground underline-offset-2 hover:underline"
                             >
-                              {isFreeZen(provider) ? "Add key" : "Reconnect"}
+                              {isFreeZen(provider) ? "Add Zen key" : "Reconnect"}
                             </button>
                           )}
                         </>

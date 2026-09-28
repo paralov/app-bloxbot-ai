@@ -5,6 +5,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import { useQuery } from "@tanstack/react-query";
 
+import { providerDisplayName } from "@/lib/providerAuth";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
@@ -57,7 +58,7 @@ export function useAllModels(): ModelInfo[] {
         id: model.id,
         name: model.name,
         providerId: provider.id,
-        providerName: provider.name,
+        providerName: providerDisplayName(provider),
         status: model.status,
         variants: model.variants,
       });

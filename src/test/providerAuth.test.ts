@@ -8,6 +8,7 @@ import {
   deviceCode,
   initialPromptInputs,
   oauthRecovery,
+  providerDisplayName,
   submittedPromptInputs,
   visiblePrompts,
 } from "@/lib/providerAuth";
@@ -163,5 +164,20 @@ describe("connectHint", () => {
       ]),
     ).toBe("Sign in or use an API key");
     expect(connectHint("poe", [{ type: "oauth", label: "Poe" }])).toBe("Sign in with your account");
+  });
+});
+
+describe("providerDisplayName", () => {
+  it("calls OpenCode's built-in free tier Free models, not OpenCode Zen", () => {
+    expect(providerDisplayName({ id: "opencode", name: "OpenCode Zen", source: "custom" })).toBe(
+      "Free models",
+    );
+  });
+
+  it("uses the real name once a Zen key is added, and for every other provider", () => {
+    expect(providerDisplayName({ id: "opencode", name: "OpenCode Zen", source: "api" })).toBe(
+      "OpenCode Zen",
+    );
+    expect(providerDisplayName({ id: "openai", name: "OpenAI", source: "api" })).toBe("OpenAI");
   });
 });
