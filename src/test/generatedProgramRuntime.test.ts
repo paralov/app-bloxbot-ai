@@ -232,7 +232,8 @@ describe("GeneratedProgramRuntime", () => {
     const failure = await Effect.runPromise(
       Effect.flip(runtime.invoke({ artifact, input: { studioId: "studio-123" } })),
     );
-    expect(String((failure as { cause?: unknown }).cause)).toContain("Studio is not responding");
+    // The message itself carries Studio's text, since only it crosses the IPC bridge.
+    expect(failure.message).toBe("Generated program execution failed: Studio is not responding");
   });
 
   it("discovers Place IDs and verifies targets without mutating active Studio state", async () => {

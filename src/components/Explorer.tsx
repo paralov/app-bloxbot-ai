@@ -196,6 +196,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const [search, setSearch] = useState("");
   const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
   const generationBlockedRef = useRef(false);
+  // Consecutive failed syncs, which set the retry backoff.
+  const failuresRef = useRef(0);
 
   const model = useMemo(() => {
     if (!selectedModel) return undefined;
@@ -210,6 +212,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     );
   }, [collapsed]);
 
+  // Reopening Explorer or switching Studio gives a blocked setup a fresh try.
+  // This lives outside the sync effect, which also re-runs whenever the chat
+  // turns busy or idle and must not clear the block or the backoff then.
+  const studioKey = studioTarget?.selected?.key;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resets when Explorer opens or the Studio changes
+  useEffect(() => {
+    generationBlockedRef.current = false;
+    failuresRef.current = 0;
+  }, [collapsed, studioKey]);
+
   useEffect(() => {
     if (!client || collapsed || !studioTarget?.selected) return;
     const activeClient = client;
@@ -217,9 +229,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     let cancelled = false;
     let timer: number | undefined;
     let unchangedPolls = 0;
-    let failures = 0;
-    // Reopening Explorer or switching Studio gives a blocked setup a fresh try.
-    generationBlockedRef.current = false;
 
     function scheduleNext() {
       if (cancelled) return;
@@ -227,8 +236,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       if (generationBlockedRef.current && !collectionRef.current) return;
       const baseDelay = sessionBusy ? ACTIVE_SYNC_MS : IDLE_SYNC_MS;
       const delay =
-        failures > 0
-          ? Math.min(IDLE_SYNC_MS * 2 ** failures, MAX_FAILURE_BACKOFF_MS)
+        failuresRef.current > 0
+          ? Math.min(IDLE_SYNC_MS * 2 ** failuresRef.current, MAX_FAILURE_BACKOFF_MS)
           : Math.min(baseDelay * 2 ** Math.min(unchangedPolls, 3), MAX_UNCHANGED_SYNC_MS);
       timer = window.setTimeout(() => void sync(), delay);
     }
@@ -315,7 +324,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
             next = { ...current, snapshot };
           } catch (error) {
             telemetryRef.current.hadFailure = true;
-            if (failures === 0)
+            if (failuresRef.current === 0)
               posthog.capture(
                 "sync_failed",
                 errorAnalyticsProperties("explorer", "collector_runtime", error, {
@@ -345,7 +354,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           roots: next.snapshot.roots,
         });
         unchangedPolls = previousComparable === nextComparable ? unchangedPolls + 1 : 0;
-        failures = 0;
+        failuresRef.current = 0;
         collectionRef.current = next;
         setCollection(next);
         publishObjects(next.snapshot.roots);
@@ -374,9 +383,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         console.error("[explorer] sync failed", error);
         if (!collectionRef.current) generationBlockedRef.current = true;
         telemetryRef.current.hadFailure = true;
-        failures += 1;
+        failuresRef.current += 1;
         // Report the first failure of a streak, not every retry.
-        if (failures === 1)
+        if (failuresRef.current === 1)
           posthog.capture(
             "sync_failed",
             errorAnalyticsProperties(
@@ -405,7 +414,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     const resume = () => {
       // While failing, wait for the backoff timer rather than retrying (and
       // possibly asking the model again) every time the window regains focus.
-      if (failures > 0) return;
+      if (failuresRef.current > 0) return;
       if (document.visibilityState === "visible" && document.hasFocus()) {
         if (timer !== undefined) window.clearTimeout(timer);
         void sync();

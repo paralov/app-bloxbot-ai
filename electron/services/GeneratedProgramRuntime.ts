@@ -58,6 +58,10 @@ function runtimeError(
   return new GeneratedProgramRuntimeError({ phase, message, regenerate: true, cause });
 }
 
+function withCause(message: string, cause: unknown): string {
+  return cause instanceof Error && cause.message ? `${message}: ${cause.message}` : message;
+}
+
 function cacheKey(envelope: GeneratedProgramEnvelope): string {
   return createHash("sha256")
     .update(JSON.stringify(envelope.contract))
@@ -135,10 +139,12 @@ export function startGeneratedProgramRuntime(callTool: CallTool): GeneratedProgr
         };
         const value = yield* Effect.tryPromise({
           try: () => program(invocation.input, guardedCallTool),
+          // Keep the program's own message (such as Studio's error text) in the
+          // message itself, since only the message crosses the IPC bridge.
           catch: (cause) =>
             cause instanceof ToolContractError
-              ? runtimeError("tool-contract", "Generated program tool contract failed", cause)
-              : runtimeError("runtime", "Generated program execution failed", cause),
+              ? runtimeError("tool-contract", withCause("Generated program tool contract failed", cause), cause)
+              : runtimeError("runtime", withCause("Generated program execution failed", cause), cause),
         });
         const jsonValue = yield* Effect.try({
           try: () => {
