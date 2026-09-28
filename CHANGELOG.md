@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-09-29
+
 ### Fixed
 
 - BloxBot now connects to Roblox Studio on Windows even when Studio's own MCP launcher is broken after a Studio update. It finds and starts Studio's MCP helper itself.
@@ -260,7 +262,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.3...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.4...HEAD
+[0.13.4]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.0...v0.13.1
