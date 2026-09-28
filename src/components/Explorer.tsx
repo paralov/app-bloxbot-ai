@@ -410,7 +410,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     }
 
     syncLatestRef.current = () => void sync();
-    void sync();
+    // This effect also re-runs when the chat turns busy or idle; during a
+    // failure streak, wait for the backoff instead of retrying straight away.
+    if (failuresRef.current > 0) scheduleNext();
+    else void sync();
     const resume = () => {
       // While failing, wait for the backoff timer rather than retrying (and
       // possibly asking the model again) every time the window regains focus.
