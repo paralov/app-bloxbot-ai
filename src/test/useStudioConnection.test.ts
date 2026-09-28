@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { checkStudioConnection } from "@/hooks/useStudioConnection";
+import { checkStudioConnection, studioMcpProblem } from "@/hooks/useStudioConnection";
+
+describe("studioMcpProblem", () => {
+  it("only surfaces states that need the user to act", () => {
+    expect(studioMcpProblem(undefined)).toBeNull();
+    expect(studioMcpProblem({ state: "starting" })).toBeNull();
+    expect(studioMcpProblem({ state: "connected" })).toBeNull();
+    expect(studioMcpProblem({ state: "not_installed" })).toBe("not_installed");
+    expect(studioMcpProblem({ state: "unavailable" })).toBe("unavailable");
+  });
+});
 
 describe("checkStudioConnection", () => {
   it("reports an existing Studio connection without reconnecting", async () => {

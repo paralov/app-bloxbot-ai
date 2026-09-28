@@ -2,12 +2,21 @@ import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { useQuery } from "@tanstack/react-query";
 
 import { STUDIO_MCP_SERVER_NAME } from "@/lib/bloxbotProgramManifest";
+import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
+import type { StudioMcpStatus } from "@/types/desktop";
 
 const STUDIO_MCP_NAME = STUDIO_MCP_SERVER_NAME;
 
 export type StudioConnectionState = "checking" | "connected" | "waiting";
+
+/** Why Studio's MCP helper can't be reached, when BloxBot knows. */
+export type StudioMcpProblem = Extract<StudioMcpStatus["state"], "not_installed" | "unavailable">;
+
+export function studioMcpProblem(status: StudioMcpStatus | undefined): StudioMcpProblem | null {
+  return status?.state === "not_installed" || status?.state === "unavailable" ? status.state : null;
+}
 
 export async function checkStudioConnection(
   client: Pick<OpencodeClient, "mcp">,
@@ -38,9 +47,19 @@ export function useStudioConnection() {
     retry: false,
   });
 
+  const waiting = query.data === "waiting";
+  const studioMcp = useQuery({
+    queryKey: qk.studioMcpStatus,
+    queryFn: () => desktop.getStudioMcpStatus(),
+    enabled: !!client && waiting,
+    refetchInterval: 3_000,
+    retry: false,
+  });
+
   return {
     state: query.isPending ? ("checking" as const) : (query.data ?? "waiting"),
     checking: query.isFetching,
     checkAgain: query.refetch,
+    problem: waiting ? studioMcpProblem(studioMcp.data) : null,
   };
 }

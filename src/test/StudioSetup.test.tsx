@@ -53,6 +53,46 @@ describe("StudioSetup", () => {
     expect(onContinue).toHaveBeenCalledOnce();
   });
 
+  it("looks for Studio when there's no known problem", () => {
+    render(
+      <StudioSetup connected={false} checking={false} onCheck={vi.fn()} onContinue={vi.fn()} />,
+    );
+
+    expect(screen.getByText("Looking for Roblox Studio")).toBeVisible();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("explains how to fix Studio's MCP helper when it can't start (#106)", () => {
+    const { rerender } = render(
+      <StudioSetup
+        connected={false}
+        checking={false}
+        problem="not_installed"
+        onCheck={vi.fn()}
+        onContinue={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "BloxBot can't find Roblox Studio's MCP helper. Install or update Roblox Studio, open it, turn on the MCP server in Assistant settings, then check again.",
+    );
+    expect(screen.queryByText("Looking for Roblox Studio")).toBeNull();
+
+    rerender(
+      <StudioSetup
+        connected={false}
+        checking={false}
+        problem="unavailable"
+        onCheck={vi.fn()}
+        onContinue={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Studio's MCP helper stopped right after it started.",
+    );
+    expect(screen.getByRole("status").textContent).not.toContain(";");
+  });
+
   it("shows progress while checking again", () => {
     render(<StudioSetup connected={false} checking onCheck={vi.fn()} onContinue={vi.fn()} />);
 

@@ -158,6 +158,7 @@ function Chat() {
           <StudioSetup
             connected={studioConnection.state === "connected"}
             checking={studioConnection.checking}
+            problem={studioConnection.problem}
             onCheck={() => studioConnection.checkAgain()}
             onContinue={() => setShowStudioSetup(false)}
           />

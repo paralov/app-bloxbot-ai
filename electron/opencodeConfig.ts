@@ -28,6 +28,20 @@ export function studioMcpCommand(
   return ["studio-mcp"];
 }
 
+/**
+ * The file Roblox Studio installs for its MCP helper, or null when the command is looked up
+ * on PATH. When the file is missing, Studio isn't installed or hasn't set up MCP yet.
+ */
+export function studioMcpInstallPath(
+  platform: NodeJS.Platform,
+  environment: StudioMcpWindowsEnvironment = {},
+): string | null {
+  if (platform === "darwin" || platform === "win32") {
+    return studioMcpCommand(platform, environment).at(-1) ?? null;
+  }
+  return null;
+}
+
 export function createOpenCodeConfig(broker: { url: string }) {
   return {
     // Keep OpenCode's standard automatic context compaction enabled for long sessions.

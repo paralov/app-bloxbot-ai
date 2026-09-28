@@ -4,6 +4,7 @@ import findMcpImage from "@/assets/studio-setup/find-mcp.jpg";
 import flipSwitchImage from "@/assets/studio-setup/flip-switch.jpg";
 import openAssistantImage from "@/assets/studio-setup/open-assistant.jpg";
 import openPlaceImage from "@/assets/studio-setup/open-place.jpg";
+import type { StudioMcpProblem } from "@/hooks/useStudioConnection";
 
 const STEPS = [
   {
@@ -32,14 +33,23 @@ const STEPS = [
   },
 ] as const;
 
+const PROBLEM_COPY: Record<StudioMcpProblem, string> = {
+  not_installed:
+    "BloxBot can't find Roblox Studio's MCP helper. Install or update Roblox Studio, open it, turn on the MCP server in Assistant settings, then check again.",
+  unavailable:
+    "Studio's MCP helper stopped right after it started. Open Roblox Studio so it can finish any update, then check again. If this keeps happening, reinstall Studio.",
+};
+
 interface StudioSetupProps {
   connected: boolean;
   checking: boolean;
+  /** Set when BloxBot knows why it can't reach Studio's MCP helper. */
+  problem?: StudioMcpProblem | null;
   onCheck: () => void;
   onContinue: () => void;
 }
 
-function StudioSetup({ connected, checking, onCheck, onContinue }: StudioSetupProps) {
+function StudioSetup({ connected, checking, problem, onCheck, onContinue }: StudioSetupProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const step = STEPS[stepIndex];
 
@@ -174,10 +184,17 @@ function StudioSetup({ connected, checking, onCheck, onContinue }: StudioSetupPr
           </div>
         </div>
 
-        <div className="mt-3 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
-          Looking for Roblox Studio
-        </div>
+        {problem ? (
+          <output className="mx-auto mt-3 flex max-w-lg items-start justify-center gap-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+            <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+            {PROBLEM_COPY[problem]}
+          </output>
+        ) : (
+          <div className="mt-3 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+            Looking for Roblox Studio
+          </div>
+        )}
       </section>
     </div>
   );
