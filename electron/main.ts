@@ -358,7 +358,12 @@ const registerIpcHandlers = Effect.sync(() => {
           const result = yield* runtime.invoke({ artifact, input: { studioId } });
           return yield* Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value).pipe(
             Effect.mapError(
-              (cause) => new DesktopMainError({ message: "Explorer output is invalid", cause }),
+              (cause) =>
+                new DesktopMainError({
+                  // The schema's own complaint, so a model-written program can be fixed.
+                  message: `Explorer output is invalid: ${cause.message.slice(0, 600)}`,
+                  cause,
+                }),
             ),
           );
         }).pipe(

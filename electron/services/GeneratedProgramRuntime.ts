@@ -144,7 +144,8 @@ export function startGeneratedProgramRuntime(
     compile: (envelope) =>
       Effect.tryPromise({
         try: () => compile(envelope),
-        catch: (cause) => runtimeError("compile", "Generated program did not compile", cause),
+        catch: (cause) =>
+          runtimeError("compile", withCause("Generated program did not compile", cause), cause),
       }),
     invoke: (candidate) =>
       Effect.gen(function* () {
@@ -201,7 +202,8 @@ export function startGeneratedProgramRuntime(
             if (json === undefined) throw new Error("Output is not JSON serializable");
             return JSON.parse(json) as unknown;
           },
-          catch: (cause) => runtimeError("output", "Generated program output is invalid", cause),
+          catch: (cause) =>
+            runtimeError("output", withCause("Generated program output is invalid", cause), cause),
         });
         return yield* Schema.decodeUnknown(GeneratedProgramResultSchema)({
           contract: invocation.artifact.contract,

@@ -294,7 +294,6 @@ export async function generateExplorerProgram<T>(
       let request =
         "Discover the read-only Studio tools and generate the reusable TypeScript Explorer program.";
       for (;;) {
-        attempts += 1;
         const response = await client.session.prompt(
           {
             sessionID,
@@ -306,6 +305,8 @@ export async function generateExplorerProgram<T>(
           },
           { throwOnError: true },
         );
+        // Counts programs the model returned, not prompts that failed.
+        attempts += 1;
         try {
           const program = await Effect.runPromise(
             Schema.decodeUnknown(ExplorerProgramEnvelopeSchema)(response.data.info.structured),
