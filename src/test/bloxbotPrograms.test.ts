@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BLOXBOT_PROGRAM_NAMES,
@@ -14,12 +14,14 @@ import {
 } from "@/lib/bloxbotProgramManifest";
 import { signBloxBotProgramManifest } from "../../electron/bloxbotProgramSignature";
 import { createBloxBotProgramStore } from "../../electron/services/BloxBotProgramStore";
-import { expectedManifest, validated } from "../../scripts/bloxbot-programs/manifestFiles";
+import {
+  expectedManifest,
+  readProgramFile,
+  validated,
+} from "../../scripts/bloxbot-programs/manifestFiles";
 
 const getBloxBotPrograms = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/desktop", () => ({ desktop: { getBloxBotPrograms } }));
-
-const ROOT = resolve(__dirname, "../..");
 
 function sources(body = "async function run() { return {}; }") {
   return {
@@ -108,7 +110,7 @@ describe("studio program manifest", () => {
   it("ships a manifest.json that matches bloxbot-programs/ (run `pnpm bloxbot-programs build`)", async () => {
     // The same check as `pnpm bloxbot-programs check`, including the sequence bump.
     expect(serializeBloxBotProgramManifest(await expectedManifest())).toBe(
-      await readFile(join(ROOT, "bloxbot-programs", "manifest.json"), "utf8"),
+      await readProgramFile("manifest.json"),
     );
   });
 });

@@ -34,6 +34,7 @@ import type { GeneratedProgramEnvelope } from "../../src/types/generatedProgram"
 import {
   expectedManifest,
   MANIFEST_PATH,
+  readProgramFile,
   readSources,
   samePrograms,
 } from "./manifestFiles";
@@ -55,7 +56,7 @@ async function build() {
 
 async function check() {
   const expected = serializeBloxBotProgramManifest(await expectedManifest());
-  const actual = await readFile(MANIFEST_PATH, "utf8").catch(() => "");
+  const actual = await readProgramFile("manifest.json").catch(() => "");
   if (expected !== actual) {
     console.error("bloxbot-programs/manifest.json is out of date. Run: pnpm bloxbot-programs build");
     process.exit(1);

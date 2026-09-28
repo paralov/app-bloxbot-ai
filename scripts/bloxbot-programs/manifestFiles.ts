@@ -19,18 +19,21 @@ export const PROGRAMS_DIR = join(
 );
 export const MANIFEST_PATH = join(PROGRAMS_DIR, "manifest.json");
 
+/** Reads a program file with LF line endings, whatever the checkout used. */
+export async function readProgramFile(path: string): Promise<string> {
+  return (await readFile(join(PROGRAMS_DIR, path), "utf8")).replace(/\r\n/g, "\n");
+}
+
 export async function readSources(): Promise<BloxBotProgramSources> {
   const programs = {} as Record<BloxBotProgramName, string>;
-  for (const name of BLOXBOT_PROGRAM_NAMES) {
-    programs[name] = await readFile(join(PROGRAMS_DIR, `${name}.ts`), "utf8");
-  }
-  return { lib: await readFile(join(PROGRAMS_DIR, "lib", "mcp.ts"), "utf8"), programs };
+  for (const name of BLOXBOT_PROGRAM_NAMES) programs[name] = await readProgramFile(`${name}.ts`);
+  return { lib: await readProgramFile("lib/mcp.ts"), programs };
 }
 
 export async function readShippedManifest(): Promise<BloxBotProgramManifest | null> {
   try {
     return Schema.decodeUnknownSync(BloxBotProgramManifestSchema)(
-      JSON.parse(await readFile(MANIFEST_PATH, "utf8")),
+      JSON.parse(await readProgramFile("manifest.json")),
     );
   } catch {
     return null;
