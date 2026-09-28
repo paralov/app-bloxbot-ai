@@ -1,5 +1,6 @@
-import type { AssistantMessage, Model, Provider } from "@opencode-ai/sdk/v2/client";
+import type { Model, Provider } from "@opencode-ai/sdk/v2/client";
 
+import { type ModelError, modelErrorDetail } from "@/lib/modelError";
 import { splitModelKey } from "@/lib/splitModelKey";
 
 /**
@@ -78,16 +79,11 @@ export type ProviderCheckResult =
   | { ok: true; modelName: string }
   | { ok: false; message: string; keyRejected: boolean; modelName?: string };
 
-type ModelError = NonNullable<AssistantMessage["error"]>;
-
 /** What a failed check tells the user, and whether a new key would fix it. */
 export function checkFailure(error: ModelError): Extract<ProviderCheckResult, { ok: false }> {
-  const data = error.data as { message?: unknown; responseBody?: unknown; statusCode?: unknown };
+  const data = error.data as { statusCode?: unknown };
   const status = typeof data.statusCode === "number" ? data.statusCode : undefined;
   const keyRejected = error.name === "ProviderAuthError" || status === 401 || status === 403;
-  const detail = [data.message, data.responseBody].find(
-    (value): value is string => typeof value === "string" && value.trim() !== "",
-  );
-  const message = detail?.trim() ?? "The provider didn't answer the test message.";
+  const message = modelErrorDetail(error) ?? "The provider didn't answer the test message.";
   return { ok: false, message, keyRejected };
 }

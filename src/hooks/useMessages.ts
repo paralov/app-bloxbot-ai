@@ -2,6 +2,7 @@ import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { hashKey, type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
+import { hasPlaytestContext } from "@/lib/playtestPlan";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
@@ -122,5 +123,29 @@ export function useMessage(messageId: string): MessageWithParts | undefined {
         : Promise.resolve(EMPTY_CACHE),
     enabled: ready && !!client && !!activeSessionId,
     select: useCallback((d: MessagesCache) => d.messagesById[messageId], [messageId]),
+  }).data;
+}
+
+/**
+ * Whether the active chat has any text a playtest plan can be built from.
+ * Undefined until its messages load.
+ */
+export function useHasPlaytestContext(): boolean | undefined {
+  const { activeSessionId } = useActiveSession();
+  const { client, ready } = useOpenCodeClient();
+  const queryClient = useQueryClient();
+
+  return useQuery<MessagesCache, Error, boolean>({
+    queryKey: activeSessionId ? qk.messages(activeSessionId) : NOOP_KEY,
+    queryFn: () =>
+      client && activeSessionId
+        ? fetchMessages(client, queryClient, activeSessionId)
+        : Promise.resolve(EMPTY_CACHE),
+    enabled: ready && !!client && !!activeSessionId,
+    select: useCallback(
+      (d: MessagesCache) =>
+        hasPlaytestContext(d.messageIds.flatMap((id) => d.messagesById[id] ?? [])),
+      [],
+    ),
   }).data;
 }

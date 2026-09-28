@@ -1,9 +1,10 @@
-import type { OpencodeClient, ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
 import { analyticsProperties, detailedAnalyticsProperties } from "@/lib/analytics";
 import { scrubErrorMessage } from "@/lib/errorReporting";
+import { ASK_ALL_PERMISSIONS, rejectPermissions } from "@/lib/hiddenSession";
 import {
   canChat,
   checkFailure,
@@ -49,10 +50,7 @@ export function useCheckProvider() {
         {
           title: "BloxBot connection check",
           metadata: { bloxbotHidden: true, purpose: "provider-check" },
-          // Every tool needs approval, and the check rejects every request, so
-          // nothing runs. "deny" would be simpler but drops the tools from the
-          // request, which OpenCode's free tier rejects.
-          permission: [{ permission: "*", pattern: "*", action: "ask" }],
+          permission: ASK_ALL_PERMISSIONS,
         },
         { throwOnError: true },
       );
@@ -99,27 +97,3 @@ export function useCheckProvider() {
     },
   });
 }
-
-/**
- * Rejects every approval request from the check session until stopped. Hidden
- * sessions never show approval prompts, so without this a tool call would
- * leave the check waiting forever.
- */
-function rejectPermissions(client: OpencodeClient, sessionID: string): () => void {
-  let stopped = false;
-  void (async () => {
-    while (!stopped) {
-      const pending = await client.permission.list({}).catch(() => undefined);
-      for (const request of pending?.data ?? []) {
-        if (request.sessionID !== sessionID) continue;
-        await client.permission.reply({ requestID: request.id, reply: "reject" }).catch(() => {});
-      }
-      await new Promise((resolve) => setTimeout(resolve, PERMISSION_POLL_MS));
-    }
-  })();
-  return () => {
-    stopped = true;
-  };
-}
-
-const PERMISSION_POLL_MS = 250;

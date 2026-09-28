@@ -1,6 +1,11 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
-import { buildPlaytestHistory, formatPlaytestPrompt, parsePlaytestPlan } from "@/lib/playtestPlan";
+import {
+  buildPlaytestHistory,
+  formatPlaytestPrompt,
+  hasPlaytestContext,
+  parsePlaytestPlan,
+} from "@/lib/playtestPlan";
 
 describe("playtest plan helpers", () => {
   it("validates and normalizes a complete plan", () => {
@@ -21,6 +26,20 @@ describe("playtest plan helpers", () => {
 
   it("rejects incomplete structured output", () => {
     expect(() => parsePlaytestPlan({ goal: "Test", steps: [] })).toThrow("incomplete");
+  });
+
+  it("needs some chat text before a plan can be built", () => {
+    expect(hasPlaytestContext([])).toBe(false);
+    expect(
+      hasPlaytestContext([
+        { info: { role: "assistant" } as Message, parts: [{ type: "text", text: " " } as Part] },
+      ]),
+    ).toBe(false);
+    expect(
+      hasPlaytestContext([
+        { info: { role: "user" } as Message, parts: [{ type: "text", text: "Hi" } as Part] },
+      ]),
+    ).toBe(true);
   });
 
   it("includes text-only chat context and formats a normal agent prompt", () => {
