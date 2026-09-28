@@ -2,7 +2,7 @@ import type { OpencodeClient, ProviderListResponse } from "@opencode-ai/sdk/v2/c
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 
-import { analyticsProperties, detailedAnalyticsProperties } from "@/lib/analytics";
+import { analyticsProperties, detailedAnalyticsProperties, maskModelUsage } from "@/lib/analytics";
 import { scrubErrorMessage } from "@/lib/errorReporting";
 import {
   canChat,
@@ -86,7 +86,12 @@ export function useCheckProvider() {
               : {
                   key_rejected: result.keyRejected,
                   error_name: error?.name,
-                  error_message: scrubErrorMessage(result.message),
+                  error_message: scrubErrorMessage(
+                    maskModelUsage(result.message, {
+                      provider: providerID,
+                      models: [model.id, model.name],
+                    }),
+                  ),
                 }),
             ...detailedAnalyticsProperties({ provider: providerID, model: model.id }),
           }),

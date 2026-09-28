@@ -51,6 +51,9 @@ describe("scrubErrorText", () => {
     expect(scrubErrorText("Your plan for jane.doe+ai@example.co.uk can't use this model")).toBe(
       "Your plan for <email> can't use this model",
     );
+    expect(scrubErrorText("account jane@bücher.de has no access")).toBe(
+      "account <email> has no access",
+    );
     expect(scrubErrorText("anthropic/claude-sonnet-4@latest")).toBe(
       "anthropic/claude-sonnet-4@latest",
     );
