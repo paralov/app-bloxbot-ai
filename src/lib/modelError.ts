@@ -9,18 +9,17 @@ export interface ModelErrorPresentation {
   detail?: string;
 }
 
-function errorDetail(error: ModelError): string | undefined {
-  if ("message" in error.data && typeof error.data.message === "string") {
-    return error.data.message;
-  }
-  if ("responseBody" in error.data && typeof error.data.responseBody === "string") {
-    return error.data.responseBody;
-  }
-  return undefined;
+/** The provider's own words about a model error: its message, else its response body. */
+export function modelErrorDetail(error: ModelError): string | undefined {
+  const data = error.data as { message?: unknown; responseBody?: unknown };
+  const detail = [data.message, data.responseBody].find(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
+  );
+  return detail?.trim();
 }
 
 export function presentModelError(error: ModelError): ModelErrorPresentation {
-  const detail = errorDetail(error);
+  const detail = modelErrorDetail(error);
 
   if (error.name === "ContextOverflowError") {
     return {

@@ -3,18 +3,25 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useGeneratePlaytestPlan } from "@/hooks/mutations/useGeneratePlaytestPlan";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
+import { useHasPlaytestContext } from "@/hooks/useMessages";
 import {
   analyticsProperties,
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
 } from "@/lib/analytics";
-import { formatPlaytestPrompt, type PlaytestPlan } from "@/lib/playtestPlan";
+import {
+  formatPlaytestPrompt,
+  NoPlaytestContextError,
+  type PlaytestPlan,
+  PlaytestPlannerError,
+} from "@/lib/playtestPlan";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { usePreferences } from "@/providers/PreferencesProvider";
 
 function generationErrorCategory(error: unknown): string {
   if (!(error instanceof Error)) return "unknown";
-  if (error.message.includes("chat context")) return "no_chat_context";
+  if (error instanceof PlaytestPlannerError) return "model_error";
+  if (error instanceof NoPlaytestContextError) return "no_chat_context";
   if (error.message.includes("invalid") || error.message.includes("incomplete")) {
     return "invalid_plan";
   }
@@ -77,6 +84,9 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
   const sendMessage = useSendMessage();
   const { selectedModel } = usePreferences();
   const [plan, setPlan] = useState<PlaytestPlan | null>(null);
+  // Undefined while the chat's messages load: generate stays off without the note.
+  const hasContext = useHasPlaytestContext();
+  const canGenerate = hasContext === true;
 
   const [provider, model] = selectedModel ? splitModelKey(selectedModel) : [undefined, undefined];
 
@@ -86,6 +96,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
   }
 
   async function generatePlan() {
+    if (!canGenerate) return;
     const startedAt = performance.now();
     posthog.capture(
       "generation_started",
@@ -110,6 +121,10 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         ),
       );
     } catch (error) {
+      if (error instanceof NoPlaytestContextError) {
+        toast.error("Couldn't create a playtest plan", { description: error.message });
+        return;
+      }
       posthog.capture(
         "generation_failed",
         errorAnalyticsProperties(
@@ -121,6 +136,9 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
             model,
             duration_ms: Math.round(performance.now() - startedAt),
             error_category: generationErrorCategory(error),
+            ...(error instanceof PlaytestPlannerError
+              ? { model_error_name: error.modelErrorName }
+              : {}),
           }),
         ),
       );
@@ -195,7 +213,8 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
               <button
                 type="button"
                 onClick={generatePlan}
-                disabled={generate.isPending}
+                disabled={generate.isPending || !canGenerate}
+                aria-describedby={hasContext === false ? "playtest-no-context" : undefined}
                 className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
               >
                 {generate.isPending ? "Creating plan…" : "Generate from chat"}
@@ -209,6 +228,14 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
                 Write my own
               </button>
             </div>
+            {hasContext === false ? (
+              <p
+                id="playtest-no-context"
+                className="mt-3 max-w-48 text-[11px] leading-4 text-muted-foreground"
+              >
+                Plans are built from this chat. Send a message first, or write your own.
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="space-y-5">
@@ -242,23 +269,34 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         )}
       </div>
       {plan ? (
-        <footer className="flex items-center justify-between gap-3 border-t px-5 py-4">
-          <button
-            type="button"
-            onClick={generatePlan}
-            disabled={generate.isPending || sendMessage.isPending}
-            className="text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
-          >
-            Regenerate
-          </button>
-          <button
-            type="button"
-            onClick={runPlaytest}
-            disabled={sendMessage.isPending || generate.isPending}
-            className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
-          >
-            {sendMessage.isPending ? "Starting…" : "Run playtest"}
-          </button>
+        <footer className="border-t px-5 py-4">
+          {hasContext === false ? (
+            <p
+              id="playtest-regenerate-no-context"
+              className="mb-3 text-[11px] leading-4 text-muted-foreground"
+            >
+              Regenerate builds a plan from this chat. Send a message first.
+            </p>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={generatePlan}
+              disabled={generate.isPending || sendMessage.isPending || !canGenerate}
+              aria-describedby={hasContext === false ? "playtest-regenerate-no-context" : undefined}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              Regenerate
+            </button>
+            <button
+              type="button"
+              onClick={runPlaytest}
+              disabled={sendMessage.isPending || generate.isPending}
+              className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
+            >
+              {sendMessage.isPending ? "Starting…" : "Run playtest"}
+            </button>
+          </div>
         </footer>
       ) : null}
     </aside>

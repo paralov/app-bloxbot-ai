@@ -46,6 +46,32 @@ export function parsePlaytestPlan(value: unknown): PlaytestPlan {
   return { goal, steps, watchFor, successCriteria };
 }
 
+/** The chat has no text for the planner to read. */
+export class NoPlaytestContextError extends Error {
+  constructor() {
+    super("Add some chat context before creating a playtest.");
+    this.name = "NoPlaytestContextError";
+  }
+}
+
+/** The planner's model call failed. `modelErrorName` is OpenCode's error name, such as APIError. */
+export class PlaytestPlannerError extends Error {
+  constructor(
+    message: string,
+    readonly modelErrorName: string,
+  ) {
+    super(message);
+    this.name = "PlaytestPlannerError";
+  }
+}
+
+/** Whether a chat has any text a playtest plan can be built from. */
+export function hasPlaytestContext(messages: MessageWithParts[]): boolean {
+  return messages.some(({ parts }) =>
+    parts.some((part) => part.type === "text" && part.text.trim() !== ""),
+  );
+}
+
 export function buildPlaytestHistory(messages: MessageWithParts[]): string {
   const entries = messages.flatMap(({ info, parts }) => {
     const text = parts
