@@ -1,5 +1,31 @@
 name: Release
 
+# Windows code signing
+# --------------------
+# Only this workflow signs Windows builds. It passes `sign-windows: true` to
+# build.yml, whose Windows job then:
+#   1. logs the Azure CLI in with azure/login and GitHub OIDC (no client secret),
+#   2. has electron-builder sign the app, its executables and the NSIS installer
+#      through `win.azureSignOptions`. electron-builder runs Invoke-TrustedSigning,
+#      whose DefaultAzureCredential picks up the Azure CLI login,
+#   3. fails unless Get-AuthenticodeSignature reports a valid, timestamped
+#      signature from O=Paralov AS on the installer and win-unpacked/BloxBot.exe.
+# CI and pull request builds never sign and need no Azure access.
+#
+# Azure resources it depends on:
+#   - Artifact Signing account (AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_ENDPOINT)
+#     with the Public Trust certificate profile AZURE_SIGNING_PROFILE, issued to
+#     CN=Paralov AS, O=Paralov AS, C=NO.
+#   - Entra app registration (AZURE_CLIENT_ID in tenant AZURE_TENANT_ID, with
+#     AZURE_SUBSCRIPTION_ID for the CLI login) with a federated credential for
+#     repo:paralov/app-bloxbot-ai:ref:refs/heads/main and the "Artifact Signing
+#     Certificate Profile Signer" role on the signing account. Runs from any
+#     other ref cannot get a token.
+# All six values are repository variables, not secrets.
+#
+# electron-builder writes publisherName "Paralov AS" into app-update.yml, so a
+# signed install only accepts updates signed with that name.
+
 on:
   workflow_dispatch:
 
@@ -33,7 +59,12 @@ jobs:
 
   build:
     needs: validate
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/build.yml
+    with:
+      sign-windows: true
     secrets: inherit
 
   publish:
