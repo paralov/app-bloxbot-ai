@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.5] - 2026-09-30
+
 ### Fixed
 
 - BloxBot no longer stops at setup when GitHub refuses or doesn't answer the check for OpenCode updates. It downloads a known-good OpenCode version directly instead, and the error says what went wrong if even that download fails.
@@ -271,7 +273,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.4...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.5...HEAD
+[0.13.5]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.1...v0.13.2
