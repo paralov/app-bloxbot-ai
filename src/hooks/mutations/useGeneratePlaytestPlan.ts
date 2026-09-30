@@ -10,6 +10,7 @@ import {
   PLAYTEST_PLAN_REMINDER,
   PLAYTEST_PLAN_SCHEMA,
   PlaytestPlannerError,
+  PlaytestRequestError,
   parsePlaytestPlan,
 } from "@/lib/playtestPlan";
 import { qk } from "@/lib/queryKeys";
@@ -63,21 +64,25 @@ export function useGeneratePlaytestPlan() {
       try {
         let text = `Create a focused playtest plan for the work described below. Make each step directly executable and each success criterion observable.\n\nCHAT HISTORY\n${history}`;
         for (let attempts = 1; ; attempts += 1) {
-          const response = await client.session.prompt(
-            {
-              sessionID: planningSessionId,
-              model,
-              agent: selectedAgent ?? undefined,
-              variant: selectedVariant ?? undefined,
-              format: { type: "json_schema", schema: PLAYTEST_PLAN_SCHEMA, retryCount: 2 },
-              // OpenCode returns structured output through its StructuredOutput
-              // tool, so that is the one tool the planner calls.
-              system:
-                "You create concise, practical Roblox playtest plans from conversation history. Answer only by calling the StructuredOutput tool once. Never call any other tool and never modify files or Roblox Studio.",
-              parts: [{ type: "text", text }],
-            },
-            { throwOnError: true },
-          );
+          const response = await client.session
+            .prompt(
+              {
+                sessionID: planningSessionId,
+                model,
+                agent: selectedAgent ?? undefined,
+                variant: selectedVariant ?? undefined,
+                format: { type: "json_schema", schema: PLAYTEST_PLAN_SCHEMA, retryCount: 2 },
+                // OpenCode returns structured output through its StructuredOutput
+                // tool, so that is the one tool the planner calls.
+                system:
+                  "You create concise, practical Roblox playtest plans from conversation history. Answer only by calling the StructuredOutput tool once. Never call any other tool and never modify files or Roblox Studio.",
+                parts: [{ type: "text", text }],
+              },
+              { throwOnError: true },
+            )
+            .catch((error: unknown) => {
+              throw new PlaytestRequestError(error, attempts);
+            });
           const info = response.data?.info;
           let failure: Error;
           if (info?.error) {

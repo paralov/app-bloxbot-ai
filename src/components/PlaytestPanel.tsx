@@ -15,6 +15,7 @@ import {
   NoPlaytestContextError,
   type PlaytestPlan,
   PlaytestPlannerError,
+  PlaytestRequestError,
 } from "@/lib/playtestPlan";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { usePreferences } from "@/providers/PreferencesProvider";
@@ -130,7 +131,9 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       posthog.capture(
         "generation_failed",
         errorAnalyticsProperties("playtest", "plan_generation", error, {
-          ...(error instanceof PlaytestPlannerError || error instanceof InvalidPlaytestPlanError
+          ...(error instanceof PlaytestPlannerError ||
+          error instanceof InvalidPlaytestPlanError ||
+          error instanceof PlaytestRequestError
             ? { attempts: error.attempts }
             : {}),
           ...detailedAnalyticsProperties({

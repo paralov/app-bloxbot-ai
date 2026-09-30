@@ -70,6 +70,17 @@ export class PlaytestPlannerError extends Error {
 }
 
 /** The planner answered without a usable plan, after `attempts` replies. */
+/** The planner request itself failed (for example a dropped connection). */
+export class PlaytestRequestError extends Error {
+  constructor(
+    readonly cause: unknown,
+    readonly attempts: number,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = cause instanceof Error ? cause.name : "PlaytestRequestError";
+  }
+}
+
 export class InvalidPlaytestPlanError extends Error {
   constructor(
     message: string,

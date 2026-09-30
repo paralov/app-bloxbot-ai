@@ -233,6 +233,19 @@ describe("PlaytestPanel", () => {
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
   });
 
+  it("counts attempts when the planner request itself fails", async () => {
+    const client = plannerClient(vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    render(<Harness client={client} />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
+    expect(await screen.findByText("Failed to fetch")).toBeInTheDocument();
+    expect(client.session.prompt).toHaveBeenCalledOnce();
+    expect(capture).toHaveBeenCalledWith(
+      "generation_failed",
+      expect.objectContaining({ attempts: 1, error_type: "TypeError" }),
+    );
+    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
+  });
+
   it("reminds the planner once in the same session when it returns no structured output (#119)", async () => {
     const client = plannerClient(
       vi
