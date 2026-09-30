@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.7] - 2026-10-01
+
 ### Changed
 
 - The Windows installer and app are now signed by Paralov AS.
@@ -283,7 +285,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.6...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.7...HEAD
+[0.13.7]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.3...v0.13.4
