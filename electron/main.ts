@@ -91,10 +91,12 @@ const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
   onStartFailure: (error) => reportMainError("studio_mcp_broker_start", error),
 }).pipe(Layer.tapErrorCause(reportLayerFailure("studio_mcp_broker_start")));
 
+const openCodeBinaryDirectory = join(app.getPath("userData"), "opencode");
+
 const openCodeRuntime = ManagedRuntime.make(
   Layer.merge(
     makeOpenCodeLayer({
-      binaryCacheDirectory: join(app.getPath("userData"), "opencode"),
+      binaryCacheDirectory: openCodeBinaryDirectory,
       workspace: join(app.getPath("home"), "BloxBot"),
       onStartupProgress: (progress: OpenCodeStartupProgress) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -236,6 +238,7 @@ const registerIpcHandlers = Effect.sync(() => {
       OpenCode.pipe(Effect.flatMap((service) => service.info)),
     ),
   );
+  ipcMain.handle(channels.getOpenCodeInstallFolder, () => openCodeBinaryDirectory);
   ipcMain.handle(channels.getStudioMcpStatus, () =>
     openCodeRuntime.runPromise(StudioMcpBroker.pipe(Effect.flatMap((broker) => broker.status))),
   );

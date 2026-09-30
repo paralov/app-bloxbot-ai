@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- First-time setup on Windows now tries unpacking OpenCode again when antivirus software locks or removes it for a moment. If it stays blocked, or the drive is nearly full, the setup screen says so and what to do, and the error report says which step failed and why.
+
 ## [0.13.5] - 2026-09-30
 
 ### Fixed

@@ -1,14 +1,26 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rename as realRename,
+  stat as realStat,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Fiber, Logger, LogLevel } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  describeCause,
   ensureOpenCodeBinary,
   type GitHubRelease,
   getOpenCodeAssetSpec,
+  MIN_FREE_BYTES,
+  type OpenCodeBinaryOptions,
   selectCompatibleRelease,
 } from "../../electron/services/OpenCodeBinary";
 import type { PinnedOpenCodeRelease } from "../../electron/services/openCodePinnedRelease";
@@ -477,5 +489,350 @@ describe("OpenCode binary releases", () => {
 
     const entriesAfterInterruption = await readdir(join(cacheDirectory, "darwin-arm64"));
     expect(entriesAfterInterruption.some((entry) => entry.startsWith(".download-"))).toBe(false);
+  });
+});
+
+describe("OpenCode installs that Windows blocks", () => {
+  const NO_DELAYS = { extractRetryMs: [0, 0], verifyMs: 0, renameRetryMs: [0, 0] };
+  const PLENTY_OF_SPACE = async () => 10 * 1024 ** 3;
+  const EXE = "opencode.exe";
+
+  function errno(code: string, message: string) {
+    return Object.assign(new Error(message), { code });
+  }
+
+  const eperm = () =>
+    errno("EPERM", "EPERM: operation not permitted, open 'C:\\cache\\install\\opencode.exe'");
+
+  async function installOnWindows(
+    options: Pick<OpenCodeBinaryOptions, "extractArchive" | "fileSystem">,
+  ) {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("pinned windows archive");
+    const fetch = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes("api.github.com") ? rateLimited() : new Response(archive),
+    );
+    const result = await Effect.runPromise(
+      Effect.either(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "win32",
+          arch: "x64",
+          fetch,
+          pinnedRelease: pinnedFor("win32-x64", "opencode-windows-x64.zip", archive),
+          delays: NO_DELAYS,
+          extractArchive: options.extractArchive,
+          fileSystem: { freeBytes: PLENTY_OF_SPACE, ...options.fileSystem },
+        }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+      ),
+    );
+    return { cacheDirectory, fetch, result };
+  }
+
+  it("puts the errno code and message of a failed step in the error", async () => {
+    const extractArchive = vi.fn(async () => {
+      throw new Error("invalid central directory file header signature");
+    });
+    const { result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "other",
+        message: expect.stringContaining(
+          "Failed to extract the OpenCode archive: invalid central directory file header signature (reason: other)",
+        ),
+      },
+    });
+    expect(extractArchive).toHaveBeenCalledTimes(1);
+    expect(describeCause(errno("EBUSY", "resource busy or locked"))).toBe(
+      "EBUSY: resource busy or locked",
+    );
+    expect(describeCause(eperm())).toBe(
+      "EPERM: operation not permitted, open 'C:\\cache\\install\\opencode.exe'",
+    );
+  });
+
+  it("retries an extract that antivirus locks, in a fresh folder each time", async () => {
+    const destinations: string[] = [];
+    const extractArchive = vi.fn(async (_archive: string, destination: string) => {
+      destinations.push(destination);
+      if (destinations.length < 3) throw eperm();
+      await writeFile(join(destination, EXE), "runtime binary");
+    });
+    const { cacheDirectory, result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({
+      _tag: "Right",
+      right: { executable: join(cacheDirectory, "win32-x64", "1.2.3", EXE) },
+    });
+    expect(extractArchive).toHaveBeenCalledTimes(3);
+    expect(new Set(destinations).size).toBe(3);
+  });
+
+  it("blames security software when the extract keeps failing with EPERM", async () => {
+    const extractArchive = vi.fn(async () => {
+      throw eperm();
+    });
+    const { cacheDirectory, result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "blocked_by_security",
+        message: expect.stringMatching(
+          /Pinned v1\.2\.3: Failed to extract the OpenCode archive: EPERM: operation not permitted, open .*opencode\.exe' \(3 attempts\) \(reason: blocked_by_security\)$/,
+        ),
+      },
+    });
+    expect(extractArchive).toHaveBeenCalledTimes(3);
+    expect(await readdir(join(cacheDirectory, "win32-x64"))).toEqual([]);
+  });
+
+  it("removes a failed attempt's files before retrying", async () => {
+    const destinations: string[] = [];
+    const leftovers: string[][] = [];
+    const extractArchive = vi.fn(async (_archive: string, destination: string) => {
+      // What earlier attempts left behind in the temporary folder.
+      leftovers.push(
+        destinations.flatMap((previous) => (existsSync(join(previous, EXE)) ? [previous] : [])),
+      );
+      destinations.push(destination);
+      await writeFile(join(destination, EXE), "partial");
+      if (destinations.length < 3) throw eperm();
+    });
+    const { result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({ _tag: "Right" });
+    expect(leftovers).toEqual([[], [], []]);
+  });
+
+  it("retries when the new executable is briefly locked while it's inspected", async () => {
+    const extractArchive = writeExecutable(EXE);
+    const stat = vi
+      .fn(realStat)
+      .mockRejectedValueOnce(errno("EBUSY", "EBUSY: resource busy or locked"));
+    const { result } = await installOnWindows({ extractArchive, fileSystem: { stat } });
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "1.2.3" } });
+    expect(extractArchive).toHaveBeenCalledTimes(2);
+  });
+
+  it("blames security software when the extract stays busy", async () => {
+    const extractArchive = vi.fn(async () => {
+      throw errno("EBUSY", "EBUSY: resource busy or locked");
+    });
+    const { result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({ _tag: "Left", left: { reason: "blocked_by_security" } });
+    expect(extractArchive).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries and blames security software when the error mentions a virus", async () => {
+    const extractArchive = vi.fn(async () => {
+      throw errno(
+        "UNKNOWN",
+        "UNKNOWN: Operation did not complete successfully because the file contains a virus or potentially unwanted software.",
+      );
+    });
+    const { result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({ _tag: "Left", left: { reason: "blocked_by_security" } });
+    expect(extractArchive).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries when the executable vanishes right after extraction", async () => {
+    const extractArchive = writeExecutable(EXE);
+    const stat = vi
+      .fn(realStat)
+      .mockImplementationOnce(realStat)
+      .mockRejectedValueOnce(errno("ENOENT", "ENOENT: no such file or directory"));
+    const { result } = await installOnWindows({ extractArchive, fileSystem: { stat } });
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "1.2.3" } });
+    expect(extractArchive).toHaveBeenCalledTimes(2);
+  });
+
+  it("blames security software when the executable keeps vanishing", async () => {
+    const extractArchive = writeExecutable(EXE);
+    let calls = 0;
+    const stat = vi.fn(async (path: string) => {
+      calls += 1;
+      if (calls % 2 === 0) throw errno("ENOENT", "ENOENT: no such file or directory");
+      return realStat(path);
+    });
+    const { result } = await installOnWindows({ extractArchive, fileSystem: { stat } });
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "blocked_by_security",
+        message: expect.stringContaining(
+          "opencode.exe vanished after extraction, likely removed by security software (3 attempts)",
+        ),
+      },
+    });
+    expect(extractArchive).toHaveBeenCalledTimes(3);
+  });
+
+  it("treats a missing or short executable as quarantined", async () => {
+    const missing = vi.fn(async () => {});
+    const { result: missingResult } = await installOnWindows({ extractArchive: missing });
+    expect(missingResult).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "blocked_by_security",
+        message: expect.stringContaining("opencode.exe is missing after extraction"),
+      },
+    });
+    expect(missing).toHaveBeenCalledTimes(3);
+
+    const expectedSize = 180 * 1024 ** 2;
+    const short = vi.fn(async (_archive: string, destination: string) => {
+      await writeFile(join(destination, EXE), "runtime binary");
+      return new Map([[EXE, expectedSize]]);
+    });
+    const { result: shortResult } = await installOnWindows({ extractArchive: short });
+    expect(shortResult).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "blocked_by_security",
+        message: expect.stringContaining(`opencode.exe is 14 of ${expectedSize} bytes`),
+      },
+    });
+    expect(short).toHaveBeenCalledTimes(3);
+  });
+
+  it("blames a full disk, not antivirus, when the drive fills during extraction", async () => {
+    const extractArchive = vi.fn(async (_archive: string, destination: string) => {
+      await writeFile(join(destination, EXE), "runtime binary");
+      return new Map([[EXE, 180 * 1024 ** 2]]);
+    });
+    const freeBytes = vi
+      .fn(PLENTY_OF_SPACE)
+      .mockImplementationOnce(PLENTY_OF_SPACE)
+      .mockImplementation(async () => 40 * 1024 ** 2);
+    const { result } = await installOnWindows({ extractArchive, fileSystem: { freeBytes } });
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "disk_full",
+        message: expect.stringContaining(
+          "Failed to extract the OpenCode archive: opencode.exe is 14 of 188743680 bytes after extraction with 40 MB free, 500 MB needed (reason: disk_full)",
+        ),
+      },
+    });
+    expect(extractArchive).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a full disk without retrying", async () => {
+    const extractArchive = vi.fn(async () => {
+      throw errno("ENOSPC", "ENOSPC: no space left on device, write");
+    });
+    const { result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "disk_full",
+        message: expect.stringContaining(
+          "Failed to extract the OpenCode archive: ENOSPC: no space left on device, write (reason: disk_full)",
+        ),
+      },
+    });
+    expect(extractArchive).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops before downloading when the drive has too little free space", async () => {
+    const extractArchive = vi.fn();
+    const freeBytes = vi.fn(async () => 120 * 1024 ** 2);
+    const { fetch, result } = await installOnWindows({
+      extractArchive,
+      fileSystem: { freeBytes },
+    });
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "disk_full",
+        message: expect.stringContaining(
+          "Not enough free disk space to install OpenCode: 120 MB free, 500 MB needed (reason: disk_full)",
+        ),
+      },
+    });
+    expect(MIN_FREE_BYTES).toBe(500 * 1024 ** 2);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(extractArchive).not.toHaveBeenCalled();
+  });
+
+  it("installs anyway when free space can't be read", async () => {
+    const { result } = await installOnWindows({
+      extractArchive: writeExecutable(EXE),
+      fileSystem: {
+        freeBytes: async () => {
+          throw errno("ENOSYS", "ENOSYS: function not implemented, statfs");
+        },
+      },
+    });
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "1.2.3" } });
+  });
+
+  it("retries publishing while Windows locks the new folder", async () => {
+    const rename = vi
+      .fn(realRename)
+      .mockRejectedValueOnce(errno("EBUSY", "EBUSY: resource busy or locked, rename"))
+      .mockRejectedValueOnce(errno("EPERM", "EPERM: operation not permitted, rename"));
+    const { cacheDirectory, result } = await installOnWindows({
+      extractArchive: writeExecutable(EXE),
+      fileSystem: { rename },
+    });
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "1.2.3" } });
+    expect(rename).toHaveBeenCalledTimes(3);
+    await expect(readFile(join(cacheDirectory, "win32-x64", "1.2.3", EXE), "utf8")).resolves.toBe(
+      "runtime binary",
+    );
+  });
+
+  it("gives up publishing after three locked attempts and blames security software", async () => {
+    const rename = vi.fn(async () => {
+      throw errno("EPERM", "EPERM: operation not permitted, rename");
+    });
+    const { result } = await installOnWindows({
+      extractArchive: writeExecutable(EXE),
+      fileSystem: { rename },
+    });
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "blocked_by_security",
+        message: expect.stringContaining(
+          "Failed to publish the OpenCode installation: EPERM: operation not permitted, rename (3 attempts)",
+        ),
+      },
+    });
+    expect(rename).toHaveBeenCalledTimes(3);
+  });
+
+  it("labels a failure where both downloads fail as a network problem", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    const result = await Effect.runPromise(
+      Effect.either(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "win32",
+          arch: "x64",
+          fetch,
+          fileSystem: { freeBytes: PLENTY_OF_SPACE },
+        }),
+      ),
+    );
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: { reason: "network", message: expect.stringContaining("(reason: network)") },
+    });
   });
 });
