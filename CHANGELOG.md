@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- BloxBot no longer stops at setup when GitHub refuses or doesn't answer the check for OpenCode updates. It downloads a known-good OpenCode version directly instead, and the error says what went wrong if even that download fails.
+- When OpenCode stops during startup or never finishes starting, the error now includes the last lines OpenCode printed, so reports show why.
+
 ## [0.13.4] - 2026-09-29
 
 ### Fixed

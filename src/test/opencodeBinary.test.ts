@@ -11,6 +11,7 @@ import {
   getOpenCodeAssetSpec,
   selectCompatibleRelease,
 } from "../../electron/services/OpenCodeBinary";
+import type { PinnedOpenCodeRelease } from "../../electron/services/openCodePinnedRelease";
 import type { OpenCodeStartupProgress } from "../types/desktop";
 
 const temporaryDirectories: string[] = [];
@@ -39,6 +40,32 @@ function release(
       },
     ],
   };
+}
+
+function pinnedFor(key: string, assetName: string, archive: Buffer): PinnedOpenCodeRelease {
+  return {
+    version: "1.2.3",
+    assets: {
+      [key]: {
+        assetName,
+        url: `https://github.com/anomalyco/opencode/releases/download/v1.2.3/${assetName}`,
+        sha256: createHash("sha256").update(archive).digest("hex"),
+      },
+    },
+  };
+}
+
+function rateLimited() {
+  return new Response("rate limited", {
+    status: 403,
+    headers: { "x-ratelimit-remaining": "0" },
+  });
+}
+
+function writeExecutable(name: string) {
+  return vi.fn(async (_archivePath: string, destination: string) => {
+    await writeFile(join(destination, name), "runtime binary");
+  });
 }
 
 afterEach(async () => {
@@ -128,18 +155,20 @@ describe("OpenCode binary releases", () => {
     });
     expect(startupProgress.slice(-2)).toEqual([{ phase: "verifying" }, { phase: "installing" }]);
 
+    const offlineFetch = vi.fn().mockRejectedValue(new Error("offline"));
     const cached = await Effect.runPromise(
       ensureOpenCodeBinary({
         cacheDirectory,
         platform: "darwin",
         arch: "arm64",
-        fetch: vi.fn().mockRejectedValue(new Error("offline")),
+        fetch: offlineFetch,
         extractArchive,
       }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
     );
 
     expect(cached).toEqual(installed);
     expect(extractArchive).toHaveBeenCalledTimes(1);
+    expect(offlineFetch).toHaveBeenCalledTimes(1);
   });
 
   it("does not install an archive whose digest does not match", async () => {
@@ -172,9 +201,97 @@ describe("OpenCode binary releases", () => {
     });
   });
 
-  it("fails closed when only a new major release exists", async () => {
+  it("never installs a new major release and falls back to the pinned 1.x.x release", async () => {
     const cacheDirectory = await makeTemporaryDirectory();
     const assetName = "opencode-windows-x64.zip";
+    const archive = Buffer.from("pinned windows archive");
+    const pinnedRelease = pinnedFor("win32-x64", assetName, archive);
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json([release("v2.0.0", assetName, `sha256:${"c".repeat(64)}`)]),
+      )
+      .mockResolvedValueOnce(new Response(archive));
+
+    const installed = await Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "win32",
+        arch: "x64",
+        fetch,
+        extractArchive: writeExecutable("opencode.exe"),
+        pinnedRelease,
+      }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+    );
+
+    expect(installed.version).toBe("1.2.3");
+    expect(fetch).toHaveBeenLastCalledWith(
+      pinnedRelease.assets["win32-x64"]?.url,
+      expect.anything(),
+    );
+  });
+
+  it("installs the pinned release when GitHub's release API returns 403", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const assetName = "opencode-windows-x64.zip";
+    const archive = Buffer.from("pinned windows archive");
+    const pinnedRelease = pinnedFor("win32-x64", assetName, archive);
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(rateLimited())
+      .mockResolvedValueOnce(new Response(archive));
+
+    const installed = await Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "win32",
+        arch: "x64",
+        fetch,
+        extractArchive: writeExecutable("opencode.exe"),
+        pinnedRelease,
+      }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+    );
+
+    expect(installed).toEqual({
+      executable: join(cacheDirectory, "win32-x64", "1.2.3", "opencode.exe"),
+      version: "1.2.3",
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("api.github.com");
+    expect(fetch.mock.calls[1]?.[0]).toBe(pinnedRelease.assets["win32-x64"]?.url);
+  });
+
+  it("installs the pinned release when GitHub's release API times out", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const assetName = "opencode-linux-x64.tar.gz";
+    const archive = Buffer.from("pinned linux archive");
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new DOMException("The operation timed out.", "TimeoutError"))
+      .mockResolvedValueOnce(new Response(archive));
+
+    const installed = await Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "linux",
+        arch: "x64",
+        fetch,
+        extractArchive: writeExecutable("opencode"),
+        pinnedRelease: pinnedFor("linux-x64", assetName, archive),
+      }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+    );
+
+    expect(installed.version).toBe("1.2.3");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a pinned download whose SHA-256 does not match and says why", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const extractArchive = vi.fn();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(rateLimited())
+      .mockResolvedValueOnce(new Response("tampered archive"));
 
     const result = await Effect.runPromise(
       Effect.either(
@@ -182,21 +299,97 @@ describe("OpenCode binary releases", () => {
           cacheDirectory,
           platform: "win32",
           arch: "x64",
-          fetch: vi
-            .fn()
-            .mockResolvedValue(
-              Response.json([release("v2.0.0", assetName, `sha256:${"c".repeat(64)}`)]),
-            ),
+          fetch,
+          extractArchive,
         }),
       ),
     );
+
     expect(result).toMatchObject({
       _tag: "Left",
       left: {
         _tag: "OpenCodeBinaryError",
-        message: expect.stringContaining("no cached copy is available"),
+        message: expect.stringMatching(
+          /no cached copy is available.*HTTP 403, x-ratelimit-remaining 0.*Pinned v\d+\.\d+\.\d+: The downloaded OpenCode archive failed SHA-256 verification/,
+        ),
       },
     });
+    expect(extractArchive).not.toHaveBeenCalled();
+    expect(await readdir(join(cacheDirectory, "win32-x64"))).toEqual([]);
+  });
+
+  it("puts timeout and DNS errors in the final message", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const dnsFailure = new TypeError("fetch failed", {
+      cause: new Error("getaddrinfo ENOTFOUND github.com"),
+    });
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new DOMException("The operation timed out.", "TimeoutError"))
+      .mockRejectedValueOnce(dnsFailure);
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        ensureOpenCodeBinary({ cacheDirectory, platform: "darwin", arch: "x64", fetch }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        message: expect.stringMatching(
+          /GitHub release lookup failed: timed out after 15 seconds.*OpenCode download failed: fetch failed \(getaddrinfo ENOTFOUND github\.com\)/,
+        ),
+      },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("prefers a newer release from the API over the cached copy", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const assetName = "opencode-darwin-arm64.zip";
+    const oldArchive = Buffer.from("old archive");
+    const newArchive = Buffer.from("new archive");
+    const sha = (archive: Buffer) => createHash("sha256").update(archive).digest("hex");
+    const extractArchive = writeExecutable("opencode");
+
+    await Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch: vi
+          .fn()
+          .mockResolvedValueOnce(
+            Response.json([release("v1.4.2", assetName, `sha256:${sha(oldArchive)}`)]),
+          )
+          .mockResolvedValueOnce(new Response(oldArchive)),
+        extractArchive,
+      }),
+    );
+
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json([
+          release("v1.4.2", assetName, `sha256:${sha(oldArchive)}`),
+          release("v1.5.0", assetName, `sha256:${sha(newArchive)}`),
+        ]),
+      )
+      .mockResolvedValueOnce(new Response(newArchive));
+    const updated = await Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive,
+      }),
+    );
+
+    expect(updated.version).toBe("1.5.0");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]?.[0]).toContain("/v1.5.0/");
   });
 
   it("aborts an in-flight download and cleans its temporary directory", async () => {
