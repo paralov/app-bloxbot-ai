@@ -42,7 +42,7 @@ Download the installer for your platform from the [releases page](https://github
 
 **macOS**: The app is signed and notarized. Open the `.dmg` and drag BloxBot to Applications.
 
-**Windows**: The installer and app are signed by Paralov AS. SmartScreen may still warn about a new release for a while. Click "More info" then "Run anyway".
+**Windows**: From v0.13.7, the installer and app are signed by Paralov AS. SmartScreen may still warn about a new release for a while. Click "More info" then "Run anyway".
 
 **Linux**: Install the `.deb` with your software center or `sudo apt install ./BloxBot-*.deb`.
 
