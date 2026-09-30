@@ -54,16 +54,55 @@ export class NoPlaytestContextError extends Error {
   }
 }
 
-/** The planner's model call failed. `modelErrorName` is OpenCode's error name, such as APIError. */
+/**
+ * The planner's model call failed. `modelErrorName` is OpenCode's error name,
+ * such as APIError. `attempts` is how many replies the planner got.
+ */
 export class PlaytestPlannerError extends Error {
   constructor(
     message: string,
     readonly modelErrorName: string,
+    readonly attempts = 1,
   ) {
     super(message);
     this.name = "PlaytestPlannerError";
   }
 }
+
+/** The planner answered without a usable plan, after `attempts` replies. */
+/** The planner request itself failed (for example a dropped connection). */
+export class PlaytestRequestError extends Error {
+  constructor(
+    readonly cause: unknown,
+    readonly attempts: number,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = cause instanceof Error ? cause.name : "PlaytestRequestError";
+  }
+}
+
+export class InvalidPlaytestPlanError extends Error {
+  constructor(
+    message: string,
+    readonly attempts: number,
+  ) {
+    super(message);
+    this.name = "InvalidPlaytestPlanError";
+  }
+}
+
+/** A generated plan and how many replies it took. */
+export interface GeneratedPlaytestPlan {
+  plan: PlaytestPlan;
+  attempts: number;
+}
+
+/** The first reply plus one reminder when it has no plan. */
+export const MAX_PLAYTEST_PLAN_ATTEMPTS = 2;
+
+/** Sent in the same planning session when a reply has no valid plan. */
+export const PLAYTEST_PLAN_REMINDER =
+  "Your last reply did not include a valid plan. Answer only by calling the StructuredOutput tool once with the complete plan.";
 
 /** Whether a chat has any text a playtest plan can be built from. */
 export function hasPlaytestContext(messages: MessageWithParts[]): boolean {

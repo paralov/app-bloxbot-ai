@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -195,6 +195,48 @@ describe("studio program store", () => {
 
     await expect(unwritable.refresh()).resolves.toBe("unavailable");
     expect(unwritable.current()).toBeNull();
+  });
+
+  it("runs one refresh at a time and lets a concurrent refresh join it (#118)", async () => {
+    const fetchImpl = published(buildBloxBotProgramManifest(sources(), 5));
+    const { dir, store: shared } = await store(fetchImpl);
+
+    const results = await Promise.all([shared.refresh(), shared.refresh(), shared.refresh()]);
+
+    expect(results).toEqual(["updated", "updated", "updated"]);
+    // One download of the manifest and one of its signature.
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(await readdir(dir)).toEqual(["cache.json"]);
+    // A later refresh starts a new run.
+    expect(await shared.refresh()).toBe("unchanged");
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it("lets separate stores write the same cache at once without a rename race (#118)", async () => {
+    const manifest = buildBloxBotProgramManifest(sources(), 5);
+    const { dir } = await store(published(manifest));
+    const writers = await Promise.all(
+      Array.from({ length: 5 }, () => store(published(manifest), dir)),
+    );
+    const onError = vi.fn();
+    const reporting = createBloxBotProgramStore({
+      directory: dir,
+      fetch: published(manifest),
+      publicKey,
+      onError,
+    });
+
+    const results = await Promise.all([
+      reporting.refresh(),
+      ...writers.map(({ store: writer }) => writer.refresh()),
+    ]);
+
+    expect(results.every((result) => result === "updated")).toBe(true);
+    expect(onError).not.toHaveBeenCalled();
+    expect(await readdir(dir)).toEqual(["cache.json"]);
+    const { store: reloaded } = await store(published(manifest), dir);
+    await reloaded.load();
+    expect(reloaded.current()?.sequence).toBe(5);
   });
 
   it("stays on what it has when the download fails", async () => {

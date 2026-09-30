@@ -11,6 +11,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - BloxBot no longer stops at setup when GitHub refuses or doesn't answer the check for OpenCode updates. It downloads a known-good OpenCode version directly instead, and the error says what went wrong if even that download fails.
 - When OpenCode stops during startup or never finishes starting, the error now includes the last lines OpenCode printed, so reports show why.
+- When Explorer has the model write its own program and the model returns nothing, BloxBot now reports the model's own error instead of a generic decode error. The model is also kept from calling Studio tools while it writes the program, so it can't stall waiting for an approval.
+- BloxBot now finds Studio's MCP helper in the newer Roblox Studio install folder on Windows, so fewer people end up on Studio's broken launcher.
+- Updating the BloxBot programs no longer fails when two updates run at the same time, and the saved copy can't be read half written.
+- Generating a playtest plan fails less often. When the model answers without a plan, BloxBot reminds it once to return the plan and tries again.
 
 ## [0.13.4] - 2026-09-29
 

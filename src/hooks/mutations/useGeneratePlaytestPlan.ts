@@ -3,9 +3,14 @@ import { ASK_ALL_PERMISSIONS, rejectPermissions } from "@/lib/hiddenSession";
 import { modelErrorDetail } from "@/lib/modelError";
 import {
   buildPlaytestHistory,
+  type GeneratedPlaytestPlan,
+  InvalidPlaytestPlanError,
+  MAX_PLAYTEST_PLAN_ATTEMPTS,
   NoPlaytestContextError,
+  PLAYTEST_PLAN_REMINDER,
   PLAYTEST_PLAN_SCHEMA,
   PlaytestPlannerError,
+  PlaytestRequestError,
   parsePlaytestPlan,
 } from "@/lib/playtestPlan";
 import { qk } from "@/lib/queryKeys";
@@ -17,7 +22,8 @@ import { usePreferences } from "@/providers/PreferencesProvider";
 
 /**
  * Builds a playtest plan from the active chat in a hidden, temporary session
- * whose tools never run, using OpenCode's structured output.
+ * whose tools never run, using OpenCode's structured output. A reply with no
+ * valid plan gets one reminder in the same session.
  */
 export function useGeneratePlaytestPlan() {
   const { client } = useOpenCodeClient();
@@ -26,7 +32,7 @@ export function useGeneratePlaytestPlan() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<GeneratedPlaytestPlan> => {
       if (!client || !activeSessionId) throw new Error("Open a chat before creating a playtest.");
       const cache = queryClient.getQueryData<MessagesCache>(qk.messages(activeSessionId));
       const messages = (cache?.messageIds ?? []).flatMap((id) => {
@@ -56,34 +62,51 @@ export function useGeneratePlaytestPlan() {
 
       const stopRejecting = rejectPermissions(client, planningSessionId);
       try {
-        const response = await client.session.prompt(
-          {
-            sessionID: planningSessionId,
-            model,
-            agent: selectedAgent ?? undefined,
-            variant: selectedVariant ?? undefined,
-            format: { type: "json_schema", schema: PLAYTEST_PLAN_SCHEMA, retryCount: 2 },
-            // OpenCode returns structured output through its StructuredOutput
-            // tool, so that is the one tool the planner calls.
-            system:
-              "You create concise, practical Roblox playtest plans from conversation history. Answer only by calling the StructuredOutput tool once. Never call any other tool and never modify files or Roblox Studio.",
-            parts: [
+        let text = `Create a focused playtest plan for the work described below. Make each step directly executable and each success criterion observable.\n\nCHAT HISTORY\n${history}`;
+        for (let attempts = 1; ; attempts += 1) {
+          const response = await client.session
+            .prompt(
               {
-                type: "text",
-                text: `Create a focused playtest plan for the work described below. Make each step directly executable and each success criterion observable.\n\nCHAT HISTORY\n${history}`,
+                sessionID: planningSessionId,
+                model,
+                agent: selectedAgent ?? undefined,
+                variant: selectedVariant ?? undefined,
+                format: { type: "json_schema", schema: PLAYTEST_PLAN_SCHEMA, retryCount: 2 },
+                // OpenCode returns structured output through its StructuredOutput
+                // tool, so that is the one tool the planner calls.
+                system:
+                  "You create concise, practical Roblox playtest plans from conversation history. Answer only by calling the StructuredOutput tool once. Never call any other tool and never modify files or Roblox Studio.",
+                parts: [{ type: "text", text }],
               },
-            ],
-          },
-          { throwOnError: true },
-        );
-        const info = response.data?.info;
-        if (info?.error) {
-          throw new PlaytestPlannerError(
-            modelErrorDetail(info.error) ?? "The planner's model didn't answer.",
-            info.error.name,
-          );
+              { throwOnError: true },
+            )
+            .catch((error: unknown) => {
+              throw new PlaytestRequestError(error, attempts);
+            });
+          const info = response.data?.info;
+          let failure: Error;
+          if (info?.error) {
+            failure = new PlaytestPlannerError(
+              modelErrorDetail(info.error) ?? "The planner's model didn't answer.",
+              info.error.name,
+              attempts,
+            );
+            // Only a missing structured answer is worth a reminder. Provider
+            // errors (quota, auth, rate limit) won't change on a retry.
+            if (info.error.name !== "StructuredOutputError") throw failure;
+          } else {
+            try {
+              return { plan: parsePlaytestPlan(info?.structured), attempts };
+            } catch (error) {
+              failure = new InvalidPlaytestPlanError(
+                error instanceof Error ? error.message : String(error),
+                attempts,
+              );
+            }
+          }
+          if (attempts >= MAX_PLAYTEST_PLAN_ATTEMPTS) throw failure;
+          text = PLAYTEST_PLAN_REMINDER;
         }
-        return parsePlaytestPlan(info?.structured);
       } finally {
         stopRejecting();
         await client.session.delete({ sessionID: planningSessionId }).catch(() => undefined);

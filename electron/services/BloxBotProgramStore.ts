@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { Schema } from "effect";
@@ -42,6 +43,24 @@ export interface BloxBotProgramStore {
 // The manifest and its signature are cached together in one file, swapped in
 // atomically, so a crash can never leave a manifest paired with the wrong signature.
 const CachedSchema = Schema.Struct({ manifest: Schema.String, signature: Schema.String });
+
+/**
+ * Windows refuses a rename onto a file another rename or reader has open
+ * (EPERM, EBUSY, EACCES) for a moment. Retry briefly, as graceful-fs does.
+ */
+async function renameReplacing(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const transient = code === "EPERM" || code === "EBUSY" || code === "EACCES";
+      if (!transient || attempt >= 6) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10 * 2 ** attempt));
+    }
+  }
+}
 
 export function createBloxBotProgramStore(options: BloxBotProgramStoreOptions): BloxBotProgramStore {
   const fetchImpl = options.fetch ?? fetch;
@@ -90,10 +109,51 @@ export function createBloxBotProgramStore(options: BloxBotProgramStoreOptions): 
 
   async function save(raw: string, signature: string) {
     await mkdir(options.directory, { recursive: true });
-    const temporary = `${cachePath}.tmp`;
-    await writeFile(temporary, JSON.stringify({ manifest: raw, signature }), "utf8");
-    await rename(temporary, cachePath);
+    // A temp file of its own per write, so two writers (or two app instances)
+    // never rename each other's file away or swap in a half-written one.
+    const temporary = `${cachePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+    try {
+      await writeFile(temporary, JSON.stringify({ manifest: raw, signature }), "utf8");
+      await renameReplacing(temporary, cachePath);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {});
+      throw error;
+    }
   }
+
+  async function refreshOnce(): Promise<BloxBotProgramRefresh> {
+    try {
+      const [raw, signature] = await Promise.all([
+        download(BLOXBOT_PROGRAMS_MANIFEST_URL),
+        download(BLOXBOT_PROGRAMS_SIGNATURE_URL),
+      ]);
+      if (raw === null || signature === null) return "unavailable";
+      const manifest = accept(raw, signature);
+      if (!manifest) {
+        log("[bloxbot-programs] rejected a published manifest that failed verification");
+        onError(new Error("Published BloxBot programs manifest failed verification"));
+        return "rejected";
+      }
+      // Never go back to an older manifest, even a validly signed one.
+      if (current && manifest.sequence < current.sequence) {
+        log(`[bloxbot-programs] rejected sequence ${manifest.sequence} < ${current.sequence}`);
+        return "rejected";
+      }
+      if (current && manifest.sequence === current.sequence) return "unchanged";
+      await save(raw, signature);
+      current = manifest;
+      log(`[bloxbot-programs] using published sequence ${manifest.sequence}`);
+      return "updated";
+    } catch (error) {
+      // A failed cache write (read-only or full disk) leaves the app on what it has.
+      log(`[bloxbot-programs] refresh failed: ${error instanceof Error ? error.message : error}`);
+      onError(error);
+      return "unavailable";
+    }
+  }
+
+  // Only one refresh runs at a time. A refresh asked for while one runs joins it.
+  let running: Promise<BloxBotProgramRefresh> | null = null;
 
   return {
     current: () => current,
@@ -111,35 +171,11 @@ export function createBloxBotProgramStore(options: BloxBotProgramStoreOptions): 
       }
     },
 
-    async refresh() {
-      try {
-        const [raw, signature] = await Promise.all([
-          download(BLOXBOT_PROGRAMS_MANIFEST_URL),
-          download(BLOXBOT_PROGRAMS_SIGNATURE_URL),
-        ]);
-        if (raw === null || signature === null) return "unavailable";
-        const manifest = accept(raw, signature);
-        if (!manifest) {
-          log("[bloxbot-programs] rejected a published manifest that failed verification");
-          onError(new Error("Published BloxBot programs manifest failed verification"));
-          return "rejected";
-        }
-        // Never go back to an older manifest, even a validly signed one.
-        if (current && manifest.sequence < current.sequence) {
-          log(`[bloxbot-programs] rejected sequence ${manifest.sequence} < ${current.sequence}`);
-          return "rejected";
-        }
-        if (current && manifest.sequence === current.sequence) return "unchanged";
-        await save(raw, signature);
-        current = manifest;
-        log(`[bloxbot-programs] using published sequence ${manifest.sequence}`);
-        return "updated";
-      } catch (error) {
-        // A failed cache write (read-only or full disk) leaves the app on what it has.
-        log(`[bloxbot-programs] refresh failed: ${error instanceof Error ? error.message : error}`);
-        onError(error);
-        return "unavailable";
-      }
+    refresh() {
+      running ??= refreshOnce().finally(() => {
+        running = null;
+      });
+      return running;
     },
   };
 }
