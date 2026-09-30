@@ -198,7 +198,10 @@ function classifyFileError(cause: unknown, repeated = false): OpenCodeInstallFai
   const code = errorCode(cause);
   if (code === "ENOSPC") return "disk_full";
   if (mentionsVirus(cause)) return "blocked_by_security";
-  if (repeated && code && DENIED_CODES.has(code)) return "blocked_by_security";
+  // A lock that outlasts every retry is almost always security software holding the file.
+  if (repeated && code && (DENIED_CODES.has(code) || LOCKED_CODES.has(code))) {
+    return "blocked_by_security";
+  }
   return "other";
 }
 
@@ -615,17 +618,21 @@ function inspectExecutable(
       }
       return null;
     }),
-    Effect.catchAll(({ error }) =>
-      errorCode(error) === "ENOENT"
-        ? Effect.succeed(`${name} is missing`)
-        : Effect.fail(
+    Effect.catchAll(({ error }) => {
+      const code = errorCode(error);
+      if (code === "ENOENT") return Effect.succeed(`${name} is missing`);
+      // Security software scanning the new file can briefly lock it; retry like an extract lock.
+      if (code !== undefined && LOCKED_CODES.has(code)) {
+        return Effect.succeed(`${name} is locked (${code})`);
+      }
+      return Effect.fail(
             new OpenCodeBinaryError({
               message: `Failed to inspect the extracted OpenCode binary: ${describeCause(error)}`,
               cause: error,
               reason: classifyFileError(error),
             }),
-          ),
-    ),
+          );
+    }),
   );
 }
 
@@ -734,6 +741,13 @@ function extractWithRetry(
       }
       yield* Effect.logWarning(
         `[opencode] Extract attempt ${number} failed, retrying: ${result.error.message}`,
+      );
+      // Drop the failed attempt so a partial 180 MB executable doesn't eat the free space
+      // the next attempt needs.
+      yield* Effect.ignore(
+        Effect.tryPromise(() =>
+          rm(join(temporaryDirectory, `install-${number}`), { recursive: true, force: true }),
+        ),
       );
       yield* sleep(context.delays.extractRetryMs[number - 1] ?? 0);
       return yield* attempt(number + 1, errors);

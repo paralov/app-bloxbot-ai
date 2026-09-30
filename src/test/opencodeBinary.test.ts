@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   mkdtemp,
   readdir,
@@ -586,6 +587,45 @@ describe("OpenCode installs that Windows blocks", () => {
     });
     expect(extractArchive).toHaveBeenCalledTimes(3);
     expect(await readdir(join(cacheDirectory, "win32-x64"))).toEqual([]);
+  });
+
+  it("removes a failed attempt's files before retrying", async () => {
+    const destinations: string[] = [];
+    const leftovers: string[][] = [];
+    const extractArchive = vi.fn(async (_archive: string, destination: string) => {
+      // What earlier attempts left behind in the temporary folder.
+      leftovers.push(
+        destinations.flatMap((previous) => (existsSync(join(previous, EXE)) ? [previous] : [])),
+      );
+      destinations.push(destination);
+      await writeFile(join(destination, EXE), "partial");
+      if (destinations.length < 3) throw eperm();
+    });
+    const { result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({ _tag: "Right" });
+    expect(leftovers).toEqual([[], [], []]);
+  });
+
+  it("retries when the new executable is briefly locked while it's inspected", async () => {
+    const extractArchive = writeExecutable(EXE);
+    const stat = vi
+      .fn(realStat)
+      .mockRejectedValueOnce(errno("EBUSY", "EBUSY: resource busy or locked"));
+    const { result } = await installOnWindows({ extractArchive, fileSystem: { stat } });
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "1.2.3" } });
+    expect(extractArchive).toHaveBeenCalledTimes(2);
+  });
+
+  it("blames security software when the extract stays busy", async () => {
+    const extractArchive = vi.fn(async () => {
+      throw errno("EBUSY", "EBUSY: resource busy or locked");
+    });
+    const { result } = await installOnWindows({ extractArchive });
+
+    expect(result).toMatchObject({ _tag: "Left", left: { reason: "blocked_by_security" } });
+    expect(extractArchive).toHaveBeenCalledTimes(3);
   });
 
   it("retries and blames security software when the error mentions a virus", async () => {
