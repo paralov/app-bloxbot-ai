@@ -112,6 +112,8 @@ export interface DesktopApi {
   /** The Studio tools an Explorer program may call now, by Studio's own name. */
   listExplorerProgramTools(): Promise<readonly string[]>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
+  /** The folder OpenCode installs into, for antivirus exclusions. Null outside the desktop app. */
+  getOpenCodeInstallFolder(): Promise<string | null>;
   getStudioMcpStatus(): Promise<StudioMcpStatus>;
   onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
   getVersion(): Promise<string>;

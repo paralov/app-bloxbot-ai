@@ -2,6 +2,7 @@ export const channels = {
   compileExplorerProgram: "explorer:compile-program",
   checkForUpdate: "app:check-for-update",
   getOpenCodeInfo: "opencode:get-info",
+  getOpenCodeInstallFolder: "opencode:get-install-folder",
   getStudioMcpStatus: "studio-mcp:get-status",
   openCodeStartupProgress: "opencode:startup-progress",
   getInstructionFiles: "opencode:get-instruction-files",

@@ -6,6 +6,8 @@ import type { UpdateInfo } from "@/types/desktop";
 interface LoadingScreenProps {
   message?: string;
   detail?: string;
+  /** A folder path shown under the detail, selectable so it can be copied. */
+  detailPath?: string;
   /** Full diagnostic text, hidden behind a disclosure in the error state. */
   technicalDetail?: string;
   animation?: StartupAnimation;
@@ -39,6 +41,7 @@ type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up
 function LoadingScreen({
   message = "Starting up...",
   detail,
+  detailPath,
   technicalDetail,
   animation,
   startup,
@@ -165,6 +168,12 @@ function LoadingScreen({
           <p className="mt-2 max-w-sm text-center text-xs leading-relaxed text-muted-foreground">
             {detail}
           </p>
+        )}
+
+        {detailPath && (
+          <code className="mt-2 max-w-sm select-all break-all rounded-md border bg-card px-2 py-1 text-center font-mono text-xs text-foreground">
+            {detailPath}
+          </code>
         )}
 
         {/* Error state: help actions */}

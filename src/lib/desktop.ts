@@ -54,6 +54,7 @@ interface DesktopEffects {
   ) => Effect.Effect<ExplorerSnapshot, DesktopError>;
   readonly listExplorerProgramTools: Effect.Effect<readonly string[], DesktopError>;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
+  readonly getOpenCodeInstallFolder: Effect.Effect<string | null, DesktopError>;
   readonly getStudioMcpStatus: Effect.Effect<StudioMcpStatus, DesktopError>;
   readonly getVersion: Effect.Effect<string, DesktopError>;
   readonly getInstructionFiles: Effect.Effect<readonly InstructionFile[], DesktopError>;
@@ -105,6 +106,7 @@ const browserEffects: DesktopEffects = {
       message: "The desktop service is unavailable. Start BloxBot with pnpm dev.",
     }),
   ),
+  getOpenCodeInstallFolder: Effect.succeed(null),
   getStudioMcpStatus: Effect.succeed({ state: "starting" }),
   getVersion: Effect.succeed("0.5.2"),
   getInstructionFiles: Effect.succeed([]),
@@ -180,6 +182,9 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     getOpenCodeInfo: invoke("Failed to get OpenCode connection details", () =>
       api.getOpenCodeInfo(),
     ).pipe(decodeBridgeValue("OpenCode connection details are invalid", OpenCodeInfoSchema)),
+    getOpenCodeInstallFolder: invoke("Failed to get the OpenCode folder", () =>
+      api.getOpenCodeInstallFolder(),
+    ).pipe(decodeBridgeValue("OpenCode folder is invalid", Schema.NullOr(Schema.String))),
     getStudioMcpStatus: invoke("Failed to get the Studio MCP status", () =>
       api.getStudioMcpStatus(),
     ).pipe(decodeBridgeValue("Studio MCP status is invalid", StudioMcpStatusSchema)),
@@ -240,6 +245,7 @@ const runPromise = <A>(effect: Effect.Effect<A, DesktopError>): Promise<A> =>
 export const desktop: DesktopApi = {
   compileExplorerProgram: (program) => runPromise(desktopEffects.compileExplorerProgram(program)),
   getOpenCodeInfo: () => runPromise(desktopEffects.getOpenCodeInfo),
+  getOpenCodeInstallFolder: () => runPromise(desktopEffects.getOpenCodeInstallFolder),
   getStudioMcpStatus: () => runPromise(desktopEffects.getStudioMcpStatus),
   onOpenCodeStartupProgress: (listener: StartupProgressListener) =>
     window.bloxbot?.onOpenCodeStartupProgress(listener) ?? (() => {}),

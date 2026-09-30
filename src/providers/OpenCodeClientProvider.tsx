@@ -33,7 +33,14 @@ interface StartupPresentation {
 interface StartupErrorPresentation {
   message: string;
   detail: string;
+  /** A folder the person needs, such as one to exclude from antivirus scans. */
+  detailPath?: string;
   technicalDetail: string;
+}
+
+/** The `(reason: …)` the desktop service adds when installing OpenCode fails. */
+export function getInstallFailureReason(technicalDetail: string): string | null {
+  return /\(reason: ([a-z_]+)\)/.exec(technicalDetail)?.[1] ?? null;
 }
 
 const DEFAULT_ENGINE_PROGRESS: OpenCodeStartupProgress = { phase: "checking" };
@@ -117,9 +124,31 @@ export function getStartupPresentation(
   return phase === "engine" ? getEnginePresentation(engineProgress) : STARTUP_COPY[phase];
 }
 
-export function getStartupErrorPresentation(error: unknown): StartupErrorPresentation {
+export function getStartupErrorPresentation(
+  error: unknown,
+  installFolder: string | null = null,
+): StartupErrorPresentation {
   const technicalDetail = error instanceof Error ? (error.stack ?? error.message) : String(error);
   const normalized = technicalDetail.toLowerCase();
+  const reason = getInstallFailureReason(technicalDetail);
+
+  if (reason === "blocked_by_security") {
+    return {
+      message: "Setup couldn't finish",
+      detail:
+        "Windows security software blocked OpenCode, the engine BloxBot runs on. Allow BloxBot in your antivirus, or add its folder as an exclusion, then retry.",
+      detailPath: installFolder ?? undefined,
+      technicalDetail,
+    };
+  }
+
+  if (reason === "disk_full") {
+    return {
+      message: "Setup couldn't finish",
+      detail: "Your drive is nearly full. Free up at least 500 MB, then retry.",
+      technicalDetail,
+    };
+  }
 
   if (
     normalized.includes("github release lookup") ||
@@ -188,6 +217,7 @@ export function OpenCodeClientProvider({
   const [client, setClient] = useState<OpencodeClient | null>(null);
   const [ready, setReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const [installFolder, setInstallFolder] = useState<string | null>(null);
 
   const sseAbortRef = useRef<AbortController | null>(null);
 
@@ -371,6 +401,21 @@ export function OpenCodeClientProvider({
     };
   }, [client, ready, queryClient, activeSessionIdRef]);
 
+  // Shown on screen only, so antivirus exclusions can target it. Never sent to analytics.
+  useEffect(() => {
+    if (!initError || getInstallFailureReason(initError) !== "blocked_by_security") return;
+    let cancelled = false;
+    desktop
+      .getOpenCodeInstallFolder()
+      .then((folder) => {
+        if (!cancelled) setInstallFolder(folder);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initError]);
+
   const value = useMemo<OpenCodeClientContextValue>(
     () => ({ client, status, port, ready, initError }),
     [client, status, port, ready, initError],
@@ -378,12 +423,13 @@ export function OpenCodeClientProvider({
 
   if (!ready) {
     const startup = getStartupPresentation(startupPhase, engineProgress);
-    const startupError = initError ? getStartupErrorPresentation(initError) : null;
+    const startupError = initError ? getStartupErrorPresentation(initError, installFolder) : null;
     return (
       <OpenCodeClientContext.Provider value={value}>
         <LoadingScreen
           message={startupError?.message ?? startup.message}
           detail={startupError?.detail ?? startup.detail}
+          detailPath={startupError?.detailPath}
           technicalDetail={startupError?.technicalDetail}
           startup={startupError ? undefined : startup.startup}
           error={!!startupError}
