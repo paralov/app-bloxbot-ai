@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Duration, Effect, Layer } from "effect";
 import { networkConnections, type Systeminformation } from "systeminformation";
 
 import type { OpenCodeInfo, OpenCodeStartupProgress } from "../../src/types/desktop";
@@ -23,7 +23,78 @@ export class OpenCodeError extends Data.TaggedError("OpenCodeError")<{
 interface OpenCodeProcess {
   authorization: string;
   child: ChildProcessWithoutNullStreams;
+  output: OpenCodeOutputTail;
   workspace: string;
+}
+
+const OUTPUT_TAIL_MAX_CHARS = 2048;
+const OUTPUT_TAIL_IN_ERROR_CHARS = 400;
+
+/** The last couple of KB OpenCode printed, so a startup failure can say why. */
+export interface OpenCodeOutputTail {
+  readonly stderr: () => string;
+  readonly stdout: () => string;
+  /** Resolves once the process has exited and its output streams are flushed. */
+  readonly closed: Promise<void>;
+}
+
+function appendBounded(current: string, chunk: string): string {
+  const next = current + chunk;
+  return next.length > OUTPUT_TAIL_MAX_CHARS ? next.slice(-OUTPUT_TAIL_MAX_CHARS) : next;
+}
+
+/** Logs OpenCode's output and keeps a bounded tail of each stream. */
+export function trackOpenCodeOutput(child: ChildProcessWithoutNullStreams): OpenCodeOutputTail {
+  let stderr = "";
+  let stdout = "";
+  child.stdout.on("data", (data: Buffer) => {
+    const text = data.toString();
+    stdout = appendBounded(stdout, text);
+    Effect.runSync(Effect.logInfo(`[opencode] ${text.trimEnd()}`));
+  });
+  child.stderr.on("data", (data: Buffer) => {
+    const text = data.toString();
+    stderr = appendBounded(stderr, text);
+    Effect.runSync(Effect.logError(`[opencode] ${text.trimEnd()}`));
+  });
+  return {
+    stderr: () => stderr,
+    stdout: () => stdout,
+    closed: new Promise((resolve) => child.once("close", () => resolve())),
+  };
+}
+
+/** Appends the end of OpenCode's stderr (or stdout when stderr is empty) to a message. */
+export function withOutputTail(message: string, output: OpenCodeOutputTail): string {
+  const raw = output.stderr().trim() ? output.stderr() : output.stdout();
+  const tail = raw
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI color codes.
+    .replace(/\u001b\[[\d;]*m/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(-OUTPUT_TAIL_IN_ERROR_CHARS);
+  return tail ? `${message}. Output: ${tail}` : message;
+}
+
+function exitedDuringStartup(
+  child: ChildProcessWithoutNullStreams,
+  output: OpenCodeOutputTail,
+): Effect.Effect<never, OpenCodeError> {
+  // "exit" can fire before the last output arrives; give the streams a moment to flush.
+  return Effect.promise(() => output.closed).pipe(
+    Effect.timeout("1 second"),
+    Effect.ignore,
+    Effect.flatMap(() =>
+      Effect.fail(
+        new OpenCodeError({
+          message: withOutputTail(
+            `OpenCode exited during startup with code ${child.exitCode}`,
+            output,
+          ),
+        }),
+      ),
+    ),
+  );
 }
 
 interface OpenCodeResource extends OpenCodeProcess {
@@ -109,16 +180,11 @@ function waitForSpawn(child: ChildProcessWithoutNullStreams): Effect.Effect<void
 
 function pollListeningPort(
   child: ChildProcessWithoutNullStreams,
+  output: OpenCodeOutputTail,
   pid: number,
 ): Effect.Effect<number, OpenCodeError> {
   return Effect.gen(function* () {
-    if (child.exitCode !== null) {
-      return yield* Effect.fail(
-        new OpenCodeError({
-          message: `OpenCode exited during startup with code ${child.exitCode}`,
-        }),
-      );
-    }
+    if (child.exitCode !== null) return yield* exitedDuringStartup(child, output);
 
     const connections = yield* Effect.tryPromise({
       try: () => networkConnections(),
@@ -128,36 +194,40 @@ function pollListeningPort(
     const port = yield* findOpenCodeListeningPort(connections, pid);
     if (port !== null) return port;
     yield* Effect.sleep("500 millis");
-    return yield* Effect.suspend(() => pollListeningPort(child, pid));
+    return yield* Effect.suspend(() => pollListeningPort(child, output, pid));
   });
 }
 
-function waitForListeningPort(child: ChildProcessWithoutNullStreams) {
+export function waitForListeningPort(
+  child: ChildProcessWithoutNullStreams,
+  output: OpenCodeOutputTail,
+  timeout: Duration.DurationInput = STARTUP_TIMEOUT,
+) {
   if (child.pid === undefined) {
     return Effect.fail(new OpenCodeError({ message: "OpenCode started without a process ID" }));
   }
-  return pollListeningPort(child, child.pid).pipe(
+  return pollListeningPort(child, output, child.pid).pipe(
     Effect.timeoutFail({
-      duration: STARTUP_TIMEOUT,
+      duration: timeout,
       onTimeout: () =>
-        new OpenCodeError({ message: "OpenCode did not open a listening port within 60 seconds" }),
+        new OpenCodeError({
+          message: withOutputTail(
+            `OpenCode did not open a listening port within ${Math.round(Duration.toSeconds(timeout))} seconds`,
+            output,
+          ),
+        }),
     }),
   );
 }
 
 function pollHealth(
   child: ChildProcessWithoutNullStreams,
+  output: OpenCodeOutputTail,
   healthUrl: string,
   authorization: string,
 ): Effect.Effect<void, OpenCodeError> {
   return Effect.gen(function* () {
-    if (child.exitCode !== null) {
-      return yield* Effect.fail(
-        new OpenCodeError({
-          message: `OpenCode exited during startup with code ${child.exitCode}`,
-        }),
-      );
-    }
+    if (child.exitCode !== null) return yield* exitedDuringStartup(child, output);
 
     const response = yield* Effect.tryPromise({
       try: (signal) =>
@@ -170,21 +240,24 @@ function pollHealth(
     }).pipe(Effect.catchAll(() => Effect.succeed(null)));
     if (response?.ok) return;
     yield* Effect.sleep("500 millis");
-    return yield* Effect.suspend(() => pollHealth(child, healthUrl, authorization));
+    return yield* Effect.suspend(() => pollHealth(child, output, healthUrl, authorization));
   });
 }
 
 function waitForHealth(
   child: ChildProcessWithoutNullStreams,
+  output: OpenCodeOutputTail,
   port: number,
   authorization: string,
 ): Effect.Effect<void, OpenCodeError> {
   const healthUrl = `http://${LOOPBACK}:${port}/global/health`;
-  return pollHealth(child, healthUrl, authorization).pipe(
+  return pollHealth(child, output, healthUrl, authorization).pipe(
     Effect.timeoutFail({
       duration: STARTUP_TIMEOUT,
       onTimeout: () =>
-        new OpenCodeError({ message: "OpenCode did not become healthy within 60 seconds" }),
+        new OpenCodeError({
+          message: withOutputTail("OpenCode did not become healthy within 60 seconds", output),
+        }),
     }),
   );
 }
@@ -275,15 +348,10 @@ function spawnOpenCode(prepared: PreparedOpenCode): Effect.Effect<OpenCodeProces
       catch: (cause) => new OpenCodeError({ message: "Failed to start OpenCode", cause }),
     });
 
-    child.stdout.on("data", (data: Buffer) =>
-      Effect.runSync(Effect.logInfo(`[opencode] ${data.toString().trimEnd()}`)),
-    );
-    child.stderr.on("data", (data: Buffer) =>
-      Effect.runSync(Effect.logError(`[opencode] ${data.toString().trimEnd()}`)),
-    );
     return {
       authorization: prepared.authorization,
       child,
+      output: trackOpenCodeOutput(child),
       workspace: prepared.workspace,
     };
   });
@@ -317,8 +385,8 @@ function stopOpenCode(resource: OpenCodeProcess): Effect.Effect<void> {
 function awaitOpenCode(process: OpenCodeProcess): Effect.Effect<OpenCodeResource, OpenCodeError> {
   return Effect.gen(function* () {
     yield* waitForSpawn(process.child);
-    const port = yield* waitForListeningPort(process.child);
-    yield* waitForHealth(process.child, port, process.authorization);
+    const port = yield* waitForListeningPort(process.child, process.output);
+    yield* waitForHealth(process.child, process.output, port, process.authorization);
     return { ...process, port };
   });
 }
@@ -337,7 +405,10 @@ export function makeOpenCodeLayer(options: OpenCodeOptions) {
           if (resource.child.exitCode !== null) {
             return Effect.fail(
               new OpenCodeError({
-                message: `OpenCode stopped unexpectedly with code ${resource.child.exitCode}`,
+                message: withOutputTail(
+                  `OpenCode stopped unexpectedly with code ${resource.child.exitCode}`,
+                  resource.output,
+                ),
               }),
             );
           }

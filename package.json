@@ -25,6 +25,7 @@
     "test": "vitest run && pnpm test:release",
     "test:release": "node --test scripts/*.test.ts",
     "test:watch": "vitest",
+    "check:opencode-pin": "OPENCODE_PIN_CHECK=1 vitest run src/test/opencodePinnedRelease.test.ts",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit && tsc -p scripts/bloxbot-programs/tsconfig.json --noEmit",
     "bloxbot-programs": "jiti scripts/bloxbot-programs/cli.ts"

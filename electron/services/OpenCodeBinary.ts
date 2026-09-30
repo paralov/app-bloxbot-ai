@@ -13,11 +13,12 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Either, Schema } from "effect";
 import extractZip from "extract-zip";
 import { x as extractTar } from "tar";
 
 import type { OpenCodeStartupProgress } from "../../src/types/desktop";
+import { PINNED_OPENCODE_RELEASE, type PinnedOpenCodeRelease } from "./openCodePinnedRelease";
 
 const OPEN_CODE_API = "https://api.github.com/repos/anomalyco/opencode/releases";
 const OPEN_CODE_DOWNLOAD_PREFIX = "https://github.com/anomalyco/opencode/releases/download/";
@@ -106,6 +107,8 @@ export interface OpenCodeBinaryOptions {
   fetch?: Fetch;
   extractArchive?: ExtractArchive;
   onStartupProgress?: StartupProgressReporter;
+  /** Defaults to {@link PINNED_OPENCODE_RELEASE}. */
+  pinnedRelease?: PinnedOpenCodeRelease;
 }
 
 const fail = (message: string, cause?: unknown) =>
@@ -246,42 +249,84 @@ export function selectCompatibleRelease(
   return candidates.sort((left, right) => compareVersions(right.version, left.version))[0] ?? null;
 }
 
+/** Short, report-friendly text for why a fetch failed: timeout, DNS or network error. */
+export function describeNetworkError(cause: unknown, timeoutMs: number): string {
+  if (cause instanceof Error || cause instanceof DOMException) {
+    if (cause.name === "TimeoutError") return `timed out after ${timeoutMs / 1000} seconds`;
+    if (cause.name === "AbortError") return "aborted";
+  }
+  if (cause instanceof Error) {
+    // Node's fetch rejects with "fetch failed" and puts the DNS/socket error in `cause`.
+    const inner = cause.cause;
+    const innerText =
+      inner instanceof Error
+        ? inner.message || ("code" in inner ? String(inner.code) : inner.name)
+        : null;
+    return innerText && !cause.message.includes(innerText)
+      ? `${cause.message} (${innerText})`
+      : cause.message || cause.name;
+  }
+  return String(cause);
+}
+
+function describeHttpFailure(response: Response): string {
+  const remaining = response.headers.get("x-ratelimit-remaining");
+  return remaining === null
+    ? `HTTP ${response.status}`
+    : `HTTP ${response.status}, x-ratelimit-remaining ${remaining}`;
+}
+
+const tryNetwork = <A>(
+  message: string,
+  timeoutMs: number,
+  evaluate: (signal: AbortSignal) => PromiseLike<A>,
+) =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) =>
+      new OpenCodeBinaryError({
+        message: `${message}: ${describeNetworkError(cause, timeoutMs)}`,
+        cause,
+      }),
+  });
+
+/**
+ * Makes exactly one request to GitHub's release API. Unauthenticated, that API allows 60
+ * requests an hour per IP, so a failure here must never block a cached or pinned copy.
+ */
 function findCompatibleRelease(fetchFn: Fetch, archiveName: string) {
   return Effect.gen(function* () {
-    for (let page = 1; page <= 10; page++) {
-      const { releasesJson, response } = yield* tryPromise(
-        "GitHub release lookup failed",
-        async (signal) => {
-          const response = await fetchFn(`${OPEN_CODE_API}?per_page=${RELEASES_PER_PAGE}&page=${page}`, {
+    const { releasesJson, response } = yield* tryNetwork(
+      "GitHub release lookup failed",
+      LOOKUP_TIMEOUT_MS,
+      async (signal) => {
+        const response = await fetchFn(`${OPEN_CODE_API}?per_page=${RELEASES_PER_PAGE}`, {
           headers: {
             Accept: "application/vnd.github+json",
             "User-Agent": "BloxBot",
             "X-GitHub-Api-Version": "2022-11-28",
           },
           signal: AbortSignal.any([signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]),
-          });
-          return {
-            releasesJson: response.ok ? await response.json() : undefined,
-            response,
-          };
-        },
-      );
-      if (!response.ok) {
-        return yield* fail(`GitHub release lookup failed with HTTP ${response.status}`);
-      }
-
-      const releases = yield* Schema.decodeUnknown(GitHubReleasesSchema)(releasesJson).pipe(
-        Effect.mapError(
-          (cause) =>
-            new OpenCodeBinaryError({ message: "GitHub returned an invalid release list", cause }),
-        ),
-      );
-
-      const release = selectCompatibleRelease(releases, archiveName);
-      if (release) return release;
-      if (releases.length < RELEASES_PER_PAGE) break;
+        });
+        return {
+          releasesJson: response.ok ? await response.json() : undefined,
+          response,
+        };
+      },
+    );
+    if (!response.ok) {
+      return yield* fail(`GitHub release lookup failed with ${describeHttpFailure(response)}`);
     }
 
+    const releases = yield* Schema.decodeUnknown(GitHubReleasesSchema)(releasesJson).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OpenCodeBinaryError({ message: "GitHub returned an invalid release list", cause }),
+      ),
+    );
+
+    const release = selectCompatibleRelease(releases, archiveName);
+    if (release) return release;
     return yield* fail(
       `No stable OpenCode ${SUPPORTED_MAJOR}.x.x release is available for ${archiveName}`,
     );
@@ -424,8 +469,9 @@ function installRelease(
         yield* tryPromise("Failed to create the OpenCode installation directory", () =>
           mkdir(installDirectory, { recursive: true }),
         );
-        const { archiveBuffer, response } = yield* tryPromise(
+        const { archiveBuffer, response } = yield* tryNetwork(
           "OpenCode download failed",
+          DOWNLOAD_TIMEOUT_MS,
           async (signal) => {
             const downloadSignal = AbortSignal.any([
               signal,
@@ -444,7 +490,7 @@ function installRelease(
           },
         );
         if (!response.ok) {
-          return yield* fail(`OpenCode download failed with HTTP ${response.status}`);
+          return yield* fail(`OpenCode download failed with ${describeHttpFailure(response)}`);
         }
         if (archiveBuffer === undefined) {
           return yield* fail("OpenCode returned an unreadable download");
@@ -549,6 +595,7 @@ export function ensureOpenCodeBinary(
   const fetchFn = options.fetch ?? fetch;
   const extractArchive = options.extractArchive ?? defaultExtractArchive;
   const platformDirectory = join(options.cacheDirectory, `${platform}-${arch}`);
+  const pinnedRelease = options.pinnedRelease ?? PINNED_OPENCODE_RELEASE;
 
   return Effect.gen(function* () {
     yield* Effect.sync(() => options.onStartupProgress?.({ phase: "checking" }));
@@ -557,48 +604,96 @@ export function ensureOpenCodeBinary(
       mkdir(platformDirectory, { recursive: true }),
     );
 
-    const onlineInstall = Effect.gen(function* () {
-      const release = yield* findCompatibleRelease(fetchFn, spec.archiveName);
-      const versionDirectory = join(platformDirectory, release.version.value);
-      const cached = yield* readValidCachedBinary(
-        versionDirectory,
+    const install = (release: CompatibleRelease) =>
+      installRelease(
+        platformDirectory,
         platform,
         arch,
         spec,
         release,
-      );
-      const binary =
-        cached ??
-        (yield* installRelease(
-          platformDirectory,
-          platform,
-          arch,
-          spec,
-          release,
-          fetchFn,
-          extractArchive,
-          options.onStartupProgress,
-        ));
-      yield* pruneCache(platformDirectory);
-      return binary;
-    });
-
-    return yield* onlineInstall.pipe(
-      Effect.catchAll((cause) =>
-        findNewestCachedBinary(platformDirectory, platform, arch, spec).pipe(
-          Effect.flatMap((cached) =>
-            cached
-              ? Effect.logWarning(
-                  `[opencode] Update check failed; using cached v${cached.version}`,
-                  cause,
-                ).pipe(Effect.as(cached))
-              : fail(
-                  `Unable to download a verified OpenCode ${SUPPORTED_MAJOR}.x.x release and no cached copy is available`,
-                  cause,
-                ),
+        fetchFn,
+        extractArchive,
+        options.onStartupProgress,
+      ).pipe(
+        Effect.tap(() =>
+          pruneCache(platformDirectory).pipe(
+            Effect.catchAll((error) => Effect.logWarning(error.message, error.cause)),
           ),
+        ),
+      );
+
+    // Newer releases come from the API. When it fails (rate limit, timeout, DNS), a cached
+    // copy or the pinned release keeps BloxBot working.
+    const updated = yield* Effect.either(
+      findCompatibleRelease(fetchFn, spec.archiveName).pipe(
+        Effect.flatMap((release) =>
+          readValidCachedBinary(
+            join(platformDirectory, release.version.value),
+            platform,
+            arch,
+            spec,
+            release,
+          ).pipe(Effect.flatMap((cached) => (cached ? Effect.succeed(cached) : install(release)))),
         ),
       ),
     );
+    if (Either.isRight(updated)) return updated.right;
+    const updateError = updated.left;
+
+    const cached = yield* findNewestCachedBinary(platformDirectory, platform, arch, spec);
+    if (cached) {
+      yield* Effect.logWarning(
+        `[opencode] Update check failed; using cached v${cached.version}: ${updateError.message}`,
+        updateError.cause,
+      );
+      return cached;
+    }
+
+    const pinned = pinnedCompatibleRelease(pinnedRelease, platform, arch, spec);
+    const pinnedResult = yield* Effect.either(
+      pinned ? install(pinned) : fail(`No pinned OpenCode release for ${platform}/${arch}`),
+    );
+    if (Either.isRight(pinnedResult)) {
+      yield* Effect.logWarning(
+        `[opencode] Update check failed; installed pinned v${pinnedResult.right.version}: ${updateError.message}`,
+        updateError.cause,
+      );
+      return pinnedResult.right;
+    }
+
+    return yield* fail(
+      `Unable to download a verified OpenCode ${SUPPORTED_MAJOR}.x.x release and no cached copy is available. ` +
+        `Release check: ${updateError.message}. ` +
+        `Pinned v${pinnedRelease.version}: ${pinnedResult.left.message}`,
+      [updateError, pinnedResult.left],
+    );
   });
+}
+
+function pinnedCompatibleRelease(
+  pinned: PinnedOpenCodeRelease,
+  platform: NodeJS.Platform,
+  arch: string,
+  spec: AssetSpec,
+): CompatibleRelease | null {
+  const asset = pinned.assets[`${platform}-${arch}`];
+  const version = parseVersion(pinned.version);
+  if (
+    !asset ||
+    !version ||
+    asset.assetName !== spec.archiveName ||
+    !asset.url.startsWith(OPEN_CODE_DOWNLOAD_PREFIX) ||
+    !/^[a-f\d]{64}$/.test(asset.sha256)
+  ) {
+    return null;
+  }
+  return {
+    version,
+    asset: {
+      name: asset.assetName,
+      browser_download_url: asset.url,
+      digest: `sha256:${asset.sha256}`,
+    },
+    archiveSha256: asset.sha256,
+  };
 }
