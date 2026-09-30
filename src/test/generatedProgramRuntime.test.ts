@@ -355,6 +355,56 @@ describe("GeneratedProgramRuntime", () => {
     expect(snapshot.roots).toHaveLength(2);
   });
 
+  it("falls back to the client data model when Studio can't reach the server in Play mode", async () => {
+    // Studio's messages from production reports on 0.13.4.
+    const callTool = vi
+      .fn()
+      .mockResolvedValueOnce({
+        isError: true,
+        content: [{ type: "text", text: "Edit datamodel is not available in Play mode" }],
+      })
+      .mockResolvedValueOnce({
+        isError: true,
+        content: [{ type: "text", text: "Target is not reachable (GameTreeTool_explore, Server)" }],
+      })
+      .mockResolvedValueOnce({ content: [{ type: "text", text: JSON.stringify(studioTree) }] });
+
+    const snapshot = await runExplorer(callTool);
+
+    expect(callTool).toHaveBeenNthCalledWith(
+      3,
+      "search_game_tree",
+      expect.objectContaining({ datamodel_type: "Client" }),
+    );
+    expect(snapshot.roots).toHaveLength(2);
+  });
+
+  it("names every informative data model error when none can be read", async () => {
+    const callTool = vi
+      .fn()
+      .mockResolvedValueOnce({
+        isError: true,
+        content: [{ type: "text", text: "Edit datamodel is not available in Play mode" }],
+      })
+      .mockResolvedValueOnce({
+        isError: true,
+        content: [{ type: "text", text: "Target is not reachable (GameTreeTool_explore, Server)" }],
+      })
+      .mockResolvedValueOnce({
+        isError: true,
+        content: [{ type: "text", text: "Client datamodel is not available in Edit mode" }],
+      });
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const artifact = await Effect.runPromise(runtime.compile(BUILTIN_EXPLORER_PROGRAM));
+
+    const failure = await Effect.runPromise(
+      Effect.flip(runtime.invoke({ artifact, input: { studioId: "studio-123" } })),
+    );
+    expect(failure.message).toBe(
+      "Generated program execution failed: Edit datamodel is not available in Play mode (server data model: Target is not reachable (GameTreeTool_explore, Server))",
+    );
+  });
+
   it("reports Studio's own error when no data model can be read", async () => {
     const callTool = vi.fn().mockResolvedValue({
       isError: true,

@@ -4,11 +4,13 @@ async function run({ input, callTool }: { input: { studioId: string }; callTool:
   // Studio caps max_depth at 10; use that ceiling and a generous result cap so
   // ordinary places are collected in one pass. Studio requires datamodel_type:
   // "Edit" normally, and it rejects "Edit" during a playtest, so fall back to
-  // the server data model then. Outside a playtest the server attempt only
-  // says "not available in Edit mode", so the edit error is the one to report.
+  // the server data model then, and to the client one when Studio can't reach
+  // the server (Play Solo on recent Studio builds). Attempts that only say a
+  // data model "is not available in … mode" add nothing, so they're left out
+  // of the error.
   let raw: any = null;
-  const errors: string[] = [];
-  for (const datamodelType of ["Edit", "Server"]) {
+  const errors: Array<[string, string]> = [];
+  for (const datamodelType of ["Edit", "Server", "Client"]) {
     const result = await callTool("search_game_tree", {
       studio_id: studioId,
       datamodel_type: datamodelType,
@@ -17,18 +19,18 @@ async function run({ input, callTool }: { input: { studioId: string }; callTool:
     });
     const error = mcpErrorText(result);
     if (error) {
-      errors.push(error);
+      errors.push([datamodelType, error]);
       continue;
     }
     raw = normalizeMcpResult(result);
     break;
   }
   if (raw === null) {
-    const [editError, serverError] = errors;
-    const message =
-      serverError && serverError !== editError && !/not available in Edit mode/i.test(serverError)
-        ? `${editError} (server data model: ${serverError})`
-        : editError;
+    const [[, first] = ["", ""], ...rest] = errors;
+    const details = rest
+      .filter(([, error]) => error !== first && !/not available in \w+ mode/i.test(error))
+      .map(([type, error]) => `${type.toLowerCase()} data model: ${error}`);
+    const message = details.length > 0 ? `${first} (${details.join("; ")})` : first;
     throw new Error(message || "Studio did not return an instance tree");
   }
   const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
