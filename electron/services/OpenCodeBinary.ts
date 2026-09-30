@@ -575,13 +575,22 @@ interface InstallContext {
 
 const sleep = (ms: number) => (ms > 0 ? Effect.sleep(`${ms} millis`) : Effect.void);
 
+/** Free megabytes when the drive is below {@link MIN_FREE_BYTES}, or null when it has room or can't be read. */
+function lowFreeSpaceMb(context: InstallContext): Effect.Effect<number | null> {
+  return Effect.tryPromise(() => context.fileSystem.freeBytes(context.platformDirectory)).pipe(
+    Effect.map((freeBytes) =>
+      freeBytes === null || !Number.isFinite(freeBytes) || freeBytes >= MIN_FREE_BYTES
+        ? null
+        : Math.floor(freeBytes / 1024 ** 2),
+    ),
+    Effect.orElseSucceed(() => null),
+  );
+}
+
 function requireFreeSpace(context: InstallContext) {
   return Effect.gen(function* () {
-    const freeBytes = yield* Effect.tryPromise(() =>
-      context.fileSystem.freeBytes(context.platformDirectory),
-    ).pipe(Effect.orElseSucceed(() => null));
-    if (freeBytes === null || !Number.isFinite(freeBytes) || freeBytes >= MIN_FREE_BYTES) return;
-    const freeMb = Math.floor(freeBytes / 1024 ** 2);
+    const freeMb = yield* lowFreeSpaceMb(context);
+    if (freeMb === null) return;
     return yield* fail(
       `Not enough free disk space to install OpenCode: ${freeMb} MB free, ${MIN_FREE_BYTES / 1024 ** 2} MB needed`,
       undefined,
@@ -636,13 +645,27 @@ function extractOnce(
 ): Effect.Effect<ExtractAttempt, OpenCodeBinaryError> {
   const { spec } = context;
   const executable = join(installDirectory, spec.executableName);
-  const quarantined = (problem: string): ExtractAttempt => ({
-    _tag: "Retry",
-    error: new OpenCodeBinaryError({
-      message: `Failed to extract the OpenCode archive: ${problem} after extraction, likely removed by security software`,
-      reason: "blocked_by_security",
-    }),
-  });
+  // The archive passed SHA-256 verification before extraction, so a missing, empty or short
+  // executable can't come from a truncated download. It means the drive filled up during
+  // extraction, or security software removed or locked the file.
+  const incomplete = (problem: string) =>
+    Effect.gen(function* () {
+      const freeMb = yield* lowFreeSpaceMb(context);
+      if (freeMb !== null) {
+        return yield* fail(
+          `Failed to extract the OpenCode archive: ${problem} after extraction with ${freeMb} MB free, ${MIN_FREE_BYTES / 1024 ** 2} MB needed`,
+          undefined,
+          "disk_full",
+        );
+      }
+      return {
+        _tag: "Retry",
+        error: new OpenCodeBinaryError({
+          message: `Failed to extract the OpenCode archive: ${problem} after extraction, likely removed by security software`,
+          reason: "blocked_by_security",
+        }),
+      } satisfies ExtractAttempt;
+    });
 
   return Effect.gen(function* () {
     yield* tryPromise("Failed to create the OpenCode installation directory", async () => {
@@ -669,12 +692,12 @@ function extractOnce(
     const sizes = extracted.right instanceof Map ? extracted.right : undefined;
     const expectedSize = sizes?.get(spec.executableName) as number | undefined;
     const problem = yield* inspectExecutable(context, executable, expectedSize);
-    if (problem !== null) return quarantined(problem);
+    if (problem !== null) return yield* incomplete(problem);
 
     // Security software can quarantine the file a moment after it's written.
     yield* sleep(context.delays.verifyMs);
     const later = yield* inspectExecutable(context, executable, expectedSize);
-    if (later !== null) return quarantined(later.replace(/ is missing$/, " vanished"));
+    if (later !== null) return yield* incomplete(later.replace(/ is missing$/, " vanished"));
 
     return { _tag: "Extracted", installDirectory } satisfies ExtractAttempt;
   });
@@ -699,6 +722,7 @@ function extractWithRetry(
 
       const errors = [...previous, result.error];
       if (number >= EXTRACT_ATTEMPTS) {
+        // ENOSPC and low free space fail at once as disk_full, so they never reach here.
         const reason = errors.some((error) => error.reason === "blocked_by_security")
           ? "blocked_by_security"
           : classifyFileError(result.error.cause, true);
@@ -891,8 +915,9 @@ function combinedFailureReason(
   pinnedError: OpenCodeBinaryError,
 ): OpenCodeInstallFailureReason {
   const reasons = [updateError.reason, pinnedError.reason];
-  if (reasons.includes("blocked_by_security")) return "blocked_by_security";
+  // A full disk also makes files go missing, so it wins over security software.
   if (reasons.includes("disk_full")) return "disk_full";
+  if (reasons.includes("blocked_by_security")) return "blocked_by_security";
   return pinnedError.reason ?? updateError.reason ?? "other";
 }
 

@@ -663,6 +663,29 @@ describe("OpenCode installs that Windows blocks", () => {
     expect(short).toHaveBeenCalledTimes(3);
   });
 
+  it("blames a full disk, not antivirus, when the drive fills during extraction", async () => {
+    const extractArchive = vi.fn(async (_archive: string, destination: string) => {
+      await writeFile(join(destination, EXE), "runtime binary");
+      return new Map([[EXE, 180 * 1024 ** 2]]);
+    });
+    const freeBytes = vi
+      .fn(PLENTY_OF_SPACE)
+      .mockImplementationOnce(PLENTY_OF_SPACE)
+      .mockImplementation(async () => 40 * 1024 ** 2);
+    const { result } = await installOnWindows({ extractArchive, fileSystem: { freeBytes } });
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "disk_full",
+        message: expect.stringContaining(
+          "Failed to extract the OpenCode archive: opencode.exe is 14 of 188743680 bytes after extraction with 40 MB free, 500 MB needed (reason: disk_full)",
+        ),
+      },
+    });
+    expect(extractArchive).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a full disk without retrying", async () => {
     const extractArchive = vi.fn(async () => {
       throw errno("ENOSPC", "ENOSPC: no space left on device, write");

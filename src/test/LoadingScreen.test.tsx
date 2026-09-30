@@ -118,12 +118,27 @@ describe("startup progress", () => {
     expect(screen.getByText(technicalDetail)).toBeInTheDocument();
   });
 
-  it.each(["network", "other"])("keeps the download copy for the %s reason", (reason) => {
-    expect(getStartupErrorPresentation(installFailure(reason))).toMatchObject({
+  it("keeps the download copy for network failures", () => {
+    expect(getStartupErrorPresentation(installFailure("network"))).toMatchObject({
       message: "Setup couldn't finish",
       detail:
         "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then restart setup.",
     });
+  });
+
+  it("doesn't blame the network for other install failures", () => {
+    const technicalDetail = installFailure("other");
+    const presentation = getStartupErrorPresentation(technicalDetail);
+
+    render(<LoadingScreen {...presentation} error onRetry={() => {}} />);
+
+    expect(
+      screen.getByText(
+        "BloxBot couldn't set up OpenCode, the engine it runs on. Restart setup, and if it keeps failing, copy the technical details and send them to us.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText(/internet connection/)).not.toBeInTheDocument();
+    expect(screen.getByText(technicalDetail)).toBeInTheDocument();
   });
 
   it("keeps the generic copy for other startup failures", () => {

@@ -150,6 +150,15 @@ export function getStartupErrorPresentation(
     };
   }
 
+  if (reason === "other") {
+    return {
+      message: "Setup couldn't finish",
+      detail:
+        "BloxBot couldn't set up OpenCode, the engine it runs on. Restart setup, and if it keeps failing, copy the technical details and send them to us.",
+      technicalDetail,
+    };
+  }
+
   if (
     normalized.includes("github release lookup") ||
     normalized.includes("opencode download") ||
