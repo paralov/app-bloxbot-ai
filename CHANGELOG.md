@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.6] - 2026-09-30
+
 ### Fixed
 
 - First-time setup on Windows now tries unpacking OpenCode again when antivirus software locks or removes it for a moment. If it stays blocked, or the drive is nearly full, the setup screen says so and what to do, and the error report says which step failed and why.
@@ -277,7 +279,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.5...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.6...HEAD
+[0.13.6]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.2...v0.13.3
