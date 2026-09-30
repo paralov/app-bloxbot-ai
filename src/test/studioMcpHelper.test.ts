@@ -131,6 +131,33 @@ describe("Studio MCP helper on Windows (#106)", () => {
     });
   });
 
+  it("finds StudioMCP.exe in the newer Roblox Studio install folder (#117)", async () => {
+    const exe = `${LOCAL}\\Roblox Studio\\StudioMCP.exe`;
+    const probe = fakeProbe({
+      files: { [BAT]: studioBat("version-gone") },
+      exes: { [exe]: 1 },
+      registry: registryOutput(`${VERSIONS}\\version-gone\\content`),
+    });
+
+    await expect(resolveStudioMcpHelper("win32", environment, probe)).resolves.toEqual({
+      command: [exe],
+      installPath: exe,
+      source: "studio_folder",
+    });
+  });
+
+  it("prefers a Roblox\\Versions StudioMCP.exe over the Roblox Studio folder", async () => {
+    const versioned = `${VERSIONS}\\version-abc\\StudioMCP.exe`;
+    const probe = fakeProbe({
+      exes: { [versioned]: 1, [`${LOCAL}\\Roblox Studio\\StudioMCP.exe`]: 2 },
+    });
+
+    await expect(resolveStudioMcpHelper("win32", environment, probe)).resolves.toMatchObject({
+      source: "versions_scan",
+      installPath: versioned,
+    });
+  });
+
   it("falls back to mcp.bat through cmd.exe when no StudioMCP.exe is found", async () => {
     const probe = fakeProbe({ files: { [BAT]: "@echo off\r\nsome-other-launcher.exe %*\r\n" } });
 

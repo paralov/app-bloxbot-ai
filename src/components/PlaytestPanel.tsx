@@ -11,6 +11,7 @@ import {
 } from "@/lib/analytics";
 import {
   formatPlaytestPrompt,
+  InvalidPlaytestPlanError,
   NoPlaytestContextError,
   type PlaytestPlan,
   PlaytestPlannerError,
@@ -22,6 +23,7 @@ function generationErrorCategory(error: unknown): string {
   if (!(error instanceof Error)) return "unknown";
   if (error instanceof PlaytestPlannerError) return "model_error";
   if (error instanceof NoPlaytestContextError) return "no_chat_context";
+  if (error instanceof InvalidPlaytestPlanError) return "invalid_plan";
   if (error.message.includes("invalid") || error.message.includes("incomplete")) {
     return "invalid_plan";
   }
@@ -103,13 +105,13 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       analyticsProperties("playtest", detailedAnalyticsProperties({ provider, model })),
     );
     try {
-      const generatedPlan = await generate.mutateAsync();
+      const { plan: generatedPlan, attempts } = await generate.mutateAsync();
       setPlan(generatedPlan);
       posthog.capture(
         "generation_succeeded",
-        analyticsProperties(
-          "playtest",
-          detailedAnalyticsProperties({
+        analyticsProperties("playtest", {
+          attempts,
+          ...detailedAnalyticsProperties({
             outcome: "success",
             provider,
             model,
@@ -118,7 +120,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
             watch_for_count: generatedPlan.watchFor.length,
             success_criteria_count: generatedPlan.successCriteria.length,
           }),
-        ),
+        }),
       );
     } catch (error) {
       if (error instanceof NoPlaytestContextError) {
@@ -127,11 +129,11 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       }
       posthog.capture(
         "generation_failed",
-        errorAnalyticsProperties(
-          "playtest",
-          "plan_generation",
-          error,
-          detailedAnalyticsProperties({
+        errorAnalyticsProperties("playtest", "plan_generation", error, {
+          ...(error instanceof PlaytestPlannerError || error instanceof InvalidPlaytestPlanError
+            ? { attempts: error.attempts }
+            : {}),
+          ...detailedAnalyticsProperties({
             provider,
             model,
             duration_ms: Math.round(performance.now() - startedAt),
@@ -140,7 +142,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
               ? { model_error_name: error.modelErrorName }
               : {}),
           }),
-        ),
+        }),
       );
       toast.error("Couldn't create a playtest plan", {
         description: error instanceof Error ? error.message : "Try again.",

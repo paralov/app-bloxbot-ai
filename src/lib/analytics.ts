@@ -127,6 +127,7 @@ const EXPLORER_ANALYTICS_KEYS = new Set([
   "duration_ms",
   "generation_attempts",
   "has_attributes",
+  "model_error_name",
   "model_mediated",
   "node_count",
   "program_sequence",

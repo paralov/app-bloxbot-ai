@@ -13,9 +13,15 @@ import {
  * - bat_path: the StudioMCP.exe named in Studio's mcp.bat
  * - registry: next to the ContentFolder Studio records in the registry
  * - versions_scan: the newest StudioMCP.exe under Roblox\Versions
+ * - studio_folder: StudioMCP.exe in the newer %LOCALAPPDATA%\Roblox Studio install folder
  * - bat_fallback: Studio's mcp.bat through cmd.exe, when no StudioMCP.exe was found
  */
-export type StudioMcpHelperSource = "bat_path" | "registry" | "versions_scan" | "bat_fallback";
+export type StudioMcpHelperSource =
+  | "bat_path"
+  | "registry"
+  | "versions_scan"
+  | "studio_folder"
+  | "bat_fallback";
 
 export interface StudioMcpHelper {
   command: string[];
@@ -145,6 +151,10 @@ export async function resolveStudioMcpHelper(
     if (modified !== null && (!newest || modified > newest.modified)) newest = { path, modified };
   }
   if (newest) return direct(newest.path, "versions_scan");
+
+  // Newer Studio installs keep the helper in their own folder instead of Roblox\Versions.
+  const studioFolder = win32.join(dataDirectory, "Roblox Studio", "StudioMCP.exe");
+  if (await probe.exists(studioFolder)) return direct(studioFolder, "studio_folder");
 
   return {
     command: studioMcpCommand(platform, environment),

@@ -147,8 +147,10 @@ describe("PlaytestPanel", () => {
     expect(capture).toHaveBeenCalledWith("generation_succeeded", {
       analytics_schema_version: 1,
       feature: "playtest",
+      attempts: 1,
     });
     expect(capturedEvents()).not.toContain("generation_failed");
+    expect(client.session.prompt).toHaveBeenCalledOnce();
     expect(client.session.prompt.mock.calls[0][0]).toMatchObject({
       sessionID: "planner",
       format: { type: "json_schema" },
@@ -206,8 +208,11 @@ describe("PlaytestPanel", () => {
         error_category: "model_error",
         model_error_name: "APIError",
         error_message: "OpenCode's free tier can only be used from within OpenCode",
+        attempts: 1,
       }),
     );
+    // A provider error isn't retried.
+    expect(client.session.prompt).toHaveBeenCalledOnce();
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
   });
 
@@ -215,11 +220,78 @@ describe("PlaytestPanel", () => {
     const client = plannerClient(
       vi.fn().mockResolvedValue({ data: { info: { structured: { goal: "Missing lists" } } } }),
     );
-    render(<Harness client={client} />);
+    render(<Harness client={client} detailedAnalytics="enabled" />);
     fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
     expect(await screen.findByText("Couldn't create a playtest plan")).toBeInTheDocument();
     expect(screen.getByText("The planner returned an incomplete test plan.")).toBeInTheDocument();
+    // One reminder, then it gives up.
+    expect(client.session.prompt).toHaveBeenCalledTimes(2);
+    expect(capture).toHaveBeenCalledWith(
+      "generation_failed",
+      expect.objectContaining({ error_category: "invalid_plan", attempts: 2 }),
+    );
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
+  });
+
+  it("reminds the planner once in the same session when it returns no structured output (#119)", async () => {
+    const client = plannerClient(
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          data: {
+            info: {
+              error: {
+                name: "StructuredOutputError",
+                data: { message: "Model did not produce structured output", retries: 2 },
+              },
+            },
+          },
+        })
+        .mockResolvedValueOnce({ data: { info: { structured: PLAN } } }),
+    );
+    render(<Harness client={client} />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
+    expect(await screen.findByDisplayValue("Test rounds")).toBeInTheDocument();
+
+    expect(client.session.create).toHaveBeenCalledOnce();
+    expect(client.session.prompt).toHaveBeenCalledTimes(2);
+    const retry = client.session.prompt.mock.calls[1][0];
+    expect(retry).toMatchObject({ sessionID: "planner", format: { type: "json_schema" } });
+    expect(retry.parts[0].text).toContain("StructuredOutput tool");
+    expect(retry.parts[0].text).not.toContain("CHAT HISTORY");
+    expect(capture).toHaveBeenCalledWith("generation_succeeded", {
+      analytics_schema_version: 1,
+      feature: "playtest",
+      attempts: 2,
+    });
+    expect(capturedEvents()).not.toContain("generation_failed");
+  });
+
+  it("reports the structured output error when the reminder also fails", async () => {
+    const client = plannerClient(
+      vi.fn().mockResolvedValue({
+        data: {
+          info: {
+            error: {
+              name: "StructuredOutputError",
+              data: { message: "Model did not produce structured output", retries: 2 },
+            },
+          },
+        },
+      }),
+    );
+    render(<Harness client={client} detailedAnalytics="enabled" />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
+    expect(await screen.findByText("Model did not produce structured output")).toBeInTheDocument();
+    expect(client.session.prompt).toHaveBeenCalledTimes(2);
+    expect(capture).toHaveBeenCalledWith(
+      "generation_failed",
+      expect.objectContaining({
+        error_category: "model_error",
+        model_error_name: "StructuredOutputError",
+        attempts: 2,
+      }),
+    );
   });
 
   it("turns generate off in a chat with no text and keeps manual entry", () => {

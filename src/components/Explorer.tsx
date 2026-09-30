@@ -33,6 +33,7 @@ import {
   type ExplorerCollection,
   type ExplorerField,
   ExplorerGenerationError,
+  ExplorerModelError,
   type ExplorerNode,
   type ExplorerProgramEnvelope,
   generateExplorerProgram,
@@ -368,6 +369,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
                 reason,
                 ...programProperties,
                 ...attemptProperties,
+                ...(reported instanceof ExplorerModelError
+                  ? { model_error_name: reported.modelErrorName }
+                  : {}),
               }),
             ),
           );

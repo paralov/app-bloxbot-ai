@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createExplorerReference,
   ExplorerGenerationError,
+  ExplorerModelError,
   ExplorerProgramEnvelopeSchema,
   ExplorerSnapshotSchema,
   explorerSystemPrompt,
@@ -115,7 +116,21 @@ describe("Explorer data boundary", () => {
       prompt.mockResolvedValueOnce({ data: { info: { structured: response } } });
     }
     const remove = vi.fn().mockResolvedValue({ data: true });
-    return { client: { session: { create, prompt, delete: remove } }, create, prompt, remove };
+    const permission = {
+      list: vi.fn().mockResolvedValue({ data: [] }),
+      reply: vi.fn().mockResolvedValue({ data: true }),
+    };
+    return {
+      client: { session: { create, prompt, delete: remove }, permission },
+      create,
+      prompt,
+      remove,
+      permission,
+    };
+  }
+
+  function modelErrorReply(name: string, message: string) {
+    return { data: { info: { error: { name, data: { message } } } } };
   }
 
   it("generates a reusable TypeScript program in a disposable private session", async () => {
@@ -133,7 +148,11 @@ describe("Explorer data boundary", () => {
 
     expect(validate).toHaveBeenCalledWith(structured);
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: { bloxbotHidden: true, purpose: "explorer" } }),
+      expect.objectContaining({
+        metadata: { bloxbotHidden: true, purpose: "explorer" },
+        // "deny" would drop the StructuredOutput tool from the request.
+        permission: [{ permission: "*", pattern: "*", action: "ask" }],
+      }),
       { throwOnError: true },
     );
     expect(prompt).toHaveBeenCalledTimes(1);
@@ -212,6 +231,101 @@ describe("Explorer data boundary", () => {
     });
     expect(prompt).toHaveBeenCalledTimes(2);
     expect(remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects the model's own tool calls while it writes the program", async () => {
+    const { client, prompt, permission } = fakeClient();
+    permission.list.mockResolvedValue({
+      data: [
+        { id: "explorer-ask", sessionID: "hidden-session", permission: "roblox-studio_*" },
+        { id: "chat-ask", sessionID: "chat", permission: "edit" },
+      ],
+    });
+    let rejected: () => void = () => {};
+    const rejection = new Promise<void>((resolve) => {
+      rejected = resolve;
+    });
+    permission.reply.mockImplementation(async () => {
+      rejected();
+      return { data: true };
+    });
+    prompt.mockImplementation(async () => {
+      await rejection;
+      return { data: { info: { structured } } };
+    });
+
+    await expect(
+      generateExplorerProgram(client as never, {
+        allowedTools,
+        validate: vi.fn().mockResolvedValue("snapshot"),
+      }),
+    ).resolves.toMatchObject({ attempts: 1 });
+    expect(permission.reply).toHaveBeenCalledWith({ requestID: "explorer-ask", reply: "reject" });
+    expect(permission.reply).not.toHaveBeenCalledWith(
+      expect.objectContaining({ requestID: "chat-ask" }),
+    );
+    const system = prompt.mock.calls[0][0].system as string;
+    expect(system).toContain("Do not call any Studio tool yourself");
+    expect(system).toContain("StructuredOutput tool");
+  });
+
+  it("surfaces a provider error from the reply without retrying", async () => {
+    const { client, prompt, remove } = fakeClient();
+    prompt.mockResolvedValueOnce(modelErrorReply("APIError", "Insufficient quota"));
+    const validate = vi.fn();
+
+    const failure = await generateExplorerProgram(client as never, {
+      allowedTools,
+      validate,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ExplorerGenerationError);
+    expect(failure).toMatchObject({ attempts: 1, message: "Insufficient quota" });
+    expect((failure as ExplorerGenerationError).cause).toBeInstanceOf(ExplorerModelError);
+    expect((failure as ExplorerGenerationError).cause).toMatchObject({
+      modelErrorName: "APIError",
+    });
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(validate).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once with a reminder when the model returns no structured output", async () => {
+    const { client, prompt } = fakeClient();
+    prompt
+      .mockResolvedValueOnce(
+        modelErrorReply("StructuredOutputError", "Model did not produce structured output"),
+      )
+      .mockResolvedValueOnce({ data: { info: { structured } } });
+
+    await expect(
+      generateExplorerProgram(client as never, {
+        allowedTools,
+        validate: vi.fn().mockResolvedValue("snapshot"),
+      }),
+    ).resolves.toMatchObject({ program: structured, attempts: 2 });
+    const retry = prompt.mock.calls[1][0].parts[0].text as string;
+    expect(retry).toContain("Model did not produce structured output");
+    expect(retry).toContain("StructuredOutput tool");
+    expect(retry).not.toContain("compiled and ran");
+  });
+
+  it("reports the model's reason when the retry also returns no program", async () => {
+    const { client, prompt } = fakeClient();
+    prompt.mockResolvedValue(
+      modelErrorReply("StructuredOutputError", "Model did not produce structured output"),
+    );
+
+    const failure = await generateExplorerProgram(client as never, {
+      allowedTools,
+      validate: vi.fn(),
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      attempts: 2,
+      message: "Model did not produce structured output",
+    });
+    expect(prompt).toHaveBeenCalledTimes(2);
   });
 
   it("rejects invalid generated program contracts", async () => {
