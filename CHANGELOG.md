@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- The Windows installer and app are now signed by Paralov AS.
+
 ## [0.13.6] - 2026-09-30
 
 ### Fixed

@@ -2,9 +2,18 @@ name: Build BloxBot
 
 on:
   workflow_call:
+    inputs:
+      sign-windows:
+        description: >-
+          Sign the Windows installer and app with Azure Artifact Signing. Only
+          release.yml sets this, and the caller must grant `id-token: write`.
+        type: boolean
+        required: false
+        default: false
 
-permissions:
-  contents: read
+# No `permissions` here on purpose: a reusable workflow's jobs get the token
+# permissions of the calling job. ci.yml grants `contents: read`. release.yml
+# also grants `id-token: write` so the Windows job can log in to Azure with OIDC.
 
 jobs:
   build:
@@ -24,6 +33,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
     env:
       VITE_POSTHOG_PROJECT_TOKEN: ${{ vars.POSTHOG_PROJECT_TOKEN }}
+      SIGN_WINDOWS: ${{ inputs.sign-windows && startsWith(matrix.platform, 'windows') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -73,13 +83,89 @@ jobs:
           security find-identity -v -p codesigning "$keychain"
           echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
+      # Windows signing uses Azure Artifact Signing (see release.yml for the Azure
+      # resources). The Entra app only trusts OIDC tokens for refs/heads/main.
+      - name: Check Windows signing setup
+        if: env.SIGN_WINDOWS == 'true'
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Windows signing only runs from main, not ${GITHUB_REF}."
+            exit 1
+          fi
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+            AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
+            if [[ -z "${!name}" ]]; then
+              echo "The ${name} repository variable is not set."
+              exit 1
+            fi
+          done
+
+      # Logs the Azure CLI in with the GitHub OIDC token. No client secret exists.
+      - name: Log in to Azure
+        if: env.SIGN_WINDOWS == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # The GitHub OIDC token that the Azure CLI holds expires within minutes, so
+      # fetch the Artifact Signing token now. The CLI caches it, and signing reads
+      # it through AzureCliCredential while electron-builder packages the app.
+      - name: Get Artifact Signing token
+        if: env.SIGN_WINDOWS == 'true'
+        shell: bash
+        run: az account get-access-token --resource https://codesigning.azure.net --output none
+
       - name: Package application
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm exec electron-builder ${{ matrix.builder_args }} --publish never
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          sign_args=()
+          if [[ "$SIGN_WINDOWS" == "true" ]]; then
+            sign_args=(
+              "-c.win.azureSignOptions.publisherName=Paralov AS"
+              "-c.win.azureSignOptions.endpoint=${AZURE_SIGNING_ENDPOINT}"
+              "-c.win.azureSignOptions.codeSigningAccountName=${AZURE_SIGNING_ACCOUNT}"
+              "-c.win.azureSignOptions.certificateProfileName=${AZURE_SIGNING_PROFILE}"
+            )
+          fi
+          pnpm exec electron-builder ${{ matrix.builder_args }} "${sign_args[@]}" --publish never
+
+      - name: Verify Windows signatures
+        if: env.SIGN_WINDOWS == 'true'
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -Path release -Filter 'BloxBot-Setup-*.exe' -File)
+          $files += Get-Item -Path 'release/win-unpacked/BloxBot.exe'
+          if ($files.Count -lt 2) {
+            throw "Expected the NSIS installer and the app executable, found: $($files.Name -join ', ')"
+          }
+          $failed = $false
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+            $subject = $signature.SignerCertificate.Subject
+            Write-Host "$($file.Name): $($signature.Status), signer: $subject, timestamped: $($null -ne $signature.TimeStamperCertificate)"
+            if ($signature.Status -ne 'Valid' -or $subject -notmatch '(^|, )O=Paralov AS(,|$)' -or $null -eq $signature.TimeStamperCertificate) {
+              Write-Host "::error file=$($file.Name)::Not validly signed and timestamped by Paralov AS ($($signature.StatusMessage))"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
 
       - name: Stage release files
         shell: bash
