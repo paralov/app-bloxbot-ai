@@ -1,3 +1,6 @@
+import type { QueryClient } from "@tanstack/react-query";
+import { Data, Effect, Schema } from "effect";
+import type { ModelError } from "@/lib/modelError";
 import type {
   Event,
   PermissionRequest,
@@ -5,10 +8,7 @@ import type {
   Session,
   SessionStatus,
   Todo,
-} from "@opencode-ai/sdk/v2/client";
-import type { QueryClient } from "@tanstack/react-query";
-import { Data, Effect, Schema } from "effect";
-import type { ModelError } from "@/lib/modelError";
+} from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { isVisibleSession } from "@/lib/sessionVisibility";
 import type { MessageWithParts } from "@/types";

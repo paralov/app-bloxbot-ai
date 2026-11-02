@@ -1,3 +1,4 @@
+import type { Properties } from "posthog-js";
 import type {
   AssistantMessage,
   Event,
@@ -8,8 +9,7 @@ import type {
   SnapshotFileDiff,
   Todo,
   ToolPart,
-} from "@opencode-ai/sdk/v2/client";
-import type { Properties } from "posthog-js";
+} from "@/lib/opencode/types";
 import type { MessageWithParts } from "@/types";
 import type { InstructionFile } from "@/types/desktop";
 
@@ -431,7 +431,10 @@ export class AiTracer {
         const tracked = this.messages.get(messageID);
         const part = tracked?.parts.get(partID) as Record<string, unknown> | undefined;
         const key = field || "text";
-        if (part && typeof part[key] === "string") part[key] = (part[key] as string) + delta;
+        // A new object: the part came from the event, which the message cache and the screen share.
+        if (tracked && part && typeof part[key] === "string") {
+          tracked.parts.set(partID, { ...part, [key]: (part[key] as string) + delta } as Part);
+        }
         if (tracked) this.markOutput(tracked);
         break;
       }

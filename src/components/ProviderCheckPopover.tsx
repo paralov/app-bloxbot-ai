@@ -1,9 +1,8 @@
-import type { Model } from "@opencode-ai/sdk/v2/client";
 import { Loader2, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { Model } from "@/lib/opencode/types";
 
 /** Past this many models the picker offers a search box. */
 const SEARCH_THRESHOLD = 8;

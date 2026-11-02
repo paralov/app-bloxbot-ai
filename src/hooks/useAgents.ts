@@ -1,5 +1,5 @@
-import type { Agent } from "@opencode-ai/sdk/v2/client";
 import { useQuery } from "@tanstack/react-query";
+import type { Agent } from "@/lib/opencode/types";
 
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";

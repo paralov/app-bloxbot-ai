@@ -5,6 +5,9 @@
  * and assertions on the cache state after dispatching events.
  */
 
+import { QueryClient } from "@tanstack/react-query";
+import { Cause, Effect } from "effect";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   Event,
   PermissionRequest,
@@ -12,10 +15,7 @@ import type {
   Session,
   SessionStatus,
   Todo,
-} from "@opencode-ai/sdk/v2/client";
-import { QueryClient } from "@tanstack/react-query";
-import { Cause, Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+} from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch, sseDispatchEffect } from "@/lib/sseDispatch";
 import type { MessageWithParts } from "@/types";

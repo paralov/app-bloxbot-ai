@@ -13,7 +13,7 @@ const SUPPORTED_PLATFORMS = [
 
 describe("pinned OpenCode release", () => {
   it("has a verified download for every supported platform", () => {
-    expect(PINNED_OPENCODE_RELEASE.version).toMatch(/^1\.\d+\.\d+$/);
+    expect(PINNED_OPENCODE_RELEASE.version).toMatch(/^2\.2\.\d+$/);
     expect(Object.keys(PINNED_OPENCODE_RELEASE.assets).sort()).toEqual(
       SUPPORTED_PLATFORMS.map(([platform, arch]) => `${platform}-${arch}`).sort(),
     );

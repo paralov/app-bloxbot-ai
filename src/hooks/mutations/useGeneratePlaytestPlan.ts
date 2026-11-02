@@ -72,10 +72,8 @@ export function useGeneratePlaytestPlan() {
                 agent: selectedAgent ?? undefined,
                 variant: selectedVariant ?? undefined,
                 format: { type: "json_schema", schema: PLAYTEST_PLAN_SCHEMA, retryCount: 2 },
-                // OpenCode returns structured output through its StructuredOutput
-                // tool, so that is the one tool the planner calls.
                 system:
-                  "You create concise, practical Roblox playtest plans from conversation history. Answer only by calling the StructuredOutput tool once. Never call any other tool and never modify files or Roblox Studio.",
+                  "You create concise, practical Roblox playtest plans from conversation history. Answer only with the JSON plan. Never call a tool and never modify files or Roblox Studio.",
                 parts: [{ type: "text", text }],
               },
               { throwOnError: true },

@@ -1,6 +1,6 @@
-import type { Event, Session } from "@opencode-ai/sdk/v2/client";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Event, Session } from "@/lib/opencode/types";
 
 const { attention, focused, maybeShowStarCallout } = vi.hoisted(() => ({
   attention: vi.fn(),

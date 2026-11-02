@@ -1,4 +1,3 @@
-import type { Session } from "@opencode-ai/sdk/v2/client";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { type MouseEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -10,6 +9,7 @@ import { useUnarchiveSession } from "@/hooks/mutations/useUnarchiveSession";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { analyticsProperties, countBucket } from "@/lib/analytics";
+import type { Session } from "@/lib/opencode/types";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 
 interface ChatSidebarProps {

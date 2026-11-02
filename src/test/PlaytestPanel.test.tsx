@@ -1,4 +1,3 @@
-import type { Message, Part } from "@opencode-ai/sdk/v2/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
@@ -7,6 +6,7 @@ import PlaytestPanel from "@/components/PlaytestPanel";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { setDetailedAnalyticsEnabled } from "@/lib/analytics";
+import type { Message, Part } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
 import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
@@ -163,6 +163,7 @@ describe("PlaytestPanel", () => {
     expect(client.permission.reply).toHaveBeenCalledWith({
       requestID: "planner-ask",
       reply: "reject",
+      message: expect.any(String),
     });
     expect(client.permission.reply).not.toHaveBeenCalledWith(
       expect.objectContaining({ requestID: "chat-ask" }),
@@ -270,7 +271,7 @@ describe("PlaytestPanel", () => {
     expect(client.session.prompt).toHaveBeenCalledTimes(2);
     const retry = client.session.prompt.mock.calls[1][0];
     expect(retry).toMatchObject({ sessionID: "planner", format: { type: "json_schema" } });
-    expect(retry.parts[0].text).toContain("StructuredOutput tool");
+    expect(retry.parts[0].text).toContain("one JSON object");
     expect(retry.parts[0].text).not.toContain("CHAT HISTORY");
     expect(capture).toHaveBeenCalledWith("generation_succeeded", {
       analytics_schema_version: 1,

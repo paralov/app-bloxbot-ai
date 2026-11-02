@@ -5,12 +5,12 @@
  * and session filtering (BloxBot-only vs all).
  */
 
-import type { Session } from "@opencode-ai/sdk/v2/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatSidebar from "@/components/ChatSidebar";
+import type { Session } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";

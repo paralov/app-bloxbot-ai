@@ -13,6 +13,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - A toast when a chat you aren't looking at finishes or needs you, with a button to open it.
 - A one-time invitation to star BloxBot on GitHub, shown when you open BloxBot if you already have chats, otherwise after your third prompt.
 
+### Changed
+
+- BloxBot now runs on OpenCode 2. OpenCode no longer supports free models on version 1. Your chats and connected providers carry over.
+
+### Fixed
+
+- Chats no longer get stuck on "Thinking..." or "Waiting to retry" when you reach the free limit. The chat stops and says when your free messages reset and how to keep going.
+
 ## [0.13.7] - 2026-10-01
 
 ### Changed

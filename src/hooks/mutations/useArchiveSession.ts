@@ -1,8 +1,7 @@
-import type { Session } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-
 import { analyticsProperties, errorAnalyticsProperties } from "@/lib/analytics";
+import type { Session } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";

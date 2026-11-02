@@ -1,0 +1,770 @@
+/**
+ * Drives a real OpenCode server through BloxBot's client, the way the app does. It talks to a live
+ * model, so it only runs when pointed at a binary:
+ *
+ *   OPENCODE_LIVE_BIN=/path/to/opencode pnpm vitest run src/test/opencodeLive.test.ts
+ */
+import { type ChildProcess, spawn } from "node:child_process";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { QueryClient } from "@tanstack/react-query";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { aiTracer } from "@/lib/analytics";
+import { ASK_ALL_PERMISSIONS, rejectPermissions } from "@/lib/hiddenSession";
+import { createOpencodeClient, type OpencodeClient } from "@/lib/opencode/client";
+import type { Event, ToolPart } from "@/lib/opencode/types";
+import { qk } from "@/lib/queryKeys";
+import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
+import { createOpenCodeConfig } from "../../electron/opencodeConfig";
+
+const BIN = process.env.OPENCODE_LIVE_BIN;
+const MODEL = {
+  providerID: "opencode",
+  modelID: process.env.OPENCODE_LIVE_MODEL ?? "deepseek-v4.1-flash-free",
+};
+const TURN_MS = 120_000;
+const PASSWORD = "live-test";
+
+describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
+  let home: string;
+  let server: ChildProcess;
+  let mcp: Server;
+  let client: OpencodeClient;
+  let queryClient: QueryClient;
+  const active = { current: null as string | null };
+  const events: Event[] = [];
+  const pingCalls: unknown[] = [];
+  const abort = new AbortController();
+
+  async function waitFor<T>(what: string, check: () => T | undefined | false, ms = TURN_MS) {
+    const deadline = Date.now() + ms;
+    for (;;) {
+      const value = check();
+      if (value) return value;
+      if (Date.now() > deadline) {
+        const seen = [...new Set(events.map((event) => event.type))].join(", ");
+        throw new Error(`Timed out waiting for ${what}. Saw: ${seen}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  const idleAfter = (sessionID: string, from: number) =>
+    waitFor("the turn to end", () =>
+      events
+        .slice(from)
+        .some((event) => event.type === "session.idle" && event.properties.sessionID === sessionID),
+    );
+
+  async function newChat(
+    permission?: Parameters<OpencodeClient["session"]["create"]>[0]["permission"],
+  ) {
+    const created = await client.session.create({ permission }, { throwOnError: true });
+    active.current = created.data.id;
+    return created.data.id;
+  }
+
+  const send = (sessionID: string, text: string, system?: string) =>
+    client.session.promptAsync(
+      { sessionID, model: MODEL, agent: "studio", system, parts: [{ type: "text", text }] },
+      { throwOnError: true },
+    );
+
+  const cached = (sessionID: string) =>
+    queryClient.getQueryData<MessagesCache>(qk.messages(sessionID));
+
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), "bloxbot-live-"));
+    const workspace = join(home, "workspace");
+    const config = join(home, "config", "opencode");
+    await mkdir(workspace, { recursive: true });
+    await mkdir(config, { recursive: true });
+
+    const makeMcp = () => {
+      const instance = new McpServer(
+        { name: "studio", version: "1.0.0" },
+        { capabilities: { tools: {} } },
+      );
+      instance.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [
+          {
+            name: "ping_studio",
+            description: "Checks that Roblox Studio responds.",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }));
+      instance.setRequestHandler(CallToolRequestSchema, async (request) => {
+        pingCalls.push(request.params.name);
+        return { content: [{ type: "text", text: "studio-pong" }] };
+      });
+      return instance;
+    };
+    mcp = createServer(async (req, res) => {
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      await makeMcp().connect(transport);
+      await transport.handleRequest(req, res);
+    });
+    await new Promise<void>((resolve) => mcp.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(mcp.address() as AddressInfo).port}/mcp`;
+    await writeFile(join(config, "opencode.json"), JSON.stringify(createOpenCodeConfig({ url })));
+
+    server = spawn(BIN as string, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
+      cwd: workspace,
+      env: {
+        ...process.env,
+        XDG_CONFIG_HOME: join(home, "config"),
+        XDG_DATA_HOME: join(home, "data"),
+        XDG_STATE_HOME: join(home, "state"),
+        XDG_CACHE_HOME: join(home, "cache"),
+        OPENCODE_LOG_LEVEL: "info",
+        OPENCODE_PASSWORD: PASSWORD,
+      },
+    });
+    const baseUrl = await new Promise<string>((resolve, reject) => {
+      let output = "";
+      const read = (chunk: Buffer) => {
+        output += chunk;
+        const match = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(output);
+        if (match?.[1]) resolve(match[1]);
+      };
+      server.stdout?.on("data", read);
+      server.stderr?.on("data", read);
+      server.once("exit", () => reject(new Error(`OpenCode exited: ${output}`)));
+    });
+
+    client = createOpencodeClient({
+      baseUrl,
+      directory: workspace,
+      headers: { Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}` },
+    });
+    queryClient = new QueryClient();
+    const { stream } = await client.event.subscribe({}, { signal: abort.signal });
+    void (async () => {
+      for await (const event of stream) {
+        events.push(event);
+        sseDispatch(queryClient, event, active);
+        // The app hands the tracer the same event objects, so it runs here too.
+        aiTracer.handleEvent(event);
+      }
+    })().catch(() => undefined);
+  }, 60_000);
+
+  afterAll(async () => {
+    abort.abort();
+    server?.kill();
+    mcp?.close();
+    await rm(home, { recursive: true, force: true }).catch(() => undefined);
+  });
+
+  it("lists the free provider, its models and ways to connect", async () => {
+    const { data } = await client.provider.list({}, { throwOnError: true });
+    expect(data.connected).toContain("opencode");
+    const zen = data.all.find((provider) => provider.id === "opencode");
+    expect(zen?.source).toBe("custom");
+    expect(zen?.models[MODEL.modelID]?.capabilities.toolcall).toBe(true);
+    expect(zen?.models[MODEL.modelID]?.capabilities.input.text).toBe(true);
+
+    const auth = await client.provider.auth({}, { throwOnError: true });
+    expect(auth.data.anthropic?.map((method) => method.type)).toContain("api");
+    expect(auth.data["github-copilot"]?.[0]?.type).toBe("oauth");
+  });
+
+  it("offers the configured agent, connects the Studio MCP server", async () => {
+    const agents = await client.app.agents({}, { throwOnError: true });
+    expect(agents.data.map((agent) => agent.name)).toContain("studio");
+    const status = await waitFor("MCP status", () => true);
+    expect(status).toBe(true);
+    const deadline = Date.now() + 20_000;
+    let servers: Record<string, { status: string }> = {};
+    while (Date.now() < deadline) {
+      servers = (await client.mcp.status({}, { throwOnError: true })).data;
+      if (Object.values(servers).some((server) => server.status === "connected")) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    expect(Object.values(servers).map((server) => server.status)).toContain("connected");
+  }, 30_000);
+
+  it("manages chats: hidden metadata, rename, archive, delete", async () => {
+    const hidden = await client.session.create(
+      { title: "helper", metadata: { bloxbotHidden: true } },
+      { throwOnError: true },
+    );
+    expect(hidden.data.metadata?.bloxbotHidden).toBe(true);
+
+    await client.session.update(
+      { sessionID: hidden.data.id, title: "renamed" },
+      { throwOnError: true },
+    );
+    await client.session.update(
+      { sessionID: hidden.data.id, time: { archived: Date.now() } },
+      { throwOnError: true },
+    );
+    const listed = await client.experimental.session.list(
+      { archived: true },
+      { throwOnError: true },
+    );
+    const found = listed.data.find((session) => session.id === hidden.data.id);
+    expect(found?.title).toBe("renamed");
+    expect(found?.time.archived).toBeTypeOf("number");
+
+    await client.session.delete({ sessionID: hidden.data.id }, { throwOnError: true });
+    const after = await client.experimental.session.list(
+      { archived: true },
+      { throwOnError: true },
+    );
+    expect(after.data.some((session) => session.id === hidden.data.id)).toBe(false);
+  });
+
+  it(
+    "streams a reply the same way history reports it, and applies instructions",
+    async () => {
+      const sessionID = await newChat();
+      const from = events.length;
+      await send(
+        sessionID,
+        "What is the codeword? Reply with only the codeword.",
+        "The codeword is PERIWINKLE.",
+      );
+      await idleAfter(sessionID, from);
+
+      const streamed = cached(sessionID);
+      const history = await client.session.messages({ sessionID }, { throwOnError: true });
+      expect(streamed?.messageIds).toEqual(history.data.map((message) => message.info.id));
+
+      const summary = (parts: ReadonlyArray<{ type: string; text?: string }>) =>
+        parts.filter((part) => part.type === "text").map((part) => part.text);
+      for (const message of history.data) {
+        const live = streamed?.messagesById[message.info.id];
+        expect(live?.info.role).toBe(message.info.role);
+        expect(summary(live?.parts ?? [])).toEqual(summary(message.parts));
+      }
+      const reply = history.data.at(-1);
+      expect(reply?.info.role).toBe("assistant");
+      expect(summary(reply?.parts ?? []).join("")).toContain("PERIWINKLE");
+
+      const statuses = queryClient.getQueryData<Record<string, { type: string }>>(qk.statuses);
+      expect(statuses?.[sessionID]?.type).toBe("idle");
+      expect(events.slice(from).map((event) => event.type)).toContain("message.part.delta");
+    },
+    TURN_MS + 10_000,
+  );
+
+  it(
+    "runs tools under the names the UI expects, including Studio's",
+    async () => {
+      const sessionID = await newChat();
+      const from = events.length;
+      await send(
+        sessionID,
+        "Use your tools, one at a time: 1) todowrite with one pending todo 'check', 2) the shell tool to run `echo live-probe`, 3) create the file note.txt containing hi, 4) call the Studio ping tool. Then reply DONE.",
+      );
+      await idleAfter(sessionID, from);
+
+      const parts = (cached(sessionID)?.messageIds ?? []).flatMap(
+        (id) => cached(sessionID)?.messagesById[id]?.parts ?? [],
+      );
+      const tools = parts.filter((part): part is ToolPart => part.type === "tool");
+      const names = tools.map((tool) => tool.tool);
+      expect(names).toContain("bash");
+      expect(names).toContain("todowrite");
+
+      const shell = tools.find((tool) => tool.tool === "bash");
+      expect(shell?.state.status).toBe("completed");
+      expect(shell?.state.status === "completed" && shell.state.output).toContain("live-probe");
+      const write = tools.find((tool) => tool.tool === "write");
+      expect(write?.state.input.filePath).toContain("note.txt");
+
+      const todos = await client.session.todo({ sessionID }, { throwOnError: true });
+      expect(todos.data.length).toBeGreaterThan(0);
+      expect(queryClient.getQueryData(qk.todos(sessionID))).toEqual(todos.data);
+
+      expect(pingCalls).toContain("ping_studio");
+      expect(names.some((name) => name.endsWith("ping_studio"))).toBe(true);
+      expect(names).not.toContain("execute");
+      console.info("[live] tool names:", names.join(", "));
+    },
+    TURN_MS + 10_000,
+  );
+
+  it(
+    "asks for approval and carries on after the reply",
+    async () => {
+      const sessionID = await newChat([{ permission: "bash", pattern: "*", action: "ask" }]);
+      const from = events.length;
+      await send(sessionID, "Run the shell command `echo approved-probe`, then reply DONE.");
+
+      const asked = await waitFor("an approval request", () =>
+        queryClient.getQueryData<{ id: string; permission: string }>(qk.permissions(sessionID)),
+      );
+      expect(asked.permission).toBe("bash");
+      const open = await client.permission.list({}, { throwOnError: true });
+      expect(open.data.map((request) => request.id)).toContain(asked.id);
+
+      await client.permission.reply({ requestID: asked.id, reply: "once" }, { throwOnError: true });
+      await idleAfter(sessionID, from);
+      expect(queryClient.getQueryData(qk.permissions(sessionID))).toBeNull();
+    },
+    TURN_MS + 10_000,
+  );
+
+  it(
+    "asks questions and answers them with the chosen option",
+    async () => {
+      const sessionID = await newChat();
+      const from = events.length;
+      await send(
+        sessionID,
+        "Use the question tool to ask my favourite colour, with the options Red and Blue. After I answer, reply with only the colour.",
+      );
+      const question = await waitFor("a question", () =>
+        queryClient.getQueryData<{
+          id: string;
+          questions: Array<{ options: Array<{ label: string }> }>;
+        }>(qk.questions(sessionID)),
+      );
+      expect(question.questions[0]?.options.map((option) => option.label)).toContain("Blue");
+
+      await client.question.reply(
+        { requestID: question.id, answers: [["Blue"]] },
+        { throwOnError: true },
+      );
+      await idleAfter(sessionID, from);
+      expect(queryClient.getQueryData(qk.questions(sessionID))).toBeNull();
+      const history = await client.session.messages({ sessionID }, { throwOnError: true });
+      const text = history.data
+        .at(-1)
+        ?.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("");
+      expect(text?.toLowerCase()).toContain("blue");
+    },
+    TURN_MS + 10_000,
+  );
+
+  it(
+    "returns structured answers for hidden helper chats",
+    async () => {
+      const created = await client.session.create(
+        { title: "helper", metadata: { bloxbotHidden: true } },
+        { throwOnError: true },
+      );
+      const response = await client.session.prompt(
+        {
+          sessionID: created.data.id,
+          model: MODEL,
+          system: "You return small JSON answers.",
+          format: {
+            type: "json_schema",
+            retryCount: 1,
+            schema: {
+              type: "object",
+              properties: { answer: { type: "number" } },
+              required: ["answer"],
+            },
+          },
+          parts: [{ type: "text", text: "What is 2 + 2?" }],
+        },
+        { throwOnError: true },
+      );
+      expect(response.data.info.error).toBeUndefined();
+      expect(response.data.info.structured).toEqual({ answer: 4 });
+      await client.session.delete({ sessionID: created.data.id }, { throwOnError: true });
+    },
+    TURN_MS + 10_000,
+  );
+
+  it(
+    "sends image attachments and reads them back",
+    async () => {
+      const sessionID = await newChat();
+      const from = events.length;
+      // A 1x1 red PNG.
+      const url =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+      await client.session.promptAsync(
+        {
+          sessionID,
+          model: MODEL,
+          parts: [
+            { type: "text", text: "Reply with OK." },
+            { type: "file", mime: "image/png", url, filename: "red.png" },
+          ],
+        },
+        { throwOnError: true },
+      );
+      await idleAfter(sessionID, from);
+      const history = await client.session.messages({ sessionID }, { throwOnError: true });
+      const files = history.data[0]?.parts.filter((part) => part.type === "file");
+      expect(files).toHaveLength(1);
+      expect(files?.[0]?.type === "file" && files[0].url).toMatch(/^data:image\/png;base64,/);
+      const live = cached(sessionID)?.messagesById[history.data[0]?.info.id as string]?.parts;
+      expect(live?.some((part) => part.type === "file")).toBe(true);
+    },
+    TURN_MS + 10_000,
+  );
+
+  it("connects a provider with an API key and disconnects it", async () => {
+    await client.auth.set(
+      { providerID: "anthropic", auth: { type: "api", key: "sk-ant-not-a-real-key" } },
+      { throwOnError: true },
+    );
+    await client.instance.dispose({}, { throwOnError: true });
+    const connected = await client.provider.list({}, { throwOnError: true });
+    expect(connected.data.all.find((provider) => provider.id === "anthropic")?.source).toBe("api");
+    expect(connected.data.connected).toContain("anthropic");
+
+    await client.auth.remove({ providerID: "anthropic" }, { throwOnError: true });
+    await client.instance.dispose({}, { throwOnError: true });
+    const removed = await client.provider.list({}, { throwOnError: true });
+    expect(removed.data.connected).not.toContain("anthropic");
+    expect(removed.data.connected).toContain("opencode");
+  }, 30_000);
+
+  it("starts an OAuth sign-in with the method the UI picked", async () => {
+    const methods = await client.provider.auth({}, { throwOnError: true });
+    const copilot = methods.data["github-copilot"] ?? [];
+    const index = copilot.findIndex((method) => method.type === "oauth");
+    expect(copilot[index]?.prompts?.map((prompt) => prompt.key)).toContain("deploymentType");
+    const started = await client.provider.oauth.authorize(
+      { providerID: "github-copilot", method: index, inputs: { deploymentType: "github.com" } },
+      { throwOnError: true },
+    );
+    expect(started.data.url).toMatch(/^https:\/\/github\.com\//);
+    expect(started.data.method).toMatch(/auto|code/);
+  }, 30_000);
+
+  it(
+    "stops a running turn without calling it a failure",
+    async () => {
+      const sessionID = await newChat();
+      const from = events.length;
+      await send(sessionID, "Run the shell command `sleep 20`, then reply DONE.");
+      await waitFor("the turn to start", () =>
+        events.slice(from).some((event) => event.type === "session.status"),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await client.session.abort({ sessionID }, { throwOnError: true });
+      await idleAfter(sessionID, from);
+      const errors = events
+        .slice(from)
+        .flatMap((event) => (event.type === "session.error" ? [event.properties.error?.name] : []));
+      expect(errors.every((name) => name === "MessageAbortedError")).toBe(true);
+    },
+    TURN_MS + 10_000,
+  );
+});
+
+/** Serves one OpenAI-style error for every request, as a provider rejecting the prompt would. */
+async function startFailingProvider(status: number, body: object) {
+  const requests: string[] = [];
+  const provider = createServer((req, res) => {
+    requests.push(req.url ?? "");
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(status, { "content-type": "application/json", "retry-after": "3600" });
+      res.end(JSON.stringify(body));
+    });
+  });
+  await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+  return {
+    provider,
+    requests,
+    url: `http://127.0.0.1:${(provider.address() as AddressInfo).port}/v1`,
+  };
+}
+
+async function startServer(bin: string, home: string, password = PASSWORD) {
+  const workspace = join(home, "workspace");
+  await mkdir(workspace, { recursive: true });
+  const child = spawn(bin, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
+    cwd: workspace,
+    env: {
+      ...process.env,
+      XDG_CONFIG_HOME: join(home, "config"),
+      XDG_DATA_HOME: join(home, "data"),
+      XDG_STATE_HOME: join(home, "state"),
+      XDG_CACHE_HOME: join(home, "cache"),
+      OPENCODE_PASSWORD: password,
+      OPENCODE_SERVER_PASSWORD: password,
+    },
+  });
+  const baseUrl = await new Promise<string>((resolve, reject) => {
+    let output = "";
+    const read = (chunk: Buffer) => {
+      output += chunk;
+      const match = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(output);
+      if (match?.[1]) resolve(match[1]);
+    };
+    child.stdout?.on("data", read);
+    child.stderr?.on("data", read);
+    child.once("exit", () => reject(new Error(`OpenCode exited: ${output}`)));
+  });
+  return { child, baseUrl, workspace };
+}
+
+describe.skipIf(!BIN)("OpenCode 2 failures", () => {
+  it("ends the turn with the reason when the free limit is hit, and doesn't keep retrying", async () => {
+    const home = await mkdtemp(join(tmpdir(), "bloxbot-limit-"));
+    const message = "Free usage limit reached. Subscribe to OpenCode Go to keep going.";
+    const { provider, requests, url } = await startFailingProvider(429, {
+      type: "error",
+      error: { type: "FreeUsageLimitError", message },
+    });
+    await mkdir(join(home, "config", "opencode"), { recursive: true });
+    await writeFile(
+      join(home, "config", "opencode", "opencode.json"),
+      JSON.stringify({ providers: { opencode: { settings: { baseURL: url } } } }),
+    );
+    const { child, baseUrl, workspace } = await startServer(BIN as string, home);
+    const abort = new AbortController();
+    try {
+      const client = createOpencodeClient({
+        baseUrl,
+        directory: workspace,
+        headers: {
+          Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}`,
+        },
+      });
+      const events: Event[] = [];
+      const { stream } = await client.event.subscribe({}, { signal: abort.signal });
+      void (async () => {
+        for await (const event of stream) events.push(event);
+      })().catch(() => undefined);
+
+      const created = await client.session.create({}, { throwOnError: true });
+      const sessionID = created.data.id;
+      await client.session.promptAsync(
+        { sessionID, model: MODEL, parts: [{ type: "text", text: "Hello" }] },
+        { throwOnError: true },
+      );
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline && !events.some((event) => event.type === "session.idle")) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const summary = events.map((event) =>
+        event.type === "session.status"
+          ? `status:${event.properties.status.type}`
+          : event.type === "session.error"
+            ? `error:${JSON.stringify(event.properties.error)}`
+            : event.type,
+      );
+      console.info("[live] free limit:", requests.length, "requests", JSON.stringify(summary));
+      const failure = events.find((event) => event.type === "session.error");
+      expect(failure?.type === "session.error" && failure.properties.error?.data).toMatchObject({
+        message: expect.stringContaining("Free usage limit"),
+      });
+      expect(events.some((event) => event.type === "session.idle")).toBe(true);
+    } finally {
+      abort.abort();
+      child.kill();
+      provider.close();
+      await rm(home, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }, 60_000);
+});
+
+const V1_BIN = process.env.OPENCODE_LIVE_V1_BIN;
+
+describe.skipIf(!BIN || !V1_BIN)("Upgrading from OpenCode 1", () => {
+  it(
+    "keeps a chat made on OpenCode 1 in a folder that isn't a git repository",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "bloxbot-upgrade-"));
+      const auth = {
+        Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}`,
+      };
+      try {
+        const v1 = await startServer(V1_BIN as string, home);
+        const created = await fetch(`${v1.baseUrl}/session`, {
+          method: "POST",
+          headers: { ...auth, "content-type": "application/json" },
+          body: JSON.stringify({ title: "Made on v1" }),
+        }).then((response) => response.json() as Promise<{ id: string }>);
+        await fetch(`${v1.baseUrl}/session/${created.id}/message`, {
+          method: "POST",
+          headers: { ...auth, "content-type": "application/json" },
+          body: JSON.stringify({
+            model: { providerID: MODEL.providerID, modelID: MODEL.modelID },
+            parts: [{ type: "text", text: "Reply with OK" }],
+          }),
+        });
+        v1.child.kill();
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+
+        const v2 = await startServer(BIN as string, home);
+        try {
+          const client = createOpencodeClient({
+            baseUrl: v2.baseUrl,
+            directory: v2.workspace,
+            headers: auth,
+          });
+          const deadline = Date.now() + 60_000;
+          let titles: string[] = [];
+          while (Date.now() < deadline) {
+            const { data } = await client.experimental.session.list(
+              { archived: true },
+              { throwOnError: true },
+            );
+            titles = data.map((session) => session.title);
+            if (titles.includes("Made on v1")) break;
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+          expect(titles).toContain("Made on v1");
+          const { data } = await client.experimental.session.list(
+            { archived: true },
+            { throwOnError: true },
+          );
+          const session = data.find((candidate) => candidate.title === "Made on v1");
+          const history = await client.session.messages(
+            { sessionID: session?.id as string },
+            { throwOnError: true },
+          );
+          console.info(
+            "[live] upgraded history:",
+            JSON.stringify(
+              history.data.map((message) => [
+                message.info.role,
+                message.parts.map((part) => part.type),
+              ]),
+            ),
+          );
+          expect(history.data.map((message) => message.info.role)).toEqual(["user", "assistant"]);
+        } finally {
+          v2.child.kill();
+        }
+      } finally {
+        await rm(home, { recursive: true, force: true }).catch(() => undefined);
+      }
+    },
+    TURN_MS,
+  );
+});
+
+/** Streams scripted OpenAI-style replies, so these need no model and no free quota. */
+async function startScriptedProvider(replies: ReadonlyArray<object>) {
+  let next = 0;
+  const provider = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      const delta = replies[Math.min(next++, replies.length - 1)];
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const chunk = (choice: object) =>
+        res.write(
+          `data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, ...choice }] })}\n\n`,
+        );
+      chunk({ delta: { role: "assistant", ...delta }, finish_reason: null });
+      chunk({
+        delta: {},
+        finish_reason: "tool_calls" in (delta as object) ? "tool_calls" : "stop",
+      });
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+  return {
+    provider,
+    requests: () => next,
+    url: `http://127.0.0.1:${(provider.address() as AddressInfo).port}/v1`,
+  };
+}
+
+const shellCall = (command: string) => ({
+  tool_calls: [
+    {
+      index: 0,
+      id: "call_1",
+      type: "function",
+      function: { name: "shell", arguments: JSON.stringify({ command }) },
+    },
+  ],
+});
+
+describe.skipIf(!BIN)("Hidden helper chats", () => {
+  async function withHelper(
+    replies: ReadonlyArray<object>,
+    run: (client: OpencodeClient, sessionID: string, marker: string) => Promise<void>,
+  ) {
+    const home = await mkdtemp(join(tmpdir(), "bloxbot-helper-"));
+    const marker = join(home, "must-not-exist.txt");
+    const { provider, url } = await startScriptedProvider(
+      replies.map((reply) => ("tool_calls" in reply ? shellCall(`touch ${marker}`) : reply)),
+    );
+    await mkdir(join(home, "config", "opencode"), { recursive: true });
+    await writeFile(
+      join(home, "config", "opencode", "opencode.json"),
+      JSON.stringify({ providers: { opencode: { settings: { baseURL: url } } } }),
+    );
+    const { child, baseUrl, workspace } = await startServer(BIN as string, home);
+    try {
+      const client = createOpencodeClient({
+        baseUrl,
+        directory: workspace,
+        headers: {
+          Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}`,
+        },
+      });
+      const created = await client.session.create(
+        { metadata: { bloxbotHidden: true }, permission: ASK_ALL_PERMISSIONS },
+        { throwOnError: true },
+      );
+      await run(client, created.data.id, marker);
+    } finally {
+      child.kill();
+      provider.close();
+      await rm(home, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  const ask = (client: OpencodeClient, sessionID: string) =>
+    client.session.prompt(
+      {
+        sessionID,
+        model: MODEL,
+        format: { type: "json_schema", schema: { type: "object" } },
+        parts: [{ type: "text", text: "Answer." }],
+      },
+      { throwOnError: true },
+    );
+
+  it("rejects the model's tool call, then gets its answer from the same turn", async () => {
+    await withHelper(
+      [{ tool_calls: [] }, { content: '{"answer":4}' }],
+      async (client, sessionID, marker) => {
+        const stop = rejectPermissions(client, sessionID);
+        try {
+          const response = await ask(client, sessionID);
+          expect(response.data.info.error).toBeUndefined();
+          expect(response.data.info.structured).toEqual({ answer: 4 });
+          await expect(access(marker)).rejects.toThrow();
+        } finally {
+          stop();
+        }
+      },
+    );
+  }, 60_000);
+
+  it("doesn't wait forever on a turn that ends without an idle entry", async () => {
+    await withHelper([{ tool_calls: [] }], async (client, sessionID, marker) => {
+      // A bare rejection, which is what a user's Reject sends, interrupts the turn.
+      const reject = setInterval(async () => {
+        const open = await client.permission.list({}).catch(() => undefined);
+        for (const request of open?.data ?? []) {
+          await client.permission.reply({ requestID: request.id, reply: "reject" }).catch(() => {});
+        }
+      }, 100);
+      try {
+        const response = await ask(client, sessionID);
+        expect(response.data.info.error?.name).toBe("MessageAbortedError");
+        await expect(access(marker)).rejects.toThrow();
+      } finally {
+        clearInterval(reject);
+      }
+    });
+  }, 60_000);
+});

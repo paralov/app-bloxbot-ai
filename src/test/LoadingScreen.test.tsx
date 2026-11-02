@@ -27,7 +27,8 @@ describe("startup progress", () => {
     expect(screen.getByRole("heading", { name: "Connecting the dots" })).toBeVisible();
     expect(screen.getByText("Making sure everything can talk")).toBeVisible();
     expect(screen.getByRole("progressbar", { name: "Connecting, step 2 of 3" })).toBeVisible();
-    expect(screen.getByText("Step 2 of 3 · Connecting")).toBeVisible();
+    expect(screen.getByText("Step 2 of 3")).toBeVisible();
+    expect(screen.getByText("Connecting")).toBeVisible();
     expect(container.querySelector(".startup-progress-indeterminate")).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
     expect(screen.queryByText(/OpenCode/i)).not.toBeInTheDocument();
@@ -45,7 +46,7 @@ describe("startup progress", () => {
     expect(screen.getByRole("heading", { name: "Downloading a one-time setup" })).toBeVisible();
     expect(screen.getByText("Future launches will use the saved copy")).toBeVisible();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25");
-    expect(screen.getByText("25% · 2.0 MB/s")).toBeVisible();
+    expect(screen.getByText("25% 2.0 MB/s")).toBeVisible();
   });
 
   it("turns a verbose download failure into calm, actionable copy", () => {

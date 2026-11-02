@@ -1,3 +1,8 @@
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { HighlightLanguage } from "@/components/SyntaxHighlightedOutput";
 import type {
   Part,
   PermissionRequest,
@@ -5,12 +10,7 @@ import type {
   QuestionRequest,
   SessionStatus,
   Todo,
-} from "@opencode-ai/sdk/v2/client";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Markdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { HighlightLanguage } from "@/components/SyntaxHighlightedOutput";
+} from "@/lib/opencode/types";
 
 /** Module-level constant to avoid creating a new array on every render. */
 const REMARK_PLUGINS = [remarkGfm];
@@ -43,7 +43,11 @@ import { useSessionError } from "@/hooks/useSessionError";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useTodos } from "@/hooks/useTodos";
 import { type ModelError, presentModelError } from "@/lib/modelError";
-import { getOpenCodeUsageAction, type OpenCodeUsageAction } from "@/lib/usageLimit";
+import {
+  freeLimitUsageAction,
+  getOpenCodeUsageAction,
+  type OpenCodeUsageAction,
+} from "@/lib/usageLimit";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import type { MessageWithParts } from "@/types";
 
@@ -1553,7 +1557,7 @@ function ChatMessages() {
   const { activeSessionId } = useActiveSession();
   const sessionStatus = useSessionStatus(activeSessionId);
   const isBusy = sessionStatus !== undefined && sessionStatus.type !== "idle";
-  const usageAction = getOpenCodeUsageAction(sessionStatus);
+  const usageAction = getOpenCodeUsageAction(sessionStatus) ?? freeLimitUsageAction(sessionError);
   const todos = useTodos();
   const activeQuestion = useActiveQuestion();
   const activePermission = useActivePermission();

@@ -260,13 +260,17 @@ describe("Explorer data boundary", () => {
         validate: vi.fn().mockResolvedValue("snapshot"),
       }),
     ).resolves.toMatchObject({ attempts: 1 });
-    expect(permission.reply).toHaveBeenCalledWith({ requestID: "explorer-ask", reply: "reject" });
+    expect(permission.reply).toHaveBeenCalledWith({
+      requestID: "explorer-ask",
+      reply: "reject",
+      message: expect.any(String),
+    });
     expect(permission.reply).not.toHaveBeenCalledWith(
       expect.objectContaining({ requestID: "chat-ask" }),
     );
     const system = prompt.mock.calls[0][0].system as string;
     expect(system).toContain("Do not call any Studio tool yourself");
-    expect(system).toContain("StructuredOutput tool");
+    expect(system).toContain("one JSON object");
   });
 
   it("surfaces a provider error from the reply without retrying", async () => {
@@ -306,7 +310,7 @@ describe("Explorer data boundary", () => {
     ).resolves.toMatchObject({ program: structured, attempts: 2 });
     const retry = prompt.mock.calls[1][0].parts[0].text as string;
     expect(retry).toContain("Model did not produce structured output");
-    expect(retry).toContain("StructuredOutput tool");
+    expect(retry).toContain("one JSON object");
     expect(retry).not.toContain("compiled and ran");
   });
 

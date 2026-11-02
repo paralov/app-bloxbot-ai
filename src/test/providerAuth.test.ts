@@ -1,5 +1,5 @@
-import type { ProviderAuthMethod } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
+import type { ProviderAuthMethod } from "@/lib/opencode/types";
 
 import {
   authErrorMessage,

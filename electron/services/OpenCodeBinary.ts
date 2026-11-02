@@ -23,7 +23,10 @@ import { PINNED_OPENCODE_RELEASE, type PinnedOpenCodeRelease } from "./openCodeP
 
 const OPEN_CODE_API = "https://api.github.com/repos/anomalyco/opencode/releases";
 const OPEN_CODE_DOWNLOAD_PREFIX = "https://github.com/anomalyco/opencode/releases/download/";
-const SUPPORTED_MAJOR = 1;
+// OpenCode's API isn't stable across minor releases and ships several times a week, so BloxBot
+// follows patches of the line its client was built against. Update `@opencode/client` to move on.
+const SUPPORTED_MAJOR = 2;
+const SUPPORTED_MINOR = 2;
 const RELEASES_PER_PAGE = 100;
 const LOOKUP_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -283,7 +286,7 @@ function parseVersion(tag: string): Version | null {
     patch: Number(match[3]),
     value: `${Number(match[1])}.${Number(match[2])}.${Number(match[3])}`,
   };
-  return version.major === SUPPORTED_MAJOR ? version : null;
+  return version.major === SUPPORTED_MAJOR && version.minor === SUPPORTED_MINOR ? version : null;
 }
 
 function compareVersions(left: Version, right: Version): number {
@@ -429,7 +432,7 @@ function findCompatibleRelease(fetchFn: Fetch, archiveName: string) {
     const release = selectCompatibleRelease(releases, archiveName);
     if (release) return release;
     return yield* fail(
-      `No stable OpenCode ${SUPPORTED_MAJOR}.x.x release is available for ${archiveName}`,
+      `No stable OpenCode ${SUPPORTED_MAJOR}.${SUPPORTED_MINOR}.x release is available for ${archiveName}`,
     );
   });
 }
@@ -1013,7 +1016,7 @@ export function ensureOpenCodeBinary(
 
     const reason = combinedFailureReason(updateError, pinnedResult.left);
     return yield* fail(
-      `Unable to download a verified OpenCode ${SUPPORTED_MAJOR}.x.x release and no cached copy is available. ` +
+      `Unable to download a verified OpenCode ${SUPPORTED_MAJOR}.${SUPPORTED_MINOR}.x release and no cached copy is available. ` +
         `Release check: ${updateError.message}. ` +
         `Pinned v${pinnedRelease.version}: ${pinnedResult.left.message} (reason: ${reason})`,
       [updateError, pinnedResult.left],

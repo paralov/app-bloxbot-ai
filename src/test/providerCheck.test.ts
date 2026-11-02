@@ -1,5 +1,5 @@
-import type { AssistantMessage, Model } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
+import type { AssistantMessage, Model } from "@/lib/opencode/types";
 
 import {
   checkFailure,

@@ -1,13 +1,12 @@
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-
 import {
   aiTracer,
   analyticsProperties,
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
 } from "@/lib/analytics";
+import type { SessionStatus } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { recordPromptSent } from "@/lib/starCallout";
@@ -72,9 +71,12 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
         variant: selectedVariant ?? undefined,
       });
       try {
-        await client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0], {
-          throwOnError: true,
-        });
+        await client.session.promptAsync(
+          opts as unknown as Parameters<typeof client.session.promptAsync>[0],
+          {
+            throwOnError: true,
+          },
+        );
       } catch (error) {
         aiTracer.cancelTurn(activeSessionId);
         throw error;

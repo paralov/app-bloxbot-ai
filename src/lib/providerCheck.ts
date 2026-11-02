@@ -1,6 +1,5 @@
-import type { Model, Provider } from "@opencode-ai/sdk/v2/client";
-
 import { type ModelError, modelErrorDetail } from "@/lib/modelError";
+import type { Model, Provider } from "@/lib/opencode/types";
 import { splitModelKey } from "@/lib/splitModelKey";
 
 /**

@@ -21,7 +21,7 @@ const STEPS = [
   },
   {
     title: "Manage MCP Servers",
-    description: "Open the ••• menu, then click Manage MCP Servers.",
+    description: "Open the three-dot menu, then click Manage MCP Servers.",
     image: findMcpImage,
     alt: "The Roblox Studio Assistant menu with Manage MCP Servers selected",
   },

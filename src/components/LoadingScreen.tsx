@@ -385,8 +385,9 @@ function StartupProgressGraphic({ startup }: { startup: StartupProgress }) {
         })}
       </div>
       <div className="mt-2.5 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
-        <span>
-          Step {startup.step} of 3 · {startup.label}
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0">Step {startup.step} of 3</span>
+          <span className="truncate">{startup.label}</span>
         </span>
         {startup.meta && (
           <span className="shrink-0 font-mono text-[10px] tabular-nums text-foreground/65">

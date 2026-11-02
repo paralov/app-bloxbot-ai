@@ -1,10 +1,9 @@
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-
 import { analyticsProperties, detailedAnalyticsProperties } from "@/lib/analytics";
 import { scrubErrorMessage } from "@/lib/errorReporting";
 import { ASK_ALL_PERMISSIONS, rejectPermissions } from "@/lib/hiddenSession";
+import type { ProviderListResponse } from "@/lib/opencode/types";
 import {
   canChat,
   checkFailure,

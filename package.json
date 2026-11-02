@@ -34,7 +34,7 @@
     "@lexical/react": "^0.48.0",
     "@lexical/utils": "^0.48.0",
     "@modelcontextprotocol/sdk": "1.26.0",
-    "@opencode-ai/sdk": "^1.18.4",
+    "@opencode/client": "2.2.5",
     "@shikijs/core": "^4.3.1",
     "@shikijs/engine-javascript": "^4.3.1",
     "@shikijs/langs": "^4.3.1",

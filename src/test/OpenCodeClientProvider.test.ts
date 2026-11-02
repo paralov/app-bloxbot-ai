@@ -1,6 +1,6 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+import type { OpencodeClient } from "@/lib/opencode/client";
 import { qk } from "@/lib/queryKeys";
 import { prefetchServerState, reconcileServerState } from "@/providers/OpenCodeClientProvider";
 

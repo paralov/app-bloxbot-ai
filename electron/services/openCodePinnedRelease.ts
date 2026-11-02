@@ -5,7 +5,7 @@
  * does not cover, and is verified against the SHA-256 below.
  *
  * To bump it:
- * 1. Pick a stable 1.x.x release that BloxBot has run with.
+ * 1. Pick a stable release in the line `OpenCodeBinary.ts` supports that BloxBot has run with.
  * 2. Copy each asset's `digest` (without the `sha256:` prefix) from
  *    `gh api repos/anomalyco/opencode/releases/tags/<tag>`.
  * 3. Run `pnpm check:opencode-pin` to confirm the hashes match GitHub's published digests.
@@ -23,32 +23,32 @@ export interface PinnedOpenCodeRelease {
   readonly assets: Readonly<Record<string, PinnedOpenCodeAsset>>;
 }
 
-const TAG = "v1.18.33";
+const TAG = "v2.2.5";
 const download = (assetName: string) =>
   `https://github.com/anomalyco/opencode/releases/download/${TAG}/${assetName}`;
 
 export const PINNED_OPENCODE_RELEASE: PinnedOpenCodeRelease = {
-  version: "1.18.33",
+  version: "2.2.5",
   assets: {
     "darwin-arm64": {
       assetName: "opencode-darwin-arm64.zip",
       url: download("opencode-darwin-arm64.zip"),
-      sha256: "24b12873e605b3db3387cb355f43ba7451cd6065c180d8c188663337d2eeb553",
+      sha256: "25ba9908979fa7d764792c82589b4b5768ab1511154e0317d98aa77d216ce767",
     },
     "darwin-x64": {
       assetName: "opencode-darwin-x64.zip",
       url: download("opencode-darwin-x64.zip"),
-      sha256: "90c7e7d9ffa0d8691ca0f15b42a7b89b72e17a4d26074b9ef06559ff87b221ec",
+      sha256: "4d4419022e6ffbd48afc97c5101bdf001d38b0499f516169b9a80a87a340fd56",
     },
     "win32-x64": {
       assetName: "opencode-windows-x64.zip",
       url: download("opencode-windows-x64.zip"),
-      sha256: "cc827fda2e32502373c5de25a4b78471766b99881d12a441ae5b9fcff39c5780",
+      sha256: "2f3bfd6b3527c60c2a882557b20ddc9ba6bdff4b5a8fe61c853da8fcfb3076e8",
     },
     "linux-x64": {
       assetName: "opencode-linux-x64.tar.gz",
       url: download("opencode-linux-x64.tar.gz"),
-      sha256: "e546123213ae47909a4268692aa4b94950d011afe9cac9938753a2194f1c16d5",
+      sha256: "09f44302c10fd036912f59c81fd1aef5df45dd06f649197f9dfc9bbe2a79614e",
     },
   },
 };

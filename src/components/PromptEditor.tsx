@@ -10,7 +10,6 @@ import {
   MenuOption,
   useBasicTypeaheadTriggerMatch,
 } from "@lexical/react/LexicalTypeaheadMenuPlugin";
-import type { Command } from "@opencode-ai/sdk/v2/client";
 import {
   $createParagraphNode,
   $createTextNode,
@@ -38,6 +37,7 @@ import {
 import { createPortal } from "react-dom";
 import { analyticsProperties } from "@/lib/analytics";
 import type { ExplorerNode } from "@/lib/explorer";
+import type { Command } from "@/lib/opencode/types";
 
 type TokenKind = "object" | "command";
 
@@ -267,7 +267,7 @@ function TypeaheadPlugin({
             `object:${node.path}`,
             "object",
             `@${node.name}`,
-            `${node.className} · ${node.path}`,
+            `${node.className} ${node.path}`,
             node.path,
           ),
         );
@@ -285,7 +285,7 @@ function TypeaheadPlugin({
           `command:${command.name}`,
           "command",
           `/${command.name}`,
-          [usage, command.description].filter(Boolean).join(" · "),
+          [usage, command.description].filter(Boolean).join(" "),
           `/${command.name}`,
         ),
       );

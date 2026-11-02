@@ -1,5 +1,5 @@
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
+import type { SessionStatus } from "@/lib/opencode/types";
 
 import { getOpenCodeUsageAction } from "@/lib/usageLimit";
 

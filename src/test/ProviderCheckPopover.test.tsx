@@ -1,9 +1,8 @@
-import type { Model } from "@opencode-ai/sdk/v2/client";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { type ComponentProps, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-
 import ProviderCheckPopover from "@/components/ProviderCheckPopover";
+import type { Model } from "@/lib/opencode/types";
 
 function model(id: string, name: string) {
   return { id, name, status: "active" } as Model;

@@ -1,5 +1,5 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { Effect, Schema } from "effect";
+import type { OpencodeClient } from "@/lib/opencode/client";
 
 import {
   type StudioTargetProgramEnvelopes,

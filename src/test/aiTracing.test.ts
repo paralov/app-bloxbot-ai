@@ -1,6 +1,6 @@
-import type { Event } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it, vi } from "vitest";
 import { AiTracer, toConversation, trimConversation, truncateText } from "@/lib/aiTracing";
+import type { Event } from "@/lib/opencode/types";
 import type { MessageWithParts } from "@/types";
 import type { InstructionFile } from "@/types/desktop";
 
@@ -517,5 +517,56 @@ describe("AI tracing", () => {
     });
     expect(trimmed.slice(1)).toEqual(long.slice(3));
     expect(truncateText("abcdef", 3)).toBe("abc… [truncated 3 chars]");
+  });
+});
+
+describe("streamed text", () => {
+  it("doesn't edit the event's part, which the message cache and the screen share", () => {
+    const tracer = new AiTracer(() => {});
+    const part = {
+      id: "part-1",
+      sessionID: "session-1",
+      messageID: "message-1",
+      type: "text",
+      text: "",
+    } as const;
+    const shared = { ...part };
+
+    tracer.handleEvent({
+      type: "message.updated",
+      properties: {
+        sessionID: "session-1",
+        info: {
+          id: "message-1",
+          sessionID: "session-1",
+          role: "assistant",
+          time: { created: 1 },
+          parentID: "user-1",
+          modelID: "model",
+          providerID: "provider",
+          mode: "studio",
+          agent: "studio",
+          path: { cwd: "", root: "" },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        },
+      },
+    });
+    tracer.handleEvent({
+      type: "message.part.updated",
+      properties: { sessionID: "session-1", part: shared, time: 1 },
+    });
+    tracer.handleEvent({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "session-1",
+        messageID: "message-1",
+        partID: "part-1",
+        field: "text",
+        delta: "Hello",
+      },
+    });
+
+    expect(shared.text).toBe("");
   });
 });

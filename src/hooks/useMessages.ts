@@ -1,6 +1,6 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { hashKey, type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
+import type { OpencodeClient } from "@/lib/opencode/client";
 
 import { hasPlaytestContext } from "@/lib/playtestPlan";
 import { qk } from "@/lib/queryKeys";

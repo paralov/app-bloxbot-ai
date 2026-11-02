@@ -42,7 +42,7 @@ describe("OpenCode configuration", () => {
   });
 
   it("keeps Studio instructions concise and action-oriented", () => {
-    const prompt = createOpenCodeConfig(broker).agent.studio.prompt;
+    const prompt = createOpenCodeConfig(broker).agents.studio.system;
 
     expect(prompt.trim().split(/\s+/).length).toBeLessThanOrEqual(75);
     expect(prompt).toMatch(/inspect before editing/i);
@@ -54,10 +54,10 @@ describe("OpenCode configuration", () => {
   });
 
   it("connects OpenCode to the loopback broker", () => {
-    expect(createOpenCodeConfig(broker).mcp["roblox-studio"]).toEqual({
+    expect(createOpenCodeConfig(broker).mcp.servers["roblox-studio"]).toEqual({
       type: "remote",
       url: broker.url,
-      enabled: true,
+      codemode: false,
     });
   });
 });

@@ -1,5 +1,5 @@
-import type { Message, Part } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
+import type { Message, Part } from "@/lib/opencode/types";
 import {
   buildPlaytestHistory,
   formatPlaytestPrompt,

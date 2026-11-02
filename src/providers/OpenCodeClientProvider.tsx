@@ -1,4 +1,3 @@
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import {
@@ -14,6 +13,7 @@ import LoadingScreen, { type StartupProgress } from "@/components/LoadingScreen"
 import { aiTracer, captureDetailedAnalytics } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { notify } from "@/lib/notifications";
+import { createOpencodeClient, type OpencodeClient } from "@/lib/opencode/client";
 import { qk } from "@/lib/queryKeys";
 import { sessionNotifier } from "@/lib/sessionNotifications";
 import { sseDispatch } from "@/lib/sseDispatch";
@@ -80,9 +80,7 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
         step: 1,
         label: "Preparing",
         progress: fraction,
-        meta: [percentage, formatTransferSpeed(progress.bytesPerSecond)]
-          .filter(Boolean)
-          .join(" · "),
+        meta: [percentage, formatTransferSpeed(progress.bytesPerSecond)].filter(Boolean).join(" "),
       },
     };
   }

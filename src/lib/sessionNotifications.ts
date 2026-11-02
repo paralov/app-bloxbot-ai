@@ -1,7 +1,6 @@
-import type { Event, Session } from "@opencode-ai/sdk/v2/client";
 import type { QueryClient } from "@tanstack/react-query";
-
 import { isWindowFocused, notify } from "@/lib/notifications";
+import type { Event, Session } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { isVisibleSession } from "@/lib/sessionVisibility";
 import { maybeShowStarCallout } from "@/lib/starCallout";
