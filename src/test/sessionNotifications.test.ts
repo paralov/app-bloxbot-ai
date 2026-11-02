@@ -15,7 +15,7 @@ vi.mock("@/lib/notifications", () => ({
 vi.mock("@/lib/starCallout", () => ({ maybeShowStarCallout }));
 
 import { qk } from "@/lib/queryKeys";
-import { SessionNotifier } from "@/lib/sessionNotifications";
+import { SessionNotifier, setChatOnScreen } from "@/lib/sessionNotifications";
 
 const event = (type: string, properties: Record<string, unknown>) =>
   ({ type, properties }) as unknown as Event;
@@ -36,6 +36,7 @@ describe("SessionNotifier", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     focused.mockReturnValue(false);
+    setChatOnScreen(true);
     active.current = "chat";
     notifier = new SessionNotifier();
     queryClient = new QueryClient();
@@ -43,6 +44,7 @@ describe("SessionNotifier", () => {
       { id: "chat", title: "Build a castle" },
       { id: "other", title: "Fix the door" },
       { id: "subagent", title: "Search", parentID: "chat" },
+      { id: "helper", title: "Plan", metadata: { bloxbotHidden: true } },
     ]);
   });
 
@@ -67,8 +69,25 @@ describe("SessionNotifier", () => {
     expect(attention).toHaveBeenCalledOnce();
   });
 
+  it("announces the active chat while another screen covers it", () => {
+    focused.mockReturnValue(true);
+    setChatOnScreen(false);
+
+    send(busy("chat"), idle("chat"));
+
+    expect(attention).toHaveBeenCalledOnce();
+  });
+
   it("ignores idle events without a turn, hidden helper chats and subagents", () => {
-    send(idle("chat"), busy("hidden"), idle("hidden"), busy("subagent"), idle("subagent"));
+    send(
+      idle("chat"),
+      busy("hidden"),
+      idle("hidden"),
+      busy("subagent"),
+      idle("subagent"),
+      busy("helper"),
+      idle("helper"),
+    );
 
     expect(attention).not.toHaveBeenCalled();
     expect(maybeShowStarCallout).not.toHaveBeenCalled();

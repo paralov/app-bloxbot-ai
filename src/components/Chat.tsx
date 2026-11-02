@@ -15,7 +15,7 @@ import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { analyticsProperties, POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
-import { setSessionOpener } from "@/lib/sessionNotifications";
+import { setChatOnScreen, setSessionOpener } from "@/lib/sessionNotifications";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
@@ -75,6 +75,10 @@ function Chat() {
     };
     posthog.register(screenProperties);
     posthog.capture("$pageview", analyticsProperties("navigation", screenProperties));
+  }, [appScreen]);
+
+  useEffect(() => {
+    setChatOnScreen(appScreen === "chat");
   }, [appScreen]);
 
   useEffect(() => {

@@ -13,7 +13,7 @@ const { toast, desktop, capture, click } = vi.hoisted(() => {
     },
   );
   const desktop = {
-    showSystemNotification: vi.fn(async () => {}),
+    showSystemNotification: vi.fn(async () => true),
     onSystemNotificationClick: vi.fn((listener: (id: string) => void) => {
       click.listener = listener;
       return () => {};
@@ -103,6 +103,15 @@ describe("notify", () => {
 
     expect(toast).toHaveBeenCalledOnce();
     expect(desktop.showSystemNotification).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a toast when the OS can't show a notification", async () => {
+    setFocused(false);
+    desktop.showSystemNotification.mockResolvedValueOnce(false);
+
+    notify.attention("Chat finished", { name: "chat_finished" });
+
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledOnce());
   });
 
   it("runs the open action once when its OS notification is clicked", () => {

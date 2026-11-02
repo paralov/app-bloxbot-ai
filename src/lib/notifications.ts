@@ -90,7 +90,8 @@ function trackedButton<T extends ExternalToast["action"]>(notification: string, 
   };
 }
 
-function showSystem(name: string, title: string, options: SystemOptions): void {
+/** Resolves to false when the OS has no notifications to offer, so a caller can use a toast. */
+function showSystem(name: string, title: string, options: SystemOptions): Promise<boolean> {
   const id = String(++nextSystemId);
   clickHandlers.set(id, () => {
     captureClicked(name, "system", "open");
@@ -100,11 +101,18 @@ function showSystem(name: string, title: string, options: SystemOptions): void {
     clickHandlers.get(clickedId)?.();
     clickHandlers.delete(clickedId);
   });
-  captureShown(name, "system");
-  desktop.showSystemNotification({ id, title, body: options.body ?? "" }).catch((error) => {
-    clickHandlers.delete(id);
-    console.warn("System notification failed:", error);
-  });
+  return desktop.showSystemNotification({ id, title, body: options.body ?? "" }).then(
+    (shown) => {
+      if (shown) captureShown(name, "system");
+      else clickHandlers.delete(id);
+      return shown;
+    },
+    (error) => {
+      clickHandlers.delete(id);
+      console.warn("System notification failed:", error);
+      return false;
+    },
+  );
 }
 
 function withSystem(title: string, options: NotifyOptions | undefined): ExternalToast | undefined {
@@ -114,7 +122,7 @@ function withSystem(title: string, options: NotifyOptions | undefined): External
   captureShown(name, "toast");
   if (system && systemNotificationsEnabled && !isWindowFocused()) {
     const systemOptions = system === true ? {} : system;
-    showSystem(name, title, {
+    void showSystem(name, title, {
       ...systemOptions,
       body:
         systemOptions.body ??
@@ -138,13 +146,18 @@ export const notify = {
   loading: (title: string, options?: NotifyOptions): ToastId =>
     toast.loading(title, withSystem(title, options)),
   attention(title: string, { name, description, tone = "default", open }: AttentionOptions): void {
-    if (systemNotificationsEnabled && !isWindowFocused()) {
-      showSystem(name, title, { body: description, onClick: open?.onClick });
+    const showToast = () => {
+      captureShown(name, "toast");
+      const show = tone === "error" ? toast.error : toast;
+      show(title, { description, action: trackedButton(name, open) });
+    };
+    if (!systemNotificationsEnabled || isWindowFocused()) {
+      showToast();
       return;
     }
-    captureShown(name, "toast");
-    const show = tone === "error" ? toast.error : toast;
-    show(title, { description, action: trackedButton(name, open) });
+    void showSystem(name, title, { body: description, onClick: open?.onClick }).then((shown) => {
+      if (!shown) showToast();
+    });
   },
   dismiss: (id: ToastId): void => {
     toast.dismiss(id);

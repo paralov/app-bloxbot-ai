@@ -13,8 +13,8 @@ export function createSystemNotifier({ isSupported, create, onClick }: SystemNot
   // Electron drops the click handler of a notification that gets garbage collected.
   const shown = new Set<SystemNotification>();
 
-  return (input: { id: string; title: string; body: string }): void => {
-    if (!isSupported()) return;
+  return (input: { id: string; title: string; body: string }): boolean => {
+    if (!isSupported()) return false;
     const notification = create({ title: input.title, body: input.body });
     const release = () => shown.delete(notification);
     shown.add(notification);
@@ -25,5 +25,6 @@ export function createSystemNotifier({ isSupported, create, onClick }: SystemNot
     notification.on("close", release);
     notification.on("failed", release);
     notification.show();
+    return true;
   };
 }

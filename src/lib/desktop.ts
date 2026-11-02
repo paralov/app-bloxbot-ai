@@ -62,7 +62,7 @@ interface DesktopEffects {
   readonly openUrl: (url: string) => Effect.Effect<void, DesktopError>;
   readonly showSystemNotification: (
     notification: SystemNotification,
-  ) => Effect.Effect<void, DesktopError>;
+  ) => Effect.Effect<boolean, DesktopError>;
   readonly loadConfig: Effect.Effect<AppConfig, DesktopError>;
   readonly patchConfig: (patch: Partial<AppConfig>) => Effect.Effect<void, DesktopError>;
   readonly checkForUpdate: Effect.Effect<UpdateInfo | null, DesktopError>;
@@ -116,7 +116,7 @@ const browserEffects: DesktopEffects = {
   getInstructionFiles: Effect.succeed([]),
   openUrl: (url) =>
     Effect.sync(() => window.open(url, "_blank", "noopener,noreferrer")).pipe(Effect.asVoid),
-  showSystemNotification: () => Effect.void,
+  showSystemNotification: () => Effect.succeed(false),
   loadConfig: loadBrowserConfig,
   patchConfig: (input) =>
     Effect.gen(function* () {
@@ -203,7 +203,7 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     showSystemNotification: (notification) =>
       invoke("Failed to show a system notification", () =>
         api.showSystemNotification(notification),
-      ),
+      ).pipe(decodeBridgeValue("System notification result is invalid", Schema.Boolean)),
     loadConfig: invoke("Failed to load configuration", () => api.loadConfig()).pipe(
       decodeBridgeValue("Desktop configuration is invalid", AppConfigSchema),
     ),

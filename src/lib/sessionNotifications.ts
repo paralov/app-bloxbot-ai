@@ -3,11 +3,18 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { isWindowFocused, notify } from "@/lib/notifications";
 import { qk } from "@/lib/queryKeys";
+import { isVisibleSession } from "@/lib/sessionVisibility";
 import { maybeShowStarCallout } from "@/lib/starCallout";
 
 type OpenSession = (sessionID: string) => void;
 
 let openSession: OpenSession = () => {};
+let chatOnScreen = true;
+
+/** Set by Chat. Settings and setup screens cover the active chat, so it can't be seen there. */
+export function setChatOnScreen(onScreen: boolean): void {
+  chatOnScreen = onScreen;
+}
 
 /** Set by Chat, which can leave Settings too and sits below the provider reading the event stream. */
 export function setSessionOpener(opener: OpenSession): void {
@@ -31,13 +38,13 @@ export class SessionNotifier {
       const session = queryClient
         .getQueryData<Session[]>(qk.sessions)
         ?.find((candidate) => candidate.id === sessionID);
-      return session && !session.parentID ? session : undefined;
+      return session && isVisibleSession(session) && !session.parentID ? session : undefined;
     };
 
     const announce = (sessionID: string, name: string, title: string, tone?: "error") => {
       const session = userChat(sessionID);
       if (!session) return;
-      if (isWindowFocused() && sessionID === activeSessionIdRef.current) return;
+      if (isWindowFocused() && chatOnScreen && sessionID === activeSessionIdRef.current) return;
       notify.attention(title, {
         name,
         description: session.title,

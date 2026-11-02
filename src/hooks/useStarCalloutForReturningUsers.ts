@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { useSessions } from "@/hooks/useSessions";
+import { isVisibleSession } from "@/lib/sessionVisibility";
 import { showStarCallout } from "@/lib/starCallout";
 
 /**
@@ -14,7 +15,8 @@ export function useStarCalloutForReturningUsers(): void {
   useEffect(() => {
     if (!sessions || checked.current) return;
     checked.current = true;
-    if (sessions.length === 0) return;
+    // The first prefetch of the session list can still hold hidden helper chats.
+    if (!sessions.some(isVisibleSession)) return;
     showStarCallout().catch((error) => {
       console.warn("Failed to show the GitHub callout:", error);
     });

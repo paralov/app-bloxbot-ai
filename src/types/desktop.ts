@@ -133,7 +133,7 @@ export interface DesktopApi {
   getVersion(): Promise<string>;
   getInstructionFiles(): Promise<readonly InstructionFile[]>;
   openUrl(url: string): Promise<void>;
-  showSystemNotification(notification: SystemNotification): Promise<void>;
+  showSystemNotification(notification: SystemNotification): Promise<boolean>;
   onSystemNotificationClick(listener: (id: string) => void): () => void;
   loadConfig(): Promise<AppConfig>;
   patchConfig(patch: Partial<AppConfig>): Promise<void>;

@@ -32,12 +32,13 @@ describe("createSystemNotifier", () => {
   it("does nothing where the OS has no notifications", () => {
     const create = vi.fn(() => fakeNotification());
 
-    createSystemNotifier({ isSupported: () => false, create, onClick: vi.fn() })({
+    const shown = createSystemNotifier({ isSupported: () => false, create, onClick: vi.fn() })({
       id: "7",
       title: "Chat finished",
       body: "",
     });
 
+    expect(shown).toBe(false);
     expect(create).not.toHaveBeenCalled();
   });
 });
