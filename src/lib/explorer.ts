@@ -7,6 +7,12 @@ export const ExplorerFieldSchema = Schema.Struct({
 
 export type ExplorerField = typeof ExplorerFieldSchema.Type;
 
+export const ExplorerNodeDetailsSchema = Schema.Struct({
+  properties: Schema.Array(ExplorerFieldSchema),
+  attributes: Schema.Array(ExplorerFieldSchema),
+});
+export type ExplorerNodeDetails = typeof ExplorerNodeDetailsSchema.Type;
+
 export const ExplorerNodeSchema = Schema.Struct({
   name: Schema.String,
   className: Schema.String,

@@ -90,6 +90,8 @@ function trackedButton<T extends ExternalToast["action"]>(notification: string, 
   };
 }
 
+const MAX_CLICK_HANDLERS = 50;
+
 /** Resolves to false when the OS has no notifications to offer, so a caller can use a toast. */
 function showSystem(name: string, title: string, options: SystemOptions): Promise<boolean> {
   const id = String(++nextSystemId);
@@ -97,6 +99,10 @@ function showSystem(name: string, title: string, options: SystemOptions): Promis
     captureClicked(name, "system", "open");
     options.onClick?.();
   });
+  // A dismissed notification never reports back, so only recent ones stay clickable.
+  if (clickHandlers.size > MAX_CLICK_HANDLERS) {
+    clickHandlers.delete(clickHandlers.keys().next().value as string);
+  }
   unsubscribeFromClicks ??= desktop.onSystemNotificationClick((clickedId) => {
     clickHandlers.get(clickedId)?.();
     clickHandlers.delete(clickedId);

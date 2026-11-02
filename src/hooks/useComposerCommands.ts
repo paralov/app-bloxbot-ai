@@ -10,6 +10,7 @@ import { CLIENT_COMMANDS, mergeCommands, parseSlashCommand } from "@/lib/promptS
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
 import type { MessagesCache } from "@/lib/sseDispatch";
+import { recordPromptSent } from "@/lib/starCallout";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
@@ -47,7 +48,7 @@ function saveJson(filename: string, data: unknown) {
 export function useComposerCommands(actions: {
   chooseModel: () => void;
   openSettings: () => void;
-  restoreDraft: (text: string) => void;
+  restoreDraft: (text: string, sessionID: string) => void;
 }) {
   const { client } = useOpenCodeClient();
   const { activeSessionId, selectSession } = useActiveSession();
@@ -105,7 +106,7 @@ export function useComposerCommands(actions: {
         }
         await client.session.undo({ sessionID, messageID: target.info.id }, options);
         const text = target.parts.flatMap((part) => (part.type === "text" ? [part.text] : []));
-        actions.restoreDraft(text.join("\n"));
+        actions.restoreDraft(text.join("\n"), sessionID);
         notify.message("Message undone", {
           description:
             "This only rewinds the chat. Changes already made to files or in Studio stay.",
@@ -169,6 +170,9 @@ export function useComposerCommands(actions: {
       } as Parameters<typeof client.session.command>[0],
       { throwOnError: true },
     );
+    recordPromptSent().catch((error) => {
+      console.warn("Failed to count the command:", error);
+    });
     if (name === "goal" && argument) notify.message(goalConfirmation(argument));
   }
 

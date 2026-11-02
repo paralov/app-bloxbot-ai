@@ -68,7 +68,12 @@ export class EventTranslator {
   }
 
   private toolEvent(part: ToolPart): Translated {
-    this.tools.set(part.id, part);
+    // A settled call gets no more events, so its input and output aren't kept.
+    if (part.state.status === "completed" || part.state.status === "error") {
+      this.tools.delete(part.id);
+    } else {
+      this.tools.set(part.id, part);
+    }
     return {
       type: "message.part.updated",
       properties: { sessionID: part.sessionID, part, time: Date.now() },

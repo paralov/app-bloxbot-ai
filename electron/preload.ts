@@ -35,6 +35,8 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener(channels.systemNotificationClicked, handleClick);
   },
   getExplorerSnapshot: (studioId) => ipcRenderer.invoke(channels.getExplorerSnapshot, studioId),
+  getExplorerNodeDetails: (studioId, path) =>
+    ipcRenderer.invoke(channels.getExplorerNodeDetails, studioId, path),
   discoverStudioTargets: () => ipcRenderer.invoke(channels.discoverStudioTargets),
   selectStudioTarget: (targetKey) => ipcRenderer.invoke(channels.selectStudioTarget, targetKey),
   onMainError: (listener) => {

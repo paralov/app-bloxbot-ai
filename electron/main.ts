@@ -15,7 +15,7 @@ import {
   type OpenCodeStartupProgress,
   SystemNotificationSchema,
 } from "../src/types/desktop";
-import { ExplorerSnapshotSchema } from "../src/lib/explorer";
+import { ExplorerNodeDetailsSchema, ExplorerSnapshotSchema } from "../src/lib/explorer";
 import {
   StudioTargetDiscoverySchema,
   StudioTargetSelectionSchema,
@@ -26,6 +26,7 @@ import { findInstructionFiles } from "./instructionFiles";
 import {
   type CallStudioTool,
   discoverStudioTargets,
+  inspectExplorerNode,
   readExplorerSnapshot,
   selectStudioTarget,
 } from "./studioQueries";
@@ -280,6 +281,17 @@ const registerIpcHandlers = Effect.sync(() => {
     queryStudio(async (callTool) =>
       Schema.decodeUnknownPromise(ExplorerSnapshotSchema)(
         await readExplorerSnapshot(callTool, await Schema.decodeUnknownPromise(StudioKeySchema)(input)),
+      ),
+    ),
+  );
+  ipcMain.handle(channels.getExplorerNodeDetails, (_event, studioId: unknown, path: unknown) =>
+    queryStudio(async (callTool) =>
+      Schema.decodeUnknownPromise(ExplorerNodeDetailsSchema)(
+        await inspectExplorerNode(
+          callTool,
+          await Schema.decodeUnknownPromise(StudioKeySchema)(studioId),
+          await Schema.decodeUnknownPromise(StudioKeySchema)(path),
+        ),
       ),
     ),
   );

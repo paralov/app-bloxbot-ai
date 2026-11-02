@@ -50,7 +50,7 @@ export function MenuItem({
   return (
     <button
       type="button"
-      aria-current={checked || undefined}
+      aria-pressed={props.role ? undefined : checked}
       className={cn(MENU_ITEM, className)}
       {...props}
     >

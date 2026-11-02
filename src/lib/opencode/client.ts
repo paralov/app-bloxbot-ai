@@ -205,6 +205,7 @@ function providerSource(integration: IntegrationInfo): Provider["source"] {
 function toProviderList(
   integrations: ReadonlyArray<IntegrationInfo>,
   models: ReadonlyArray<ModelInfo>,
+  defaultModel: ModelInfo | null,
 ): ProviderListResponse {
   const byProvider = new Map<string, Record<string, Model>>();
   for (const model of models) {
@@ -227,7 +228,7 @@ function toProviderList(
   );
   return {
     all,
-    default: {},
+    default: defaultModel ? { [defaultModel.providerID]: defaultModel.modelID } : {},
     connected: all.filter((provider) => Object.keys(provider.models).length > 0).map((p) => p.id),
   } as ProviderListResponse;
 }
@@ -554,11 +555,12 @@ export function createOpencodeClient(options: {
     provider: {
       list: (_input: object = {}, requestOptions?: RequestOptions) =>
         settle(requestOptions, async () => {
-          const [integrations, models] = await Promise.all([
+          const [integrations, models, defaultModel] = await Promise.all([
             api.integration.list({ location }),
             api.model.list({ location }),
+            api.model.default({ location }).catch(() => ({ data: null })),
           ]);
-          return toProviderList(integrations.data, models.data);
+          return toProviderList(integrations.data, models.data, defaultModel.data);
         }),
       auth: (_input: object = {}, requestOptions?: RequestOptions) =>
         settle(requestOptions, async () => {

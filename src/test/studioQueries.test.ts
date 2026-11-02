@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type CallStudioTool,
   discoverStudioTargets,
+  inspectExplorerNode,
   readExplorerSnapshot,
   selectStudioTarget,
 } from "../../electron/studioQueries";
@@ -107,5 +108,41 @@ describe("Studio targets", () => {
       selected: { key: "a", label: "Obby" },
     });
     await expect(selectStudioTarget(callTool, "gone")).rejects.toThrow("could not be verified");
+  });
+
+  // Shapes recorded from Roblox Studio.
+  it("reads an object's properties when it's selected", async () => {
+    const callTool = vi.fn<CallStudioTool>(async () =>
+      json({
+        path: "Workspace.Baseplate",
+        className: "Part",
+        children: { childrenCount: 1 },
+        properties: { Anchored: true, Size: "2048, 16, 2048", Transparency: 0 },
+      }),
+    );
+    await expect(
+      inspectExplorerNode(callTool, "studio-1", "game.Workspace.Baseplate"),
+    ).resolves.toEqual({
+      properties: [
+        { name: "Anchored", value: "true" },
+        { name: "Size", value: "2048, 16, 2048" },
+        { name: "Transparency", value: "0" },
+      ],
+      attributes: [],
+    });
+    expect(callTool).toHaveBeenCalledWith("inspect_instance", {
+      studio_id: "studio-1",
+      path: "game.Workspace.Baseplate",
+    });
+  });
+
+  it("reports Studio's errors and unusable output instead of showing nothing", async () => {
+    await expect(discoverStudioTargets(async () => failure("Studio is busy"))).rejects.toThrow(
+      "Studio is busy",
+    );
+    const text = async () => ({
+      content: [{ type: "text" as const, text: "No Studio connected" }],
+    });
+    await expect(readExplorerSnapshot(text, "studio-1")).rejects.toThrow("unreadable");
   });
 });

@@ -387,7 +387,7 @@ const ChatSidebar = memo(function ChatSidebar({
                         />
                         <div className="min-w-0 flex-1">
                           <div
-                            className="truncate text-sm leading-snug"
+                            className="truncate text-sm leading-snug group-focus-within:pr-14 group-hover:pr-14"
                             title={session.title || undefined}
                           >
                             {session.title || "Untitled"}

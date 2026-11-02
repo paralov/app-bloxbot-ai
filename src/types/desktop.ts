@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { ExplorerSnapshot } from "../lib/explorer";
+import type { ExplorerNodeDetails, ExplorerSnapshot } from "../lib/explorer";
 import {
   type StudioTargetDiscovery,
   StudioTargetSchema,
@@ -115,6 +115,7 @@ export type SystemNotification = typeof SystemNotificationSchema.Type;
 
 export interface DesktopApi {
   getExplorerSnapshot(studioId: string): Promise<ExplorerSnapshot>;
+  getExplorerNodeDetails(studioId: string, path: string): Promise<ExplorerNodeDetails>;
   discoverStudioTargets(): Promise<StudioTargetDiscovery>;
   selectStudioTarget(targetKey: string): Promise<StudioTargetSelection>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;

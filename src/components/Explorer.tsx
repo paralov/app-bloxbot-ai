@@ -29,6 +29,7 @@ import {
   createExplorerReference,
   type ExplorerField,
   type ExplorerNode,
+  type ExplorerNodeDetails,
   type ExplorerSnapshot,
   sortExplorerSnapshot,
 } from "@/lib/explorer";
@@ -386,7 +387,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         "explorer",
         explorerAnalyticsProperties({
           class_category: iconForClass(selected.className) === Box ? "generic" : "known",
-          has_attributes: selected.attributes.length > 0,
         }),
       ),
     );
@@ -463,7 +463,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       </div>
 
       {selected ? (
-        <Inspector node={selected} onReference={handleReference} />
+        <Inspector
+          node={selected}
+          studioId={studioTarget?.selected?.key ?? null}
+          onReference={handleReference}
+        />
       ) : (
         <div className="shrink-0 border-t px-3 py-2 text-xs text-muted-foreground">
           Select an object to inspect and reference it.
@@ -473,7 +477,34 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   );
 }
 
-function Inspector({ node, onReference }: { node: ExplorerNode; onReference: () => void }) {
+function Inspector({
+  node,
+  studioId,
+  onReference,
+}: {
+  node: ExplorerNode;
+  studioId: string | null;
+  onReference: () => void;
+}) {
+  const [details, setDetails] = useState<ExplorerNodeDetails | "loading" | "failed">("loading");
+  useEffect(() => {
+    if (!studioId) return;
+    let current = true;
+    setDetails("loading");
+    desktop.getExplorerNodeDetails(studioId, node.path).then(
+      (next) => {
+        if (current) setDetails(next);
+      },
+      (error) => {
+        console.error("[explorer] couldn't read object details", error);
+        if (current) setDetails("failed");
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [studioId, node.path]);
+  const loaded = typeof details === "object" ? details : null;
   const InstanceIcon = iconForClass(node.className);
   return (
     <div className="max-h-[42%] shrink-0 overflow-y-auto border-t bg-card/60">
@@ -497,10 +528,15 @@ function Inspector({ node, onReference }: { node: ExplorerNode; onReference: () 
       </div>
       <FieldSection
         title="Properties"
-        fields={[{ name: "ClassName", value: node.className }, ...node.properties]}
+        fields={[{ name: "ClassName", value: node.className }, ...(loaded?.properties ?? [])]}
       />
-      {node.attributes.length > 0 ? (
-        <FieldSection title="Attributes" fields={node.attributes} />
+      {details === "failed" ? (
+        <p className="px-3 pb-3 text-xs text-muted-foreground">
+          Couldn't read this object's properties from Studio.
+        </p>
+      ) : null}
+      {loaded && loaded.attributes.length > 0 ? (
+        <FieldSection title="Attributes" fields={loaded.attributes} />
       ) : null}
     </div>
   );

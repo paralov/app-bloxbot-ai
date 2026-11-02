@@ -268,9 +268,12 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const { commands, run: runCommand } = useComposerCommands({
     chooseModel: () => setShowModelPicker(true),
     openSettings: () => onOpenSettings?.(),
-    restoreDraft: (draft) => promptEditorRef.current?.insertText(draft),
+    restoreDraft: (draft, sessionID) => {
+      if (activeSessionIdRef.current === sessionID) promptEditorRef.current?.insertText(draft);
+    },
   });
   const [objectsLoading, setObjectsLoading] = useState(false);
+  const [objectsFailed, setObjectsFailed] = useState(false);
   const objectsRequest = useRef(0);
 
   // Objects belong to one place, so a different Studio starts with none.
@@ -285,13 +288,17 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
     if (!studioId) return;
     const request = ++objectsRequest.current;
     setObjectsLoading(true);
+    setObjectsFailed(false);
     desktop
       .getExplorerSnapshot(studioId)
       .then((snapshot) => {
         if (request !== objectsRequest.current) return;
         publishObjects(sortExplorerSnapshot(snapshot).roots);
       })
-      .catch((error) => console.error("[composer] couldn't read Studio objects", error))
+      .catch((error) => {
+        console.error("[composer] couldn't read Studio objects", error);
+        if (request === objectsRequest.current) setObjectsFailed(true);
+      })
       .finally(() => {
         if (request === objectsRequest.current) setObjectsLoading(false);
       });
@@ -526,6 +533,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
       system: studioTargetReference,
       onFailed: (error) => {
         notify.error("Command failed", { description: error.message });
+        if (activeSessionIdRef.current !== activeSessionId) return;
         promptEditorRef.current?.insertText(submittedText);
         setAttachments(submittedAttachments);
       },
@@ -557,9 +565,13 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
     setModelSearch("");
   }
 
-  const selectedModelId = selectedModel ? splitModelKey(selectedModel)[1] : undefined;
+  const [selectedProviderId, selectedModelId] = selectedModel
+    ? splitModelKey(selectedModel)
+    : [undefined, undefined];
   const modelDisplay = selectedModelId
-    ? (allModels.find((model) => model.id === selectedModelId)?.name ?? selectedModelId)
+    ? (allModels.find(
+        (model) => model.providerId === selectedProviderId && model.id === selectedModelId,
+      )?.name ?? selectedModelId)
     : "Select model";
 
   function renderProviderGroup(
@@ -658,7 +670,11 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
               objects={objects}
               objectsLoading={objectsLoading}
               objectsUnavailable={
-                studioId ? null : "Open a place in Studio to reference its objects."
+                !studioId
+                  ? "Open a place in Studio to reference its objects."
+                  : objectsFailed
+                    ? "Couldn't read this place in Studio. Type @ again to retry."
+                    : null
               }
               onObjectsWanted={loadObjects}
               onChange={setText}

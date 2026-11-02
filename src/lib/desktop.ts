@@ -1,5 +1,10 @@
 import { Data, Effect, Schema } from "effect";
-import { type ExplorerSnapshot, ExplorerSnapshotSchema } from "@/lib/explorer";
+import {
+  type ExplorerNodeDetails,
+  ExplorerNodeDetailsSchema,
+  type ExplorerSnapshot,
+  ExplorerSnapshotSchema,
+} from "@/lib/explorer";
 import {
   type AppConfig,
   AppConfigPatchSchema,
@@ -33,6 +38,10 @@ export class DesktopError extends Data.TaggedError("DesktopError")<{
 }> {}
 
 interface DesktopEffects {
+  readonly getExplorerNodeDetails: (
+    studioId: string,
+    path: string,
+  ) => Effect.Effect<ExplorerNodeDetails, DesktopError>;
   readonly getExplorerSnapshot: (studioId: string) => Effect.Effect<ExplorerSnapshot, DesktopError>;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
   readonly getOpenCodeInstallFolder: Effect.Effect<string | null, DesktopError>;
@@ -77,6 +86,8 @@ const loadBrowserConfig = Effect.gen(function* () {
 }).pipe(Effect.catchAll(() => Effect.succeed(DEFAULT_CONFIG)));
 
 const browserEffects: DesktopEffects = {
+  getExplorerNodeDetails: () =>
+    Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
   getExplorerSnapshot: () =>
     Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
   getOpenCodeInfo: Effect.fail(
@@ -144,6 +155,10 @@ const decodeBridgeValue =
 
 function makeBridgeEffects(api: DesktopApi): DesktopEffects {
   return {
+    getExplorerNodeDetails: (studioId, path) =>
+      invoke("Failed to read this object from Studio", () =>
+        api.getExplorerNodeDetails(studioId, path),
+      ).pipe(decodeBridgeValue("Object details are invalid", ExplorerNodeDetailsSchema)),
     getExplorerSnapshot: (studioId) =>
       invoke("Failed to read Studio's instance tree", () => api.getExplorerSnapshot(studioId)).pipe(
         decodeBridgeValue("Explorer snapshot is invalid", ExplorerSnapshotSchema),
@@ -199,6 +214,8 @@ const runPromise = <A>(effect: Effect.Effect<A, DesktopError>): Promise<A> =>
 /** Promise-only adapter consumed by React and exposed by the Electron bridge contract. */
 export const desktop: DesktopApi = {
   getExplorerSnapshot: (studioId) => runPromise(desktopEffects.getExplorerSnapshot(studioId)),
+  getExplorerNodeDetails: (studioId, path) =>
+    runPromise(desktopEffects.getExplorerNodeDetails(studioId, path)),
   getOpenCodeInfo: () => runPromise(desktopEffects.getOpenCodeInfo),
   getOpenCodeInstallFolder: () => runPromise(desktopEffects.getOpenCodeInstallFolder),
   getStudioMcpStatus: () => runPromise(desktopEffects.getStudioMcpStatus),

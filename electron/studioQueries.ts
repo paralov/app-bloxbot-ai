@@ -1,6 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-import type { ExplorerSnapshot } from "../src/lib/explorer";
+import type { ExplorerNodeDetails, ExplorerSnapshot } from "../src/lib/explorer";
 import type { StudioTarget, StudioTargetDiscovery, StudioTargetSelection } from "../src/types/studioTarget";
 
 export type CallStudioTool = (
@@ -59,7 +59,10 @@ function toTarget(studio: any): StudioTarget | null {
 }
 
 async function listStudios(callTool: CallStudioTool): Promise<StudioTarget[]> {
-  const data = mcpData(await callTool("list_roblox_studios", {})) ?? {};
+  const result = await callTool("list_roblox_studios", {});
+  const error = mcpError(result);
+  if (error) throw new Error(error);
+  const data = mcpData(result) ?? {};
   const studios: unknown[] = Array.isArray(data) ? data : Array.isArray(data.studios) ? data.studios : [];
   return studios.flatMap((studio) => toTarget(studio) ?? []);
 }
@@ -124,12 +127,34 @@ async function readGameTree(callTool: CallStudioTool, studioId: string): Promise
   throw new Error(details.length > 0 ? `${first} (${details.join("; ")})` : first);
 }
 
+function toFields(values: unknown) {
+  if (!values || typeof values !== "object") return [];
+  return Object.entries(values)
+    .filter(([, value]) => value !== null && typeof value !== "object")
+    .map(([name, value]) => ({ name, value: String(value) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The tree has names and classes only, so an object's details are read when it's selected. */
+export async function inspectExplorerNode(
+  callTool: CallStudioTool,
+  studioId: string,
+  path: string,
+): Promise<ExplorerNodeDetails> {
+  const result = await callTool("inspect_instance", { studio_id: studioId, path });
+  const error = mcpError(result);
+  if (error) throw new Error(error);
+  const data = mcpData(result);
+  return { properties: toFields(data?.properties), attributes: toFields(data?.attributes) };
+}
+
 export async function readExplorerSnapshot(
   callTool: CallStudioTool,
   studioId: string,
 ): Promise<ExplorerSnapshot> {
   const raw = await readGameTree(callTool, studioId);
-  const rows: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
+  const rows: any[] = Array.isArray(raw) ? raw : raw?.instances;
+  if (!Array.isArray(rows)) throw new Error("Studio returned an unreadable instance tree");
   const byPath = new Map<string, any>();
   let placeName = "Roblox Studio";
   for (const row of rows) {

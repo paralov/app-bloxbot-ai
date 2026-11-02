@@ -500,9 +500,13 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
 async function startFailingProvider(status: number, body: object) {
   const requests: string[] = [];
   const provider = createServer((req, res) => {
-    requests.push(req.url ?? "");
-    req.resume();
+    let received = "";
+    req.on("data", (chunk) => {
+      received += chunk;
+    });
     req.on("end", () => {
+      // OpenCode's title request has no tools, and isn't the reply being retried.
+      if (received.includes('"tools"')) requests.push(req.url ?? "");
       res.writeHead(status, { "content-type": "application/json", "retry-after": "3600" });
       res.end(JSON.stringify(body));
     });
@@ -562,6 +566,7 @@ describe.skipIf(!BIN)("[no model] OpenCode 2 failures", () => {
             : event.type,
       );
       console.info("[live] free limit:", requests.length, "requests", JSON.stringify(summary));
+      expect(requests).toHaveLength(1);
       const failure = events.find((event) => event.type === "session.error");
       expect(failure?.type === "session.error" && failure.properties.error?.data).toMatchObject({
         message: expect.stringContaining("Free usage limit"),

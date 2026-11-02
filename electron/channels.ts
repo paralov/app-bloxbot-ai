@@ -12,6 +12,7 @@ export const channels = {
   patchConfig: "config:patch",
   relaunch: "app:relaunch",
   getExplorerSnapshot: "explorer:get-snapshot",
+  getExplorerNodeDetails: "explorer:get-node-details",
   discoverStudioTargets: "studio-target:discover",
   selectStudioTarget: "studio-target:select",
   mainError: "app:main-error",
