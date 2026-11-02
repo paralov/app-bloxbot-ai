@@ -72,7 +72,7 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
               <path d="m5 12 4 4L19 6" />
             </svg>
           </div>
-          <h1 className="mt-5 font-serif text-3xl italic">Studio connected</h1>
+          <h1 className="mt-5 text-lg font-semibold tracking-tight">Studio connected</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             BloxBot is in the driver&apos;s seat. You&apos;re ready to build.
           </p>
@@ -94,10 +94,8 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
         <header className="flex items-center gap-4">
           <BloxBotFace />
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              One tiny setup
-            </p>
-            <h1 id="studio-setup-title" className="font-serif text-2xl italic">
+            <p className="text-xs font-medium text-muted-foreground">One tiny setup</p>
+            <h1 id="studio-setup-title" className="text-lg font-semibold tracking-tight">
               Let&apos;s connect Studio
             </h1>
           </div>
@@ -106,7 +104,7 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
         <div className="mt-4 overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-5 py-3">
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              <p className="text-xs font-medium text-muted-foreground">
                 Step {stepIndex + 1} of {STEPS.length}
               </p>
               <h2 className="mt-0.5 text-base font-semibold">{step.title}</h2>

@@ -1,8 +1,8 @@
+import { Check, ChevronDown, Paperclip } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Slider } from "@/components/ui/slider";
 import { useAbort } from "@/hooks/mutations/useAbort";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useCommands } from "@/hooks/useCommands";
@@ -194,7 +194,7 @@ const SendButton = memo(function SendButton({
             })
           }
           disabled={abort.isPending}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-foreground transition-colors hover:bg-accent hover:text-foreground"
           title="Stop"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
@@ -206,7 +206,7 @@ const SendButton = memo(function SendButton({
           type="button"
           onClick={onSend}
           disabled={(!text.trim() && !hasAttachments) || !canSend}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background transition-opacity disabled:opacity-30"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-30"
           title="Send"
         >
           <svg
@@ -227,6 +227,22 @@ const SendButton = memo(function SendButton({
     </>
   );
 });
+
+const EFFORT_LABELS: Record<string, string> = {
+  none: "No",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
+/** OpenCode's names for a model's thinking levels, or Auto when the model decides. */
+function effortLabel(variant: string | null): string {
+  if (!variant) return "Auto";
+  return EFFORT_LABELS[variant] ?? variant;
+}
 
 function ChatInput() {
   const { pendingReference, consumeReference, objects } = useExplorerReference();
@@ -497,13 +513,10 @@ function ChatInput() {
     setModelSearch("");
   }
 
-  const modelDisplay = selectedModel
-    ? (selectedModel.split("/").pop() ?? selectedModel)
+  const selectedModelId = selectedModel ? splitModelKey(selectedModel)[1] : undefined;
+  const modelDisplay = selectedModelId
+    ? (allModels.find((model) => model.id === selectedModelId)?.name ?? selectedModelId)
     : "Select model";
-  const selectedVariantIndex = selectedVariant
-    ? Math.max(0, availableVariants.indexOf(selectedVariant) + 1)
-    : 0;
-  const variantDisplay = selectedVariant ?? "Default";
 
   function renderProviderGroup(
     providerId: string,
@@ -512,9 +525,7 @@ function ChatInput() {
     return (
       <div key={providerId}>
         <div className="flex items-center gap-1.5 px-2 py-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {group.providerName}
-          </span>
+          <span className="text-xs font-medium text-muted-foreground">{group.providerName}</span>
         </div>
         {group.models.map((model) => {
           const fullId = `${model.providerId}/${model.id}`;
@@ -535,257 +546,218 @@ function ChatInput() {
   }
 
   return (
-    <div className="shrink-0 border-t bg-card px-4 py-3">
-      <div className="relative mb-2 flex items-center gap-1">
-        <div className="relative" ref={modelPickerRef}>
-          <button
-            onClick={() => {
-              setShowModelPicker(!showModelPicker);
-              if (showModelPicker) {
-                setModelSearch("");
-              }
-            }}
-            className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-            </svg>
-            {modelDisplay}
-          </button>
-          {showModelPicker && (
-            <div className="absolute bottom-full left-0 z-50 mb-1 flex max-h-80 w-80 flex-col rounded-lg border bg-popover shadow-lg">
-              <div className="shrink-0 border-b px-2 py-1.5">
-                <div className="flex items-center gap-1.5 rounded-md border bg-background px-2">
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="shrink-0 text-muted-foreground/50"
+    <div className="shrink-0 px-4 pb-3 pt-1">
+      <div className="mx-auto max-w-2xl">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) addImageFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+
+        <div
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          className={`rounded-xl border bg-card transition-colors focus-within:border-foreground/20 ${isDragging ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50/30" : ""}`}
+        >
+          {attachments.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto px-3 pt-2 pb-1">
+              {attachments.map((a, idx) => (
+                <div key={a.id} className="group relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLightboxIndex(idx);
+                      setLbSlideDir(null);
+                      setLbAnimKey((k) => k + 1);
+                    }}
+                    className="block cursor-zoom-in overflow-hidden rounded-lg border transition-opacity hover:opacity-80"
                   >
-                    <circle cx="11" cy="11" r="8" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
-                  <input
-                    ref={modelSearchRef}
-                    type="text"
-                    value={modelSearch}
-                    onChange={(e) => setModelSearch(e.target.value)}
-                    placeholder="Search models..."
-                    className="h-7 flex-1 bg-transparent text-xs placeholder:text-muted-foreground/40 focus:outline-none"
-                    autoFocus
-                  />
-                  {modelSearch && (
-                    <button
-                      onClick={() => {
-                        setModelSearch("");
-                        modelSearchRef.current?.focus();
-                      }}
-                      className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                    <img src={a.dataUrl} alt={a.filename} className="h-16 w-16 object-cover" />
+                  </button>
+                  <button
+                    onClick={() => removeAttachment(a.id)}
+                    className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover:opacity-100"
+                    title="Remove"
+                  >
+                    <svg
+                      width="8"
+                      height="8"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      <svg
-                        width="8"
-                        height="8"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  )}
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                  <div className="mt-0.5 max-w-[64px] truncate text-center text-[9px] text-muted-foreground">
+                    {a.filename}
+                  </div>
                 </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-1">
-                {modelsByProvider.map(([id, group]) => renderProviderGroup(id, group))}
-                {modelsByProvider.length === 0 && (
-                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                    No models matching "{modelSearch}"
+              ))}
+            </div>
+          )}
+
+          <div className="flex min-h-10 items-start px-2 pt-1.5">
+            <PromptEditor
+              ref={promptEditorRef}
+              commands={commands}
+              objects={objects}
+              onChange={setText}
+              onSubmit={handleSubmit}
+              onPaste={(e) => {
+                const items = e.clipboardData.items;
+                const imageFiles: File[] = [];
+                for (const item of Array.from(items)) {
+                  if (item.kind === "file" && ACCEPTED_IMAGE_TYPES.includes(item.type)) {
+                    const file = item.getAsFile();
+                    if (file) imageFiles.push(file);
+                  }
+                }
+                if (imageFiles.length > 0) {
+                  e.preventDefault();
+                  addImageFiles(imageFiles);
+                }
+              }}
+              placeholder={
+                isDragging ? "Drop images here..." : "Describe what you want to build..."
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2 px-2 pb-2">
+            <div className="relative flex min-w-0 items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={`flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${rejectShake ? "animate-reject-shake text-destructive" : ""}`}
+                title="Attach images"
+              >
+                <Paperclip aria-hidden="true" size={14} />
+              </button>
+
+              <div className="relative" ref={modelPickerRef}>
+                <button
+                  onClick={() => {
+                    setShowModelPicker(!showModelPicker);
+                    if (showModelPicker) {
+                      setModelSearch("");
+                    }
+                  }}
+                  className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  {modelDisplay}
+                </button>
+                {showModelPicker && (
+                  <div className="absolute bottom-full left-0 z-50 mb-1 flex max-h-80 w-80 flex-col rounded-lg border bg-popover shadow-lg">
+                    <div className="shrink-0 border-b px-2 py-1.5">
+                      <div className="flex items-center gap-1.5 rounded-md border bg-background px-2">
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="shrink-0 text-muted-foreground/50"
+                        >
+                          <circle cx="11" cy="11" r="8" />
+                          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                        <input
+                          ref={modelSearchRef}
+                          type="text"
+                          value={modelSearch}
+                          onChange={(e) => setModelSearch(e.target.value)}
+                          placeholder="Search models..."
+                          className="h-7 flex-1 bg-transparent text-xs placeholder:text-muted-foreground/40 focus:outline-none"
+                          autoFocus
+                        />
+                        {modelSearch && (
+                          <button
+                            onClick={() => {
+                              setModelSearch("");
+                              modelSearchRef.current?.focus();
+                            }}
+                            className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                          >
+                            <svg
+                              width="8"
+                              height="8"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-1">
+                      {modelsByProvider.map(([id, group]) => renderProviderGroup(id, group))}
+                      {modelsByProvider.length === 0 && (
+                        <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                          No models matching "{modelSearch}"
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
+
+              {availableVariants.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      {effortLabel(selectedVariant)} effort
+                      <ChevronDown aria-hidden="true" size={11} />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="top" align="start" className="w-56 p-1">
+                    <p className="px-2 pb-1.5 pt-1 text-[11px] leading-snug text-muted-foreground">
+                      How long the model thinks before it answers. More is slower.
+                    </p>
+                    {[null, ...availableVariants].map((variant) => (
+                      <button
+                        key={variant ?? "auto"}
+                        type="button"
+                        onClick={() => setSelectedVariant(variant)}
+                        className="flex h-7 w-full items-center justify-between rounded-md px-2 text-xs outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
+                      >
+                        {effortLabel(variant)}
+                        {selectedVariant === variant && <Check aria-hidden="true" size={12} />}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
-          )}
-        </div>
-
-        {availableVariants.length > 0 && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] capitalize text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                title={`Effort: ${variantDisplay}`}
-              >
-                {variantDisplay}
-                <svg
-                  width="9"
-                  height="9"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="w-64 p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <span className="text-xs font-medium">Reasoning effort</span>
-                <span className="text-[11px] capitalize text-muted-foreground">
-                  {variantDisplay}
-                </span>
-              </div>
-              <Slider
-                min={0}
-                max={availableVariants.length}
-                step={1}
-                value={[selectedVariantIndex]}
-                onValueChange={([index]) =>
-                  setSelectedVariant(index === 0 ? null : availableVariants[index - 1])
-                }
-                aria-label="Reasoning effort"
-              />
-              <div className="mt-2 flex justify-between gap-2 text-[9px] capitalize text-muted-foreground/70">
-                <span>Default</span>
-                <span>{availableVariants[availableVariants.length - 1]}</span>
-              </div>
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files) addImageFiles(e.target.files);
-          e.target.value = "";
-        }}
-      />
-
-      <div
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        className={`rounded-xl border bg-background transition-shadow focus-within:ring-2 ring-ring/20 ${isDragging ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50/30" : ""}`}
-      >
-        {attachments.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto px-3 pt-2 pb-1">
-            {attachments.map((a, idx) => (
-              <div key={a.id} className="group relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLightboxIndex(idx);
-                    setLbSlideDir(null);
-                    setLbAnimKey((k) => k + 1);
-                  }}
-                  className="block cursor-zoom-in overflow-hidden rounded-lg border transition-opacity hover:opacity-80"
-                >
-                  <img src={a.dataUrl} alt={a.filename} className="h-16 w-16 object-cover" />
-                </button>
-                <button
-                  onClick={() => removeAttachment(a.id)}
-                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover:opacity-100"
-                  title="Remove"
-                >
-                  <svg
-                    width="8"
-                    height="8"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-                <div className="mt-0.5 max-w-[64px] truncate text-center text-[9px] text-muted-foreground">
-                  {a.filename}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex min-h-14 items-start gap-1.5 px-2 pb-2 pt-1.5">
-          <PromptEditor
-            ref={promptEditorRef}
-            commands={commands}
-            objects={objects}
-            onChange={setText}
-            onSubmit={handleSubmit}
-            onPaste={(e) => {
-              const items = e.clipboardData.items;
-              const imageFiles: File[] = [];
-              for (const item of Array.from(items)) {
-                if (item.kind === "file" && ACCEPTED_IMAGE_TYPES.includes(item.type)) {
-                  const file = item.getAsFile();
-                  if (file) imageFiles.push(file);
-                }
-              }
-              if (imageFiles.length > 0) {
-                e.preventDefault();
-                addImageFiles(imageFiles);
-              }
-            }}
-            placeholder={isDragging ? "Drop images here..." : "Describe what you want to build..."}
-          />
-          <div className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className={`flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-background transition-colors hover:bg-accent hover:text-foreground ${rejectShake ? "animate-reject-shake text-red-500" : "text-muted-foreground/60"}`}
-                title="Attach images"
-              >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                </svg>
-              </button>
-              <SendButton
-                text={text}
-                hasAttachments={attachments.length > 0}
-                isBusy={isBusy}
-                onSend={handleSubmit}
-              />
-            </div>
+            <SendButton
+              text={text}
+              hasAttachments={attachments.length > 0}
+              isBusy={isBusy}
+              onSend={handleSubmit}
+            />
           </div>
         </div>
       </div>

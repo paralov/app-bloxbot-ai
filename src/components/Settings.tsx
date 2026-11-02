@@ -118,8 +118,8 @@ function Settings({ onClose }: SettingsProps) {
       <div className="flex min-h-0 flex-1 flex-col @xl:flex-row">
         {/* Sidebar */}
         <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-1.5 py-2 @xl:w-40 @xl:flex-col @xl:gap-0 @xl:overflow-visible @xl:border-r @xl:border-b-0 @xl:px-0 @xl:py-3">
-          <div className="hidden px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground @xl:block">
-            Server
+          <div className="hidden px-3 pb-2 text-xs font-medium text-muted-foreground @xl:block">
+            AI
           </div>
           <button
             onClick={() => setTab("providers")}
@@ -167,7 +167,7 @@ function Settings({ onClose }: SettingsProps) {
             Models
           </button>
 
-          <div className="mt-4 hidden px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground @xl:block">
+          <div className="mt-4 hidden px-3 pb-2 text-xs font-medium text-muted-foreground @xl:block">
             App
           </div>
           <button
@@ -481,7 +481,7 @@ function ProvidersTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="font-serif text-lg italic text-foreground">Providers</h4>
+      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Providers</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Connect an AI provider to chat with its models.
       </p>
@@ -539,9 +539,7 @@ function ProvidersTab() {
       {/* Connected providers */}
       {connected.length > 0 && (
         <div className="mt-6">
-          <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Connected
-          </div>
+          <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Connected</div>
           <div className="divide-y rounded-lg border bg-card">
             {connected.map((provider) => {
               const check = checks[provider.id];
@@ -635,16 +633,14 @@ function ProvidersTab() {
 
       {popular.length > 0 && (
         <div className="mt-6">
-          <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Popular
-          </div>
+          <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Popular</div>
           <div className="divide-y rounded-lg border bg-card">{popular.map(renderAvailable)}</div>
         </div>
       )}
 
       {others.length > 0 && (
         <div className="mt-6">
-          <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">
             {popular.length > 0 || connected.length > 0 ? "More providers" : "Providers"}
           </div>
           <div className="divide-y rounded-lg border bg-card">{others.map(renderAvailable)}</div>
@@ -745,7 +741,7 @@ function ModelsTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="font-serif text-lg italic text-foreground">Models</h4>
+      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Models</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Toggle which models appear in the model selector.
       </p>
@@ -868,15 +864,13 @@ function AppearanceTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="font-serif text-lg italic text-foreground">Appearance</h4>
+      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Appearance</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Choose how BloxBot looks. System follows your OS preference.
       </p>
 
       <div className="mt-6">
-        <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Theme
-        </div>
+        <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Theme</div>
         <div className="grid grid-cols-3 gap-2">
           {THEME_OPTIONS.map((option) => {
             const selected = theme === option.value;
@@ -954,7 +948,7 @@ function SystemPromptTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="font-serif text-lg italic text-foreground">System prompt</h4>
+      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">System prompt</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         The instructions BloxBot follows in every chat. Changes apply from your next message.
       </p>
@@ -996,7 +990,7 @@ function NotificationsTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="font-serif text-lg italic text-foreground">Notifications</h4>
+      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Notifications</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         While you work in Roblox Studio or another app, BloxBot can tell you when it needs you.
       </p>
@@ -1044,7 +1038,7 @@ function PrivacyTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="font-serif text-lg italic text-foreground">Privacy</h4>
+      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
         identifiers, but events stay anonymous: no person profile is created. Error reports are
@@ -1197,16 +1191,14 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="font-serif text-lg italic text-foreground">About BloxBot</h4>
+      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">About BloxBot</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         AI-assisted Roblox development, right from your desktop.
       </p>
 
       {/* Version & update check */}
       <div className="mt-6">
-        <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Version
-        </div>
+        <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Version</div>
         <div className="rounded-lg border bg-card p-3.5">
           <div className="flex items-center justify-between">
             <div>
@@ -1317,9 +1309,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
 
       {/* Built with */}
       <div className="mt-6">
-        <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Built With
-        </div>
+        <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Built With</div>
         <div className="rounded-lg border bg-card">
           {TECHNOLOGIES.map((tech, idx) => (
             <div key={tech.name}>
@@ -1360,9 +1350,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
 
       {/* Links */}
       <div className="mt-6">
-        <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Links
-        </div>
+        <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Links</div>
         <div className="space-y-1.5">
           <a
             href="https://bloxbot.ai"

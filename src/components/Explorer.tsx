@@ -106,7 +106,7 @@ const TreeRow = memo(function TreeRow({
             onSelect(node);
           }
         }}
-        className={`group flex h-6 cursor-default items-center pr-2 text-[11px] ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+        className={`group flex h-[26px] cursor-default items-center rounded-md pr-2 text-[12.5px] ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         title={`${node.path} ${node.className}`}
       >
@@ -126,11 +126,7 @@ const TreeRow = memo(function TreeRow({
           />
         </button>
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          <InstanceIcon
-            size={13}
-            strokeWidth={1.8}
-            className="shrink-0 text-blue-600 dark:text-blue-400"
-          />
+          <InstanceIcon size={13} strokeWidth={1.8} className="shrink-0 text-muted-foreground/80" />
           <span className="truncate">{node.name}</span>
         </span>
       </div>
@@ -413,11 +409,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l bg-sidebar">
-      <header className="flex h-10 shrink-0 items-center justify-between border-b px-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Explorer
-        </h2>
+    <aside className="flex w-72 shrink-0 flex-col bg-sidebar">
+      <header className="flex h-11 shrink-0 items-center justify-between px-3">
+        <h2 className="text-xs font-medium text-muted-foreground">Explorer</h2>
         <button
           type="button"
           onClick={onToggle}
@@ -485,7 +479,7 @@ function Inspector({ node, onReference }: { node: ExplorerNode; onReference: () 
     <div className="max-h-[42%] shrink-0 overflow-y-auto border-t bg-card/60">
       <div className="sticky top-0 border-b bg-card/95 p-3 backdrop-blur-sm">
         <div className="flex items-start gap-2">
-          <InstanceIcon size={15} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
+          <InstanceIcon size={15} className="mt-0.5 shrink-0 text-muted-foreground/80" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-medium">{node.name}</div>
             <div className="truncate font-mono text-[9px] text-muted-foreground" title={node.path}>
@@ -515,9 +509,7 @@ function Inspector({ node, onReference }: { node: ExplorerNode; onReference: () 
 function FieldSection({ title, fields }: { title: string; fields: readonly ExplorerField[] }) {
   return (
     <section className="border-b px-3 py-2 last:border-b-0">
-      <h4 className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
-      </h4>
+      <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">{title}</h4>
       <dl className="space-y-1">
         {fields.map((field) => (
           <div

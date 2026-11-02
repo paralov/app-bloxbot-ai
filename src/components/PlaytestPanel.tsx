@@ -43,9 +43,7 @@ function ListEditor({
 }) {
   return (
     <fieldset>
-      <legend className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </legend>
+      <legend className="mb-1.5 text-xs font-medium text-muted-foreground">{label}</legend>
       <div className="space-y-2">
         {items.map((item, index) => (
           <div className="flex gap-2" key={`${label}-${index}`}>
@@ -187,14 +185,9 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <aside
-      className="flex w-72 shrink-0 flex-col border-l bg-sidebar"
-      aria-label="Playtest planner"
-    >
-      <header className="flex h-10 shrink-0 items-center justify-between border-b px-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Playtest
-        </h2>
+    <aside className="flex w-72 shrink-0 flex-col bg-sidebar" aria-label="Playtest planner">
+      <header className="flex h-11 shrink-0 items-center justify-between px-3">
+        <h2 className="text-xs font-medium text-muted-foreground">Playtest</h2>
         <button
           type="button"
           onClick={onClose}
@@ -245,9 +238,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         ) : (
           <div className="space-y-5">
             <label className="block">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Goal
-              </span>
+              <span className="mb-1.5 block text-xs font-medium text-muted-foreground">Goal</span>
               <textarea
                 aria-label="Goal"
                 value={plan.goal}

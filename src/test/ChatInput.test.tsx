@@ -406,7 +406,7 @@ describe("ChatInput", () => {
 
     // Should show the model name (the part after the slash)
     await waitFor(() => {
-      expect(screen.getByText("claude-3.5-sonnet")).toBeInTheDocument();
+      expect(screen.getByText("Claude 3.5 Sonnet")).toBeInTheDocument();
     });
   });
 

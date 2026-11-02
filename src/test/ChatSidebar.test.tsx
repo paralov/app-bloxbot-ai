@@ -181,7 +181,7 @@ describe("ChatSidebar", () => {
     const onSessionSelect = vi.fn();
     render(<TestSidebar client={client} queryClient={qc} onSessionSelect={onSessionSelect} />);
 
-    const newBtn = screen.getByTitle("New session");
+    const newBtn = screen.getByTitle("New chat");
     await act(async () => {
       fireEvent.click(newBtn);
     });
@@ -320,7 +320,7 @@ describe("ChatSidebar", () => {
     const deleteButton = screen.getByText("Delete");
     fireEvent.click(deleteButton);
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
-    expect(screen.getByText("Delete session?")).toBeInTheDocument();
+    expect(screen.getByText("Delete chat?")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Cancel"));
     expect(client.session.delete).not.toHaveBeenCalled();
     expect(capture).toHaveBeenCalledWith("permanent_delete_requested", {
@@ -431,7 +431,7 @@ describe("ChatSidebar", () => {
     render(<TestSidebar client={client} queryClient={qc} collapsed />);
 
     expect(screen.getByTitle("Expand sidebar")).toBeInTheDocument();
-    expect(screen.getByTitle("New session")).toBeInTheDocument();
+    expect(screen.getByTitle("New chat")).toBeInTheDocument();
     expect(screen.getByTitle("Settings")).toBeInTheDocument();
   });
 

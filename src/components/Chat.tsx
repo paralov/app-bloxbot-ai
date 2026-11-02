@@ -157,7 +157,7 @@ function Chat() {
 
   // Main chat UI
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 bg-sidebar">
       <ChatSidebar
         collapsed={sidebarCollapsed}
         onToggle={handleToggleSidebar}
@@ -165,7 +165,7 @@ function Chat() {
         onOpenSettings={handleOpenSettings}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-t-xl border-x border-t bg-background">
         {showStudioSetup || studioConnection.state === "waiting" ? (
           <StudioSetup
             connected={studioConnection.state === "connected"}
@@ -185,11 +185,11 @@ function Chat() {
         ) : !activeSessionId ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6">
             <div className="animate-fade-in-up text-center">
-              <h2 className="font-serif text-2xl italic text-foreground">
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">
                 What would you like to build?
               </h2>
               <p className="mt-2 max-w-md text-xs text-muted-foreground">
-                Create a new session or pick one from the sidebar to continue where you left off.
+                Start a new chat, or pick up where you left off.
               </p>
               <button
                 onClick={() => createSession.mutate()}
@@ -208,25 +208,17 @@ function Chat() {
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-                New Session
+                New chat
               </button>
             </div>
           </div>
         ) : (
           <>
-            <div className="grid h-10 shrink-0 grid-cols-[minmax(6rem,2fr)_minmax(0,3fr)] items-center border-b px-3">
+            <div className="grid h-11 shrink-0 grid-cols-[minmax(6rem,2fr)_minmax(0,3fr)] items-center px-3">
               <div className="flex min-w-0 items-center gap-2">
-                <h3 className="min-w-0 flex-1 truncate text-xs font-semibold">
+                <h3 className="min-w-0 flex-1 truncate text-[13px] font-medium">
                   {activeSessionTitle || "Untitled"}
                 </h3>
-                {isBusy && (
-                  <span className="flex max-w-[42%] shrink items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
-                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                    <span className="truncate">
-                      {sessionStatus?.type === "retry" ? "Waiting to retry" : "Working"}
-                    </span>
-                  </span>
-                )}
               </div>
               <div className="ml-2 flex min-w-0 items-center justify-end gap-1.5">
                 <StudioTargetPicker />
@@ -235,7 +227,7 @@ function Chat() {
                     <button
                       type="button"
                       onClick={handleToggleExplorer}
-                      className="inline-flex h-7 items-center rounded-md border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground"
+                      className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground"
                       aria-pressed={!explorerCollapsed}
                       title={explorerCollapsed ? "Open Explorer" : "Close Explorer"}
                     >
@@ -250,7 +242,7 @@ function Chat() {
                       type="button"
                       onClick={handleOpenPlaytest}
                       disabled={isBusy}
-                      className="inline-flex h-7 items-center rounded-md bg-foreground px-2 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
+                      className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-40"
                       title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
                     >
                       <Play aria-hidden="true" size={13} fill="currentColor" />

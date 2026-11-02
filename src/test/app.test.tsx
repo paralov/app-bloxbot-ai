@@ -338,7 +338,7 @@ describe("User journeys", () => {
     render(<TestApp client={client} queryClient={queryClient} />);
 
     // We should see "What would you like to build?" and a "New Session" button
-    const newSessionBtn = await screen.findByText("New Session");
+    const newSessionBtn = await screen.findByText("New chat");
     await act(async () => {
       fireEvent.click(newSessionBtn);
     });
@@ -717,8 +717,7 @@ describe("User journeys", () => {
     // The bash command should be visible
     await waitFor(() => {
       expect(screen.getByText("List source files")).toBeInTheDocument();
-      expect(screen.getByText("ls -la src/")).toBeInTheDocument();
-      expect(screen.getByText("Running...")).toBeInTheDocument();
+      expect(screen.getByText("Running")).toBeInTheDocument();
     });
 
     // SSE: tool completes with output
@@ -749,7 +748,7 @@ describe("User journeys", () => {
 
     // Running indicator should be gone, output should be available
     await waitFor(() => {
-      expect(screen.queryByText("Running...")).not.toBeInTheDocument();
+      expect(screen.queryByText("Running")).not.toBeInTheDocument();
     });
   });
 
@@ -776,7 +775,6 @@ describe("User journeys", () => {
         activeRef,
       );
     });
-    expect(await screen.findByText("Working")).toBeInTheDocument();
 
     act(() => {
       sseDispatch(
@@ -799,18 +797,42 @@ describe("User journeys", () => {
       );
     });
 
-    expect(await screen.findByRole("dialog")).toHaveTextContent("Free limit reached");
-    expect(screen.getByRole("link", { name: "Subscribe" })).toHaveAttribute(
+    expect(await screen.findByText("You've used today's free messages")).toBeInTheDocument();
+
+    // The failed reply has no content, and it must not look like it's still thinking.
+    act(() => {
+      sseDispatch(
+        queryClient,
+        {
+          type: "message.updated",
+          properties: {
+            sessionID: "s1",
+            info: {
+              id: "reply",
+              sessionID: "s1",
+              role: "assistant",
+              time: { created: 1, completed: 2 },
+              parentID: "prompt",
+              modelID: "m",
+              providerID: "p",
+              mode: "studio",
+              agent: "studio",
+              path: { cwd: "", root: "" },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              error: { name: "APIError", data: { message: "Free usage limit reached." } },
+            },
+          },
+        } as never,
+        activeRef,
+      );
+    });
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "See OpenCode Go" })).toHaveAttribute(
       "href",
       "https://opencode.ai/go",
     );
-    expect(screen.queryByText("Working")).not.toBeInTheDocument();
-
-    // Dismissing the dialog keeps the explanation in the chat, so nothing goes silent.
-    fireEvent.click(screen.getByRole("button", { name: "Don't show again" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(window.localStorage.getItem("bloxbot:usage-limit:free-tier:hidden")).toBe("true");
-    expect(screen.getByText("You've used today's free messages")).toBeInTheDocument();
     expect(screen.getByText(/They reset in about 2 hours/)).toBeInTheDocument();
   });
 

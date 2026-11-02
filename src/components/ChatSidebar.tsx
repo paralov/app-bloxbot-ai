@@ -35,16 +35,9 @@ function formatTime(timestamp: number): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** Only a chat that is working gets a marker. */
 function statusDot(status?: { type: string }): string {
-  if (!status) return "bg-muted-foreground/35";
-  switch (status.type) {
-    case "busy":
-      return "bg-amber-400 animate-pulse";
-    case "idle":
-      return "bg-muted-foreground/35";
-    default:
-      return "bg-muted-foreground/35";
-  }
+  return status?.type === "busy" ? "bg-[var(--running)] animate-pulse" : "hidden";
 }
 
 const ChatSidebar = memo(function ChatSidebar({
@@ -218,7 +211,7 @@ const ChatSidebar = memo(function ChatSidebar({
 
   return (
     <div
-      className={`flex shrink-0 flex-col border-r bg-card transition-[width] duration-200 ease-out ${
+      className={`flex shrink-0 flex-col bg-sidebar transition-[width] duration-200 ease-out ${
         collapsed ? "w-10" : "w-56"
       }`}
     >
@@ -246,7 +239,7 @@ const ChatSidebar = memo(function ChatSidebar({
             <button
               onClick={handleCreate}
               className="mt-2 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              title="New session"
+              title="New chat"
             >
               <svg
                 width="14"
@@ -285,15 +278,13 @@ const ChatSidebar = memo(function ChatSidebar({
         </div>
       ) : (
         <>
-          <div className="flex h-10 items-center justify-between border-b px-3">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Sessions
-            </span>
+          <div className="flex h-11 items-center justify-between px-3">
+            <span className="text-xs font-medium text-muted-foreground">Chats</span>
             <div className="flex items-center gap-0.5">
               <button
                 onClick={handleCreate}
                 className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                title="New session"
+                title="New chat"
               >
                 <svg
                   width="13"
@@ -364,7 +355,7 @@ const ChatSidebar = memo(function ChatSidebar({
                     {isEditing ? (
                       <div className="flex items-start gap-2 px-2 py-1.5">
                         <div
-                          className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
+                          className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
                         />
                         <div className="min-w-0 flex-1">
                           <input
@@ -391,7 +382,7 @@ const ChatSidebar = memo(function ChatSidebar({
                         onClick={() => handleSelect(session.id)}
                       >
                         <div
-                          className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
+                          className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-medium leading-snug break-words">
@@ -478,7 +469,7 @@ const ChatSidebar = memo(function ChatSidebar({
                 type="button"
                 aria-expanded={snoozedExpanded}
                 onClick={handleSnoozedToggle}
-                className="flex w-full items-center gap-1.5 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+                className="flex w-full items-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
                 <svg
                   width="10"
@@ -622,7 +613,7 @@ const ChatSidebar = memo(function ChatSidebar({
                     </svg>
                   </div>
                   <h2 id="delete-session-title" className="mt-4 text-sm font-semibold">
-                    Delete session?
+                    Delete chat?
                   </h2>
                   <p
                     id="delete-session-description"

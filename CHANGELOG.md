@@ -16,11 +16,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
+- A redesigned interface: one calm surface for chats, compact tool activity you can open for detail, a single message box with your model and effort, and a clearer working state.
+- Reasoning effort now names its choices and explains what they do.
+- Notifications appear at the bottom right.
 - BloxBot now runs on OpenCode 2. OpenCode no longer supports free models on version 1. Your chats and connected providers carry over.
 - Chats use OpenCode's Code Mode, so a model can script several Studio tool calls in one step. The chat shows the code it ran and the result.
 
 ### Removed
 
+- Token counts in the chat.
+- The free limit popup. The chat now explains the limit in place.
 - The agent picker. BloxBot now has one assistant, and you change how it behaves with the system prompt.
 - Explorer no longer asks your model to write a program when its built-in one fails, so it can't use up your free messages. It keeps the last tree on screen and retries on its own.
 - The downloadable programs behind Explorer and Studio selection. These now ship with the app, so a change on Roblox's side needs an app update.
