@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { AiTracer, toConversation, trimConversation, truncateText } from "@/lib/aiTracing";
+import {
+  AiTracer,
+  isStudioTool,
+  toConversation,
+  trimConversation,
+  truncateText,
+} from "@/lib/aiTracing";
 import type { Event } from "@/lib/opencode/types";
 import type { MessageWithParts } from "@/types";
 import type { InstructionFile } from "@/types/desktop";
@@ -568,5 +574,15 @@ describe("streamed text", () => {
     });
 
     expect(shared.text).toBe("");
+  });
+});
+
+describe("isStudioTool", () => {
+  it("recognises Studio's tools by name and from Code Mode", () => {
+    expect(isStudioTool("roblox-studio_run_code")).toBe(true);
+    expect(isStudioTool("execute", { code: 'tools["roblox-studio"].run_code({})' })).toBe(true);
+    expect(isStudioTool("execute", { code: "tools.opencode.models({})" })).toBe(false);
+    expect(isStudioTool("execute")).toBe(false);
+    expect(isStudioTool("bash", { code: "roblox-studio" })).toBe(false);
   });
 });

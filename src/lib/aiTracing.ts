@@ -167,7 +167,11 @@ export function contentId(text: string): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
 }
 
-export function isStudioTool(tool: string): boolean {
+// Code Mode reaches Studio through `execute`, from code that names its tools under this server.
+const STUDIO_IN_CODE = /roblox[-_]studio/;
+
+export function isStudioTool(tool: string, input?: Record<string, unknown>): boolean {
+  if (tool === "execute") return typeof input?.code === "string" && STUDIO_IN_CODE.test(input.code);
   return tool.startsWith(STUDIO_MCP_PREFIX);
 }
 
@@ -815,7 +819,7 @@ export class AiTracer {
     const info = this.messages.get(part.messageID)?.info;
     const userMessageID = info?.role === "assistant" ? info.parentID : undefined;
     const turn = this.activeTurn(part.sessionID, userMessageID);
-    const studioTool = isStudioTool(part.tool);
+    const studioTool = isStudioTool(part.tool, state.input);
 
     if (turn) {
       turn.toolCalls += 1;

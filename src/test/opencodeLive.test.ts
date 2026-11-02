@@ -15,6 +15,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { QueryClient } from "@tanstack/react-query";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { isStudioTool } from "@/lib/aiTracing";
 import { aiTracer } from "@/lib/analytics";
 import { isFreeUsageLimit } from "@/lib/modelError";
 import { createOpencodeClient, type OpencodeClient } from "@/lib/opencode/client";
@@ -285,8 +286,7 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
       expect(queryClient.getQueryData(qk.todos(sessionID))).toEqual(todos.data);
 
       expect(pingCalls).toContain("ping_studio");
-      expect(names.some((name) => name.endsWith("ping_studio"))).toBe(true);
-      expect(names).not.toContain("execute");
+      expect(names).toContain("execute");
       console.info("[live] tool names:", names.join(", "));
     },
     TURN_MS + 10_000,
@@ -701,6 +701,7 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
       bodies: string[];
       events: Event[];
     }) => Promise<void>,
+    mcpUrl = "http://127.0.0.1:9/mcp",
   ) {
     const home = await mkdtemp(join(tmpdir(), "bloxbot-chat-"));
     const { provider, url, bodies } = await startScriptedProvider(replies);
@@ -709,7 +710,7 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
     await writeFile(
       configFile,
       JSON.stringify({
-        ...createOpenCodeConfig({ url: "http://127.0.0.1:9/mcp" }),
+        ...createOpenCodeConfig({ url: mcpUrl }),
         providers: { opencode: { settings: { baseURL: url } } },
       }),
     );
@@ -908,6 +909,81 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
       child.kill();
       provider.close();
       await rm(home, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }, 60_000);
+
+  it("runs Studio tools from Code Mode, and counts them as Studio use", async () => {
+    const calls: string[] = [];
+    const mcp = createServer(async (req, res) => {
+      const server = new McpServer(
+        { name: "studio", version: "1.0.0" },
+        { capabilities: { tools: {} } },
+      );
+      server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [
+          {
+            name: "ping_studio",
+            description: "Checks that Roblox Studio responds.",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }));
+      server.setRequestHandler(CallToolRequestSchema, async (request) => {
+        calls.push(request.params.name);
+        return { content: [{ type: "text", text: "studio-pong" }] };
+      });
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
+    });
+    await new Promise<void>((resolve) => mcp.listen(0, "127.0.0.1", resolve));
+    const mcpUrl = `http://127.0.0.1:${(mcp.address() as AddressInfo).port}/mcp`;
+    const code = 'return await tools["roblox-studio"].ping_studio({});';
+    try {
+      await withServer(
+        [
+          {
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_code",
+                type: "function",
+                function: { name: "execute", arguments: JSON.stringify({ code }) },
+              },
+            ],
+          },
+          { content: "Studio answered" },
+        ],
+        async ({ client, events }) => {
+          const deadline = Date.now() + 20_000;
+          let connected = false;
+          while (!connected && Date.now() < deadline) {
+            const servers = (await client.mcp.status({}, { throwOnError: true })).data;
+            connected = servers["roblox-studio"]?.status === "connected";
+            if (!connected) await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+          expect(connected).toBe(true);
+          // A server reports connected a few seconds before its tools reach the Code Mode catalog.
+          await new Promise((resolve) => setTimeout(resolve, 10_000));
+
+          const created = await client.session.create({}, { throwOnError: true });
+          const sessionID = created.data.id;
+          await turn(client, events, sessionID, "Ping Studio.");
+
+          const history = await client.session.messages({ sessionID }, { throwOnError: true });
+          const tool = history.data
+            .flatMap((message) => message.parts)
+            .find((part): part is ToolPart => part.type === "tool");
+          expect(tool?.tool).toBe("execute");
+          expect(tool?.state.input.code).toBe(code);
+          expect(calls).toEqual(["ping_studio"]);
+          expect(tool?.state.status === "completed" && tool.state.output).toContain("studio-pong");
+          expect(isStudioTool("execute", tool?.state.input)).toBe(true);
+        },
+        mcpUrl,
+      );
+    } finally {
+      mcp.close();
     }
   }, 60_000);
 });

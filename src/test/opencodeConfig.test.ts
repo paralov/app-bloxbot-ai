@@ -62,7 +62,6 @@ describe("OpenCode configuration", () => {
     expect(createOpenCodeConfig(broker).mcp.servers["roblox-studio"]).toEqual({
       type: "remote",
       url: broker.url,
-      codemode: false,
     });
   });
 });

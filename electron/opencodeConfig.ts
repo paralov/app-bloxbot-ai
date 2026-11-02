@@ -58,9 +58,6 @@ export function createOpenCodeConfig(broker: { url: string }, systemPrompt?: str
         [STUDIO_MCP_SERVER_NAME]: {
           type: "remote",
           url: broker.url,
-          // Keeps Studio's tools callable by name rather than from code the model writes, which is
-          // what Studio tool views and analytics read and what smaller models manage best.
-          codemode: false,
         },
       },
     },

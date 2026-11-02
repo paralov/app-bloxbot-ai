@@ -655,6 +655,33 @@ const TodoWriteToolView = memo(function TodoWriteToolView({
   );
 });
 
+/** OpenCode's Code Mode: the script a model ran against its tools, and what it returned. */
+const ExecuteToolView = memo(function ExecuteToolView({
+  input,
+  output,
+  status,
+}: {
+  input: Record<string, unknown>;
+  output?: string;
+  status: string;
+}) {
+  const code = inputField(input, "code");
+  return (
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-1.5 text-[13px] leading-relaxed">
+        <span className="font-medium text-muted-foreground/75">Ran code</span>
+        {status === "running" && (
+          <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-amber-400" />
+        )}
+      </div>
+      {code && <InlineDisclosure text={code} previewLines={3} language="javascript" />}
+      {status === "completed" && output && (
+        <InlineDisclosure text={output.slice(0, 2000)} tone="output" previewLines={3} />
+      )}
+    </div>
+  );
+});
+
 const DefaultToolView = memo(function DefaultToolView({
   tool,
   input,
@@ -966,6 +993,8 @@ const ToolPartView = memo(function ToolPartView({
         return <WebFetchToolView input={input} status={status} />;
       case "todowrite":
         return <TodoWriteToolView input={input} />;
+      case "execute":
+        return <ExecuteToolView input={input} output={output} status={status} />;
       default:
         return <DefaultToolView tool={tool} input={input} output={output} status={status} />;
     }
@@ -984,6 +1013,7 @@ const ToolPartView = memo(function ToolPartView({
           "task",
           "webfetch",
           "todowrite",
+          "execute",
         ].includes(tool) && (
           <div className="mb-1 break-words text-[11px] font-medium text-foreground">{title}</div>
         )}

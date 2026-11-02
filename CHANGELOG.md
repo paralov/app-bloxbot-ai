@@ -17,6 +17,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 
 - BloxBot now runs on OpenCode 2. OpenCode no longer supports free models on version 1. Your chats and connected providers carry over.
+- Chats use OpenCode's Code Mode, so a model can script several Studio tool calls in one step. The chat shows the code it ran and the result.
 
 ### Removed
 
