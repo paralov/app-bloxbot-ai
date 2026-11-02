@@ -1,41 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { SessionStatus } from "@/lib/opencode/types";
 
-import { getOpenCodeUsageAction } from "@/lib/usageLimit";
+import type { ModelError } from "@/lib/modelError";
+import { freeLimitUsageAction } from "@/lib/usageLimit";
 
-function retryStatus(provider: string, reason: string): SessionStatus {
-  return {
-    type: "retry",
-    attempt: 1,
-    message: "Retrying",
-    next: Date.now() + 60_000,
-    action: {
-      provider,
-      reason,
-      title: "Free limit reached",
-      message: "Subscribe to OpenCode Go for reliable access.",
-      label: "Subscribe",
-      link: "https://opencode.ai/go",
-    },
-  };
-}
+const apiError = (message: string) => ({ name: "APIError", data: { message } }) as ModelError;
 
 describe("OpenCode usage actions", () => {
-  it("uses OpenCode's structured free-tier action", () => {
-    expect(getOpenCodeUsageAction(retryStatus("opencode", "free_tier_limit"))).toMatchObject({
+  it("offers OpenCode Go when the free limit ends a turn", () => {
+    expect(freeLimitUsageAction(apiError("Free usage limit reached."))).toMatchObject({
       provider: "opencode",
       reason: "free_tier_limit",
-      title: "Free limit reached",
+      link: "https://opencode.ai/go",
     });
   });
 
-  it("uses OpenCode Go account-limit actions", () => {
-    expect(getOpenCodeUsageAction(retryStatus("opencode-go", "account_rate_limit"))).not.toBeNull();
-  });
-
-  it("ignores unstructured and third-party retry statuses", () => {
-    expect(getOpenCodeUsageAction(retryStatus("anthropic", "free_tier_limit"))).toBeNull();
-    expect(getOpenCodeUsageAction(retryStatus("opencode", "rate_limit"))).toBeNull();
-    expect(getOpenCodeUsageAction({ type: "busy" })).toBeNull();
+  it("stays out of the way for other errors", () => {
+    expect(freeLimitUsageAction(apiError("Rate limit exceeded"))).toBeNull();
+    expect(freeLimitUsageAction(null)).toBeNull();
   });
 });

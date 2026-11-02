@@ -16,7 +16,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { QueryClient } from "@tanstack/react-query";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { aiTracer } from "@/lib/analytics";
-import { ASK_ALL_PERMISSIONS, rejectPermissions } from "@/lib/hiddenSession";
+import { isFreeUsageLimit } from "@/lib/modelError";
 import { createOpencodeClient, type OpencodeClient } from "@/lib/opencode/client";
 import type { Event, ToolPart } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
@@ -692,90 +692,6 @@ const shellCall = (command: string) => ({
   ],
 });
 
-describe.skipIf(!BIN)("[no model] Hidden helper chats", () => {
-  async function withHelper(
-    replies: ReadonlyArray<object>,
-    run: (client: OpencodeClient, sessionID: string, marker: string) => Promise<void>,
-  ) {
-    const home = await mkdtemp(join(tmpdir(), "bloxbot-helper-"));
-    const marker = join(home, "must-not-exist.txt");
-    const { provider, url } = await startScriptedProvider(
-      replies.map((reply) => ("tool_calls" in reply ? shellCall(`touch ${marker}`) : reply)),
-    );
-    await mkdir(join(home, "config", "opencode"), { recursive: true });
-    await writeFile(
-      join(home, "config", "opencode", "opencode.json"),
-      JSON.stringify({ providers: { opencode: { settings: { baseURL: url } } } }),
-    );
-    const { child, baseUrl, workspace } = await startServer(BIN as string, home);
-    try {
-      const client = createOpencodeClient({
-        baseUrl,
-        directory: workspace,
-        headers: {
-          Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}`,
-        },
-      });
-      const created = await client.session.create(
-        { metadata: { bloxbotHidden: true }, permission: ASK_ALL_PERMISSIONS },
-        { throwOnError: true },
-      );
-      await run(client, created.data.id, marker);
-    } finally {
-      child.kill();
-      provider.close();
-      await rm(home, { recursive: true, force: true }).catch(() => undefined);
-    }
-  }
-
-  const ask = (client: OpencodeClient, sessionID: string) =>
-    client.session.prompt(
-      {
-        sessionID,
-        model: MODEL,
-        format: { type: "json_schema", schema: { type: "object" } },
-        parts: [{ type: "text", text: "Answer." }],
-      },
-      { throwOnError: true },
-    );
-
-  it("rejects the model's tool call, then gets its answer from the same turn", async () => {
-    await withHelper(
-      [{ tool_calls: [] }, { content: '{"answer":4}' }],
-      async (client, sessionID, marker) => {
-        const stop = rejectPermissions(client, sessionID);
-        try {
-          const response = await ask(client, sessionID);
-          expect(response.data.info.error).toBeUndefined();
-          expect(response.data.info.structured).toEqual({ answer: 4 });
-          await expect(access(marker)).rejects.toThrow();
-        } finally {
-          stop();
-        }
-      },
-    );
-  }, 60_000);
-
-  it("doesn't wait forever on a turn that ends without an idle entry", async () => {
-    await withHelper([{ tool_calls: [] }], async (client, sessionID, marker) => {
-      // A bare rejection, which is what a user's Reject sends, interrupts the turn.
-      const reject = setInterval(async () => {
-        const open = await client.permission.list({}).catch(() => undefined);
-        for (const request of open?.data ?? []) {
-          await client.permission.reply({ requestID: request.id, reply: "reject" }).catch(() => {});
-        }
-      }, 100);
-      try {
-        const response = await ask(client, sessionID);
-        expect(response.data.info.error?.name).toBe("MessageAbortedError");
-        await expect(access(marker)).rejects.toThrow();
-      } finally {
-        clearInterval(reject);
-      }
-    });
-  }, 60_000);
-});
-
 describe.skipIf(!BIN)("[no model] Running a chat", () => {
   async function withServer(
     replies: ReadonlyArray<object>,
@@ -912,5 +828,86 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
         expect(parts.some((part) => part.type === "text" && part.text === "Finished")).toBe(true);
       },
     );
+  }, 60_000);
+
+  const askForJson = (client: OpencodeClient, sessionID: string, retryCount = 1) =>
+    client.session.prompt(
+      {
+        sessionID,
+        model: MODEL,
+        system: "Helper instructions.",
+        format: { type: "json_schema", retryCount, schema: { type: "object" } },
+        parts: [{ type: "text", text: "Answer the question." }],
+      },
+      { throwOnError: true },
+    );
+
+  it("answers helper prompts in JSON, adds nothing to the chat and sends tools for the free tier", async () => {
+    await withServer([{ content: '```json\n{"answer":4}\n```' }], async ({ client, bodies }) => {
+      const created = await client.session.create(
+        { metadata: { bloxbotHidden: true } },
+        { throwOnError: true },
+      );
+      const sessionID = created.data.id;
+      const response = await askForJson(client, sessionID);
+      expect(response.data.info.error).toBeUndefined();
+      expect(response.data.info.structured).toEqual({ answer: 4 });
+
+      const body = bodies.at(-1) ?? "";
+      expect(body).toContain("Helper instructions.");
+      expect(JSON.parse(body).tools.length).toBeGreaterThan(0);
+      const history = await client.session.messages({ sessionID }, { throwOnError: true });
+      expect(history.data).toEqual([]);
+    });
+  }, 60_000);
+
+  it("never runs a tool from a helper prompt, and asks again with what came back", async () => {
+    const home = await mkdtemp(join(tmpdir(), "bloxbot-marker-"));
+    const marker = join(home, "must-not-exist.txt");
+    await withServer(
+      [shellCall(`echo no > ${marker}`), { content: "No JSON here" }, { content: '{"answer":4}' }],
+      async ({ client, bodies }) => {
+        const created = await client.session.create(
+          { metadata: { bloxbotHidden: true } },
+          { throwOnError: true },
+        );
+        const response = await askForJson(client, created.data.id, 2);
+        expect(response.data.info.structured).toEqual({ answer: 4 });
+        await expect(access(marker)).rejects.toThrow();
+        expect(bodies.at(-1)).toContain("You replied: No JSON here");
+      },
+    );
+    await rm(home, { recursive: true, force: true });
+  }, 60_000);
+
+  it("reports the reason when a helper prompt fails", async () => {
+    const home = await mkdtemp(join(tmpdir(), "bloxbot-helper-limit-"));
+    const { provider, url } = await startFailingProvider(429, {
+      type: "error",
+      error: { type: "FreeUsageLimitError", message: "Free usage limit reached." },
+    });
+    await mkdir(join(home, "config", "opencode"), { recursive: true });
+    await writeFile(
+      join(home, "config", "opencode", "opencode.json"),
+      JSON.stringify({ providers: { opencode: { settings: { baseURL: url } } } }),
+    );
+    const { child, baseUrl, workspace } = await startServer(BIN as string, home);
+    try {
+      const client = createOpencodeClient({
+        baseUrl,
+        directory: workspace,
+        headers: {
+          Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}`,
+        },
+      });
+      const created = await client.session.create({}, { throwOnError: true });
+      const response = await askForJson(client, created.data.id);
+      const error = response.data.info.error;
+      expect(error && isFreeUsageLimit(error)).toBe(true);
+    } finally {
+      child.kill();
+      provider.close();
+      await rm(home, { recursive: true, force: true }).catch(() => undefined);
+    }
   }, 60_000);
 });

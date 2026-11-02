@@ -86,7 +86,7 @@ describe("useDisconnectProvider", () => {
 });
 
 describe("useCheckProvider", () => {
-  it("runs the check where no tool can act, rejecting its own approval requests", async () => {
+  it("runs the check in a hidden chat and removes it", async () => {
     const qc = new QueryClient();
     qc.setQueryData(qk.providers, {
       all: [
@@ -115,18 +115,7 @@ describe("useCheckProvider", () => {
       ],
     });
     // The model asks to run a tool; the prompt only finishes once that is rejected.
-    let rejected: () => void = () => {};
-    const rejection = new Promise<void>((resolve) => {
-      rejected = resolve;
-    });
-    client.permission.reply.mockImplementation(async () => {
-      rejected();
-      return { data: true };
-    });
-    client.session.prompt.mockImplementation(async () => {
-      await rejection;
-      return { data: { info: {}, parts: [] } };
-    });
+    client.session.prompt.mockResolvedValue({ data: { info: {}, parts: [] } });
 
     const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
 
@@ -136,17 +125,6 @@ describe("useCheckProvider", () => {
       ok: true,
       modelName: "Kimi K3",
     });
-    expect(client.session.create.mock.calls[0][0].permission).toEqual([
-      { permission: "*", pattern: "*", action: "ask" },
-    ]);
-    expect(client.permission.reply).toHaveBeenCalledWith({
-      requestID: "mine",
-      reply: "reject",
-      message: expect.any(String),
-    });
-    expect(client.permission.reply).not.toHaveBeenCalledWith(
-      expect.objectContaining({ requestID: "theirs" }),
-    );
     expect(client.session.delete).toHaveBeenCalledWith(
       { sessionID: "check-session" },
       { throwOnError: true },

@@ -253,36 +253,6 @@ function dispatchEvent(
       });
       break;
     }
-    case "message.removed": {
-      const { sessionID, messageID } = event.properties;
-      if (sessionID !== currentSessionId) break;
-      queryClient.setQueryData<MessagesCache>(qk.messages(currentSessionId), (prev) => {
-        if (!prev) return prev;
-        const { [messageID]: _removed, ...rest } = prev.messagesById;
-        return {
-          messageIds: prev.messageIds.filter((id) => id !== messageID),
-          messagesById: rest,
-        };
-      });
-      break;
-    }
-    case "message.part.removed": {
-      const { sessionID, messageID, partID } = event.properties;
-      if (sessionID !== currentSessionId) break;
-      queryClient.setQueryData<MessagesCache>(qk.messages(currentSessionId), (prev) => {
-        if (!prev) return prev;
-        const msg = prev.messagesById[messageID];
-        if (!msg) return prev;
-        return {
-          ...prev,
-          messagesById: {
-            ...prev.messagesById,
-            [messageID]: { ...msg, parts: msg.parts.filter((p) => p.id !== partID) },
-          },
-        };
-      });
-      break;
-    }
     case "todo.updated": {
       const { sessionID, todos } = event.properties;
       if (sessionID === currentSessionId) {

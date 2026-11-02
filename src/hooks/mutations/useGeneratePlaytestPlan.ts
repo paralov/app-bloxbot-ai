@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ASK_ALL_PERMISSIONS, rejectPermissions } from "@/lib/hiddenSession";
 import { modelErrorDetail } from "@/lib/modelError";
 import {
   buildPlaytestHistory,
@@ -52,14 +51,11 @@ export function useGeneratePlaytestPlan() {
         {
           title: "Playtest plan (temporary)",
           metadata: { bloxbotHidden: true, purpose: "playtest-plan" },
-          permission: ASK_ALL_PERMISSIONS,
         },
         { throwOnError: true },
       );
       const planningSessionId = created.data?.id;
       if (!planningSessionId) throw new Error("Couldn't start the playtest planner.");
-
-      const stopRejecting = rejectPermissions(client, planningSessionId);
       try {
         let text = `Create a focused playtest plan for the work described below. Make each step directly executable and each success criterion observable.\n\nCHAT HISTORY\n${history}`;
         for (let attempts = 1; ; attempts += 1) {
@@ -104,7 +100,6 @@ export function useGeneratePlaytestPlan() {
           text = PLAYTEST_PLAN_REMINDER;
         }
       } finally {
-        stopRejecting();
         await client.session.delete({ sessionID: planningSessionId }).catch(() => undefined);
       }
     },

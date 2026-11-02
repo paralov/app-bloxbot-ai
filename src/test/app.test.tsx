@@ -753,7 +753,7 @@ describe("User journeys", () => {
     });
   });
 
-  it("shows OpenCode's structured free-tier action while waiting to retry", async () => {
+  it("ends the turn at the free limit with the reason and a way to keep going", async () => {
     const session = makeSession("s1", "Quota Session");
     const client = createClient({
       get: vi.fn().mockResolvedValue({ data: session }),
@@ -772,10 +772,7 @@ describe("User journeys", () => {
     act(() => {
       sseDispatch(
         queryClient,
-        {
-          type: "session.status",
-          properties: { sessionID: "s1", status: { type: "busy" } },
-        },
+        { type: "session.status", properties: { sessionID: "s1", status: { type: "busy" } } },
         activeRef,
       );
     });
@@ -785,22 +782,15 @@ describe("User journeys", () => {
       sseDispatch(
         queryClient,
         {
-          type: "session.status",
+          type: "session.error",
           properties: {
             sessionID: "s1",
-            status: {
-              type: "retry",
-              attempt: 1,
-              message: "Free usage exceeded, subscribe to Go",
-              next: Date.now() + 60_000,
-              action: {
-                provider: "opencode",
-                reason: "free_tier_limit",
-                title: "Free limit reached",
-                message:
-                  "Subscribe to OpenCode Go for reliable access to the best open-source models.",
-                label: "Subscribe",
-                link: "https://opencode.ai/go",
+            error: {
+              name: "APIError",
+              data: {
+                message: "Free usage limit reached.",
+                retryAfterMs: 2 * 60 * 60 * 1000,
+                isRetryable: false,
               },
             },
           },
@@ -810,19 +800,18 @@ describe("User journeys", () => {
     });
 
     expect(await screen.findByRole("dialog")).toHaveTextContent("Free limit reached");
-    expect(screen.getByRole("dialog")).toHaveTextContent("Subscribe to OpenCode Go");
     expect(screen.getByRole("link", { name: "Subscribe" })).toHaveAttribute(
       "href",
       "https://opencode.ai/go",
     );
-    expect(screen.getByRole("button", { name: "Don't show again" })).toBeInTheDocument();
     expect(screen.queryByText("Working")).not.toBeInTheDocument();
-    expect(screen.getByText("Waiting to retry")).toBeInTheDocument();
-    expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
 
+    // Dismissing the dialog keeps the explanation in the chat, so nothing goes silent.
     fireEvent.click(screen.getByRole("button", { name: "Don't show again" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(window.localStorage.getItem("bloxbot:usage-limit:free-tier:hidden")).toBe("true");
+    expect(screen.getByText("You've used today's free messages")).toBeInTheDocument();
+    expect(screen.getByText(/They reset in about 2 hours/)).toBeInTheDocument();
   });
 
   it("SSE session.created adds a new session to the sidebar", async () => {

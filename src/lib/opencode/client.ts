@@ -7,6 +7,7 @@ import {
   type OpenCodeClient,
   type SessionInfo,
   type SessionMessageInfo,
+  type SessionStructuredError,
   type PermissionRequest as V2PermissionRequest,
 } from "@opencode/client";
 
@@ -64,8 +65,6 @@ export interface PromptResult {
 }
 
 const INSTRUCTIONS_KEY = "bloxbot.prompt";
-const TURN_POLL_MS = 250;
-const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 const OAUTH_POLL_MS = 1000;
 const PAGE_SIZE = 200;
 
@@ -250,6 +249,7 @@ export function createOpencodeClient(options: {
   const permissionSessions = new Map<string, string>();
   const oauthAttempts = new Map<string, string>();
   const sessionModels = new Map<string, string>();
+  const exchanges = new Map<string, string[]>();
 
   const remember = (info: SessionInfo): Session => {
     const session = toSession(info);
@@ -325,69 +325,48 @@ export function createOpencodeClient(options: {
     });
   };
 
-  /** Runs a whole turn: OpenCode 2 prompts return once queued, so this waits for the turn's end. */
-  const runTurn = async (input: PromptInput, suffix: string) => {
-    const queued = await sendPrompt(input, suffix);
-    const deadline = Date.now() + TURN_TIMEOUT_MS;
-    for (;;) {
-      await sleep(TURN_POLL_MS);
-      const recent = await api.message.list({
-        sessionID: input.sessionID,
-        order: "desc",
-        limit: PAGE_SIZE,
-      });
-      const settled = recent.data.find(
-        (entry) => entry.type === "idle" && entry.time.created >= queued.time.created,
-      );
-      if (settled?.type === "idle") return { idle: settled, entries: recent.data };
-      // An interrupted turn stops without an idle entry, leaving only its failed reply.
-      const replied = recent.data.some(
-        (entry) => entry.type === "assistant" && entry.time.created >= queued.time.created,
-      );
-      if (replied && !(await api.session.active())[input.sessionID]) {
-        return { idle: undefined, entries: recent.data };
-      }
-      if (Date.now() > deadline) throw new Error("The model didn't finish in time.");
-    }
-  };
-
+  /**
+   * One model reply that runs no tools and leaves the chat's history alone. Generate requests keep
+   * the session's tools, which OpenCode's free tier requires. Nothing is remembered between them,
+   * so a follow-up carries the earlier exchange itself.
+   */
   const prompt = async (input: PromptInput): Promise<PromptResult> => {
-    const schema = input.format?.schema;
-    const suffix = schema
-      ? `\n\nAnswer with only one JSON object matching this JSON schema, with no other text:\n${JSON.stringify(schema)}`
+    await prepareTurn(input);
+    const { sessionID, model, format } = input;
+    const info = {
+      role: "assistant",
+      sessionID,
+      modelID: model?.modelID,
+      providerID: model?.providerID,
+    } as PromptResult["info"];
+    const instruction = format
+      ? `\n\nAnswer with only one JSON object matching this JSON schema, with no other text:\n${JSON.stringify(format.schema)}`
       : "";
-    const attempts = (input.format?.retryCount ?? 0) + 1;
-    let info = {} as PromptResult["info"];
+    const asked = input.parts
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n");
+    const earlier = exchanges.get(sessionID) ?? [];
+    const attempts = (format?.retryCount ?? 0) + 1;
+
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const { idle, entries } = await runTurn(input, suffix);
-      const assistant = entries.find((entry) => entry.type === "assistant");
-      info = (
-        assistant?.type === "assistant"
-          ? {
-              id: assistant.id,
-              modelID: assistant.model.id,
-              providerID: assistant.model.providerID,
-              role: "assistant",
-            }
-          : { role: "assistant" }
-      ) as PromptResult["info"];
-      const failure =
-        idle?.error ?? (assistant?.type === "assistant" ? assistant.error : undefined);
-      if (failure) {
-        info.error = toModelError(failure);
+      let reply: string;
+      try {
+        ({ text: reply } = await api.session.generate({
+          sessionID,
+          prompt: [...earlier, `${asked}${instruction}`].join("\n\n"),
+        }));
+      } catch (error) {
+        info.error = toModelError(toStructuredError(error));
         return { info, parts: [] };
       }
-      if (!schema) return { info, parts: [] };
-
-      const text =
-        assistant?.type === "assistant"
-          ? assistant.content.flatMap((item) => (item.type === "text" ? [item.text] : [])).join("")
-          : "";
-      const structured = parseJsonObject(text);
+      if (!format) return { info, parts: [] };
+      const structured = parseJsonObject(reply);
       if (structured !== undefined) {
         info.structured = structured;
         return { info, parts: [] };
       }
+      earlier.push(`You were asked: ${asked}`, `You replied: ${reply}`);
+      exchanges.set(sessionID, earlier);
     }
     info.error = {
       name: "StructuredOutputError",
@@ -435,6 +414,7 @@ export function createOpencodeClient(options: {
           await api.session.remove({ sessionID: input.sessionID });
           translator.forgetSession(input.sessionID);
           sessionModels.delete(input.sessionID);
+          exchanges.delete(input.sessionID);
           return true;
         }),
       status: (_input: object = {}, requestOptions?: RequestOptions) =>
@@ -695,6 +675,22 @@ export function createOpencodeClient(options: {
 }
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>;
+
+/** A failed request in the shape a failed turn reports, so callers handle both the same way. */
+function toStructuredError(error: unknown): SessionStructuredError {
+  const fields = error as {
+    reason?: string;
+    message?: string;
+    status?: number;
+    retryAfterMs?: number;
+  };
+  return {
+    type: fields.reason ?? "unknown",
+    message: fields.message ?? String(error),
+    status: fields.status,
+    retryAfterMs: fields.retryAfterMs,
+  };
+}
 
 /** The JSON object in a model's reply, which some models wrap in a code fence or a sentence. */
 export function parseJsonObject(text: string): unknown {

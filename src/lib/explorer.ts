@@ -1,7 +1,6 @@
 import { Effect, Schema } from "effect";
 import type { GeneratedProgramArtifact, GeneratedProgramEnvelope } from "../types/generatedProgram";
 import { STUDIO_MCP_SERVER_NAME } from "./bloxbotProgramManifest";
-import { ASK_ALL_PERMISSIONS, rejectPermissions } from "./hiddenSession";
 import { type ModelError, modelErrorDetail } from "./modelError";
 import type { OpencodeClient } from "./opencode/client";
 
@@ -283,19 +282,14 @@ async function withPrivateSession<T>(
     {
       title: "BloxBot Explorer sync",
       metadata: { bloxbotHidden: true, purpose: "explorer" },
-      // Tools stay in the request so it looks like a normal chat, but every tool
-      // call is rejected and the session never waits on an approval.
-      permission: ASK_ALL_PERMISSIONS,
     },
     { throwOnError: true },
   );
   const sessionID = created.data.id;
 
-  const stopRejecting = rejectPermissions(client, sessionID);
   try {
     return await run(sessionID);
   } finally {
-    stopRejecting();
     await client.session.delete({ sessionID }, { throwOnError: true }).catch(() => undefined);
   }
 }

@@ -113,28 +113,10 @@ describe("PlaytestPanel", () => {
   beforeEach(() => capture.mockClear());
   afterEach(() => setDetailedAnalyticsEnabled(false));
 
-  it("generates through a hidden session whose tool requests are rejected, then sends the edited plan normally", async () => {
+  it("generates through a hidden session, then sends the edited plan normally", async () => {
     const onClose = vi.fn();
     const client = plannerClient(vi.fn());
-    // The model asks to run a tool. The prompt only finishes once that is rejected.
-    client.permission.list.mockResolvedValue({
-      data: [
-        { id: "planner-ask", sessionID: "planner", permission: "bash" },
-        { id: "chat-ask", sessionID: "active", permission: "edit" },
-      ],
-    });
-    let rejected: () => void = () => {};
-    const rejection = new Promise<void>((resolve) => {
-      rejected = resolve;
-    });
-    client.permission.reply.mockImplementation(async () => {
-      rejected();
-      return { data: true };
-    });
-    client.session.prompt.mockImplementation(async () => {
-      await rejection;
-      return { data: { info: { structured: PLAN }, parts: [] } };
-    });
+    client.session.prompt.mockResolvedValue({ data: { info: { structured: PLAN }, parts: [] } });
 
     render(<Harness client={client} onClose={onClose} />);
     expect(client.session.create).not.toHaveBeenCalled();
@@ -155,19 +137,7 @@ describe("PlaytestPanel", () => {
       sessionID: "planner",
       format: { type: "json_schema" },
     });
-    // "deny" would drop every tool from the request, including the
-    // StructuredOutput tool, and OpenCode's free tier rejects tool-less requests.
-    const created = client.session.create.mock.calls[0][0];
-    expect(created.permission).toEqual([{ permission: "*", pattern: "*", action: "ask" }]);
-    expect(created.metadata).toMatchObject({ bloxbotHidden: true });
-    expect(client.permission.reply).toHaveBeenCalledWith({
-      requestID: "planner-ask",
-      reply: "reject",
-      message: expect.any(String),
-    });
-    expect(client.permission.reply).not.toHaveBeenCalledWith(
-      expect.objectContaining({ requestID: "chat-ask" }),
-    );
+    expect(client.session.create.mock.calls[0][0].metadata).toMatchObject({ bloxbotHidden: true });
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
 
     fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Test two rounds" } });

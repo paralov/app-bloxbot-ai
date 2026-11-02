@@ -149,8 +149,6 @@ describe("Explorer data boundary", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: { bloxbotHidden: true, purpose: "explorer" },
-        // "deny" would drop the StructuredOutput tool from the request.
-        permission: [{ permission: "*", pattern: "*", action: "ask" }],
       }),
       { throwOnError: true },
     );
@@ -230,46 +228,6 @@ describe("Explorer data boundary", () => {
     });
     expect(prompt).toHaveBeenCalledTimes(2);
     expect(remove).toHaveBeenCalledTimes(1);
-  });
-
-  it("rejects the model's own tool calls while it writes the program", async () => {
-    const { client, prompt, permission } = fakeClient();
-    permission.list.mockResolvedValue({
-      data: [
-        { id: "explorer-ask", sessionID: "hidden-session", permission: "roblox-studio_*" },
-        { id: "chat-ask", sessionID: "chat", permission: "edit" },
-      ],
-    });
-    let rejected: () => void = () => {};
-    const rejection = new Promise<void>((resolve) => {
-      rejected = resolve;
-    });
-    permission.reply.mockImplementation(async () => {
-      rejected();
-      return { data: true };
-    });
-    prompt.mockImplementation(async () => {
-      await rejection;
-      return { data: { info: { structured } } };
-    });
-
-    await expect(
-      generateExplorerProgram(client as never, {
-        allowedTools,
-        validate: vi.fn().mockResolvedValue("snapshot"),
-      }),
-    ).resolves.toMatchObject({ attempts: 1 });
-    expect(permission.reply).toHaveBeenCalledWith({
-      requestID: "explorer-ask",
-      reply: "reject",
-      message: expect.any(String),
-    });
-    expect(permission.reply).not.toHaveBeenCalledWith(
-      expect.objectContaining({ requestID: "chat-ask" }),
-    );
-    const system = prompt.mock.calls[0][0].system as string;
-    expect(system).toContain("Do not call any Studio tool yourself");
-    expect(system).toContain("one JSON object");
   });
 
   it("surfaces a provider error from the reply without retrying", async () => {

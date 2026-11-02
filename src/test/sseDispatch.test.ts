@@ -541,55 +541,6 @@ describe("sseDispatch", () => {
     });
   });
 
-  describe("message.removed", () => {
-    it("removes a message from the cache", () => {
-      qc.setQueryData<MessagesCache>(qk.messages("s1"), {
-        messageIds: ["m1", "m2"],
-        messagesById: {
-          m1: { info: { id: "m1" } as any, parts: [] },
-          m2: { info: { id: "m2" } as any, parts: [] },
-        },
-      });
-
-      dispatch(
-        qc,
-        { type: "message.removed", properties: { sessionID: "s1", messageID: "m1" } },
-        "s1",
-      );
-
-      const cache = qc.getQueryData<MessagesCache>(qk.messages("s1"))!;
-      expect(cache.messageIds).toEqual(["m2"]);
-      expect(cache.messagesById.m1).toBeUndefined();
-    });
-  });
-
-  describe("message.part.removed", () => {
-    it("removes a part from a message", () => {
-      qc.setQueryData<MessagesCache>(qk.messages("s1"), {
-        messageIds: ["m1"],
-        messagesById: {
-          m1: {
-            info: { id: "m1" } as any,
-            parts: [{ id: "p1", type: "text" } as any, { id: "p2", type: "text" } as any],
-          },
-        },
-      });
-
-      dispatch(
-        qc,
-        {
-          type: "message.part.removed",
-          properties: { sessionID: "s1", messageID: "m1", partID: "p1" },
-        },
-        "s1",
-      );
-
-      const parts = qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1.parts;
-      expect(parts).toHaveLength(1);
-      expect(parts[0].id).toBe("p2");
-    });
-  });
-
   // ── Todo events ────────────────────────────────────────────────────
 
   describe("todo.updated", () => {

@@ -43,11 +43,7 @@ import { useSessionError } from "@/hooks/useSessionError";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useTodos } from "@/hooks/useTodos";
 import { type ModelError, presentModelError } from "@/lib/modelError";
-import {
-  freeLimitUsageAction,
-  getOpenCodeUsageAction,
-  type OpenCodeUsageAction,
-} from "@/lib/usageLimit";
+import { freeLimitUsageAction, type OpenCodeUsageAction } from "@/lib/usageLimit";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import type { MessageWithParts } from "@/types";
 
@@ -1017,34 +1013,6 @@ const StepFinishPartView = memo(function StepFinishPartView({
   );
 });
 
-const RetryPartView = memo(function RetryPartView({
-  part,
-}: {
-  part: Extract<Part, { type: "retry" }>;
-}) {
-  return (
-    <div className="my-1 flex items-center gap-1.5 text-[13px] leading-relaxed text-[#9a6700]/75 dark:text-[#d29922]/75">
-      <svg
-        width="10"
-        height="10"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="23 4 23 10 17 10" />
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-      </svg>
-      Retrying (attempt {part.attempt})
-      {"error" in part && part.error?.data && "message" in part.error.data && (
-        <span className="min-w-0 truncate opacity-80"> - {String(part.error.data.message)}</span>
-      )}
-    </div>
-  );
-});
-
 const CompactionPartView = memo(function CompactionPartView() {
   return (
     <div className="my-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -1228,13 +1196,8 @@ const PartRenderer = memo(function PartRenderer({ part }: { part: Part }) {
       return <StepPartView />;
     case "step-finish":
       return <StepFinishPartView part={part} />;
-    case "retry":
-      return <RetryPartView part={part} />;
     case "compaction":
       return <CompactionPartView />;
-    case "snapshot":
-    case "patch":
-      return null;
     default:
       return null;
   }
@@ -1557,7 +1520,7 @@ function ChatMessages() {
   const { activeSessionId } = useActiveSession();
   const sessionStatus = useSessionStatus(activeSessionId);
   const isBusy = sessionStatus !== undefined && sessionStatus.type !== "idle";
-  const usageAction = getOpenCodeUsageAction(sessionStatus) ?? freeLimitUsageAction(sessionError);
+  const usageAction = freeLimitUsageAction(sessionError);
   const todos = useTodos();
   const activeQuestion = useActiveQuestion();
   const activePermission = useActivePermission();
