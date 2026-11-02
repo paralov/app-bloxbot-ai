@@ -1181,9 +1181,10 @@ const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: st
           <UserPartsView parts={msg.parts} />
         ) : (
           <div className="space-y-1">
-            {msg.parts.length === 0 && !msg.info.error && !msg.info.time.completed && (
-              <BloxBotThinking />
-            )}
+            {msg.parts.length === 0 &&
+              msg.info.role === "assistant" &&
+              !msg.info.error &&
+              !msg.info.time.completed && <BloxBotThinking />}
             {msg.parts.map((part) => (
               <PartRenderer key={part.id} part={part} />
             ))}

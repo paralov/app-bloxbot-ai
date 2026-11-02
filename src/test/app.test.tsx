@@ -820,7 +820,13 @@ describe("User journeys", () => {
               path: { cwd: "", root: "" },
               cost: 0,
               tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-              error: { name: "APIError", data: { message: "Free usage limit reached." } },
+              error: {
+                name: "APIError",
+                data: {
+                  message: "Free usage limit reached.",
+                  retryAfterMs: 2 * 60 * 60 * 1000,
+                },
+              },
             },
           },
         } as never,
