@@ -16,6 +16,8 @@ import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useCommands } from "@/hooks/useCommands";
 import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
+import { desktop } from "@/lib/desktop";
+import { sortExplorerSnapshot } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
@@ -253,7 +255,7 @@ function effortLabel(variant: string | null): string {
 }
 
 function ChatInput() {
-  const { pendingReference, consumeReference, objects } = useExplorerReference();
+  const { pendingReference, consumeReference, objects, publishObjects } = useExplorerReference();
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
   const commands = useCommands();
@@ -261,7 +263,35 @@ function ChatInput() {
   const isBusy = useIsBusy(activeSessionId);
   const { selectedModel, selectedVariant, hiddenModels, setSelectedModel, setSelectedVariant } =
     usePreferences();
-  const studioTargetReference = useStudioTargetOptional()?.promptReference ?? null;
+  const studioTarget = useStudioTargetOptional();
+  const studioTargetReference = studioTarget?.promptReference ?? null;
+  const studioId = studioTarget?.selected?.key ?? null;
+  const [objectsLoading, setObjectsLoading] = useState(false);
+  const objectsRequest = useRef(0);
+
+  // Objects belong to one place, so a different Studio starts with none.
+  useEffect(() => {
+    objectsRequest.current += 1;
+    publishObjects([]);
+    setObjectsLoading(false);
+  }, [studioId, publishObjects]);
+
+  // The Explorer panel may be closed, so "@" fetches what it can offer itself.
+  const loadObjects = useCallback(() => {
+    if (!studioId) return;
+    const request = ++objectsRequest.current;
+    setObjectsLoading(true);
+    desktop
+      .getExplorerSnapshot(studioId)
+      .then((snapshot) => {
+        if (request !== objectsRequest.current) return;
+        publishObjects(sortExplorerSnapshot(snapshot).roots);
+      })
+      .catch((error) => console.error("[composer] couldn't read Studio objects", error))
+      .finally(() => {
+        if (request === objectsRequest.current) setObjectsLoading(false);
+      });
+  }, [studioId, publishObjects]);
 
   // Available variants for the currently selected model
   const availableVariants = useMemo(() => {
@@ -557,7 +587,8 @@ function ChatInput() {
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          className={`rounded-xl border bg-card transition-colors focus-within:border-foreground/20 ${isDragging ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50/30" : ""}`}
+          data-composer=""
+          className={`relative rounded-xl border bg-card transition-colors focus-within:border-foreground/20 ${isDragging ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50/30" : ""}`}
         >
           {attachments.length > 0 && (
             <div className="flex gap-2 overflow-x-auto px-3 pt-2 pb-1">
@@ -606,6 +637,11 @@ function ChatInput() {
               ref={promptEditorRef}
               commands={commands}
               objects={objects}
+              objectsLoading={objectsLoading}
+              objectsUnavailable={
+                studioId ? null : "Open a place in Studio to reference its objects."
+              }
+              onObjectsWanted={loadObjects}
               onChange={setText}
               onSubmit={handleSubmit}
               onPaste={(e) => {

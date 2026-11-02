@@ -19,6 +19,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - A redesigned interface: one calm surface for chats, compact tool activity you can open for detail, a single message box with your model and effort, and a clearer working state.
 - Reasoning effort now names its choices and explains what they do.
 - Notifications appear at the bottom right.
+- `@` and `/` suggestions open above the message box, find objects even with Explorer closed, and rank the closest matches first.
+- Explorer and Playtest moved to the top bar.
 - BloxBot now runs on OpenCode 2. OpenCode no longer supports free models on version 1. Your chats and connected providers carry over.
 - Chats use OpenCode's Code Mode, so a model can script several Studio tool calls in one step. The chat shows the code it ran and the result.
 

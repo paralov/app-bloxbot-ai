@@ -1,6 +1,7 @@
 import { Boxes, Play } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
@@ -10,6 +11,7 @@ import LoadingScreen from "@/components/LoadingScreen";
 import PlaytestPanel from "@/components/PlaytestPanel";
 import StudioSetup from "@/components/StudioSetup";
 import StudioTargetPicker from "@/components/StudioTargetPicker";
+import { MENU_TRIGGER } from "@/components/ui/menu";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
@@ -39,9 +41,10 @@ function Chat() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [titlebarActions, setTitlebarActions] = useState<HTMLElement | null>(null);
+  useEffect(() => setTitlebarActions(document.getElementById("titlebar-actions")), []);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
   const [showPlaytest, setShowPlaytest] = useState(false);
-  const sidePanelOpen = showPlaytest || (hasStudioTarget && !explorerCollapsed);
   const desiredSidePanel = showPlaytest
     ? "playtest"
     : hasStudioTarget && !explorerCollapsed
@@ -174,6 +177,34 @@ function Chat() {
   // Main chat UI
   return (
     <div className="flex min-h-0 flex-1 bg-sidebar">
+      {titlebarActions && appScreen === "chat" && hasStudioTarget
+        ? createPortal(
+            <>
+              <button
+                type="button"
+                onClick={handleToggleExplorer}
+                className={`${MENU_TRIGGER} gap-1.5`}
+                aria-pressed={!explorerCollapsed && !showPlaytest}
+                title={explorerCollapsed ? "Open Explorer" : "Close Explorer"}
+              >
+                <Boxes aria-hidden="true" size={14} />
+                Explorer
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenPlaytest}
+                disabled={isBusy}
+                className={`${MENU_TRIGGER} gap-1.5`}
+                aria-pressed={showPlaytest}
+                title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
+              >
+                <Play aria-hidden="true" size={14} fill="currentColor" />
+                Playtest
+              </button>
+            </>,
+            titlebarActions,
+          )
+        : null}
       <ChatSidebar
         collapsed={sidebarCollapsed}
         onToggle={handleToggleSidebar}
@@ -226,47 +257,11 @@ function Chat() {
           </div>
         ) : (
           <>
-            <div className="grid h-11 shrink-0 grid-cols-[minmax(6rem,2fr)_minmax(0,3fr)] items-center px-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {activeSessionTitle || "Untitled"}
-                </h3>
-              </div>
-              <div className="ml-2 flex min-w-0 items-center justify-end gap-1.5">
-                <StudioTargetPicker />
-                {hasStudioTarget ? (
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleToggleExplorer}
-                      className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground"
-                      aria-pressed={!explorerCollapsed}
-                      title={explorerCollapsed ? "Open Explorer" : "Close Explorer"}
-                    >
-                      <Boxes aria-hidden="true" size={13} />
-                      <span
-                        className={`overflow-hidden whitespace-nowrap transition-[max-width,margin,opacity] duration-200 ${sidePanelOpen ? "ml-0 max-w-0 opacity-0" : "ml-1.5 max-w-16 opacity-100"}`}
-                      >
-                        Explorer
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleOpenPlaytest}
-                      disabled={isBusy}
-                      className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-40"
-                      title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
-                    >
-                      <Play aria-hidden="true" size={13} fill="currentColor" />
-                      <span
-                        className={`overflow-hidden whitespace-nowrap transition-[max-width,margin,opacity] duration-200 ${sidePanelOpen ? "ml-0 max-w-0 opacity-0" : "ml-1.5 max-w-16 opacity-100"}`}
-                      >
-                        Playtest
-                      </span>
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+            <div className="flex h-11 shrink-0 items-center justify-between gap-3 px-3">
+              <h3 className="min-w-0 truncate text-sm font-medium">
+                {activeSessionTitle || "Untitled"}
+              </h3>
+              <StudioTargetPicker />
             </div>
 
             <ChatMessages />

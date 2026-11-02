@@ -10,7 +10,9 @@ export const MENU_SURFACE =
 export const MENU_ITEM =
   "flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent disabled:opacity-60";
 export const MENU_TRIGGER =
-  "flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent data-[state=open]:bg-accent data-[state=open]:text-foreground";
+  "flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-pressed:bg-accent aria-pressed:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50";
+
+export const MENU_LABEL = "px-2 py-1.5 text-xs text-muted-foreground";
 
 /** Opens with focus on the menu, not its first item, so nothing looks selected until it's used. */
 export function MenuContent(props: React.ComponentProps<typeof PopoverContent>) {
@@ -30,7 +32,7 @@ export function MenuChevron() {
 }
 
 export function MenuLabel({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("px-2 py-1.5 text-xs text-muted-foreground", className)} {...props} />;
+  return <div className={cn(MENU_LABEL, className)} {...props} />;
 }
 
 export function MenuItem({

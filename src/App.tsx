@@ -19,7 +19,10 @@ function AppInner() {
 
   return (
     <main className="flex h-full flex-col overflow-hidden">
-      <div className="app-titlebar h-8 shrink-0 bg-sidebar" />
+      <div
+        id="titlebar-actions"
+        className="app-titlebar flex h-9 shrink-0 items-center justify-end gap-1 bg-sidebar px-2"
+      />
       <ErrorBoundary>
         <Chat />
       </ErrorBoundary>

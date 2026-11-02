@@ -76,7 +76,7 @@ const CLASS_ICONS: ReadonlyArray<[RegExp, LucideIcon]> = [
   [/^(TextLabel|TextButton|TextBox)$/, ScrollText],
 ];
 
-function iconForClass(className: string): LucideIcon {
+export function iconForClass(className: string): LucideIcon {
   return CLASS_ICONS.find(([pattern]) => pattern.test(className))?.[1] ?? Box;
 }
 

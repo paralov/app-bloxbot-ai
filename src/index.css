@@ -4,6 +4,9 @@
 .app-titlebar {
   -webkit-app-region: drag;
 }
+.app-titlebar button {
+  -webkit-app-region: no-drag;
+}
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
@@ -267,6 +270,29 @@
   animation: picker-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.animate-suggestions-in {
+  animation: suggestions-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-suggestions-out {
+  pointer-events: none;
+  animation: suggestions-out 110ms ease-in both;
+}
+
+@keyframes suggestions-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+@keyframes suggestions-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+}
+
 .animate-disclosure-expand {
   animation: disclosure-expand 140ms ease-out both;
 }
@@ -285,7 +311,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-picker-in {
+  .animate-picker-in,
+  .animate-suggestions-in,
+  .animate-suggestions-out {
     animation: none;
   }
 
