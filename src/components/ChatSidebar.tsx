@@ -1,6 +1,7 @@
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { type MouseEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { MENU_ITEM, MENU_SURFACE } from "@/components/ui/menu";
 import { useArchiveSession } from "@/hooks/mutations/useArchiveSession";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useDeleteSession } from "@/hooks/mutations/useDeleteSession";
@@ -279,7 +280,7 @@ const ChatSidebar = memo(function ChatSidebar({
       ) : (
         <>
           <div className="flex h-11 items-center justify-between px-3">
-            <span className="text-xs font-medium text-muted-foreground">Chats</span>
+            <span className="text-sm font-medium text-muted-foreground">Chats</span>
             <div className="flex items-center gap-0.5">
               <button
                 onClick={handleCreate}
@@ -367,9 +368,9 @@ const ChatSidebar = memo(function ChatSidebar({
                               if (e.key === "Enter") commitRename();
                               if (e.key === "Escape") setEditingId(null);
                             }}
-                            className="w-full rounded bg-background px-1 text-xs outline-none ring-1 ring-ring"
+                            className="w-full rounded bg-transparent px-1 text-sm outline-none ring-1 ring-ring"
                           />
-                          <div className="mt-0.5 text-[10px] text-muted-foreground">
+                          <div className="mt-0.5 text-xs text-muted-foreground">
                             {formatTime(session.time.updated)}
                           </div>
                         </div>
@@ -385,10 +386,10 @@ const ChatSidebar = memo(function ChatSidebar({
                           className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs font-medium leading-snug break-words">
+                          <div className="text-sm font-medium leading-snug break-words">
                             {session.title || "Untitled"}
                           </div>
-                          <div className="mt-0.5 text-[10px] text-muted-foreground">
+                          <div className="mt-0.5 text-xs text-muted-foreground">
                             {formatTime(session.time.updated)}
                           </div>
                         </div>
@@ -504,7 +505,7 @@ const ChatSidebar = memo(function ChatSidebar({
                         className="min-w-0 flex-1 px-2 py-1.5 text-left"
                         title={`Open snoozed session ${session.title || "Untitled"}`}
                       >
-                        <div className="truncate text-[11px] leading-snug opacity-80">
+                        <div className="truncate text-sm leading-snug opacity-80">
                           {session.title || "Untitled"}
                         </div>
                       </button>
@@ -539,7 +540,7 @@ const ChatSidebar = memo(function ChatSidebar({
           <div className="shrink-0 border-t px-3 py-2 space-y-1">
             <button
               onClick={onOpenSettings}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <svg
                 width="13"
@@ -560,7 +561,7 @@ const ChatSidebar = memo(function ChatSidebar({
 
           {contextMenu && (
             <div
-              className="fixed z-[200] w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-xl"
+              className={`fixed z-[200] w-44 ${MENU_SURFACE}`}
               style={{ left: contextMenu.x, top: contextMenu.y }}
               onPointerDown={(event) => event.stopPropagation()}
               role="menu"
@@ -568,7 +569,7 @@ const ChatSidebar = memo(function ChatSidebar({
               <button
                 type="button"
                 role="menuitem"
-                className="flex w-full items-center rounded px-2 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-accent"
+                className={`${MENU_ITEM} text-destructive`}
                 onClick={() => {
                   const session = contextMenu.session;
                   setContextMenu(null);
@@ -595,24 +596,7 @@ const ChatSidebar = memo(function ChatSidebar({
                   aria-describedby="delete-session-description"
                   className="animate-scale-in w-full max-w-sm rounded-xl border bg-card p-5 text-card-foreground shadow-2xl"
                 >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-                    <svg
-                      width="17"
-                      height="17"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M3 6h18" />
-                      <path d="M8 6V4h8v2" />
-                      <path d="M19 6l-1 14H6L5 6" />
-                    </svg>
-                  </div>
-                  <h2 id="delete-session-title" className="mt-4 text-sm font-semibold">
+                  <h2 id="delete-session-title" className="text-base font-semibold">
                     Delete chat?
                   </h2>
                   <p
@@ -627,7 +611,7 @@ const ChatSidebar = memo(function ChatSidebar({
                       ref={cancelDeleteRef}
                       type="button"
                       onClick={cancelDelete}
-                      className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent"
+                      className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent"
                     >
                       Cancel
                     </button>

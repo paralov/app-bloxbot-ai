@@ -1,7 +1,15 @@
-import { Check, ChevronDown, Paperclip } from "lucide-react";
+import { Paperclip } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor";
+import {
+  MENU_TRIGGER,
+  MenuChevron,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuSearch,
+} from "@/components/ui/menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAbort } from "@/hooks/mutations/useAbort";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
@@ -275,7 +283,7 @@ function ChatInput() {
   const promptEditorRef = useRef<PromptEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelSearchRef = useRef<HTMLInputElement>(null);
-  const modelPickerRef = useRef<HTMLDivElement>(null);
+  const [effortOpen, setEffortOpen] = useState(false);
   const dragCounterRef = useRef(0);
   const rejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const previousSessionRef = useRef(activeSessionId);
@@ -430,19 +438,6 @@ function ChatInput() {
     [addImageFiles],
   );
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
-        setShowModelPicker(false);
-        setModelSearch("");
-      }
-    }
-    if (showModelPicker) {
-      document.addEventListener("mousedown", handleClick);
-      return () => document.removeEventListener("mousedown", handleClick);
-    }
-  }, [showModelPicker]);
-
   const modelsByProvider = useMemo(() => {
     const POPULAR = [
       "opencode",
@@ -524,21 +519,18 @@ function ChatInput() {
   ) {
     return (
       <div key={providerId}>
-        <div className="flex items-center gap-1.5 px-2 py-1">
-          <span className="text-xs font-medium text-muted-foreground">{group.providerName}</span>
-        </div>
+        <MenuLabel>{group.providerName}</MenuLabel>
         {group.models.map((model) => {
           const fullId = `${model.providerId}/${model.id}`;
-          const isSelected = selectedModel === fullId;
           return (
-            <button
+            <MenuItem
               key={fullId}
+              checked={selectedModel === fullId}
               onClick={() => handleModelClick(model)}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors ${isSelected ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
             >
               <span className="truncate">{model.name}</span>
               <ModelStatusBadge status={model.status} />
-            </button>
+            </MenuItem>
           );
         })}
       </div>
@@ -601,7 +593,7 @@ function ChatInput() {
                       <line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
                   </button>
-                  <div className="mt-0.5 max-w-[64px] truncate text-center text-[9px] text-muted-foreground">
+                  <div className="mt-0.5 max-w-[64px] truncate text-center text-xs text-muted-foreground">
                     {a.filename}
                   </div>
                 </div>
@@ -646,109 +638,66 @@ function ChatInput() {
                 <Paperclip aria-hidden="true" size={14} />
               </button>
 
-              <div className="relative" ref={modelPickerRef}>
-                <button
-                  onClick={() => {
-                    setShowModelPicker(!showModelPicker);
-                    if (showModelPicker) {
-                      setModelSearch("");
-                    }
-                  }}
-                  className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              <Popover
+                open={showModelPicker}
+                onOpenChange={(open) => {
+                  setShowModelPicker(open);
+                  if (!open) setModelSearch("");
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <button type="button" className={MENU_TRIGGER}>
+                    <span className="truncate">{modelDisplay}</span>
+                    <MenuChevron />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  className="flex max-h-80 w-80 flex-col p-0!"
                 >
-                  {modelDisplay}
-                </button>
-                {showModelPicker && (
-                  <div className="absolute bottom-full left-0 z-50 mb-1 flex max-h-80 w-80 flex-col rounded-lg border bg-popover shadow-lg">
-                    <div className="shrink-0 border-b px-2 py-1.5">
-                      <div className="flex items-center gap-1.5 rounded-md border bg-background px-2">
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="shrink-0 text-muted-foreground/50"
-                        >
-                          <circle cx="11" cy="11" r="8" />
-                          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                        </svg>
-                        <input
-                          ref={modelSearchRef}
-                          type="text"
-                          value={modelSearch}
-                          onChange={(e) => setModelSearch(e.target.value)}
-                          placeholder="Search models..."
-                          className="h-7 flex-1 bg-transparent text-xs placeholder:text-muted-foreground/40 focus:outline-none"
-                          autoFocus
-                        />
-                        {modelSearch && (
-                          <button
-                            onClick={() => {
-                              setModelSearch("");
-                              modelSearchRef.current?.focus();
-                            }}
-                            className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-                          >
-                            <svg
-                              width="8"
-                              height="8"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="3"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <line x1="18" y1="6" x2="6" y2="18" />
-                              <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-1">
-                      {modelsByProvider.map(([id, group]) => renderProviderGroup(id, group))}
-                      {modelsByProvider.length === 0 && (
-                        <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                          No models matching "{modelSearch}"
-                        </div>
-                      )}
-                    </div>
+                  <MenuSearch
+                    inputRef={modelSearchRef}
+                    value={modelSearch}
+                    onChange={setModelSearch}
+                    placeholder="Search models..."
+                  />
+                  <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                    {modelsByProvider.map(([id, group]) => renderProviderGroup(id, group))}
+                    {modelsByProvider.length === 0 && (
+                      <MenuLabel className="text-center">
+                        No models matching "{modelSearch}"
+                      </MenuLabel>
+                    )}
                   </div>
-                )}
-              </div>
+                </PopoverContent>
+              </Popover>
 
               {availableVariants.length > 0 && (
-                <Popover>
+                <Popover open={effortOpen} onOpenChange={setEffortOpen}>
                   <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
+                    <button type="button" className={MENU_TRIGGER}>
                       {effortLabel(selectedVariant)} effort
-                      <ChevronDown aria-hidden="true" size={11} />
+                      <MenuChevron />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent side="top" align="start" className="w-56 p-1">
-                    <p className="px-2 pb-1.5 pt-1 text-[11px] leading-snug text-muted-foreground">
+                  <MenuContent side="top" align="start" className="w-56">
+                    <MenuLabel>
                       How long the model thinks before it answers. More is slower.
-                    </p>
+                    </MenuLabel>
                     {[null, ...availableVariants].map((variant) => (
-                      <button
+                      <MenuItem
                         key={variant ?? "auto"}
-                        type="button"
-                        onClick={() => setSelectedVariant(variant)}
-                        className="flex h-7 w-full items-center justify-between rounded-md px-2 text-xs outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
+                        checked={selectedVariant === variant}
+                        onClick={() => {
+                          setSelectedVariant(variant);
+                          setEffortOpen(false);
+                        }}
                       >
                         {effortLabel(variant)}
-                        {selectedVariant === variant && <Check aria-hidden="true" size={12} />}
-                      </button>
+                      </MenuItem>
                     ))}
-                  </PopoverContent>
+                  </MenuContent>
                 </Popover>
               )}
             </div>

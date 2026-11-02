@@ -169,11 +169,15 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--foreground) 22%, transparent);
+    outline-offset: 1px;
   }
   body {
     @apply bg-background text-foreground;
-    font-size: 13px;
+    font-size: 0.875rem;
     font-weight: 440;
     font-feature-settings: "cv11", "ss03";
     -webkit-font-smoothing: antialiased;
@@ -659,7 +663,6 @@
 /* Base toast visual overrides (safe properties only) */
 [data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
   --toast-accent: oklch(0.553 0.013 58.071);
-  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
   background: var(--popover);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -700,7 +703,7 @@
 /* Toast title */
 [data-sonner-toaster] [data-sonner-toast] [data-title] {
   font-weight: 500;
-  font-size: 13.5px;
+  font-size: 0.875rem;
   line-height: 1.35;
   letter-spacing: -0.01em;
   color: var(--foreground);
@@ -709,7 +712,7 @@
 /* Toast description */
 [data-sonner-toaster] [data-sonner-toast] [data-description] {
   font-weight: 400;
-  font-size: 12.5px;
+  font-size: 0.75rem;
   line-height: 1.4;
   color: var(--muted-foreground);
   margin-top: 2px;
@@ -717,9 +720,8 @@
 
 /* Toast action button */
 [data-sonner-toaster] [data-sonner-toast] [data-button] {
-  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
   font-weight: 500;
-  font-size: 12.5px;
+  font-size: 0.75rem;
   padding: 5px 12px;
   border-radius: 6px;
   background: var(--primary);
@@ -792,10 +794,8 @@
 
 .update-release-notes-title {
   margin-bottom: 3px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--muted-foreground);
 }
 

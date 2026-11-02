@@ -1,6 +1,7 @@
-import { Loader2, Search, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
+import { MenuItem, MenuLabel, MenuSearch } from "@/components/ui/menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Model } from "@/lib/opencode/types";
 
@@ -32,7 +33,6 @@ export default function ProviderCheckPopover({
 }) {
   const [pickedId, setPickedId] = useState<string>();
   const [search, setSearch] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
 
   const needle = search.trim().toLowerCase();
   const visible = useMemo(
@@ -61,7 +61,7 @@ export default function ProviderCheckPopover({
         <button
           type="button"
           disabled={checking}
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
           title="Send one short test message to check this connection"
         >
           {checking && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -71,44 +71,20 @@ export default function ProviderCheckPopover({
       <PopoverContent
         align="end"
         collisionPadding={16}
-        // cn() doesn't merge classes, so the default p-4 needs overriding.
+        // cn() doesn't merge classes, so the default p-1 needs overriding.
         className="flex max-h-[min(22rem,var(--radix-popover-content-available-height))] w-72 max-w-[calc(100vw-2rem)] flex-col p-0!"
       >
-        <div className="shrink-0 px-3 pt-3 pb-2">
-          <div className="text-xs font-medium">Check {providerName}</div>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+        <div className="shrink-0 px-3 pt-2.5 pb-2">
+          <div className="text-sm font-medium">Check {providerName}</div>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
             Pick a model to send one short test message to.
           </p>
         </div>
-        {models.length > SEARCH_THRESHOLD && (
-          <div className="shrink-0 border-y px-2 py-1.5">
-            <div className="flex items-center gap-1.5 rounded-md border bg-background px-2">
-              <Search className="h-3 w-3 shrink-0 text-muted-foreground/50" />
-              <input
-                ref={searchRef}
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search models..."
-                aria-label="Search models"
-                className="h-7 min-w-0 flex-1 bg-transparent text-xs placeholder:text-muted-foreground/40 focus:outline-none"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearch("");
-                    searchRef.current?.focus();
-                  }}
-                  aria-label="Clear search"
-                  className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              )}
-            </div>
+        {models.length > SEARCH_THRESHOLD ? (
+          <div className="border-t">
+            <MenuSearch value={search} onChange={setSearch} placeholder="Search models..." />
           </div>
-        )}
+        ) : null}
         <div
           role="listbox"
           aria-label="Model to check"
@@ -117,28 +93,25 @@ export default function ProviderCheckPopover({
           {visible.map((model) => {
             const isPicked = model.id === picked?.id;
             return (
-              <button
+              <MenuItem
                 key={model.id}
-                type="button"
                 role="option"
                 aria-selected={isPicked}
+                checked={isPicked}
                 onClick={() => setPickedId(model.id)}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors ${isPicked ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
               >
                 <span className="truncate">{model.name}</span>
                 <ModelStatusBadge status={model.status} />
-              </button>
+              </MenuItem>
             );
           })}
           {models.length === 0 && (
-            <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+            <MenuLabel className="text-center">
               This provider has no chat models to test with.
-            </div>
+            </MenuLabel>
           )}
           {models.length > 0 && visible.length === 0 && (
-            <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-              No models matching "{search.trim()}"
-            </div>
+            <MenuLabel className="text-center">No models matching "{search.trim()}"</MenuLabel>
           )}
         </div>
         {picked && (
@@ -149,7 +122,7 @@ export default function ProviderCheckPopover({
                 onOpenChange(false);
                 onCheck(picked);
               }}
-              className="w-full truncate rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="w-full truncate rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               Check {picked.name}
             </button>

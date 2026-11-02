@@ -116,7 +116,7 @@ export default function SyntaxHighlightedOutput({
 
   if (!lines) {
     return (
-      <span className="block font-mono text-[11.5px] leading-relaxed">
+      <span className="block font-mono text-xs leading-relaxed">
         {(collapsed ? collapsedTextPreview(code) : code).split("\n").map((line, index) => (
           <span key={index} className="block whitespace-pre-wrap break-words">
             {preserveIndentation(line) || "\u00a0"}
@@ -132,7 +132,7 @@ export default function SyntaxHighlightedOutput({
     collapsed && lines.length > 7 ? [...lines.slice(0, 3), marker, ...lines.slice(-3)] : lines;
 
   return (
-    <code className="block min-w-0 font-mono text-[11.5px] leading-relaxed">
+    <code className="block min-w-0 font-mono text-xs leading-relaxed">
       {visibleLines.map((line, lineIndex) => (
         <span key={lineIndex} className="block min-w-0 whitespace-pre-wrap break-words">
           {typeof line === "string" ? (

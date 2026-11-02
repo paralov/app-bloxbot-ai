@@ -35,6 +35,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { MENU_SURFACE } from "@/components/ui/menu";
 import { analyticsProperties } from "@/lib/analytics";
 import type { ExplorerNode } from "@/lib/explorer";
 import type { Command } from "@/lib/opencode/types";
@@ -110,7 +111,7 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
   decorate() {
     return (
       <span
-        className={`mx-0.5 inline-flex select-all items-center rounded-md border px-1.5 py-0.5 align-baseline text-[11px] font-medium ${
+        className={`mx-0.5 inline-flex select-all items-center rounded-md border px-1.5 py-0.5 align-baseline text-xs font-medium ${
           this.__kind === "object"
             ? "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300"
             : "border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300"
@@ -227,7 +228,7 @@ function TypeaheadMenuPortal({ anchor, children }: { anchor: HTMLElement; childr
 
   return createPortal(
     <div
-      className="app-scrollbar fixed z-[100] w-72 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
+      className={`app-scrollbar fixed z-[100] w-72 overflow-y-auto ${MENU_SURFACE}`}
       style={{
         left: position.left,
         top: position.top,
@@ -348,25 +349,23 @@ function TypeaheadPlugin({
                 key={option.key}
                 type="button"
                 ref={option.setRefElement}
-                className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
-                  selectedIndex === index ? "bg-accent" : "hover:bg-accent/70"
+                className={`flex w-full flex-col rounded-md px-2 py-1.5 text-left transition-colors ${
+                  selectedIndex === index ? "bg-accent" : ""
                 }`}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setHighlightedIndex(index)}
                 onClick={() => selectOptionAndCleanUp(option)}
               >
                 <span className="flex w-full items-center justify-between gap-3">
-                  <span className="text-xs font-medium">{option.label}</span>
+                  <span className="text-sm">{option.label}</span>
                   {option.kind === "command" && selectedIndex === index ? (
-                    <kbd className="rounded border bg-background px-1.5 py-0.5 text-[9px] font-normal text-muted-foreground">
+                    <kbd className="rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
                       Tab
                     </kbd>
                   ) : null}
                 </span>
                 {option.detail ? (
-                  <span className="truncate text-[10px] text-muted-foreground">
-                    {option.detail}
-                  </span>
+                  <span className="truncate text-xs text-muted-foreground">{option.detail}</span>
                 ) : null}
               </button>
             ))}
@@ -441,7 +440,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
         <RichTextPlugin
           contentEditable={
             <ContentEditable
-              className="app-scrollbar max-h-48 min-h-10 overflow-y-auto whitespace-pre-wrap pb-2 pt-1 text-[13px] leading-relaxed outline-none"
+              className="app-scrollbar max-h-48 min-h-10 overflow-y-auto whitespace-pre-wrap pb-2 pt-1 text-sm leading-relaxed outline-none"
               aria-label="Message"
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey) return;
@@ -453,7 +452,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-0 top-1 text-[13px] text-muted-foreground/50">
+            <div className="pointer-events-none absolute left-0 top-1 text-sm text-muted-foreground/50">
               {placeholder}
             </div>
           }

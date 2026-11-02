@@ -19,12 +19,12 @@ function ProviderLogo({ providerId, name, className = "" }: ProviderLogoProps) {
   return (
     <span
       aria-hidden="true"
-      className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-foreground ${className}`}
+      className={`relative flex h-5 w-5 shrink-0 items-center justify-center text-foreground ${className}`}
     >
       {loaded ? (
         // A mask lets the logo take the text color, so it works in light and dark themes.
         <span
-          className="h-3.5 w-3.5 bg-current"
+          className="h-4 w-4 bg-current"
           style={{
             maskImage: `url("${url}")`,
             maskSize: "contain",
@@ -33,7 +33,7 @@ function ProviderLogo({ providerId, name, className = "" }: ProviderLogoProps) {
           }}
         />
       ) : (
-        <span className="text-[11px] font-semibold text-muted-foreground">
+        <span className="text-xs font-semibold text-muted-foreground">
           {name.trim().charAt(0).toUpperCase()}
         </span>
       )}

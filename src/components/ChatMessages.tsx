@@ -254,7 +254,7 @@ function BloxBotThinking({ label = "Thinking", detail }: { label?: string; detai
     return () => window.clearInterval(timer);
   }, []);
   return (
-    <output className="flex min-h-[21px] min-w-0 items-center gap-2 text-[13px]">
+    <output className="flex min-h-[21px] min-w-0 items-center gap-2 text-sm">
       <StudLoader />
       <span className="text-shimmer">{label}</span>
       {seconds > 0 && (
@@ -318,7 +318,7 @@ function ToolRow({
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((current) => !current)}
-          className={`group flex max-w-full items-center gap-1.5 py-0.5 text-left text-[12.5px] transition-colors hover:text-foreground ${tone}`}
+          className={`group flex max-w-full items-center gap-1.5 py-0.5 text-left text-xs transition-colors hover:text-foreground ${tone}`}
         >
           {summary}
           <ChevronRight
@@ -328,7 +328,7 @@ function ToolRow({
           />
         </button>
       ) : (
-        <div className={`flex max-w-full items-center gap-1.5 py-0.5 text-[12.5px] ${tone}`}>
+        <div className={`flex max-w-full items-center gap-1.5 py-0.5 text-xs ${tone}`}>
           {summary}
         </div>
       )}
@@ -343,12 +343,12 @@ function ToolRow({
 
 function ToolText({ text, language }: { text: string; language?: HighlightLanguage }) {
   const body = (
-    <pre className="m-0 whitespace-pre-wrap break-words font-mono text-[11.5px] leading-relaxed text-muted-foreground">
+    <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted-foreground">
       {text}
     </pre>
   );
   return (
-    <div className="app-scrollbar max-h-72 overflow-auto rounded-md bg-muted/50 px-2.5 py-2 text-[11.5px]">
+    <div className="app-scrollbar max-h-72 overflow-auto rounded-md bg-muted/50 px-2.5 py-2 text-xs">
       {language ? (
         <Suspense fallback={body}>
           <SyntaxHighlightedOutput code={text} language={language} />
@@ -523,7 +523,7 @@ const TodoWriteToolView = memo(function TodoWriteToolView({
   return (
     <div className="space-y-0.5">
       {items.map((todo, idx) => (
-        <div key={idx} className="flex items-start gap-1.5 text-[11px]">
+        <div key={idx} className="flex items-start gap-1.5 text-xs">
           <span className="mt-px shrink-0">
             {todo.status === "completed" ? (
               <svg
@@ -593,7 +593,7 @@ const markdownComponents: Components = {
     return <h3 className="mb-1.5 mt-2.5 first:mt-0 text-sm font-semibold">{children}</h3>;
   },
   h4({ children }) {
-    return <h4 className="mb-1 mt-2 first:mt-0 text-[13px] font-semibold">{children}</h4>;
+    return <h4 className="mb-1 mt-2 first:mt-0 text-sm font-semibold">{children}</h4>;
   },
   ul({ children }) {
     return <ul className="mb-2 ml-4 list-disc space-y-0.5 last:mb-0">{children}</ul>;
@@ -640,13 +640,11 @@ const markdownComponents: Components = {
       const code = String(children).replace(/\n$/, "");
       return (
         <div className="mb-2 min-w-0 overflow-hidden pl-3 last:mb-0">
-          {lang && (
-            <div className="mb-1 text-[11px] font-medium text-muted-foreground/60">{lang}</div>
-          )}
+          {lang && <div className="mb-1 text-xs font-medium text-muted-foreground/60">{lang}</div>}
           {language ? (
             <Suspense
               fallback={
-                <pre className="app-scrollbar overflow-x-auto font-mono text-[13px] leading-relaxed text-muted-foreground/80">
+                <pre className="app-scrollbar overflow-x-auto font-mono text-sm leading-relaxed text-muted-foreground/80">
                   {code}
                 </pre>
               }
@@ -654,7 +652,7 @@ const markdownComponents: Components = {
               <SyntaxHighlightedOutput code={code} language={language} />
             </Suspense>
           ) : (
-            <pre className="app-scrollbar overflow-x-auto font-mono text-[13px] leading-relaxed text-muted-foreground/80">
+            <pre className="app-scrollbar overflow-x-auto font-mono text-sm leading-relaxed text-muted-foreground/80">
               {code}
             </pre>
           )}
@@ -662,7 +660,7 @@ const markdownComponents: Components = {
       );
     }
     return (
-      <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11.5px] text-foreground">
+      <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
         {children}
       </code>
     );
@@ -673,7 +671,7 @@ const markdownComponents: Components = {
   table({ children }) {
     return (
       <div className="mb-2 overflow-x-auto last:mb-0">
-        <table className="min-w-full border-collapse text-[12px]">{children}</table>
+        <table className="min-w-full border-collapse text-xs">{children}</table>
       </div>
     );
   },
@@ -707,7 +705,7 @@ function MessageText({ text }: { text: string }) {
     part.type === "instance" ? (
       <span
         key={`${part.value}:${index}`}
-        className="mx-0.5 inline-flex items-center rounded-md border border-blue-500/25 bg-blue-500/10 px-1.5 py-0.5 align-baseline text-[11px] font-medium text-blue-700 dark:text-blue-300"
+        className="mx-0.5 inline-flex items-center rounded-md border border-blue-500/25 bg-blue-500/10 px-1.5 py-0.5 align-baseline text-xs font-medium text-blue-700 dark:text-blue-300"
         title={part.value}
       >
         {part.label}
@@ -723,7 +721,7 @@ function MessageText({ text }: { text: string }) {
 const TextPartView = memo(
   function TextPartView({ part }: { part: Extract<Part, { type: "text" }> }) {
     return (
-      <div className="text-[13.5px] leading-[1.6]">
+      <div className="text-sm leading-relaxed">
         <MessageText text={part.text} />
       </div>
     );
@@ -740,7 +738,7 @@ const ReasoningPartView = memo(function ReasoningPartView({
   const thinking = !part.time?.end;
   return (
     <ToolRow icon={Brain} label={thinking ? "Thinking" : "Thought"} running={thinking}>
-      <p className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-muted-foreground">
+      <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
         {part.text}
       </p>
     </ToolRow>
@@ -799,7 +797,7 @@ const ToolPartView = memo(function ToolPartView({
 
 const CompactionPartView = memo(function CompactionPartView() {
   return (
-    <div className="my-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+    <div className="my-1 flex items-center gap-1.5 text-xs text-muted-foreground">
       <svg
         width="9"
         height="9"
@@ -828,7 +826,7 @@ const ModelErrorCard = memo(function ModelErrorCard({ error }: { error: ModelErr
   if (presentation.kind === "usage") {
     return (
       <div role="alert" className="my-1 rounded-xl border bg-card px-3.5 py-3">
-        <div className="text-[13px] font-medium">{presentation.title}</div>
+        <div className="text-sm font-medium">{presentation.title}</div>
         <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
           {presentation.description}
         </p>
@@ -864,14 +862,14 @@ const ModelErrorCard = memo(function ModelErrorCard({ error }: { error: ModelErr
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
         <div className="min-w-0">
-          <div className="text-[13px] font-medium leading-relaxed">{presentation.title}</div>
-          <div className="text-[13px] leading-relaxed opacity-80">{presentation.description}</div>
+          <div className="text-sm font-medium leading-relaxed">{presentation.title}</div>
+          <div className="text-sm leading-relaxed opacity-80">{presentation.description}</div>
           {presentation.detail && presentation.detail !== presentation.description && (
             <details className="mt-1">
-              <summary className="cursor-pointer text-[13px] opacity-55 transition-opacity hover:opacity-100">
+              <summary className="cursor-pointer text-sm opacity-55 transition-opacity hover:opacity-100">
                 Provider details
               </summary>
-              <div className="mt-1 break-words pl-3 font-mono text-[13px] leading-relaxed opacity-70">
+              <div className="mt-1 break-words pl-3 font-mono text-sm leading-relaxed opacity-70">
                 {presentation.detail.slice(0, 1000)}
               </div>
             </details>
@@ -906,8 +904,8 @@ const TodoPanel = memo(function TodoPanel({ todos }: { todos: Todo[] }) {
   return (
     <div className="animate-fade-in my-2 rounded-lg border bg-card px-3 py-2.5">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-foreground">Tasks</span>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-xs font-semibold text-foreground">Tasks</span>
+        <span className="text-xs text-muted-foreground">
           {completed}/{total}
         </span>
       </div>
@@ -919,7 +917,7 @@ const TodoPanel = memo(function TodoPanel({ todos }: { todos: Todo[] }) {
       </div>
       <div className="mt-2 space-y-1">
         {todos.map((todo, idx) => (
-          <div key={idx} className="flex items-start gap-1.5 text-[11px]">
+          <div key={idx} className="flex items-start gap-1.5 text-xs">
             <span className="mt-0.5 shrink-0">
               {todo.status === "completed" ? (
                 <svg
@@ -1017,8 +1015,8 @@ const QuestionPrompt = memo(function QuestionPrompt({
     <div className="animate-fade-in-up my-2 rounded-lg border border-blue-200 bg-blue-50/30 px-3 py-3">
       {question.questions.map((q, qIdx) => (
         <div key={qIdx} className={qIdx > 0 ? "mt-3 border-t border-blue-100 pt-3" : ""}>
-          <div className="text-[11px] font-semibold text-foreground">{q.header}</div>
-          <div className="mt-0.5 text-[12px] text-foreground">{q.question}</div>
+          <div className="text-xs font-semibold text-foreground">{q.header}</div>
+          <div className="mt-0.5 text-xs text-foreground">{q.question}</div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {q.options.map((opt) => {
               const isSelected = selected[qIdx]?.has(opt.label);
@@ -1026,7 +1024,7 @@ const QuestionPrompt = memo(function QuestionPrompt({
                 <button
                   key={opt.label}
                   onClick={() => toggleOption(qIdx, opt.label, q.multiple)}
-                  className={`rounded-md border px-2.5 py-1 text-[11px] transition-colors ${isSelected ? "border-blue-400 bg-blue-100 text-blue-800 dark:border-blue-500 dark:bg-blue-950/50 dark:text-blue-300" : "border-border bg-card text-foreground hover:border-blue-300 hover:bg-blue-50 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"}`}
+                  className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${isSelected ? "border-blue-400 bg-blue-100 text-blue-800 dark:border-blue-500 dark:bg-blue-950/50 dark:text-blue-300" : "border-border bg-card text-foreground hover:border-blue-300 hover:bg-blue-50 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"}`}
                   title={opt.description}
                 >
                   {opt.label}
@@ -1040,7 +1038,7 @@ const QuestionPrompt = memo(function QuestionPrompt({
               placeholder="Type your own answer..."
               value={customInputs[qIdx] ?? ""}
               onChange={(e) => setCustomInputs((prev) => ({ ...prev, [qIdx]: e.target.value }))}
-              className="mt-2 w-full rounded border border-border bg-background px-2 py-1 text-[11px] placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-blue-300"
+              className="mt-2 w-full rounded-md border bg-transparent px-2 py-1 text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-blue-300"
             />
           )}
         </div>
@@ -1049,14 +1047,14 @@ const QuestionPrompt = memo(function QuestionPrompt({
         <button
           type="button"
           onClick={submit}
-          className="rounded-md bg-foreground px-3 py-1 text-[11px] font-medium text-background transition-opacity hover:opacity-90"
+          className="rounded-md bg-foreground px-3 py-1 text-xs font-medium text-background transition-opacity hover:opacity-90"
         >
           Submit
         </button>
         <button
           type="button"
           onClick={() => onReject(question.id)}
-          className="rounded-md px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          className="rounded-md px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           Dismiss
         </button>
@@ -1076,8 +1074,8 @@ const PermissionPrompt = memo(function PermissionPrompt({
 }) {
   return (
     <div className="animate-fade-in-up my-2 rounded-lg border border-amber-200 bg-amber-50/30 px-3 py-3 dark:border-amber-900 dark:bg-amber-950/30">
-      <div className="text-[11px] font-semibold text-foreground">Permission Required</div>
-      <div className="mt-1 text-[12px] text-foreground">
+      <div className="text-xs font-semibold text-foreground">Permission Required</div>
+      <div className="mt-1 text-xs text-foreground">
         <span className="font-mono text-amber-700 dark:text-amber-400">
           {permission.permission}
         </span>
@@ -1085,7 +1083,7 @@ const PermissionPrompt = memo(function PermissionPrompt({
       {permission.patterns.length > 0 && (
         <div className="mt-1 space-y-0.5">
           {permission.patterns.map((p, i) => (
-            <div key={i} className="font-mono text-[10px] text-muted-foreground">
+            <div key={i} className="font-mono text-xs text-muted-foreground">
               {p}
             </div>
           ))}
@@ -1095,21 +1093,21 @@ const PermissionPrompt = memo(function PermissionPrompt({
         <button
           type="button"
           onClick={() => onReply(permission.id, "once")}
-          className="rounded-md bg-foreground px-3 py-1 text-[11px] font-medium text-background transition-opacity hover:opacity-90"
+          className="rounded-md bg-foreground px-3 py-1 text-xs font-medium text-background transition-opacity hover:opacity-90"
         >
           Allow Once
         </button>
         <button
           type="button"
           onClick={() => onReply(permission.id, "always")}
-          className="rounded-md border px-3 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
+          className="rounded-md border px-3 py-1 text-xs text-foreground transition-colors hover:bg-accent"
         >
           Always Allow
         </button>
         <button
           type="button"
           onClick={() => onReply(permission.id, "reject")}
-          className="rounded-md px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:text-destructive"
+          className="rounded-md px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
         >
           Deny
         </button>
@@ -1130,7 +1128,7 @@ const UserPartsView = memo(
     }
     const fileUrls = fileParts.map((p) => p.url);
     return (
-      <div className="text-[13px] leading-relaxed">
+      <div className="text-sm leading-relaxed">
         {fileParts.length > 0 && (
           <div className="mb-1.5 flex flex-wrap gap-1.5">
             {fileParts.map((p, i) => (

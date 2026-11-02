@@ -331,11 +331,9 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
             role="alert"
             className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
           >
-            <p className="text-[11px] font-medium text-destructive">{error.message}</p>
+            <p className="text-xs font-medium text-destructive">{error.message}</p>
             {error.hint && (
-              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                {error.hint}
-              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{error.hint}</p>
             )}
           </div>
         )}
@@ -349,12 +347,12 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                 className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                   option.index === (error?.suggestedIndex ?? options[0].index)
                     ? "bg-accent/60 hover:bg-accent"
-                    : "bg-background hover:bg-accent"
+                    : "hover:bg-accent"
                 }`}
               >
                 <div className="text-xs font-medium">{option.title}</div>
                 {option.description && (
-                  <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
                     {option.description}
                   </div>
                 )}
@@ -375,7 +373,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
               <div key={prompt.key} className="space-y-1">
                 <label
                   htmlFor={`auth-prompt-${prompt.key}`}
-                  className="block text-[11px] text-muted-foreground"
+                  className="block text-xs text-muted-foreground"
                 >
                   {prompt.message}
                 </label>
@@ -389,7 +387,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                         inputs: { ...state.inputs, [prompt.key]: e.target.value },
                       })
                     }
-                    className="h-8 w-full rounded border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    className="h-8 w-full rounded-md border bg-transparent px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                   >
                     {prompt.options.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -410,7 +408,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                         inputs: { ...state.inputs, [prompt.key]: e.target.value },
                       })
                     }
-                    className="h-8 w-full rounded border bg-background px-2 text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                    className="h-8 w-full rounded-md border bg-transparent px-2 text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
                   />
                 )}
               </div>
@@ -456,7 +454,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
 
             {state.method === "code" && (
               <div className="space-y-2">
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {state.instructions ||
                     "Sign in in your browser, then paste the code it gives you."}
                 </p>
@@ -472,7 +470,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                         submitOAuthCode();
                       }
                     }}
-                    className="h-8 flex-1 rounded border bg-background px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                    className="h-8 flex-1 rounded-md border bg-transparent px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
                     autoFocus
                   />
                   <button
@@ -490,7 +488,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
             {options.length > 1 && state.method && (
               <button
                 onClick={() => backToMethods()}
-                className="block text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                className="block text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 Stuck? Use a different way to connect
               </button>
@@ -516,7 +514,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                     saveApiKey();
                   }
                 }}
-                className="h-8 flex-1 rounded border bg-background px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-8 flex-1 rounded-md border bg-transparent px-2 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
                 autoFocus
               />
               <button
@@ -532,7 +530,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                 href={meta.helpUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-block text-[10px] text-muted-foreground underline hover:text-foreground"
+                className="inline-block text-xs text-muted-foreground underline hover:text-foreground"
               >
                 Get an API key
               </a>
@@ -546,7 +544,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
 
 function OpenCodeGoSetup() {
   return (
-    <ol className="mb-3 space-y-2 text-[11px] leading-relaxed text-muted-foreground">
+    <ol className="mb-3 space-y-2 text-xs leading-relaxed text-muted-foreground">
       <li className="flex gap-2">
         <span className="font-medium text-foreground">1.</span>
         <span>
@@ -594,11 +592,11 @@ function DeviceCodeStep({
           ? `Enter this code on ${host} to approve BloxBot.`
           : "Enter this code to approve BloxBot."}
       </p>
-      <div className="flex items-center justify-between rounded-lg border bg-background px-3 py-2.5">
+      <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
         <span className="select-all font-mono text-lg font-semibold tracking-[0.2em]">{code}</span>
         <button
           onClick={() => onCopy(code)}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           {copied ? "Copied" : "Copy"}
@@ -621,7 +619,7 @@ function ReopenLink({ url, label }: { url: string; label: string }) {
       onClick={() => {
         desktop.openUrl(url).catch(() => {});
       }}
-      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+      className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
     >
       <ExternalLink className="h-3 w-3" />
       {label}

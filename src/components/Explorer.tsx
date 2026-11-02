@@ -106,7 +106,7 @@ const TreeRow = memo(function TreeRow({
             onSelect(node);
           }
         }}
-        className={`group flex h-[26px] cursor-default items-center rounded-md pr-2 text-[12.5px] ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+        className={`group flex h-7 cursor-default items-center rounded-md pr-2 text-sm ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         title={`${node.path} ${node.className}`}
       >
@@ -411,7 +411,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   return (
     <aside className="flex w-72 shrink-0 flex-col bg-sidebar">
       <header className="flex h-11 shrink-0 items-center justify-between px-3">
-        <h2 className="text-xs font-medium text-muted-foreground">Explorer</h2>
+        <h2 className="text-sm font-medium text-muted-foreground">Explorer</h2>
         <button
           type="button"
           onClick={onToggle}
@@ -423,7 +423,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       </header>
 
       <div className="px-3 pb-2 pt-1">
-        <div className="flex h-8 items-center gap-2 rounded-md border bg-background px-2 text-muted-foreground focus-within:border-ring focus-within:text-foreground">
+        <div className="flex h-8 items-center gap-2 rounded-md border bg-transparent px-2 text-muted-foreground focus-within:border-ring focus-within:text-foreground">
           <Search aria-hidden="true" size={12} />
           <input
             type="search"
@@ -431,13 +431,13 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search instances"
             aria-label="Search Explorer"
-            className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
           />
         </div>
       </div>
 
       {syncError ? (
-        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
           Explorer couldn’t load this Studio place. Trying again shortly.
         </div>
       ) : null}
@@ -465,7 +465,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       {selected ? (
         <Inspector node={selected} onReference={handleReference} />
       ) : (
-        <div className="shrink-0 border-t px-3 py-2 text-[9px] text-muted-foreground">
+        <div className="shrink-0 border-t px-3 py-2 text-xs text-muted-foreground">
           Select an object to inspect and reference it.
         </div>
       )}
@@ -482,14 +482,14 @@ function Inspector({ node, onReference }: { node: ExplorerNode; onReference: () 
           <InstanceIcon size={15} className="mt-0.5 shrink-0 text-muted-foreground/80" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-medium">{node.name}</div>
-            <div className="truncate font-mono text-[9px] text-muted-foreground" title={node.path}>
+            <div className="truncate font-mono text-xs text-muted-foreground" title={node.path}>
               {node.path}
             </div>
           </div>
           <button
             type="button"
             onClick={onReference}
-            className="shrink-0 rounded-md bg-foreground px-2 py-1 text-[9px] font-medium text-background hover:opacity-90"
+            className="shrink-0 rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background hover:opacity-90"
           >
             Reference
           </button>
@@ -514,7 +514,7 @@ function FieldSection({ title, fields }: { title: string; fields: readonly Explo
         {fields.map((field) => (
           <div
             key={`${field.name}-${field.value}`}
-            className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2 text-[10px]"
+            className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2 text-xs"
           >
             <dt className="truncate text-muted-foreground" title={field.name}>
               {field.name}

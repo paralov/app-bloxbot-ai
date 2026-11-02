@@ -131,7 +131,9 @@ describe("StudioTargetPicker", () => {
     fireEvent.click(screen.getByRole("button", { name: /Dungeon/ }));
 
     await waitFor(() => expect(selectStudioTarget).toHaveBeenCalledWith("two"));
-    expect(screen.getByRole("button", { expanded: true })).toHaveTextContent("Dungeon");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { expanded: false })).toHaveTextContent("Dungeon"),
+    );
     expect(capture).toHaveBeenCalledWith("studio_target_verification_succeeded", {
       analytics_schema_version: 1,
       feature: "studio_target",
@@ -177,7 +179,9 @@ describe("StudioTargetPicker", () => {
     discoverStudioTargets.mockResolvedValueOnce({ targets: [], selectedKey: null });
     renderPicker();
     fireEvent.click(await screen.findByRole("button", { name: /No Studios/ }));
-    expect(screen.getByText("No Studio windows found")).toBeVisible();
+    expect(
+      screen.getByText("No open Studio windows yet. Open a place in Studio, then refresh."),
+    ).toBeVisible();
 
     discoverStudioTargets.mockRejectedValueOnce(new Error("offline"));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));

@@ -155,6 +155,22 @@ function Chat() {
     setShowPlaytest(false);
   }, []);
 
+  // Settings brings its own sidebar, so the chat list steps aside for it.
+  if (
+    showSettings &&
+    !showStudioSetup &&
+    studioConnection.state !== "waiting" &&
+    studioConnection.state !== "checking"
+  ) {
+    return (
+      <div className="flex min-h-0 flex-1 bg-sidebar">
+        <Suspense fallback={<LoadingScreen message="Loading settings..." />}>
+          <Settings onClose={handleSessionSelect} />
+        </Suspense>
+      </div>
+    );
+  }
+
   // Main chat UI
   return (
     <div className="flex min-h-0 flex-1 bg-sidebar">
@@ -176,19 +192,15 @@ function Chat() {
           />
         ) : studioConnection.state === "checking" ? (
           <LoadingScreen message="Finding Roblox Studio" animation="dots" />
-        ) : showSettings ? (
-          <Suspense fallback={<LoadingScreen message="Loading settings..." />}>
-            <Settings onClose={handleSessionSelect} />
-          </Suspense>
         ) : !ready ? (
           <LoadingScreen message="Initializing..." />
         ) : !activeSessionId ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6">
             <div className="animate-fade-in-up text-center">
-              <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
                 What would you like to build?
               </h2>
-              <p className="mt-2 max-w-md text-xs text-muted-foreground">
+              <p className="mt-2 max-w-md text-sm text-muted-foreground">
                 Start a new chat, or pick up where you left off.
               </p>
               <button
@@ -216,7 +228,7 @@ function Chat() {
           <>
             <div className="grid h-11 shrink-0 grid-cols-[minmax(6rem,2fr)_minmax(0,3fr)] items-center px-3">
               <div className="flex min-w-0 items-center gap-2">
-                <h3 className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
                   {activeSessionTitle || "Untitled"}
                 </h3>
               </div>

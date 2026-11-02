@@ -310,7 +310,7 @@ function LoadingScreen({
                   <p className="leading-relaxed">
                     Share these details if support asks for them. They may include local file paths.
                   </p>
-                  <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-[10px] leading-relaxed text-foreground/70">
+                  <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs leading-relaxed text-foreground/70">
                     {technicalDetail}
                   </pre>
                   <button
@@ -384,13 +384,13 @@ function StartupProgressGraphic({ startup }: { startup: StartupProgress }) {
           );
         })}
       </div>
-      <div className="mt-2.5 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
+      <div className="mt-2.5 flex items-center justify-between gap-4 text-xs text-muted-foreground">
         <span className="flex min-w-0 items-center gap-2">
           <span className="shrink-0">Step {startup.step} of 3</span>
           <span className="truncate">{startup.label}</span>
         </span>
         {startup.meta && (
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-foreground/65">
+          <span className="shrink-0 font-mono text-xs tabular-nums text-foreground/65">
             {startup.meta}
           </span>
         )}

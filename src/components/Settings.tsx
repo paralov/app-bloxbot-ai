@@ -89,211 +89,208 @@ function Settings({ onClose }: SettingsProps) {
   }, []);
 
   return (
-    <div className="@container flex min-h-0 flex-1 flex-col">
-      {/* Header */}
-      <div className="flex h-10 shrink-0 items-center gap-3 border-b px-4">
-        <button
-          onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          title="Back to chat"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-        <h3 className="text-xs font-semibold">Settings</h3>
-      </div>
-
-      {/* Body: sidebar + content. When narrow (e.g. the sessions sidebar is
-          open in a small window) the sidebar becomes a tab row on top. */}
-      <div className="flex min-h-0 flex-1 flex-col @xl:flex-row">
-        {/* Sidebar */}
-        <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-1.5 py-2 @xl:w-40 @xl:flex-col @xl:gap-0 @xl:overflow-visible @xl:border-r @xl:border-b-0 @xl:px-0 @xl:py-3">
-          <div className="hidden px-3 pb-2 text-xs font-medium text-muted-foreground @xl:block">
-            AI
+    <div className="@container flex min-h-0 min-w-0 flex-1 bg-sidebar">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col @xl:flex-row">
+        {/* Takes the chat list's place, so there is only ever one sidebar. When
+          the window is narrow it becomes a row of tabs on top. */}
+        <div className="flex shrink-0 flex-col @xl:w-56">
+          <div className="flex h-11 shrink-0 items-center gap-1 px-2">
+            <button
+              onClick={onClose}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title="Back to chat"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <h3 className="text-sm font-medium">Settings</h3>
           </div>
-          <button
-            onClick={() => setTab("providers")}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
-              tab === "providers"
-                ? "bg-accent font-medium text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <div className="flex shrink-0 gap-1 overflow-x-auto px-2 pb-2 @xl:flex-col @xl:gap-0.5 @xl:overflow-visible @xl:pt-1">
+            <div className="hidden px-2 py-1.5 text-xs text-muted-foreground @xl:block">AI</div>
+            <button
+              onClick={() => setTab("providers")}
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
+                tab === "providers"
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
             >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            Providers
-          </button>
-          <button
-            onClick={() => setTab("models")}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
-              tab === "models"
-                ? "bg-accent font-medium text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              Providers
+            </button>
+            <button
+              onClick={() => setTab("models")}
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
+                tab === "models"
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
             >
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-            </svg>
-            Models
-          </button>
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+              Models
+            </button>
 
-          <div className="mt-4 hidden px-3 pb-2 text-xs font-medium text-muted-foreground @xl:block">
-            App
+            <div className="mt-3 hidden px-2 py-1.5 text-xs text-muted-foreground @xl:block">
+              App
+            </div>
+            <button
+              type="button"
+              onClick={() => setTab("systemPrompt")}
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
+                tab === "systemPrompt"
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <path d="M14 2v6h6" />
+                <path d="M8 13h8" />
+                <path d="M8 17h5" />
+              </svg>
+              System prompt
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("notifications")}
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
+                tab === "notifications"
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+              </svg>
+              Notifications
+            </button>
+            <button
+              onClick={() => setTab("appearance")}
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
+                tab === "appearance"
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="5" />
+                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+              </svg>
+              Appearance
+            </button>
+            <button
+              onClick={() => setTab("about")}
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
+                tab === "about"
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              About
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("privacy")}
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
+                tab === "privacy"
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              Privacy
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setTab("systemPrompt")}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
-              tab === "systemPrompt"
-                ? "bg-accent font-medium text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <path d="M14 2v6h6" />
-              <path d="M8 13h8" />
-              <path d="M8 17h5" />
-            </svg>
-            System prompt
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("notifications")}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
-              tab === "notifications"
-                ? "bg-accent font-medium text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-            </svg>
-            Notifications
-          </button>
-          <button
-            onClick={() => setTab("appearance")}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
-              tab === "appearance"
-                ? "bg-accent font-medium text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="5" />
-              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-            </svg>
-            Appearance
-          </button>
-          <button
-            onClick={() => setTab("about")}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
-              tab === "about"
-                ? "bg-accent font-medium text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
-            About
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("privacy")}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
-              tab === "privacy"
-                ? "bg-accent font-medium text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-            Privacy
-          </button>
         </div>
 
         {/* Content area */}
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-t-xl border-x border-t bg-background">
           {tab === "providers" && <ProvidersTab />}
           {tab === "models" && <ModelsTab />}
           {tab === "appearance" && <AppearanceTab />}
@@ -463,7 +460,7 @@ function ProvidersTab() {
         <ProviderLogo providerId={provider.id} name={provider.name} />
         <div className="min-w-[7rem] flex-1">
           <div className="truncate text-sm font-medium">{provider.name}</div>
-          <div className="truncate text-[11px] text-muted-foreground">
+          <div className="truncate text-xs text-muted-foreground">
             {connectHint(provider.id, authMethods[provider.id])}
           </div>
         </div>
@@ -471,7 +468,7 @@ function ProvidersTab() {
           onClick={() =>
             provider.id === OPENCODE_GO.providerId ? setUpGo("list") : setConnecting(provider)
           }
-          className="shrink-0 whitespace-nowrap rounded-md border bg-background px-3 py-1 text-[11px] font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="shrink-0 whitespace-nowrap rounded-md bg-secondary px-3 py-1 text-xs font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           Connect
         </button>
@@ -481,7 +478,7 @@ function ProvidersTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Providers</h4>
+      <h4 className="text-lg font-semibold tracking-tight text-foreground">Providers</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Connect an AI provider to chat with its models.
       </p>
@@ -495,7 +492,7 @@ function ProvidersTab() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder={`Search ${allProviders.length} providers`}
             aria-label="Search providers"
-            className="h-8 w-full rounded-md border bg-background pr-2 pl-8 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+            className="h-8 w-full rounded-md border bg-transparent pr-2 pl-8 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
       )}
@@ -510,7 +507,7 @@ function ProvidersTab() {
             />
             <div className="min-w-0">
               <div className="text-sm font-medium">Want more than the free models?</div>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 OpenCode Go is a low-cost subscription to strong open coding models like Kimi, GLM,
                 Qwen and DeepSeek. Go is {OPENCODE_GO.goPrice}, and Go Plus is{" "}
                 {OPENCODE_GO.goPlusPrice} with higher limits.
@@ -518,7 +515,7 @@ function ProvidersTab() {
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <button
                   onClick={() => setUpGo("recommendation")}
-                  className="whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   Set up OpenCode Go
                 </button>
@@ -526,7 +523,7 @@ function ProvidersTab() {
                   onClick={() => {
                     desktop.openUrl(OPENCODE_GO.plansUrl).catch(() => {});
                   }}
-                  className="whitespace-nowrap text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                  className="whitespace-nowrap text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
                 >
                   Compare plans
                 </button>
@@ -539,7 +536,7 @@ function ProvidersTab() {
       {/* Connected providers */}
       {connected.length > 0 && (
         <div className="mt-6">
-          <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Connected</div>
+          <div className="mb-1.5 text-xs font-medium text-muted-foreground">Connected</div>
           <div className="divide-y rounded-lg border bg-card">
             {connected.map((provider) => {
               const check = checks[provider.id];
@@ -549,9 +546,9 @@ function ProvidersTab() {
                     {isFreeZen(provider) ? (
                       <span
                         aria-hidden="true"
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-foreground"
+                        className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
                       >
-                        <Sparkles className="h-3.5 w-3.5" />
+                        <Sparkles className="h-4 w-4" />
                       </span>
                     ) : (
                       <ProviderLogo providerId={provider.id} name={provider.name} />
@@ -561,14 +558,14 @@ function ProvidersTab() {
                         {providerDisplayName(provider)}
                       </div>
                       {isFreeZen(provider) && (
-                        <div className="truncate text-[11px] text-muted-foreground">
+                        <div className="truncate text-xs text-muted-foreground">
                           Included with BloxBot
                         </div>
                       )}
                     </div>
                     {check && check !== "checking" && (
                       <span
-                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
                           check.ok
                             ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
                             : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
@@ -594,7 +591,7 @@ function ProvidersTab() {
                       <button
                         onClick={() => handleDisconnect(provider)}
                         disabled={disconnecting === provider.id}
-                        className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
+                        className="shrink-0 whitespace-nowrap text-xs text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
                       >
                         {disconnecting === provider.id
                           ? "..."
@@ -605,7 +602,7 @@ function ProvidersTab() {
                     )}
                   </div>
                   {check && check !== "checking" && (
-                    <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground @md:pl-10">
+                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground @md:pl-8">
                       {check.ok ? (
                         `Works with ${check.modelName}.`
                       ) : (
@@ -633,14 +630,14 @@ function ProvidersTab() {
 
       {popular.length > 0 && (
         <div className="mt-6">
-          <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Popular</div>
+          <div className="mb-1.5 text-xs font-medium text-muted-foreground">Popular</div>
           <div className="divide-y rounded-lg border bg-card">{popular.map(renderAvailable)}</div>
         </div>
       )}
 
       {others.length > 0 && (
         <div className="mt-6">
-          <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">
+          <div className="mb-1.5 text-xs font-medium text-muted-foreground">
             {popular.length > 0 || connected.length > 0 ? "More providers" : "Providers"}
           </div>
           <div className="divide-y rounded-lg border bg-card">{others.map(renderAvailable)}</div>
@@ -741,14 +738,14 @@ function ModelsTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Models</h4>
+      <h4 className="text-lg font-semibold tracking-tight text-foreground">Models</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Toggle which models appear in the model selector.
       </p>
 
       {/* Search */}
       <div className="mt-4">
-        <div className="flex items-center gap-1.5 rounded-lg border bg-background px-2.5">
+        <div className="flex items-center gap-1.5 rounded-md border bg-transparent px-2.5">
           <svg
             width="13"
             height="13"
@@ -802,9 +799,7 @@ function ModelsTab() {
         {modelsByProvider.map(([providerId, group]) => (
           <div key={providerId}>
             <div className="flex items-center gap-2 pb-2">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-[10px] font-semibold text-muted-foreground">
-                {group.providerName.charAt(0).toUpperCase()}
-              </span>
+              <ProviderLogo providerId={providerId} name={group.providerName} />
               <span className="text-sm font-medium">{group.providerName}</span>
             </div>
             <div className="rounded-lg border bg-card">
@@ -864,13 +859,13 @@ function AppearanceTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Appearance</h4>
+      <h4 className="text-lg font-semibold tracking-tight text-foreground">Appearance</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Choose how BloxBot looks. System follows your OS preference.
       </p>
 
       <div className="mt-6">
-        <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Theme</div>
+        <div className="mb-1.5 text-xs font-medium text-muted-foreground">Theme</div>
         <div className="grid grid-cols-3 gap-2">
           {THEME_OPTIONS.map((option) => {
             const selected = theme === option.value;
@@ -882,7 +877,7 @@ function AppearanceTab() {
                 aria-pressed={selected}
                 className={`rounded-lg border px-3 py-3 text-center transition-colors ${
                   selected
-                    ? "border-foreground bg-accent font-medium text-foreground"
+                    ? "border-foreground/40 bg-accent font-medium text-foreground"
                     : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
                 }`}
               >
@@ -900,24 +895,24 @@ function AppearanceTab() {
 function ThemePreview({ swatch }: { swatch: Theme }) {
   if (swatch === "light") {
     return (
-      <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-stone-200">
-        <div className="w-1/3 bg-stone-100" />
-        <div className="flex-1 bg-stone-50" />
+      <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-black/10">
+        <div className="w-1/3 bg-[#f6f6f7]" />
+        <div className="flex-1 bg-white" />
       </div>
     );
   }
   if (swatch === "dark") {
     return (
-      <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-stone-700">
-        <div className="w-1/3 bg-stone-800" />
-        <div className="flex-1 bg-stone-950" />
+      <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-white/10">
+        <div className="w-1/3 bg-[#161618]" />
+        <div className="flex-1 bg-[#0e0e10]" />
       </div>
     );
   }
   return (
     <div className="mx-auto flex h-10 w-full max-w-[72px] overflow-hidden rounded-md border border-border">
-      <div className="w-1/2 bg-stone-50" />
-      <div className="w-1/2 bg-stone-950" />
+      <div className="w-1/2 bg-white" />
+      <div className="w-1/2 bg-[#0e0e10]" />
     </div>
   );
 }
@@ -948,7 +943,7 @@ function SystemPromptTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">System prompt</h4>
+      <h4 className="text-lg font-semibold tracking-tight text-foreground">System prompt</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         The instructions BloxBot follows in every chat. Changes apply from your next message.
       </p>
@@ -990,7 +985,7 @@ function NotificationsTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Notifications</h4>
+      <h4 className="text-lg font-semibold tracking-tight text-foreground">Notifications</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         While you work in Roblox Studio or another app, BloxBot can tell you when it needs you.
       </p>
@@ -999,7 +994,7 @@ function NotificationsTab() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-sm font-medium">System notifications</div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               Notifies you when a chat finishes, runs into a problem, or is waiting for an answer or
               your approval, and when an update is ready or the connection is lost. Only sent while
               BloxBot isn't the app in front. They show the chat's title.
@@ -1038,7 +1033,7 @@ function PrivacyTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">Privacy</h4>
+      <h4 className="text-lg font-semibold tracking-tight text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
         identifiers, but events stay anonymous: no person profile is created. Error reports are
@@ -1051,7 +1046,7 @@ function PrivacyTab() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-sm font-medium">Share AI usage data</div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               Shares your prompts, AI responses and reasoning, tool calls and their results, code
               changes, instruction files like AGENTS.md, timings, provider and model names, token
               counts, and Roblox place IDs and names, on by default. Turn this off to keep
@@ -1100,7 +1095,7 @@ function PrivacyDetails() {
   };
 
   return (
-    <div className="mt-4 space-y-3 px-1 text-[11px] leading-relaxed text-muted-foreground">
+    <div className="mt-4 space-y-3 text-xs leading-relaxed text-muted-foreground">
       {deviceId && (
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1191,25 +1186,25 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">About BloxBot</h4>
+      <h4 className="text-lg font-semibold tracking-tight text-foreground">About BloxBot</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         AI-assisted Roblox development, right from your desktop.
       </p>
 
       {/* Version & update check */}
       <div className="mt-6">
-        <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Version</div>
+        <div className="mb-1.5 text-xs font-medium text-muted-foreground">Version</div>
         <div className="rounded-lg border bg-card p-3.5">
           <div className="flex items-center justify-between">
             <div>
               <span className="text-sm font-medium">
-                BloxBot{appVersion && <span className="font-mono"> v{appVersion}</span>}
+                BloxBot{appVersion && <span> v{appVersion}</span>}
               </span>
             </div>
             {updateStatus === "idle" && (
               <button
                 onClick={handleCheckForUpdates}
-                className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+                className="flex items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent"
               >
                 <svg
                   width="11"
@@ -1228,7 +1223,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
               </button>
             )}
             {updateStatus === "checking" && (
-              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <svg
                   className="h-3 w-3 animate-spin"
                   viewBox="0 0 24 24"
@@ -1242,7 +1237,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
               </span>
             )}
             {updateStatus === "up-to-date" && (
-              <span className="flex items-center gap-1.5 text-[11px] text-emerald-600">
+              <span className="flex items-center gap-1.5 text-xs text-emerald-600">
                 <svg
                   width="11"
                   height="11"
@@ -1259,7 +1254,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
               </span>
             )}
             {updateStatus === "downloading" && (
-              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <svg
                   className="h-3 w-3 animate-spin"
                   viewBox="0 0 24 24"
@@ -1276,14 +1271,14 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
 
           {/* Update available */}
           {updateStatus === "available" && updateVersion && (
-            <div className="mt-3 flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div className="mt-3 flex items-center justify-between rounded-md border px-3 py-2">
               <span className="text-xs">
                 <span className="font-medium">v{updateVersion}</span>{" "}
                 <span className="text-muted-foreground">is available</span>
               </span>
               <button
                 onClick={handleInstall}
-                className="rounded-md bg-foreground px-3 py-1 text-[11px] font-medium text-background transition-opacity hover:opacity-90"
+                className="rounded-md bg-foreground px-3 py-1 text-xs font-medium text-background transition-opacity hover:opacity-90"
               >
                 Install & Restart
               </button>
@@ -1293,12 +1288,12 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
           {/* Error */}
           {updateStatus === "error" && updateError && (
             <div className="mt-3">
-              <p className="rounded-md bg-red-50 px-2 py-1 text-[11px] text-red-600 dark:bg-red-950/40 dark:text-red-400">
+              <p className="rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-950/40 dark:text-red-400">
                 {updateError}
               </p>
               <button
                 onClick={handleCheckForUpdates}
-                className="mt-2 text-[11px] text-muted-foreground underline hover:text-foreground"
+                className="mt-2 text-xs text-muted-foreground underline hover:text-foreground"
               >
                 Try again
               </button>
@@ -1309,7 +1304,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
 
       {/* Built with */}
       <div className="mt-6">
-        <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Built With</div>
+        <div className="mb-1.5 text-xs font-medium text-muted-foreground">Built with</div>
         <div className="rounded-lg border bg-card">
           {TECHNOLOGIES.map((tech, idx) => (
             <div key={tech.name}>
@@ -1322,7 +1317,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
               >
                 <div className="min-w-0">
                   <span className="text-xs font-medium">{tech.name}</span>
-                  <span className="ml-2 text-[11px] text-muted-foreground">{tech.description}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{tech.description}</span>
                 </div>
                 <svg
                   width="10"
@@ -1343,14 +1338,14 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
             </div>
           ))}
         </div>
-        <p className="mt-3 px-1 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           BloxBot is powered by these projects. Thank you to the teams behind them.
         </p>
       </div>
 
       {/* Links */}
       <div className="mt-6">
-        <div className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Links</div>
+        <div className="mb-1.5 text-xs font-medium text-muted-foreground">Links</div>
         <div className="space-y-1.5">
           <a
             href="https://bloxbot.ai"
