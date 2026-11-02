@@ -5,7 +5,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Slider } from "@/components/ui/slider";
 import { useAbort } from "@/hooks/mutations/useAbort";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
-import { useAgents } from "@/hooks/useAgents";
 import { useCommands } from "@/hooks/useCommands";
 import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
@@ -233,19 +232,11 @@ function ChatInput() {
   const { pendingReference, consumeReference, objects } = useExplorerReference();
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
-  const agents = useAgents();
   const commands = useCommands();
   const { activeSessionId, activeSessionIdRef } = useActiveSession();
   const isBusy = useIsBusy(activeSessionId);
-  const {
-    selectedModel,
-    selectedAgent,
-    selectedVariant,
-    hiddenModels,
-    setSelectedModel,
-    setSelectedAgent,
-    setSelectedVariant,
-  } = usePreferences();
+  const { selectedModel, selectedVariant, hiddenModels, setSelectedModel, setSelectedVariant } =
+    usePreferences();
   const studioTargetReference = useStudioTargetOptional()?.promptReference ?? null;
 
   // Available variants for the currently selected model
@@ -263,14 +254,12 @@ function ChatInput() {
   const [lbSlideDir, setLbSlideDir] = useState<"left" | "right" | null>(null);
   const [lbAnimKey, setLbAnimKey] = useState(0);
   const [showModelPicker, setShowModelPicker] = useState(false);
-  const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [rejectShake, setRejectShake] = useState(false);
   const promptEditorRef = useRef<PromptEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelSearchRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
-  const agentPickerRef = useRef<HTMLDivElement>(null);
   const dragCounterRef = useRef(0);
   const rejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const previousSessionRef = useRef(activeSessionId);
@@ -431,15 +420,12 @@ function ChatInput() {
         setShowModelPicker(false);
         setModelSearch("");
       }
-      if (agentPickerRef.current && !agentPickerRef.current.contains(e.target as Node)) {
-        setShowAgentPicker(false);
-      }
     }
-    if (showModelPicker || showAgentPicker) {
+    if (showModelPicker) {
       document.addEventListener("mousedown", handleClick);
       return () => document.removeEventListener("mousedown", handleClick);
     }
-  }, [showModelPicker, showAgentPicker]);
+  }, [showModelPicker]);
 
   const modelsByProvider = useMemo(() => {
     const POPULAR = [
@@ -480,11 +466,6 @@ function ChatInput() {
     return entries;
   }, [allModels, connectedProviders, hiddenModels, modelSearch]);
 
-  const visibleAgents = useMemo(
-    () => agents.filter((a) => !a.hidden && (a.mode === "primary" || a.mode === "all")),
-    [agents],
-  );
-
   function handleSubmit() {
     const editorText = promptEditorRef.current?.getText() ?? text;
     const trimmed = editorText.trim();
@@ -519,7 +500,6 @@ function ChatInput() {
   const modelDisplay = selectedModel
     ? (selectedModel.split("/").pop() ?? selectedModel)
     : "Select model";
-  const agentDisplay = selectedAgent ?? "Default agent";
   const selectedVariantIndex = selectedVariant
     ? Math.max(0, availableVariants.indexOf(selectedVariant) + 1)
     : 0;
@@ -561,7 +541,6 @@ function ChatInput() {
           <button
             onClick={() => {
               setShowModelPicker(!showModelPicker);
-              setShowAgentPicker(false);
               if (showModelPicker) {
                 setModelSearch("");
               }
@@ -781,56 +760,6 @@ function ChatInput() {
             placeholder={isDragging ? "Drop images here..." : "Describe what you want to build..."}
           />
           <div className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
-            {visibleAgents.length > 1 && (
-              <div className="relative" ref={agentPickerRef}>
-                <button
-                  onClick={() => {
-                    setShowAgentPicker(!showAgentPicker);
-                    setShowModelPicker(false);
-                  }}
-                  className="flex max-w-28 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <svg
-                    width="9"
-                    height="9"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                  <span className="truncate">{agentDisplay}</span>
-                </button>
-                {showAgentPicker && (
-                  <div className="absolute bottom-full right-0 z-50 mb-1 max-h-48 w-56 overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
-                    {visibleAgents.map((agent) => {
-                      const isSelected = selectedAgent === agent.name;
-                      return (
-                        <button
-                          key={agent.name}
-                          onClick={() => {
-                            setSelectedAgent(agent.name);
-                            setShowAgentPicker(false);
-                          }}
-                          className={`flex w-full flex-col rounded-md px-2 py-1.5 text-left transition-colors ${isSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
-                        >
-                          <span className="text-xs font-medium">{agent.name}</span>
-                          {agent.description && (
-                            <span className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
-                              {agent.description}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
             <div className="flex items-center gap-1">
               <button
                 onClick={() => fileInputRef.current?.click()}

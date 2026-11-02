@@ -140,7 +140,6 @@ describe("Explorer data boundary", () => {
     await expect(
       generateExplorerProgram(client as never, {
         model: { providerID: "anthropic", modelID: "claude" },
-        agent: "build",
         allowedTools,
         validate,
       }),

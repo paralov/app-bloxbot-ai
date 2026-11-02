@@ -259,7 +259,6 @@ interface ExplorerModel {
 
 export interface GenerateExplorerProgramOptions<T> {
   model?: ExplorerModel;
-  agent?: string | null;
   /** The tools the runtime lets the program call, by Studio's own name. */
   allowedTools: readonly string[];
   /**
@@ -312,7 +311,7 @@ function errorMessage(error: unknown): string {
  */
 export async function generateExplorerProgram<T>(
   client: OpencodeClient,
-  { model, agent, allowedTools, validate }: GenerateExplorerProgramOptions<T>,
+  { model, allowedTools, validate }: GenerateExplorerProgramOptions<T>,
 ): Promise<GeneratedExplorerProgram<T>> {
   let attempts = 0;
   try {
@@ -324,7 +323,6 @@ export async function generateExplorerProgram<T>(
           {
             sessionID,
             model,
-            agent: agent ?? undefined,
             system: explorerSystemPrompt(allowedTools),
             format: { type: "json_schema", schema: EXPLORER_PROGRAM_OUTPUT_SCHEMA, retryCount: 2 },
             parts: [{ type: "text", text: request }],

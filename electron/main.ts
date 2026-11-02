@@ -26,6 +26,7 @@ import {
 import { handleLastWindowClosed } from "./appLifecycle";
 import { createMainErrorReporter } from "./errorReporter";
 import { findInstructionFiles } from "./instructionFiles";
+import { withSystemPrompt } from "./opencodeConfig";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 import {
@@ -112,6 +113,11 @@ const openCodeRuntime = ManagedRuntime.make(
     makeOpenCodeLayer({
       binaryCacheDirectory: openCodeBinaryDirectory,
       workspace: join(app.getPath("home"), "BloxBot"),
+      loadSystemPrompt: () =>
+        loadConfig.pipe(
+          Effect.map((config) => config.systemPrompt),
+          Effect.catchAll(() => Effect.succeed(null)),
+        ),
       onStartupProgress: (progress: OpenCodeStartupProgress) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send(channels.openCodeStartupProgress, progress);
@@ -268,6 +274,33 @@ const registerIpcHandlers = Effect.sync(() => {
   ipcMain.handle(channels.getBloxBotPrograms, () => bloxbotProgramStore.current());
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));
+  ipcMain.handle(channels.setSystemPrompt, (_event, input: unknown) =>
+    runMain(
+      Effect.gen(function* () {
+        const systemPrompt = yield* Schema.decodeUnknown(Schema.NullOr(Schema.String))(input).pipe(
+          Effect.mapError(
+            (cause) => new DesktopMainError({ message: "System prompt is invalid", cause }),
+          ),
+        );
+        yield* patchConfig({ systemPrompt });
+        // OpenCode reads this file. The renderer reloads it once this has written the change.
+        const configFile = join(
+          app.getPath("home"),
+          "BloxBot",
+          ".opencode",
+          "config",
+          "opencode",
+          "opencode.json",
+        );
+        yield* Effect.tryPromise({
+          try: async () =>
+            writeFile(configFile, withSystemPrompt(await readFile(configFile, "utf8"), systemPrompt)),
+          catch: (cause) =>
+            new DesktopMainError({ message: "Failed to apply the system prompt", cause }),
+        });
+      }),
+    ),
+  );
   ipcMain.handle(channels.installStudioTargetPrograms, (_event, input: unknown) =>
     openCodeRuntime.runPromise(
       Effect.gen(function* () {

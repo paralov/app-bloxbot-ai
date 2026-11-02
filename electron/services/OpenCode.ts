@@ -113,6 +113,7 @@ interface PreparedOpenCode {
 }
 
 export interface OpenCodeOptions {
+  loadSystemPrompt?: () => Effect.Effect<string | null>;
   binaryCacheDirectory: string;
   workspace: string;
   onStartupProgress?: (progress: OpenCodeStartupProgress) => void;
@@ -296,7 +297,8 @@ function prepareOpenCode(
       ),
       { concurrency: "unbounded", discard: true },
     );
-    const config = createOpenCodeConfig(broker.info);
+    const systemPrompt = options.loadSystemPrompt ? yield* options.loadSystemPrompt() : null;
+    const config = createOpenCodeConfig(broker.info, systemPrompt);
     yield* fileOperation("Failed to write the OpenCode configuration", () =>
       writeFile(
         join(configDirectory, "opencode.json"),

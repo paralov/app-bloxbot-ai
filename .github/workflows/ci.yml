@@ -17,3 +17,50 @@ jobs:
       contents: read
     uses: ./.github/workflows/build.yml
     secrets: inherit
+
+  # Runs OpenCode where BloxBot's users do, with scripted providers so it needs no model or quota.
+  opencode:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the pinned OpenCode
+        run: node scripts/ci/fetch-opencode.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Run chats against the real server
+        run: pnpm vitest run src/test/opencodeLive.test.ts -t "no model"
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Start the app (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm exec electron scripts/ci/app-smoke --no-sandbox
+
+      - name: Start the app
+        if: runner.os != 'Linux'
+        run: pnpm exec electron scripts/ci/app-smoke
+

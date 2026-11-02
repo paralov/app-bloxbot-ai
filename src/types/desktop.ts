@@ -29,6 +29,8 @@ export const AppConfigSchema = Schema.mutable(
     studioTargetPrograms: Schema.NullOr(StudioTargetProgramsSchema),
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
     systemNotifications: Schema.Boolean,
+    // What the user wrote in Settings; null follows BloxBot's default as it changes.
+    systemPrompt: Schema.NullOr(Schema.String),
     promptsSent: Schema.Number,
     starCalloutShown: Schema.Boolean,
   }),
@@ -45,6 +47,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   studioTargetPrograms: null,
   studioTargetsBySession: {},
   systemNotifications: true,
+  systemPrompt: null,
   promptsSent: 0,
   starCalloutShown: false,
 };
@@ -137,6 +140,7 @@ export interface DesktopApi {
   onSystemNotificationClick(listener: (id: string) => void): () => void;
   loadConfig(): Promise<AppConfig>;
   patchConfig(patch: Partial<AppConfig>): Promise<void>;
+  setSystemPrompt(systemPrompt: string | null): Promise<void>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;

@@ -154,7 +154,6 @@ function createClient(overrides: Record<string, unknown> = {}) {
       reply: vi.fn().mockResolvedValue({}),
     },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
-    app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
     command: { list: vi.fn().mockResolvedValue({ data: [] }) },
     mcp: {
       status: vi.fn().mockResolvedValue({
@@ -192,7 +191,6 @@ function seedReadyState(
 
   queryClient.setQueryData(qk.sessions, sessions);
   queryClient.setQueryData(qk.statuses, {});
-  queryClient.setQueryData(qk.agents, []);
   queryClient.setQueryData(qk.providers, {
     all: [
       {

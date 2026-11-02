@@ -5,7 +5,7 @@
  *   OPENCODE_LIVE_BIN=/path/to/opencode pnpm vitest run src/test/opencodeLive.test.ts
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -21,7 +21,8 @@ import { createOpencodeClient, type OpencodeClient } from "@/lib/opencode/client
 import type { Event, ToolPart } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
-import { createOpenCodeConfig } from "../../electron/opencodeConfig";
+import { DEFAULT_SYSTEM_PROMPT } from "@/lib/systemPrompt";
+import { createOpenCodeConfig, withSystemPrompt } from "../../electron/opencodeConfig";
 
 const BIN = process.env.OPENCODE_LIVE_BIN;
 const MODEL = {
@@ -72,7 +73,7 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
 
   const send = (sessionID: string, text: string, system?: string) =>
     client.session.promptAsync(
-      { sessionID, model: MODEL, agent: "studio", system, parts: [{ type: "text", text }] },
+      { sessionID, model: MODEL, system, parts: [{ type: "text", text }] },
       { throwOnError: true },
     );
 
@@ -176,9 +177,7 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
     expect(auth.data["github-copilot"]?.[0]?.type).toBe("oauth");
   });
 
-  it("offers the configured agent, connects the Studio MCP server", async () => {
-    const agents = await client.app.agents({}, { throwOnError: true });
-    expect(agents.data.map((agent) => agent.name)).toContain("studio");
+  it("connects the Studio MCP server", async () => {
     const status = await waitFor("MCP status", () => true);
     expect(status).toBe(true);
     const deadline = Date.now() + 20_000;
@@ -508,7 +507,7 @@ async function startServer(bin: string, home: string, password = PASSWORD) {
   return { child, baseUrl, workspace };
 }
 
-describe.skipIf(!BIN)("OpenCode 2 failures", () => {
+describe.skipIf(!BIN)("[no model] OpenCode 2 failures", () => {
   it("ends the turn with the reason when the free limit is hit, and doesn't keep retrying", async () => {
     const home = await mkdtemp(join(tmpdir(), "bloxbot-limit-"));
     const message = "Free usage limit reached. Subscribe to OpenCode Go to keep going.";
@@ -649,10 +648,17 @@ describe.skipIf(!BIN || !V1_BIN)("Upgrading from OpenCode 1", () => {
 /** Streams scripted OpenAI-style replies, so these need no model and no free quota. */
 async function startScriptedProvider(replies: ReadonlyArray<object>) {
   let next = 0;
+  const bodies: string[] = [];
   const provider = createServer((req, res) => {
-    req.resume();
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
     req.on("end", () => {
-      const delta = replies[Math.min(next++, replies.length - 1)];
+      // OpenCode's title request has no tools, and mustn't use up the scripted replies.
+      const isChat = body.includes('"tools"');
+      if (isChat) bodies.push(body);
+      const delta = isChat ? replies[Math.min(next++, replies.length - 1)] : { content: "A title" };
       res.writeHead(200, { "content-type": "text/event-stream" });
       const chunk = (choice: object) =>
         res.write(
@@ -670,6 +676,7 @@ async function startScriptedProvider(replies: ReadonlyArray<object>) {
   return {
     provider,
     requests: () => next,
+    bodies,
     url: `http://127.0.0.1:${(provider.address() as AddressInfo).port}/v1`,
   };
 }
@@ -685,7 +692,7 @@ const shellCall = (command: string) => ({
   ],
 });
 
-describe.skipIf(!BIN)("Hidden helper chats", () => {
+describe.skipIf(!BIN)("[no model] Hidden helper chats", () => {
   async function withHelper(
     replies: ReadonlyArray<object>,
     run: (client: OpencodeClient, sessionID: string, marker: string) => Promise<void>,
@@ -766,5 +773,144 @@ describe.skipIf(!BIN)("Hidden helper chats", () => {
         clearInterval(reject);
       }
     });
+  }, 60_000);
+});
+
+describe.skipIf(!BIN)("[no model] Running a chat", () => {
+  async function withServer(
+    replies: ReadonlyArray<object>,
+    run: (context: {
+      client: OpencodeClient;
+      configFile: string;
+      bodies: string[];
+      events: Event[];
+    }) => Promise<void>,
+  ) {
+    const home = await mkdtemp(join(tmpdir(), "bloxbot-chat-"));
+    const { provider, url, bodies } = await startScriptedProvider(replies);
+    const configFile = join(home, "config", "opencode", "opencode.json");
+    await mkdir(join(home, "config", "opencode"), { recursive: true });
+    await writeFile(
+      configFile,
+      JSON.stringify({
+        ...createOpenCodeConfig({ url: "http://127.0.0.1:9/mcp" }),
+        providers: { opencode: { settings: { baseURL: url } } },
+      }),
+    );
+    const { child, baseUrl, workspace } = await startServer(BIN as string, home);
+    const abort = new AbortController();
+    try {
+      const client = createOpencodeClient({
+        baseUrl,
+        directory: workspace,
+        headers: {
+          Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}`,
+        },
+      });
+      const events: Event[] = [];
+      const { stream } = await client.event.subscribe({}, { signal: abort.signal });
+      void (async () => {
+        for await (const event of stream) events.push(event);
+      })().catch(() => undefined);
+      await run({ client, configFile, bodies, events });
+    } finally {
+      abort.abort();
+      child.kill();
+      provider.close();
+      await rm(home, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  async function turn(client: OpencodeClient, events: Event[], sessionID: string, text: string) {
+    const from = events.length;
+    await client.session.promptAsync(
+      { sessionID, model: MODEL, parts: [{ type: "text", text }] },
+      { throwOnError: true },
+    );
+    const deadline = Date.now() + 30_000;
+    while (!events.slice(from).some((event) => event.type === "session.idle")) {
+      if (Date.now() > deadline) throw new Error("The turn didn't end.");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  it("streams a reply and runs a shell tool on this platform", async () => {
+    await withServer(
+      [shellCall("echo ci-probe"), { content: "All done" }],
+      async ({ client, events }) => {
+        const created = await client.session.create({}, { throwOnError: true });
+        const sessionID = created.data.id;
+        await turn(client, events, sessionID, "Run it.");
+
+        const history = await client.session.messages({ sessionID }, { throwOnError: true });
+        const parts = history.data.flatMap((message) => message.parts);
+        const shell = parts.find((part): part is ToolPart => part.type === "tool");
+        expect(shell?.tool).toBe("bash");
+        expect(shell?.state.status === "completed" && shell.state.output).toContain("ci-probe");
+        expect(parts.some((part) => part.type === "text" && part.text === "All done")).toBe(true);
+        expect(events.some((event) => event.type === "message.part.delta")).toBe(true);
+      },
+    );
+  }, 60_000);
+
+  it("uses the default system prompt, then an edited one, then the default again", async () => {
+    await withServer([{ content: "OK" }], async ({ client, configFile, bodies, events }) => {
+      const created = await client.session.create({}, { throwOnError: true });
+      const sessionID = created.data.id;
+      const lastBody = () => bodies.at(-1) ?? "";
+      const edit = async (prompt: string | null) => {
+        await writeFile(configFile, withSystemPrompt(await readFile(configFile, "utf8"), prompt));
+        await client.instance.dispose({}, { throwOnError: true });
+      };
+
+      await turn(client, events, sessionID, "One");
+      expect(lastBody()).toContain(DEFAULT_SYSTEM_PROMPT.slice(0, 40));
+
+      await edit("Always answer like a pirate.");
+      await turn(client, events, sessionID, "Two");
+      expect(lastBody()).toContain("Always answer like a pirate.");
+      expect(lastBody()).not.toContain(DEFAULT_SYSTEM_PROMPT.slice(0, 40));
+
+      await edit(null);
+      await turn(client, events, sessionID, "Three");
+      expect(lastBody()).toContain(DEFAULT_SYSTEM_PROMPT.slice(0, 40));
+    });
+  }, 60_000);
+
+  it("lets a running chat finish when a system prompt edit reloads OpenCode", async () => {
+    await withServer(
+      [
+        shellCall(process.platform === "win32" ? "ping -n 6 127.0.0.1" : "sleep 5"),
+        { content: "Finished" },
+      ],
+      async ({ client, events }) => {
+        const created = await client.session.create({}, { throwOnError: true });
+        const sessionID = created.data.id;
+        const from = events.length;
+        await client.session.promptAsync(
+          { sessionID, model: MODEL, parts: [{ type: "text", text: "Run it." }] },
+          { throwOnError: true },
+        );
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await client.instance.dispose({}, { throwOnError: true });
+        const deadline = Date.now() + 30_000;
+        while (!events.slice(from).some((event) => event.type === "session.idle")) {
+          if (Date.now() > deadline) throw new Error("The turn didn't end.");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        const errors = events
+          .slice(from)
+          .flatMap((event) =>
+            event.type === "session.error" ? [event.properties.error?.name] : [],
+          );
+        expect(errors).toEqual([]);
+        const history = await client.session.messages({ sessionID }, { throwOnError: true });
+        const parts = history.data.flatMap((message) => message.parts);
+        expect(
+          parts.some((part) => part.type === "tool" && part.state.status === "completed"),
+        ).toBe(true);
+        expect(parts.some((part) => part.type === "text" && part.text === "Finished")).toBe(true);
+      },
+    );
   }, 60_000);
 });

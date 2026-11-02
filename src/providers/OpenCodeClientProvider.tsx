@@ -466,17 +466,15 @@ export async function prefetchServerState(client: OpencodeClient, queryClient: Q
     client.experimental.session.list({ archived: true }, { throwOnError: true }),
     client.provider.list({}, { throwOnError: true }),
     client.session.status({}, { throwOnError: true }),
-    client.app.agents({}, { throwOnError: true }),
     client.provider.auth({}, { throwOnError: true }),
   ]);
   if (results.every((result) => result.status === "rejected")) {
     throw new Error("OpenCode server state is unavailable");
   }
-  const [sessionResult, providerResult, statusResult, agentsResult, authResult] = results;
+  const [sessionResult, providerResult, statusResult, authResult] = results;
   const sessionRes = sessionResult.status === "fulfilled" ? sessionResult.value : undefined;
   const providerRes = providerResult.status === "fulfilled" ? providerResult.value : undefined;
   const statusRes = statusResult.status === "fulfilled" ? statusResult.value : undefined;
-  const agentsRes = agentsResult.status === "fulfilled" ? agentsResult.value : undefined;
   const authRes = authResult.status === "fulfilled" ? authResult.value : undefined;
 
   if (sessionRes?.data) {
@@ -486,10 +484,6 @@ export async function prefetchServerState(client: OpencodeClient, queryClient: Q
 
   if (statusRes?.data) {
     queryClient.setQueryData(qk.statuses, statusRes.data);
-  }
-
-  if (agentsRes?.data && Array.isArray(agentsRes.data)) {
-    queryClient.setQueryData(qk.agents, agentsRes.data);
   }
 
   if (providerRes?.data) {
@@ -508,7 +502,6 @@ export async function reconcileServerState(
     qk.sessions,
     qk.statuses,
     qk.providers,
-    qk.agents,
     ...(activeSessionId
       ? [
           qk.messages(activeSessionId),

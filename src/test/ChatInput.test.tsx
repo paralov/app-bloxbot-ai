@@ -71,7 +71,6 @@ function createClient(overrides: Record<string, unknown> = {}) {
     question: { list: vi.fn().mockResolvedValue({ data: [] }), reply: vi.fn(), reject: vi.fn() },
     permission: { list: vi.fn().mockResolvedValue({ data: [] }), reply: vi.fn() },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
-    app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
     command: { list: vi.fn().mockResolvedValue({ data: [] }) },
     mcp: { connect: vi.fn(), disconnect: vi.fn() },
     instance: { dispose: vi.fn() },
@@ -87,7 +86,6 @@ function createQueryClient() {
 function seedState(qc: QueryClient, session: Session) {
   qc.setQueryData(qk.sessions, [session]);
   qc.setQueryData(qk.statuses, {});
-  qc.setQueryData(qk.agents, []);
   qc.setQueryData(qk.providers, {
     all: [
       {

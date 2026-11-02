@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAgents } from "@/hooks/useAgents";
 import { useConnectedProviders } from "@/hooks/useProviders";
 import {
   ANALYTICS_NOTICE_VERSION,
@@ -22,12 +21,10 @@ import { splitModelKey } from "@/lib/splitModelKey";
 
 interface PreferencesContextValue {
   selectedModel: string | null;
-  selectedAgent: string | null;
   selectedVariant: string | null;
   hiddenModels: Set<string>;
   detailedAnalyticsEnabled: boolean;
   setSelectedModel: (modelID: string) => void;
-  setSelectedAgent: (name: string) => void;
   setSelectedVariant: (variant: string | null) => void;
   toggleModelVisibility: (modelKey: string) => void;
   setDetailedAnalyticsEnabled: (enabled: boolean) => void;
@@ -50,7 +47,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   });
 
   const [selectedModel, setSelectedModelState] = useState<string | null>(null);
-  const [selectedAgent, setSelectedAgentState] = useState<string | null>(null);
   const [selectedVariant, setSelectedVariantState] = useState<string | null>(null);
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(new Set());
   const [detailedAnalyticsEnabled, setDetailedAnalyticsEnabledState] = useState(false);
@@ -148,21 +144,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }
   }, [configData, connectedProviders, selectedModel]);
 
-  // Auto-select first agent
-  const agents = useAgents();
-  useEffect(() => {
-    if (agents.length === 0 || selectedAgent) return;
-    const primary = agents.find((a) => a.mode === "primary" && !a.hidden);
-    if (primary) setSelectedAgentState(primary.name);
-  }, [agents, selectedAgent]);
-
   const setSelectedModel = useCallback((modelID: string) => {
     setSelectedModelState(modelID);
     patchConfig({ lastModel: modelID }).catch(() => {});
-  }, []);
-
-  const setSelectedAgent = useCallback((name: string) => {
-    setSelectedAgentState(name);
   }, []);
 
   const setSelectedVariant = useCallback((variant: string | null) => {
@@ -186,13 +170,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PreferencesContextValue>(
     () => ({
       selectedModel,
-      selectedAgent,
       selectedVariant,
       hiddenModels,
       detailedAnalyticsEnabled,
       systemNotificationsEnabled,
       setSelectedModel,
-      setSelectedAgent,
       setSelectedVariant,
       toggleModelVisibility,
       setDetailedAnalyticsEnabled,
@@ -200,13 +182,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }),
     [
       selectedModel,
-      selectedAgent,
       selectedVariant,
       hiddenModels,
       detailedAnalyticsEnabled,
       systemNotificationsEnabled,
       setSelectedModel,
-      setSelectedAgent,
       setSelectedVariant,
       toggleModelVisibility,
       setDetailedAnalyticsEnabled,

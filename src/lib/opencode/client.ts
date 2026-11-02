@@ -21,7 +21,6 @@ import {
   toSession,
 } from "./messages";
 import type {
-  Agent,
   AssistantMessage,
   Command,
   Event,
@@ -53,7 +52,6 @@ type TextPromptPart = { type: "text"; text: string };
 export interface PromptInput {
   sessionID: string;
   model?: { providerID: string; modelID: string };
-  agent?: string;
   variant?: string;
   system?: string;
   parts: ReadonlyArray<TextPromptPart | FilePromptPart | { type: string; [key: string]: unknown }>;
@@ -252,7 +250,6 @@ export function createOpencodeClient(options: {
   const permissionSessions = new Map<string, string>();
   const oauthAttempts = new Map<string, string>();
   const sessionModels = new Map<string, string>();
-  const sessionAgents = new Map<string, string>();
 
   const remember = (info: SessionInfo): Session => {
     const session = toSession(info);
@@ -284,9 +281,9 @@ export function createOpencodeClient(options: {
   const integration = async (providerID: string) =>
     api.integration.get({ integrationID: providerID, location }).then((result) => result.data);
 
-  /** Applies the prompt's model, agent and instructions, which OpenCode 2 keeps on the session. */
+  /** Applies the prompt's model and instructions, which OpenCode 2 keeps on the session. */
   const prepareTurn = async (input: PromptInput) => {
-    const { sessionID, model, agent, variant, system } = input;
+    const { sessionID, model, variant, system } = input;
     if (model) {
       const key = `${model.providerID}/${model.modelID}#${variant ?? ""}`;
       if (sessionModels.get(sessionID) !== key) {
@@ -296,10 +293,6 @@ export function createOpencodeClient(options: {
         });
         sessionModels.set(sessionID, key);
       }
-    }
-    if (agent && sessionAgents.get(sessionID) !== agent) {
-      await api.session.switchAgent({ sessionID, agent });
-      sessionAgents.set(sessionID, agent);
     }
     if (system) {
       await api.experimental.session.instructions.entry.put({
@@ -408,7 +401,6 @@ export function createOpencodeClient(options: {
       create: (
         input: {
           title?: string;
-          agent?: string;
           parentID?: string;
           metadata?: Record<string, string | number | boolean>;
           permission?: PermissionRuleset;
@@ -419,7 +411,6 @@ export function createOpencodeClient(options: {
           remember(
             await api.session.create({
               title: input.title,
-              agent: input.agent,
               parentID: input.parentID,
               metadata: input.metadata,
               location,
@@ -444,7 +435,6 @@ export function createOpencodeClient(options: {
           await api.session.remove({ sessionID: input.sessionID });
           translator.forgetSession(input.sessionID);
           sessionModels.delete(input.sessionID);
-          sessionAgents.delete(input.sessionID);
           return true;
         }),
       status: (_input: object = {}, requestOptions?: RequestOptions) =>
@@ -498,24 +488,6 @@ export function createOpencodeClient(options: {
         }
         return { stream: translated() };
       },
-    },
-    app: {
-      agents: (_input: object = {}, requestOptions?: RequestOptions) =>
-        settle(requestOptions, async () => {
-          const agents = await api.agent.list({ location });
-          return agents.data.map(
-            (agent): Agent => ({
-              name: agent.id,
-              description: agent.description,
-              mode: agent.mode,
-              hidden: agent.hidden,
-              color: agent.color as string | undefined,
-              permission: [],
-              options: {},
-              steps: agent.steps,
-            }),
-          );
-        }),
     },
     command: {
       list: (_input: object = {}, requestOptions?: RequestOptions) =>

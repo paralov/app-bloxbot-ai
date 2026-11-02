@@ -43,7 +43,7 @@ vi.mock("@/providers/ActiveSessionProvider", () => ({
   useActiveSession: () => ({ activeSessionId: activeSession.id }),
 }));
 vi.mock("@/providers/PreferencesProvider", () => ({
-  usePreferences: () => ({ selectedModel: null, selectedAgent: null }),
+  usePreferences: () => ({ selectedModel: null }),
 }));
 
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({

@@ -185,7 +185,7 @@ function collectPaths(nodes: readonly ExplorerNode[]): Set<string> {
 export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
   const studioTarget = useStudioTargetOptional();
-  const { selectedModel, selectedAgent } = usePreferences();
+  const { selectedModel } = usePreferences();
   const { referenceObject, publishObjects } = useExplorerReference();
   const [collection, setCollection] = useState<ExplorerCollection | null>(null);
   const collectionRef = useRef<ExplorerCollection | null>(null);
@@ -312,7 +312,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               .catch(() => BLOXBOT_PROGRAM_TOOLS["explorer-snapshot"]);
             const written = await generateExplorerProgram(activeClient, {
               model,
-              agent: selectedAgent,
               allowedTools,
               validate: tryProgram,
             });
@@ -523,15 +522,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
     };
-  }, [
-    client,
-    collapsed,
-    model,
-    publishObjects,
-    selectedAgent,
-    sessionBusy,
-    studioTarget?.selected,
-  ]);
+  }, [client, collapsed, model, publishObjects, sessionBusy, studioTarget?.selected]);
 
   // Newer published programs replace a shipped or published program at the next
   // sync (a working model-written one is kept), and retry a setup that failed.

@@ -52,7 +52,6 @@ interface StudioTargetModel {
 export async function generateStudioTargetPrograms(
   client: OpencodeClient,
   model?: StudioTargetModel,
-  agent?: string | null,
 ): Promise<StudioTargetProgramEnvelopes> {
   const created = await client.session.create(
     {
@@ -67,7 +66,6 @@ export async function generateStudioTargetPrograms(
       {
         sessionID,
         model,
-        agent: agent ?? undefined,
         system: SYSTEM_PROMPT,
         format: { type: "json_schema", schema: OUTPUT_SCHEMA, retryCount: 2 },
         parts: [

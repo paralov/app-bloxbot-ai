@@ -62,7 +62,7 @@ export function createStudioTargetPromptReference(target: StudioTarget): string 
 export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
-  const { selectedModel, selectedAgent } = usePreferences();
+  const { selectedModel } = usePreferences();
   const [targets, setTargets] = useState<readonly StudioTarget[]>([]);
   const [selected, setSelected] = useState<StudioTarget | null>(null);
   const [status, setStatus] = useState<StudioTargetStatus>("loading");
@@ -102,7 +102,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           return providerID && modelID ? { providerID, modelID } : undefined;
         })()
       : undefined;
-    const generation = generateStudioTargetPrograms(client, model, selectedAgent)
+    const generation = generateStudioTargetPrograms(client, model)
       .then((envelopes) => desktop.installStudioTargetPrograms(envelopes))
       .then(async (programs) => {
         programsRef.current = programs;
@@ -115,7 +115,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       });
     generationRef.current = generation;
     return generation;
-  }, [client, selectedAgent, selectedModel]);
+  }, [client, selectedModel]);
 
   const getPrograms = useCallback(async () => {
     if (programsUpdatedRef.current) {

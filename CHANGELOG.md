@@ -11,11 +11,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - System notifications. While BloxBot isn't the app in front, it tells you when a chat finishes, runs into a problem, or is waiting for an answer or your approval, and when an update is ready or the connection is lost. Clicking one takes you to that chat. Turn them off in Settings → Notifications.
 - A toast when a chat you aren't looking at finishes or needs you, with a button to open it.
+- Edit the instructions BloxBot follows in Settings → System prompt, and reset them to the default at any time.
 - A one-time invitation to star BloxBot on GitHub, shown when you open BloxBot if you already have chats, otherwise after your third prompt.
 
 ### Changed
 
 - BloxBot now runs on OpenCode 2. OpenCode no longer supports free models on version 1. Your chats and connected providers carry over.
+
+### Removed
+
+- The agent picker. BloxBot now has one assistant, and you change how it behaves with the system prompt.
 
 ### Fixed
 

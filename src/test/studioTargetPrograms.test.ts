@@ -42,7 +42,6 @@ describe("Studio target program generation", () => {
       expect.objectContaining({
         sessionID: "private",
         model: { providerID: "openai", modelID: "gpt" },
-        agent: "build",
         format: expect.objectContaining({ type: "json_schema", retryCount: 2 }),
       }),
       { throwOnError: true },

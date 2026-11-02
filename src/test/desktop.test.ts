@@ -29,6 +29,7 @@ describe("browser desktop fallback", () => {
       studioTargetPrograms: null,
       studioTargetsBySession: {},
       systemNotifications: true,
+      systemPrompt: null,
       promptsSent: 0,
       starCalloutShown: false,
     });
@@ -50,6 +51,7 @@ describe("browser desktop fallback", () => {
       studioTargetPrograms: null,
       studioTargetsBySession: {},
       systemNotifications: true,
+      systemPrompt: null,
       promptsSent: 0,
       starCalloutShown: false,
     });
@@ -69,6 +71,7 @@ describe("browser desktop fallback", () => {
       studioTargetPrograms: null,
       studioTargetsBySession: {},
       systemNotifications: true,
+      systemPrompt: null,
       promptsSent: 0,
       starCalloutShown: false,
     });

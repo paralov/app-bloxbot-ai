@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Search, Sparkles } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -6,6 +7,7 @@ import ProviderConnectDialog from "@/components/ProviderConnectDialog";
 import ProviderLogo from "@/components/ProviderLogo";
 import { THEME_OPTIONS, type Theme, useTheme } from "@/components/theme-provider";
 import { useCheckProvider } from "@/hooks/mutations/useCheckProvider";
+import { useSaveSystemPrompt } from "@/hooks/mutations/useSaveSystemPrompt";
 import { useDisconnectProvider } from "@/hooks/mutations/useSetApiKey";
 import {
   useAllModels,
@@ -15,12 +17,15 @@ import {
   useProviderList,
 } from "@/hooks/useProviders";
 import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
+import { type AppConfig, loadConfig } from "@/lib/config";
 import { desktop } from "@/lib/desktop";
 import { notify } from "@/lib/notifications";
 import type { Model } from "@/lib/opencode/types";
 import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
 import { connectHint, isFreeTier, providerDisplayName } from "@/lib/providerAuth";
 import { checkModels, checkPreference, type ProviderCheckResult } from "@/lib/providerCheck";
+import { qk } from "@/lib/queryKeys";
+import { DEFAULT_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
 import type { UpdateInfo } from "@/types/desktop";
@@ -59,7 +64,14 @@ const TECHNOLOGIES = [
   },
 ];
 
-type SettingsTab = "providers" | "models" | "appearance" | "notifications" | "privacy" | "about";
+type SettingsTab =
+  | "providers"
+  | "models"
+  | "appearance"
+  | "systemPrompt"
+  | "notifications"
+  | "privacy"
+  | "about";
 
 interface SettingsProps {
   onClose: () => void;
@@ -158,6 +170,32 @@ function Settings({ onClose }: SettingsProps) {
           <div className="mt-4 hidden px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground @xl:block">
             App
           </div>
+          <button
+            type="button"
+            onClick={() => setTab("systemPrompt")}
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
+              tab === "systemPrompt"
+                ? "bg-accent font-medium text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <path d="M14 2v6h6" />
+              <path d="M8 13h8" />
+              <path d="M8 17h5" />
+            </svg>
+            System prompt
+          </button>
           <button
             type="button"
             onClick={() => setTab("notifications")}
@@ -259,6 +297,7 @@ function Settings({ onClose }: SettingsProps) {
           {tab === "providers" && <ProvidersTab />}
           {tab === "models" && <ModelsTab />}
           {tab === "appearance" && <AppearanceTab />}
+          {tab === "systemPrompt" && <SystemPromptTab />}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "privacy" && <PrivacyTab />}
           {tab === "about" && <AboutTab appVersion={appVersion} />}
@@ -892,6 +931,65 @@ function ThemePreview({ swatch }: { swatch: Theme }) {
 // ═══════════════════════════════════════════════════════════════════════
 // Privacy Tab
 // ═══════════════════════════════════════════════════════════════════════
+
+function SystemPromptTab() {
+  const { data: config } = useQuery<AppConfig>({ queryKey: qk.config, queryFn: loadConfig });
+  const saveSystemPrompt = useSaveSystemPrompt();
+  const saved = config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  const [draft, setDraft] = useState<string | null>(null);
+  const text = draft ?? saved;
+  const customized = (config?.systemPrompt ?? null) !== null;
+
+  const save = (systemPrompt: string | null) => {
+    saveSystemPrompt.mutate(systemPrompt, {
+      onSuccess: () => {
+        setDraft(null);
+        notify.success(systemPrompt === null ? "System prompt reset" : "System prompt saved");
+      },
+      onError: (error) => {
+        notify.error("Couldn't save the system prompt", { description: error.message });
+      },
+    });
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
+      <h4 className="font-serif text-lg italic text-foreground">System prompt</h4>
+      <p className="mt-1 text-xs text-muted-foreground">
+        The instructions BloxBot follows in every chat. Changes apply from your next message.
+      </p>
+
+      <textarea
+        aria-label="System prompt"
+        value={text}
+        onChange={(event) => setDraft(event.target.value)}
+        rows={12}
+        className="mt-6 w-full resize-y rounded-lg border bg-card p-3.5 text-xs leading-relaxed text-foreground outline-none focus:border-foreground/30"
+      />
+
+      <div className="mt-3 flex items-center justify-end gap-2">
+        {(customized || text !== DEFAULT_SYSTEM_PROMPT) && (
+          <button
+            type="button"
+            disabled={saveSystemPrompt.isPending}
+            onClick={() => (customized ? save(null) : setDraft(null))}
+            className="h-8 rounded-lg border bg-card px-3 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+          >
+            Reset to default
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={saveSystemPrompt.isPending || !text.trim() || text === saved}
+          onClick={() => save(text === DEFAULT_SYSTEM_PROMPT ? null : text)}
+          className="h-8 rounded-lg bg-foreground px-3 text-xs text-background transition-opacity disabled:opacity-30"
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function NotificationsTab() {
   const { systemNotificationsEnabled, setSystemNotificationsEnabled } = usePreferences();

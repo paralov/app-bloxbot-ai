@@ -28,7 +28,7 @@ interface SendMessageContext {
 export function useSendMessage(options?: { onError?: (error: Error) => void }) {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
-  const { selectedModel, selectedAgent, selectedVariant } = usePreferences();
+  const { selectedModel, selectedVariant } = usePreferences();
   const queryClient = useQueryClient();
 
   return useMutation<void, Error, SendMessageInput, SendMessageContext | undefined>({
@@ -58,7 +58,6 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
         }
       }
 
-      if (selectedAgent) opts.agent = selectedAgent;
       if (selectedVariant) opts.variant = selectedVariant;
 
       aiTracer.beginTurn({
@@ -67,7 +66,6 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
         imageCount: images?.length ?? 0,
         provider,
         model,
-        agent: selectedAgent ?? undefined,
         variant: selectedVariant ?? undefined,
       });
       try {

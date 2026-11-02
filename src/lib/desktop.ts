@@ -65,6 +65,7 @@ interface DesktopEffects {
   ) => Effect.Effect<boolean, DesktopError>;
   readonly loadConfig: Effect.Effect<AppConfig, DesktopError>;
   readonly patchConfig: (patch: Partial<AppConfig>) => Effect.Effect<void, DesktopError>;
+  readonly setSystemPrompt: (systemPrompt: string | null) => Effect.Effect<void, DesktopError>;
   readonly checkForUpdate: Effect.Effect<UpdateInfo | null, DesktopError>;
   readonly installUpdate: Effect.Effect<void, DesktopError>;
   readonly relaunch: Effect.Effect<void, DesktopError>;
@@ -133,6 +134,7 @@ const browserEffects: DesktopEffects = {
           new DesktopError({ message: "Failed to save browser configuration", cause }),
       });
     }),
+  setSystemPrompt: (systemPrompt) => browserEffects.patchConfig({ systemPrompt }),
   checkForUpdate: Effect.succeed(null),
   installUpdate: Effect.fail(
     new DesktopError({ message: "Updates are only available in the desktop app." }),
@@ -208,6 +210,8 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
       decodeBridgeValue("Desktop configuration is invalid", AppConfigSchema),
     ),
     patchConfig: (patch) => invoke("Failed to save configuration", () => api.patchConfig(patch)),
+    setSystemPrompt: (systemPrompt) =>
+      invoke("Failed to save the system prompt", () => api.setSystemPrompt(systemPrompt)),
     checkForUpdate: invoke("Failed to check for updates", () => api.checkForUpdate()).pipe(
       decodeBridgeValue("Update information is invalid", Schema.NullOr(UpdateInfoSchema)),
     ),
@@ -267,6 +271,7 @@ export const desktop: DesktopApi = {
     window.bloxbot?.onSystemNotificationClick(listener) ?? (() => {}),
   loadConfig: () => runPromise(desktopEffects.loadConfig),
   patchConfig: (patch) => runPromise(desktopEffects.patchConfig(patch)),
+  setSystemPrompt: (systemPrompt) => runPromise(desktopEffects.setSystemPrompt(systemPrompt)),
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),
   installUpdate: () => runPromise(desktopEffects.installUpdate),
   invokeExplorerProgram: (artifact, studioId) =>

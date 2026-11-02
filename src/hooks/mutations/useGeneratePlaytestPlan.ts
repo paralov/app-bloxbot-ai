@@ -28,7 +28,7 @@ import { usePreferences } from "@/providers/PreferencesProvider";
 export function useGeneratePlaytestPlan() {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
-  const { selectedModel, selectedAgent, selectedVariant } = usePreferences();
+  const { selectedModel, selectedVariant } = usePreferences();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -51,7 +51,6 @@ export function useGeneratePlaytestPlan() {
       const created = await client.session.create(
         {
           title: "Playtest plan (temporary)",
-          agent: selectedAgent ?? undefined,
           metadata: { bloxbotHidden: true, purpose: "playtest-plan" },
           permission: ASK_ALL_PERMISSIONS,
         },
@@ -69,7 +68,6 @@ export function useGeneratePlaytestPlan() {
               {
                 sessionID: planningSessionId,
                 model,
-                agent: selectedAgent ?? undefined,
                 variant: selectedVariant ?? undefined,
                 format: { type: "json_schema", schema: PLAYTEST_PLAN_SCHEMA, retryCount: 2 },
                 system:

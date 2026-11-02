@@ -25,9 +25,6 @@ describe("OpenCode query lifecycle", () => {
         }),
         auth: vi.fn().mockRejectedValue(new Error("auth unavailable")),
       },
-      app: {
-        agents: vi.fn().mockResolvedValue({ data: [{ name: "build", mode: "primary" }] }),
-      },
     } as unknown as OpencodeClient;
     const queryClient = makeQueryClient();
 
@@ -40,7 +37,6 @@ describe("OpenCode query lifecycle", () => {
       connected: [],
       default: {},
     });
-    expect(queryClient.getQueryData(qk.agents)).toEqual([{ name: "build", mode: "primary" }]);
   });
 
   it("fails startup when every server-state endpoint is unavailable", async () => {
@@ -49,7 +45,6 @@ describe("OpenCode query lifecycle", () => {
       experimental: { session: { list: unavailable } },
       session: { status: unavailable },
       provider: { list: unavailable, auth: unavailable },
-      app: { agents: unavailable },
     } as unknown as OpencodeClient;
 
     await expect(prefetchServerState(client, makeQueryClient())).rejects.toThrow(
@@ -63,7 +58,6 @@ describe("OpenCode query lifecycle", () => {
       qk.sessions,
       qk.statuses,
       qk.providers,
-      qk.agents,
       qk.messages("s1"),
       qk.todos("s1"),
       qk.questions("s1"),
