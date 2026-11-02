@@ -386,7 +386,10 @@ const ChatSidebar = memo(function ChatSidebar({
                           className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${statusDot(status)}`}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium leading-snug break-words">
+                          <div
+                            className="truncate text-sm leading-snug"
+                            title={session.title || undefined}
+                          >
                             {session.title || "Untitled"}
                           </div>
                           <div className="mt-0.5 text-xs text-muted-foreground">
