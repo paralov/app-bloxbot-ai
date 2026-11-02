@@ -405,7 +405,7 @@ export function createOpencodeClient(options: {
           await api.session.update({
             sessionID: input.sessionID,
             title: input.title,
-            archived: input.time ? input.time.archived !== undefined : undefined,
+            archived: input.time ? Boolean(input.time.archived) : undefined,
           });
           return remember(await api.session.get({ sessionID: input.sessionID }));
         }),
