@@ -28,6 +28,9 @@ export const AppConfigSchema = Schema.mutable(
     analyticsNoticeVersion: Schema.Number,
     studioTargetPrograms: Schema.NullOr(StudioTargetProgramsSchema),
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
+    systemNotifications: Schema.Boolean,
+    promptsSent: Schema.Number,
+    starCalloutShown: Schema.Boolean,
   }),
 );
 
@@ -41,6 +44,9 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   analyticsNoticeVersion: 0,
   studioTargetPrograms: null,
   studioTargetsBySession: {},
+  systemNotifications: true,
+  promptsSent: 0,
+  starCalloutShown: false,
 };
 
 export const AppConfigPatchSchema = Schema.partial(AppConfigSchema);
@@ -103,6 +109,14 @@ export interface MainErrorReport {
   stack?: string;
 }
 
+export const SystemNotificationSchema = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  body: Schema.String,
+});
+
+export type SystemNotification = typeof SystemNotificationSchema.Type;
+
 export interface DesktopApi {
   compileExplorerProgram(program: ExplorerProgramEnvelope): Promise<GeneratedProgramArtifact>;
   invokeExplorerProgram(
@@ -119,6 +133,8 @@ export interface DesktopApi {
   getVersion(): Promise<string>;
   getInstructionFiles(): Promise<readonly InstructionFile[]>;
   openUrl(url: string): Promise<void>;
+  showSystemNotification(notification: SystemNotification): Promise<void>;
+  onSystemNotificationClick(listener: (id: string) => void): () => void;
   loadConfig(): Promise<AppConfig>;
   patchConfig(patch: Partial<AppConfig>): Promise<void>;
   checkForUpdate(): Promise<UpdateInfo | null>;

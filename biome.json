@@ -51,6 +51,33 @@
     }
   },
   "files": {
-    "includes": ["src/**/*.ts", "src/**/*.tsx"]
-  }
+    "includes": [
+      "src/**/*.ts",
+      "src/**/*.tsx"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": [
+        "src/**",
+        "!src/lib/notifications.ts",
+        "!src/components/ui/sonner.tsx",
+        "!src/test/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "sonner": "Show messages through notify from @/lib/notifications."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

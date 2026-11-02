@@ -17,6 +17,7 @@ import {
   type OpenCodeStartupProgress,
   type StudioMcpStatus,
   StudioMcpStatusSchema,
+  type SystemNotification,
   type UpdateInfo,
   UpdateInfoSchema,
 } from "@/types/desktop";
@@ -59,6 +60,9 @@ interface DesktopEffects {
   readonly getVersion: Effect.Effect<string, DesktopError>;
   readonly getInstructionFiles: Effect.Effect<readonly InstructionFile[], DesktopError>;
   readonly openUrl: (url: string) => Effect.Effect<void, DesktopError>;
+  readonly showSystemNotification: (
+    notification: SystemNotification,
+  ) => Effect.Effect<void, DesktopError>;
   readonly loadConfig: Effect.Effect<AppConfig, DesktopError>;
   readonly patchConfig: (patch: Partial<AppConfig>) => Effect.Effect<void, DesktopError>;
   readonly checkForUpdate: Effect.Effect<UpdateInfo | null, DesktopError>;
@@ -112,6 +116,7 @@ const browserEffects: DesktopEffects = {
   getInstructionFiles: Effect.succeed([]),
   openUrl: (url) =>
     Effect.sync(() => window.open(url, "_blank", "noopener,noreferrer")).pipe(Effect.asVoid),
+  showSystemNotification: () => Effect.void,
   loadConfig: loadBrowserConfig,
   patchConfig: (input) =>
     Effect.gen(function* () {
@@ -195,6 +200,10 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
       api.getInstructionFiles(),
     ).pipe(decodeBridgeValue("Instruction files are invalid", Schema.Array(InstructionFileSchema))),
     openUrl: (url) => invoke("Failed to open the URL", () => api.openUrl(url)),
+    showSystemNotification: (notification) =>
+      invoke("Failed to show a system notification", () =>
+        api.showSystemNotification(notification),
+      ),
     loadConfig: invoke("Failed to load configuration", () => api.loadConfig()).pipe(
       decodeBridgeValue("Desktop configuration is invalid", AppConfigSchema),
     ),
@@ -252,6 +261,10 @@ export const desktop: DesktopApi = {
   getVersion: () => runPromise(desktopEffects.getVersion),
   getInstructionFiles: () => runPromise(desktopEffects.getInstructionFiles),
   openUrl: (url) => runPromise(desktopEffects.openUrl(url)),
+  showSystemNotification: (notification) =>
+    runPromise(desktopEffects.showSystemNotification(notification)),
+  onSystemNotificationClick: (listener) =>
+    window.bloxbot?.onSystemNotificationClick(listener) ?? (() => {}),
   loadConfig: () => runPromise(desktopEffects.loadConfig),
   patchConfig: (patch) => runPromise(desktopEffects.patchConfig(patch)),
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),

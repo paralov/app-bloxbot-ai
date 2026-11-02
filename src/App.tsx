@@ -4,6 +4,7 @@ import Chat from "@/components/Chat";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { useStarCalloutForReturningUsers } from "@/hooks/useStarCalloutForReturningUsers";
 import { useUpdater } from "@/hooks/useUpdater";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
 import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
@@ -14,6 +15,7 @@ import { StudioTargetProvider } from "@/providers/StudioTargetProvider";
 
 function AppInner() {
   useUpdater();
+  useStarCalloutForReturningUsers();
 
   return (
     <main className="flex h-full flex-col overflow-hidden">

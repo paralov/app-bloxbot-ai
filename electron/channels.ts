@@ -21,4 +21,6 @@ export const channels = {
   bloxbotProgramsUpdated: "bloxbot-programs:updated",
   mainError: "app:main-error",
   mainErrorReady: "app:main-error-ready",
+  showSystemNotification: "app:show-system-notification",
+  systemNotificationClicked: "app:system-notification-clicked",
 } as const;

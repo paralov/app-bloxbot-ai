@@ -43,6 +43,13 @@ const api: DesktopApi = {
     ipcRenderer.on(channels.bloxbotProgramsUpdated, handleUpdate);
     return () => ipcRenderer.removeListener(channels.bloxbotProgramsUpdated, handleUpdate);
   },
+  showSystemNotification: (notification) =>
+    ipcRenderer.invoke(channels.showSystemNotification, notification),
+  onSystemNotificationClick: (listener) => {
+    const handleClick = (_event: Electron.IpcRendererEvent, id: string) => listener(id);
+    ipcRenderer.on(channels.systemNotificationClicked, handleClick);
+    return () => ipcRenderer.removeListener(channels.systemNotificationClicked, handleClick);
+  },
   onMainError: (listener) => {
     const handleError = (_event: Electron.IpcRendererEvent, report: MainErrorReport) =>
       listener(report);

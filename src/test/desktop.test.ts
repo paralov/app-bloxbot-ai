@@ -28,6 +28,9 @@ describe("browser desktop fallback", () => {
       analyticsNoticeVersion: 0,
       studioTargetPrograms: null,
       studioTargetsBySession: {},
+      systemNotifications: true,
+      promptsSent: 0,
+      starCalloutShown: false,
     });
   });
 
@@ -46,6 +49,9 @@ describe("browser desktop fallback", () => {
       analyticsNoticeVersion: 0,
       studioTargetPrograms: null,
       studioTargetsBySession: {},
+      systemNotifications: true,
+      promptsSent: 0,
+      starCalloutShown: false,
     });
   });
 
@@ -62,6 +68,9 @@ describe("browser desktop fallback", () => {
       analyticsNoticeVersion: 0,
       studioTargetPrograms: null,
       studioTargetsBySession: {},
+      systemNotifications: true,
+      promptsSent: 0,
+      starCalloutShown: false,
     });
   });
 

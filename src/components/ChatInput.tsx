@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -10,6 +9,7 @@ import { useAgents } from "@/hooks/useAgents";
 import { useCommands } from "@/hooks/useCommands";
 import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
+import { notify } from "@/lib/notifications";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
@@ -188,7 +188,7 @@ const SendButton = memo(function SendButton({
           onClick={() =>
             abort.mutate(undefined, {
               onError: (error) => {
-                toast.error("Couldn't stop the session", {
+                notify.error("Couldn't stop the session", {
                   description: error.message,
                 });
               },
@@ -284,7 +284,7 @@ function ChatInput() {
       const failed = failedSendRef.current;
       failedSendRef.current = null;
       if (!failed || activeSessionIdRef.current !== failed.sessionId) return;
-      toast.error("Message not sent", { description: error.message });
+      notify.error("Message not sent", { description: error.message });
       if (failed.text) promptEditorRef.current?.insertText(failed.text);
       setAttachments((current) => {
         const currentIds = new Set(current.map((attachment) => attachment.id));
@@ -326,12 +326,12 @@ function ChatInput() {
       const toAdd: File[] = [];
       for (const file of Array.from(files)) {
         if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-          toast.error("That file isn't an image. Try a PNG, JPEG, GIF, or WebP instead.");
+          notify.error("That file isn't an image. Try a PNG, JPEG, GIF, or WebP instead.");
           triggerRejectShake();
           continue;
         }
         if (file.size > MAX_IMAGE_SIZE) {
-          toast.error("That image is too large. Please use one under 20 MB.");
+          notify.error("That image is too large. Please use one under 20 MB.");
           triggerRejectShake();
           continue;
         }
@@ -349,7 +349,7 @@ function ChatInput() {
         if (r.status === "fulfilled") {
           succeeded.push(r.value);
         } else {
-          toast.error("Failed to read an image file");
+          notify.error("Failed to read an image file");
           triggerRejectShake();
         }
       }
@@ -357,13 +357,13 @@ function ChatInput() {
       setAttachments((prev) => {
         const remaining = MAX_ATTACHMENTS - prev.length;
         if (remaining <= 0) {
-          toast.error(`Maximum ${MAX_ATTACHMENTS} images allowed`);
+          notify.error(`Maximum ${MAX_ATTACHMENTS} images allowed`);
           triggerRejectShake();
           return prev;
         }
         const allowed = succeeded.slice(0, remaining);
         if (succeeded.length > remaining) {
-          toast.error(`Only ${remaining} more image(s) allowed`);
+          notify.error(`Only ${remaining} more image(s) allowed`);
           triggerRejectShake();
         }
         return [

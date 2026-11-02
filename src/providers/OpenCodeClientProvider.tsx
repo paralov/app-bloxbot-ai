@@ -10,11 +10,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 import LoadingScreen, { type StartupProgress } from "@/components/LoadingScreen";
 import { aiTracer, captureDetailedAnalytics } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
+import { notify } from "@/lib/notifications";
 import { qk } from "@/lib/queryKeys";
+import { sessionNotifier } from "@/lib/sessionNotifications";
 import { sseDispatch } from "@/lib/sseDispatch";
 import type { OpenCodeStartupProgress } from "@/types/desktop";
 
@@ -335,9 +336,11 @@ export function OpenCodeClientProvider({
 
     function showReconnectToast() {
       if (reconnectToastId != null) return;
-      reconnectToastId = toast.error("Lost connection to OpenCode", {
+      reconnectToastId = notify.error("Lost connection to OpenCode", {
+        name: "connection_lost",
         description: "Events are no longer being received.",
         duration: Number.POSITIVE_INFINITY,
+        system: true,
         action: {
           label: "Reconnect",
           onClick: () => window.location.reload(),
@@ -347,7 +350,7 @@ export function OpenCodeClientProvider({
 
     function dismissReconnectToast() {
       if (reconnectToastId != null) {
-        toast.dismiss(reconnectToastId);
+        notify.dismiss(reconnectToastId);
         reconnectToastId = undefined;
       }
     }
@@ -378,6 +381,11 @@ export function OpenCodeClientProvider({
           sseDispatch(queryClient, event, activeSessionIdRef, (usage) => {
             captureDetailedAnalytics(posthog, "model_usage", usage);
           });
+          try {
+            sessionNotifier.handleEvent(queryClient, event, activeSessionIdRef);
+          } catch (error) {
+            console.warn("Session notification failed:", error);
+          }
           try {
             aiTracer.handleEvent(event);
           } catch (error) {

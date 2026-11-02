@@ -808,8 +808,8 @@
   margin-left: 0;
 }
 
-/* Analytics consent is a small decision card, not a transient status toast. */
-[data-sonner-toaster] [data-sonner-toast].analytics-consent-toast {
+/* A small decision card, not a transient status toast. */
+[data-sonner-toaster] [data-sonner-toast].card-toast {
   align-items: flex-start;
   flex-wrap: wrap;
   gap: 12px 8px;
@@ -819,31 +819,31 @@
     0 8px 24px oklch(0.147 0.004 49.25 / 0.12);
 }
 
-.dark [data-sonner-toaster] [data-sonner-toast].analytics-consent-toast {
+.dark [data-sonner-toaster] [data-sonner-toast].card-toast {
   box-shadow:
     0 1px 3px oklch(0 0 0 / 0.3),
     0 8px 24px oklch(0 0 0 / 0.4);
 }
 
-[data-sonner-toaster] [data-sonner-toast].analytics-consent-toast [data-content] {
+[data-sonner-toaster] [data-sonner-toast].card-toast [data-content] {
   flex: 0 0 100%;
   gap: 4px;
 }
 
-[data-sonner-toaster] [data-sonner-toast].analytics-consent-toast [data-description] {
+[data-sonner-toaster] [data-sonner-toast].card-toast [data-description] {
   margin-top: 0;
   max-width: 34ch;
 }
 
-[data-sonner-toaster] [data-sonner-toast].analytics-consent-toast [data-button] {
+[data-sonner-toaster] [data-sonner-toast].card-toast [data-button] {
   margin-left: 0;
   margin-right: 0;
 }
 
-[data-sonner-toaster] [data-sonner-toast].analytics-consent-toast [data-cancel] {
+[data-sonner-toaster] [data-sonner-toast].card-toast [data-cancel] {
   margin-left: auto;
 }
 
-[data-sonner-toaster] [data-sonner-toast].analytics-consent-toast [data-close-button] {
+[data-sonner-toaster] [data-sonner-toast].card-toast [data-close-button] {
   display: none;
 }

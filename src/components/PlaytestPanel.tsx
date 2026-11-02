@@ -1,6 +1,5 @@
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useGeneratePlaytestPlan } from "@/hooks/mutations/useGeneratePlaytestPlan";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useHasPlaytestContext } from "@/hooks/useMessages";
@@ -9,6 +8,7 @@ import {
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
 } from "@/lib/analytics";
+import { notify } from "@/lib/notifications";
 import {
   formatPlaytestPrompt,
   InvalidPlaytestPlanError,
@@ -125,7 +125,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       );
     } catch (error) {
       if (error instanceof NoPlaytestContextError) {
-        toast.error("Couldn't create a playtest plan", { description: error.message });
+        notify.error("Couldn't create a playtest plan", { description: error.message });
         return;
       }
       posthog.capture(
@@ -147,7 +147,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
           }),
         }),
       );
-      toast.error("Couldn't create a playtest plan", {
+      notify.error("Couldn't create a playtest plan", {
         description: error instanceof Error ? error.message : "Try again.",
       });
     }
@@ -161,7 +161,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         (items) => items.length > 0 && items.every((item) => item.trim()),
       );
     if (!complete) {
-      toast.error("Complete every playtest field before running it.");
+      notify.error("Complete every playtest field before running it.");
       return;
     }
     posthog.capture(
@@ -181,7 +181,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       { text: formatPlaytestPrompt(plan) },
       {
         onSuccess: onClose,
-        onError: (error) => toast.error("Playtest not started", { description: error.message }),
+        onError: (error) => notify.error("Playtest not started", { description: error.message }),
       },
     );
   }

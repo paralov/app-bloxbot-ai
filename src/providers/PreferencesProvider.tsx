@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 import { useAgents } from "@/hooks/useAgents";
 import { useConnectedProviders } from "@/hooks/useProviders";
 import {
@@ -17,6 +16,7 @@ import {
   setDetailedAnalyticsEnabled as setDetailedAnalyticsCollection,
 } from "@/lib/analytics";
 import { type AppConfig, loadConfig, patchConfig } from "@/lib/config";
+import { notify, setSystemNotificationsAllowed } from "@/lib/notifications";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
 
@@ -31,6 +31,8 @@ interface PreferencesContextValue {
   setSelectedVariant: (variant: string | null) => void;
   toggleModelVisibility: (modelKey: string) => void;
   setDetailedAnalyticsEnabled: (enabled: boolean) => void;
+  systemNotificationsEnabled: boolean;
+  setSystemNotificationsEnabled: (enabled: boolean) => void;
 }
 
 export const PreferencesContext = createContext<PreferencesContextValue | undefined>(undefined);
@@ -54,7 +56,18 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [detailedAnalyticsEnabled, setDetailedAnalyticsEnabledState] = useState(false);
   const detailedAnalyticsEnabledRef = useRef(false);
 
+  const [systemNotificationsEnabled, setSystemNotificationsEnabledState] = useState(true);
+
   const connectedProviders = useConnectedProviders();
+
+  const setSystemNotificationsEnabled = useCallback((enabled: boolean) => {
+    setSystemNotificationsEnabledState(enabled);
+    setSystemNotificationsAllowed(enabled);
+    patchConfig({ systemNotifications: enabled }).catch(() => {
+      setSystemNotificationsEnabledState(!enabled);
+      setSystemNotificationsAllowed(!enabled);
+    });
+  }, []);
 
   const setDetailedAnalyticsEnabled = useCallback((enabled: boolean) => {
     const previous = detailedAnalyticsEnabledRef.current;
@@ -72,6 +85,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!configData) return;
     setHiddenModels(new Set(configData.hiddenModels));
+    setSystemNotificationsEnabledState(configData.systemNotifications);
+    setSystemNotificationsAllowed(configData.systemNotifications);
 
     // Model usage metrics moved from opt-in to opt-out in notice version 1. Choices
     // recorded under the old consent prompt (including clickaways) do not carry
@@ -84,9 +99,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setDetailedAnalyticsEnabledState(enabled);
       setDetailedAnalyticsCollection(enabled);
       if (enabled) {
-        toast("BloxBot shares AI usage data", {
+        notify.message("BloxBot shares AI usage data", {
+          name: "analytics_notice",
           id: "analytics-optout-notice",
-          className: "analytics-consent-toast",
+          className: "card-toast",
           description:
             "Your chats and tool activity help improve BloxBot. Details in Settings → Privacy.",
           duration: Number.POSITIVE_INFINITY,
@@ -174,11 +190,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       selectedVariant,
       hiddenModels,
       detailedAnalyticsEnabled,
+      systemNotificationsEnabled,
       setSelectedModel,
       setSelectedAgent,
       setSelectedVariant,
       toggleModelVisibility,
       setDetailedAnalyticsEnabled,
+      setSystemNotificationsEnabled,
     }),
     [
       selectedModel,
@@ -186,11 +204,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       selectedVariant,
       hiddenModels,
       detailedAnalyticsEnabled,
+      systemNotificationsEnabled,
       setSelectedModel,
       setSelectedAgent,
       setSelectedVariant,
       toggleModelVisibility,
       setDetailedAnalyticsEnabled,
+      setSystemNotificationsEnabled,
     ],
   );
 

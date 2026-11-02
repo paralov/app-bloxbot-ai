@@ -10,6 +10,7 @@ import {
 } from "@/lib/analytics";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
+import { recordPromptSent } from "@/lib/starCallout";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
@@ -78,6 +79,9 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
         aiTracer.cancelTurn(activeSessionId);
         throw error;
       }
+      recordPromptSent().catch((error) => {
+        console.warn("Failed to count the prompt:", error);
+      });
       posthog.capture(
         "message_sent",
         analyticsProperties(

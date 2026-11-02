@@ -241,7 +241,7 @@ describe("User journeys", () => {
 
     const noticeTitle = await screen.findByText("BloxBot shares AI usage data");
     expect(noticeTitle).toBeVisible();
-    expect(noticeTitle.closest("[data-sonner-toast]")).toHaveClass("analytics-consent-toast");
+    expect(noticeTitle.closest("[data-sonner-toast]")).toHaveClass("card-toast");
     await expect(desktop.loadConfig()).resolves.toMatchObject({
       detailedAnalytics: "enabled",
       analyticsNoticeVersion: 2,

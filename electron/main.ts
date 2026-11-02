@@ -3,7 +3,7 @@ import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, Notification, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { Cause, Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
@@ -13,6 +13,7 @@ import {
   AppConfigSchema,
   DEFAULT_APP_CONFIG,
   type OpenCodeStartupProgress,
+  SystemNotificationSchema,
 } from "../src/types/desktop";
 import { ExplorerProgramEnvelopeSchema, ExplorerSnapshotSchema } from "../src/lib/explorer";
 import { GeneratedProgramArtifactSchema } from "../src/types/generatedProgram";
@@ -32,6 +33,7 @@ import {
   GeneratedProgramRuntimeLive,
 } from "./services/GeneratedProgramRuntime";
 import { createBloxBotProgramStore } from "./services/BloxBotProgramStore";
+import { createSystemNotifier } from "./systemNotifications";
 import { makeStudioMcpBrokerLayer, StudioMcpBroker } from "./services/StudioMcpBroker";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -44,6 +46,18 @@ function configPath(): string {
 
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
+
+const showSystemNotification = createSystemNotifier({
+  isSupported: () => Notification.isSupported(),
+  create: (content) => new Notification(content),
+  onClick: (id) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send(channels.systemNotificationClicked, id);
+  },
+});
 
 function currentUsername(): string | undefined {
   try {
@@ -312,6 +326,22 @@ const registerIpcHandlers = Effect.sync(() => {
       ),
     ),
   );
+  ipcMain.handle(channels.showSystemNotification, (_event, input: unknown) =>
+    runMain(
+      Schema.decodeUnknown(SystemNotificationSchema)(input).pipe(
+        Effect.mapError(
+          (cause) => new DesktopMainError({ message: "System notification is invalid", cause }),
+        ),
+        Effect.flatMap((notification) =>
+          Effect.try({
+            try: () => showSystemNotification(notification),
+            catch: (cause) =>
+              new DesktopMainError({ message: "Failed to show a system notification", cause }),
+          }),
+        ),
+      ),
+    ),
+  );
   ipcMain.handle(channels.checkForUpdate, () =>
     runMain(
       Effect.gen(function* () {
@@ -465,6 +495,9 @@ function createWindow(): Effect.Effect<void, DesktopMainError> {
 }
 
 const registerAppLifecycle = Effect.sync(() => {
+  // Windows drops notifications from an app without this. It matches appId in electron-builder.yml.
+  if (process.platform === "win32") app.setAppUserModelId("ai.bloxbot.desktop");
+
   app.on("window-all-closed", () =>
     Effect.runSync(
       Effect.sync(() => {

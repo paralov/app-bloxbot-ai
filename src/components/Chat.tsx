@@ -15,6 +15,7 @@ import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { analyticsProperties, POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
+import { setSessionOpener } from "@/lib/sessionNotifications";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
@@ -23,7 +24,7 @@ const Settings = lazy(() => import("@/components/Settings"));
 
 function Chat() {
   const { ready, initError } = useOpenCodeClient();
-  const { activeSessionId, clearSession } = useActiveSession();
+  const { activeSessionId, clearSession, selectSession } = useActiveSession();
   const sessionStatus = useSessionStatus(activeSessionId);
   const isBusy = sessionStatus !== undefined && sessionStatus.type !== "idle";
   const createSession = useCreateSession();
@@ -75,6 +76,13 @@ function Chat() {
     posthog.register(screenProperties);
     posthog.capture("$pageview", analyticsProperties("navigation", screenProperties));
   }, [appScreen]);
+
+  useEffect(() => {
+    setSessionOpener((sessionID) => {
+      setShowSettings(false);
+      void selectSession(sessionID);
+    });
+  }, [selectSession]);
 
   useEffect(() => {
     if (studioConnection.state === "waiting") setShowStudioSetup(true);

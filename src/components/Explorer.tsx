@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import {
   analyticsProperties,
   errorAnalyticsProperties,
@@ -39,6 +38,7 @@ import {
   generateExplorerProgram,
   sortExplorerSnapshot,
 } from "@/lib/explorer";
+import { notify } from "@/lib/notifications";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -598,7 +598,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }),
       ),
     );
-    toast.success(`${selected.name} added to your message`);
+    notify.success(`${selected.name} added to your message`);
   }, [referenceObject, selected]);
 
   if (collapsed) {

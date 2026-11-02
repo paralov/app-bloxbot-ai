@@ -2,7 +2,6 @@ import type { Model } from "@opencode-ai/sdk/v2/client";
 import { Search, Sparkles } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import ProviderCheckPopover from "@/components/ProviderCheckPopover";
 import ProviderConnectDialog from "@/components/ProviderConnectDialog";
 import ProviderLogo from "@/components/ProviderLogo";
@@ -18,6 +17,7 @@ import {
 } from "@/hooks/useProviders";
 import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
+import { notify } from "@/lib/notifications";
 import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
 import { connectHint, isFreeTier, providerDisplayName } from "@/lib/providerAuth";
 import { checkModels, checkPreference, type ProviderCheckResult } from "@/lib/providerCheck";
@@ -59,7 +59,7 @@ const TECHNOLOGIES = [
   },
 ];
 
-type SettingsTab = "providers" | "models" | "appearance" | "privacy" | "about";
+type SettingsTab = "providers" | "models" | "appearance" | "notifications" | "privacy" | "about";
 
 interface SettingsProps {
   onClose: () => void;
@@ -159,6 +159,30 @@ function Settings({ onClose }: SettingsProps) {
             App
           </div>
           <button
+            type="button"
+            onClick={() => setTab("notifications")}
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
+              tab === "notifications"
+                ? "bg-accent font-medium text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+            Notifications
+          </button>
+          <button
             onClick={() => setTab("appearance")}
             className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-xs transition-colors @xl:mx-1.5 ${
               tab === "appearance"
@@ -235,6 +259,7 @@ function Settings({ onClose }: SettingsProps) {
           {tab === "providers" && <ProvidersTab />}
           {tab === "models" && <ModelsTab />}
           {tab === "appearance" && <AppearanceTab />}
+          {tab === "notifications" && <NotificationsTab />}
           {tab === "privacy" && <PrivacyTab />}
           {tab === "about" && <AboutTab appVersion={appVersion} />}
         </div>
@@ -315,7 +340,8 @@ function ProvidersTab() {
   function handleConnected(provider: ProviderInfo) {
     // A new credential makes any earlier or running check stale.
     forgetCheck(provider.id);
-    toast.success(`${provider.name} connected`, {
+    notify.success(`${provider.name} connected`, {
+      name: "provider_connected",
       action: {
         label: "Check it works",
         // Opens the picker rather than checking a guessed model: only the
@@ -330,13 +356,13 @@ function ProvidersTab() {
     try {
       await disconnectMutation.mutateAsync(provider.id);
       forgetCheck(provider.id);
-      toast.success(
+      notify.success(
         hasZenKey(provider)
           ? "OpenCode Zen key removed. The free models are still available."
           : "Provider disconnected",
       );
     } catch {
-      toast.error("Failed to disconnect");
+      notify.error("Failed to disconnect");
     } finally {
       setDisconnecting(null);
     }
@@ -867,6 +893,54 @@ function ThemePreview({ swatch }: { swatch: Theme }) {
 // Privacy Tab
 // ═══════════════════════════════════════════════════════════════════════
 
+function NotificationsTab() {
+  const { systemNotificationsEnabled, setSystemNotificationsEnabled } = usePreferences();
+
+  return (
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
+      <h4 className="font-serif text-lg italic text-foreground">Notifications</h4>
+      <p className="mt-1 text-xs text-muted-foreground">
+        While you work in Roblox Studio or another app, BloxBot can tell you when it needs you.
+      </p>
+
+      <div className="mt-6 rounded-lg border bg-card p-3.5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium">System notifications</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Notifies you when a chat finishes, runs into a problem, or is waiting for an answer or
+              your approval, and when an update is ready or the connection is lost. Only sent while
+              BloxBot isn't the app in front. They show the chat's title.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={systemNotificationsEnabled}
+            aria-label="System notifications"
+            onClick={() => {
+              posthog.capture(
+                "system_notifications_toggled",
+                analyticsProperties("notifications", { enabled: !systemNotificationsEnabled }),
+              );
+              setSystemNotificationsEnabled(!systemNotificationsEnabled);
+            }}
+            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+              systemNotificationsEnabled ? "bg-foreground" : "bg-border"
+            }`}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
+                systemNotificationsEnabled ? "translate-x-4" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PrivacyTab() {
   const { detailedAnalyticsEnabled, setDetailedAnalyticsEnabled } = usePreferences();
 
@@ -927,9 +1001,9 @@ function PrivacyDetails() {
     if (!deviceId) return;
     try {
       await navigator.clipboard.writeText(deviceId);
-      toast.success("Device ID copied");
+      notify.success("Device ID copied");
     } catch {
-      toast.error("Couldn't copy the device ID");
+      notify.error("Couldn't copy the device ID");
     }
   };
 
