@@ -15,9 +15,7 @@ import {
   GeneratedProgramResultSchema,
 } from "../../src/types/generatedProgram";
 import {
-  allowedBloxBotProgramTools,
   BLOXBOT_PROGRAM_TOOLS,
-  type BloxBotProgramName,
   isKnownBloxBotProgramTool,
   isReadOnlyStudioTool,
   type StudioToolAnnotations,
@@ -30,10 +28,6 @@ type CallTool = (name: string, args: Record<string, unknown>) => Promise<CallToo
 export type DescribeTool = (
   name: string,
 ) => Promise<{ annotations?: StudioToolAnnotations } | undefined>;
-/** The tools Studio lists now, with their annotations. */
-export type ListTools = () => Promise<
-  readonly { name: string; annotations?: StudioToolAnnotations }[]
->;
 type ProgramFunction = (input: unknown, callTool: CallTool) => Promise<unknown>;
 
 export type GeneratedProgramFailurePhase =
@@ -58,12 +52,6 @@ export interface GeneratedProgramRuntimeService {
   readonly invoke: (
     invocation: GeneratedProgramInvocation,
   ) => Effect.Effect<GeneratedProgramResult, GeneratedProgramRuntimeError>;
-  /**
-   * The tools a program may call, by Studio's own name: those Studio lists now
-   * that the allow rule accepts, or the program's known tools when Studio
-   * lists none.
-   */
-  readonly allowedTools: (program: BloxBotProgramName) => Effect.Effect<string[]>;
 }
 
 export class GeneratedProgramRuntime extends Context.Tag("@bloxbot/GeneratedProgramRuntime")<
@@ -109,7 +97,6 @@ function makeFunction(compiledSource: string): ProgramFunction {
 export function startGeneratedProgramRuntime(
   callTool: CallTool,
   describeTool: DescribeTool = async () => undefined,
-  listTools: ListTools = async () => [],
 ): GeneratedProgramRuntimeService {
   const artifacts = new Map<string, GeneratedProgramArtifact>();
   const functions = new Map<string, ProgramFunction>();
@@ -134,13 +121,6 @@ export function startGeneratedProgramRuntime(
   };
 
   return {
-    allowedTools: (program) =>
-      Effect.promise(async () => {
-        const listed = await listTools().catch(() => []);
-        return listed.length > 0
-          ? allowedBloxBotProgramTools(program, listed).map((tool) => tool.name)
-          : [...BLOXBOT_PROGRAM_TOOLS[program]];
-      }),
     compile: (envelope) =>
       Effect.tryPromise({
         try: () => compile(envelope),
@@ -244,7 +224,6 @@ export const GeneratedProgramRuntimeLive = Layer.effect(
           return undefined;
         }
       },
-      async () => [...(await listTools()).values()],
     );
   }),
 );

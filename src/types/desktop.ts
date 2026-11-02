@@ -127,7 +127,6 @@ export interface DesktopApi {
     studioId: string,
   ): Promise<ExplorerSnapshot>;
   /** The Studio tools an Explorer program may call now, by Studio's own name. */
-  listExplorerProgramTools(): Promise<readonly string[]>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
   /** The folder OpenCode installs into, for antivirus exclusions. Null outside the desktop app. */
   getOpenCodeInstallFolder(): Promise<string | null>;

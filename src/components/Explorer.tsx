@@ -24,32 +24,26 @@ import {
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
 } from "@/lib/analytics";
-import { BLOXBOT_PROGRAM_TOOLS } from "@/lib/bloxbotProgramManifest";
 import { BUILTIN_BLOXBOT_PROGRAMS, resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
 import {
   createExplorerReference,
   type ExplorerCollection,
   type ExplorerField,
-  ExplorerGenerationError,
-  ExplorerModelError,
   type ExplorerNode,
   type ExplorerProgramEnvelope,
-  generateExplorerProgram,
   sortExplorerSnapshot,
 } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
-import { splitModelKey } from "@/lib/splitModelKey";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
-import { usePreferences } from "@/providers/PreferencesProvider";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ACTIVE_SYNC_MS = 2_500;
 const IDLE_SYNC_MS = 5_000;
 const MAX_UNCHANGED_SYNC_MS = 30_000;
 // After failures, wait longer each time up to this, so a broken Studio setup
-// doesn't retry (and re-ask the model for a program) every few seconds.
+// doesn't retry every few seconds.
 const MAX_FAILURE_BACKOFF_MS = 5 * 60_000;
 
 interface ExplorerProps {
@@ -185,7 +179,6 @@ function collectPaths(nodes: readonly ExplorerNode[]): Set<string> {
 export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
   const studioTarget = useStudioTargetOptional();
-  const { selectedModel } = usePreferences();
   const { referenceObject, publishObjects } = useExplorerReference();
   const [collection, setCollection] = useState<ExplorerCollection | null>(null);
   const collectionRef = useRef<ExplorerCollection | null>(null);
@@ -201,17 +194,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
-  const generationBlockedRef = useRef(false);
   // Consecutive failed syncs, which set the retry backoff.
   const failuresRef = useRef(0);
   // Set when newer published programs arrive; the next sync loads them.
   const programsUpdatedRef = useRef(false);
-
-  const model = useMemo(() => {
-    if (!selectedModel) return undefined;
-    const [providerID, modelID] = splitModelKey(selectedModel);
-    return providerID && modelID ? { providerID, modelID } : undefined;
-  }, [selectedModel]);
 
   useEffect(() => {
     posthog.capture(
@@ -220,19 +206,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     );
   }, [collapsed]);
 
-  // Reopening Explorer or switching Studio gives a blocked setup a fresh try.
-  // This lives outside the sync effect, which also re-runs whenever the chat
-  // turns busy or idle and must not clear the block or the backoff then.
+  // Reopening Explorer or switching Studio retries straight away. This lives outside the sync
+  // effect, which also re-runs whenever the chat turns busy or idle and must not clear the backoff.
   const studioKey = studioTarget?.selected?.key;
   // biome-ignore lint/correctness/useExhaustiveDependencies: resets when Explorer opens or the Studio changes
   useEffect(() => {
-    generationBlockedRef.current = false;
     failuresRef.current = 0;
   }, [collapsed, studioKey]);
 
   useEffect(() => {
     if (!client || collapsed || !studioTarget?.selected) return;
-    const activeClient = client;
     const studioId = studioTarget.selected.key;
     let cancelled = false;
     let timer: number | undefined;
@@ -240,8 +223,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
     function scheduleNext() {
       if (cancelled) return;
-      // A setup that failed without ever loading waits for the user to reopen.
-      if (generationBlockedRef.current && !collectionRef.current) return;
       const baseDelay = sessionBusy ? ACTIVE_SYNC_MS : IDLE_SYNC_MS;
       const delay =
         failuresRef.current > 0
@@ -253,7 +234,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     }
 
     async function sync() {
-      if (generationBlockedRef.current && !collectionRef.current) return;
       if (syncingRef.current) {
         resyncRequestedRef.current = true;
         return;
@@ -274,22 +254,14 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       // Where the first-load program came from, to decide the next fallback.
       let initialSource: "published" | "builtin" | null = null;
 
-      async function generate(
-        reason: "initial" | "builtin_fallback" | "initial_recovery" | "contract_recovery",
-      ) {
+      async function loadProgram(reason: "initial" | "builtin_fallback") {
         const startedAt = performance.now();
-        const modelMediated = reason === "initial_recovery" || reason === "contract_recovery";
         posthog.capture(
           "collector_generation_started",
-          analyticsProperties("explorer", { model_mediated: modelMediated, reason }),
+          analyticsProperties("explorer", { reason }),
         );
         // Where the program came from, so a broken published program shows up.
-        let programProperties: { program_source: string; program_sequence?: number } = {
-          program_source: "model",
-        };
-        let origin: ExplorerCollection["origin"] = "model";
-        // How many programs the model wrote, for model-written programs.
-        let attemptProperties: { generation_attempts?: number } = {};
+        let programProperties: { program_source?: string; program_sequence?: number } = {};
         // Compiles a program and runs it once, as every program is checked
         // before Explorer uses it.
         const tryProgram = async (program: ExplorerProgramEnvelope) => {
@@ -303,45 +275,26 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           return { artifact, snapshot };
         };
         try {
-          let generated: ExplorerCollection;
-          if (modelMediated) {
-            // Name the tools the runtime allows. Without Studio's list, the
-            // known ones are still allowed.
-            const allowedTools = await desktop
-              .listExplorerProgramTools()
-              .catch(() => BLOXBOT_PROGRAM_TOOLS["explorer-snapshot"]);
-            const written = await generateExplorerProgram(activeClient, {
-              model,
-              allowedTools,
-              validate: tryProgram,
-            });
-            attemptProperties = { generation_attempts: written.attempts };
-            generated = { program: written.program, ...written.result, origin };
-          } else {
-            const { explorer } =
-              reason === "initial" ? await resolveBloxBotPrograms() : BUILTIN_BLOXBOT_PROGRAMS;
-            if (reason === "initial") initialSource = explorer.source;
-            origin = explorer.source;
-            programProperties = {
-              program_source: explorer.source,
-              program_sequence: explorer.sequence,
-            };
-            generated = {
-              program: explorer.program,
-              ...(await tryProgram(explorer.program)),
-              origin,
-            };
-          }
+          const { explorer } =
+            reason === "initial" ? await resolveBloxBotPrograms() : BUILTIN_BLOXBOT_PROGRAMS;
+          if (reason === "initial") initialSource = explorer.source;
+          programProperties = {
+            program_source: explorer.source,
+            program_sequence: explorer.sequence,
+          };
+          const generated: ExplorerCollection = {
+            program: explorer.program,
+            ...(await tryProgram(explorer.program)),
+            origin: explorer.source,
+          };
           posthog.capture(
             "collector_generation_succeeded",
             analyticsProperties(
               "explorer",
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - startedAt),
-                model_mediated: modelMediated,
                 reason,
                 ...programProperties,
-                ...attemptProperties,
                 root_count: generated.snapshot.roots.length,
                 node_count: countNodes(generated.snapshot.roots),
               }),
@@ -350,27 +303,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           return generated;
         } catch (error) {
           console.error("[explorer] collector generation failed", error);
-          // Report the program's own error, as for the other programs.
-          let reported = error;
-          if (error instanceof ExplorerGenerationError) {
-            attemptProperties = { generation_attempts: error.attempts };
-            reported = error.cause;
-          }
           posthog.capture(
             "collector_generation_failed",
             errorAnalyticsProperties(
               "explorer",
               "collector_generation",
-              reported,
+              error,
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - startedAt),
-                model_mediated: modelMediated,
                 reason,
                 ...programProperties,
-                ...attemptProperties,
-                ...(reported instanceof ExplorerModelError
-                  ? { model_error_name: reported.modelErrorName }
-                  : {}),
               }),
             ),
           );
@@ -380,7 +322,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       if (programsUpdatedRef.current) {
         programsUpdatedRef.current = false;
-        if (collectionRef.current?.origin !== "model") collectionRef.current = null;
+        collectionRef.current = null;
       }
       try {
         const current = collectionRef.current;
@@ -392,6 +334,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
             );
             next = { ...current, snapshot };
           } catch (error) {
+            // Only a published program has an older one to fall back to. Otherwise the current
+            // tree stays on screen and the next sync tries again.
+            if (current.origin !== "published") throw error;
             telemetryRef.current.hadFailure = true;
             if (failuresRef.current === 0)
               posthog.capture(
@@ -400,34 +345,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
                   reason: "collector_runtime",
                 }),
               );
-            // Same order as the first load: a published program that stopped
-            // working falls back to the shipped one before asking the model.
-            if (current.origin === "published") {
-              try {
-                next = await generate("builtin_fallback");
-              } catch {
-                next = await generate("contract_recovery");
-              }
-            } else {
-              next = await generate("contract_recovery");
-            }
-          }
-        } else if (!generationBlockedRef.current) {
-          try {
-            next = await generate("initial");
-          } catch {
-            try {
-              // A broken published program falls back to the one this app shipped.
-              if (initialSource !== "published") throw new Error("No built-in fallback left");
-              next = await generate("builtin_fallback");
-            } catch {
-              // No shipped program matches Studio's tools any more, so have the
-              // model write one against the tools Studio offers now.
-              next = await generate("initial_recovery");
-            }
+            next = await loadProgram("builtin_fallback");
           }
         } else {
-          throw new Error("Explorer setup needs repair before it can retry.");
+          try {
+            next = await loadProgram("initial");
+          } catch (error) {
+            // A broken published program falls back to the one this app shipped.
+            if (initialSource !== "published") throw error;
+            next = await loadProgram("builtin_fallback");
+          }
         }
 
         if (cancelled) return;
@@ -466,7 +393,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }
       } catch (error) {
         console.error("[explorer] sync failed", error);
-        if (!collectionRef.current) generationBlockedRef.current = true;
         telemetryRef.current.hadFailure = true;
         failuresRef.current += 1;
         // Report the first failure of a streak, not every retry.
@@ -506,8 +432,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     if (failuresRef.current > 0) scheduleNext();
     else void sync();
     const resume = () => {
-      // While failing, wait for the backoff timer rather than retrying (and
-      // possibly asking the model again) every time the window regains focus.
+      // While failing, wait for the backoff timer rather than retrying every time the window
+      // regains focus.
       if (failuresRef.current > 0) return;
       if (document.visibilityState === "visible" && document.hasFocus()) {
         if (timer !== undefined) window.clearTimeout(timer);
@@ -522,18 +448,15 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
     };
-  }, [client, collapsed, model, publishObjects, sessionBusy, studioTarget?.selected]);
+  }, [client, collapsed, publishObjects, sessionBusy, studioTarget?.selected]);
 
-  // Newer published programs replace a shipped or published program at the next
-  // sync (a working model-written one is kept), and retry a setup that failed.
+  // Newer published programs replace the current one at the next sync, and retry a failed setup.
   useEffect(
     () =>
       desktop.onBloxBotProgramsUpdated(() => {
-        if (collectionRef.current?.origin === "model") return;
         // Applied at the start of the next sync, so a sync already running
         // can't put the old program back afterwards.
         programsUpdatedRef.current = true;
-        generationBlockedRef.current = false;
         failuresRef.current = 0;
         syncLatestRef.current();
       }),
@@ -639,7 +562,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       {syncError ? (
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-          Explorer couldn’t load this Studio place. Close and reopen Explorer to retry.
+          Explorer couldn’t load this Studio place. Trying again shortly.
         </div>
       ) : null}
 

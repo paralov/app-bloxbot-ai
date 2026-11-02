@@ -139,7 +139,6 @@ async function connectStudio(): Promise<Studio> {
   const runtime = startGeneratedProgramRuntime(
     callTool,
     async (name) => tools.find((tool) => tool.name === name),
-    async () => tools,
   );
 
   const studios = parseStudios(await callTool("list_roblox_studios", {}));

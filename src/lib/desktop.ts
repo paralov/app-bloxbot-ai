@@ -53,7 +53,6 @@ interface DesktopEffects {
     artifact: GeneratedProgramArtifact,
     studioId: string,
   ) => Effect.Effect<ExplorerSnapshot, DesktopError>;
-  readonly listExplorerProgramTools: Effect.Effect<readonly string[], DesktopError>;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
   readonly getOpenCodeInstallFolder: Effect.Effect<string | null, DesktopError>;
   readonly getStudioMcpStatus: Effect.Effect<StudioMcpStatus, DesktopError>;
@@ -141,9 +140,6 @@ const browserEffects: DesktopEffects = {
   ),
   invokeExplorerProgram: () =>
     Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
-  listExplorerProgramTools: Effect.fail(
-    new DesktopError({ message: "Explorer requires the desktop app." }),
-  ),
   relaunch: Effect.sync(() => window.location.reload()),
   installStudioTargetPrograms: () =>
     Effect.fail(
@@ -220,9 +216,6 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
       invoke("Failed to invoke Explorer program", () =>
         api.invokeExplorerProgram(artifact, studioId),
       ).pipe(decodeBridgeValue("Explorer snapshot is invalid", ExplorerSnapshotSchema)),
-    listExplorerProgramTools: invoke("Failed to list Explorer program tools", () =>
-      api.listExplorerProgramTools(),
-    ).pipe(decodeBridgeValue("Explorer program tools are invalid", Schema.Array(Schema.String))),
     relaunch: invoke("Failed to relaunch the app", () => api.relaunch()),
     installStudioTargetPrograms: (envelopes) =>
       invoke("Failed to install Studio target programs", () =>
@@ -276,7 +269,6 @@ export const desktop: DesktopApi = {
   installUpdate: () => runPromise(desktopEffects.installUpdate),
   invokeExplorerProgram: (artifact, studioId) =>
     runPromise(desktopEffects.invokeExplorerProgram(artifact, studioId)),
-  listExplorerProgramTools: () => runPromise(desktopEffects.listExplorerProgramTools),
   relaunch: () => runPromise(desktopEffects.relaunch),
   installStudioTargetPrograms: (envelopes) =>
     runPromise(desktopEffects.installStudioTargetPrograms(envelopes)),
