@@ -13,7 +13,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAbort } from "@/hooks/mutations/useAbort";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
-import { useCommands } from "@/hooks/useCommands";
+import { useComposerCommands } from "@/hooks/useComposerCommands";
 import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { desktop } from "@/lib/desktop";
@@ -254,11 +254,10 @@ function effortLabel(variant: string | null): string {
   return EFFORT_LABELS[variant] ?? variant;
 }
 
-function ChatInput() {
+function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const { pendingReference, consumeReference, objects, publishObjects } = useExplorerReference();
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
-  const commands = useCommands();
   const { activeSessionId, activeSessionIdRef } = useActiveSession();
   const isBusy = useIsBusy(activeSessionId);
   const { selectedModel, selectedVariant, hiddenModels, setSelectedModel, setSelectedVariant } =
@@ -266,6 +265,11 @@ function ChatInput() {
   const studioTarget = useStudioTargetOptional();
   const studioTargetReference = studioTarget?.promptReference ?? null;
   const studioId = studioTarget?.selected?.key ?? null;
+  const { commands, run: runCommand } = useComposerCommands({
+    chooseModel: () => setShowModelPicker(true),
+    openSettings: () => onOpenSettings?.(),
+    restoreDraft: (draft) => promptEditorRef.current?.insertText(draft),
+  });
   const [objectsLoading, setObjectsLoading] = useState(false);
   const objectsRequest = useRef(0);
 
@@ -511,18 +515,33 @@ function ChatInput() {
     const editorText = promptEditorRef.current?.getText() ?? text;
     const trimmed = editorText.trim();
     if (!trimmed && attachments.length === 0) return;
-    if (isBusy) return;
     const submittedText = editorText;
     const submittedAttachments = attachments;
+    const images =
+      attachments.length > 0
+        ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
+        : undefined;
+    const ranCommand = runCommand(trimmed, {
+      images,
+      system: studioTargetReference,
+      onFailed: (error) => {
+        notify.error("Command failed", { description: error.message });
+        promptEditorRef.current?.insertText(submittedText);
+        setAttachments(submittedAttachments);
+      },
+    });
+    if (ranCommand) {
+      setText("");
+      setAttachments([]);
+      promptEditorRef.current?.clear();
+      return;
+    }
+    if (isBusy) return;
     failedSendRef.current = {
       sessionId: activeSessionId,
       text: submittedText,
       attachments: submittedAttachments,
     };
-    const images =
-      attachments.length > 0
-        ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
-        : undefined;
     setText("");
     setAttachments([]);
     promptEditorRef.current?.clear();

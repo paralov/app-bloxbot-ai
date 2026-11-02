@@ -50,6 +50,7 @@ export function toSession(info: SessionInfo): Session {
     title: info.title ?? "",
     version: "",
     metadata: info.metadata,
+    revert: info.revert ? { messageID: info.revert.messageID } : undefined,
     time: { created: info.time.created, updated: info.time.updated, archived: info.time.archived },
   } as Session;
 }

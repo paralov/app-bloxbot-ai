@@ -40,6 +40,7 @@ import type { ExplorerNode } from "@/lib/explorer";
 import type { Command } from "@/lib/opencode/types";
 import {
   buildObjectSearchIndex,
+  CLIENT_COMMANDS,
   promptTriggerMatch,
   type SearchableObject,
   searchCommands,
@@ -252,6 +253,7 @@ function TypeaheadPlugin({
   objectsLoading = false,
   objectsUnavailable = null,
   onOpen,
+  onSubmit,
 }: {
   kind: TokenKind;
   objectIndex: readonly SearchableObject[];
@@ -260,6 +262,7 @@ function TypeaheadPlugin({
   /** Why there are no objects to offer, such as no Studio being open. */
   objectsUnavailable?: string | null;
   onOpen?: () => void;
+  onSubmit?: () => void;
 }) {
   const [editor] = useLexicalComposerContext();
   const [query, setQuery] = useState<string | null>(null);
@@ -329,6 +332,10 @@ function TypeaheadPlugin({
             }),
           );
           closeMenu();
+          // Commands that act on the app take no argument, so picking one runs it.
+          if (CLIENT_COMMANDS.some(({ name }) => `/${name}` === option.value)) {
+            setTimeout(() => onSubmit?.(), 0);
+          }
           return;
         }
 
@@ -512,7 +519,12 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
           objectsUnavailable={objectsUnavailable}
           onOpen={onObjectsWanted}
         />
-        <TypeaheadPlugin kind="command" objectIndex={EMPTY_OBJECT_INDEX} commands={commands} />
+        <TypeaheadPlugin
+          kind="command"
+          objectIndex={EMPTY_OBJECT_INDEX}
+          commands={commands}
+          onSubmit={onSubmit}
+        />
         <SetEditorRef editorRef={editorRef} />
       </div>
     </LexicalComposer>

@@ -21,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Notifications appear at the bottom right.
 - `@` and `/` suggestions open above the message box, find objects even with Explorer closed, and rank the closest matches first.
 - Explorer and Playtest moved to the top bar.
+- Slash commands now actually run, matching OpenCode's desktop app: `/goal`, `/init`, `/review`, custom commands, `/new`, `/undo`, `/redo`, `/compact`, `/fork`, `/export`, `/model`, `/connect` and `/reload`.
+- File edits from GPT models show as edits instead of an unknown tool.
 - BloxBot now runs on OpenCode 2. OpenCode no longer supports free models on version 1. Your chats and connected providers carry over.
 - Chats use OpenCode's Code Mode, so a model can script several Studio tool calls in one step. The chat shows the code it ran and the result.
 

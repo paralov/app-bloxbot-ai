@@ -45,6 +45,7 @@ function createClient(overrides: Record<string, unknown> = {}) {
       status: vi.fn().mockResolvedValue({ data: {} }),
       todo: vi.fn().mockResolvedValue({ data: [] }),
       promptAsync: vi.fn().mockResolvedValue({}),
+      command: vi.fn().mockResolvedValue({}),
       ...overrides,
     },
     provider: {
@@ -179,6 +180,44 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("ChatInput", () => {
+  it("runs a catalog command through OpenCode instead of sending it as a prompt", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    const goal = { name: "goal", description: "keep working", template: "", hints: [] };
+    client.command.list.mockResolvedValue({ data: [goal] });
+    qc.setQueryData(qk.commands, [goal]);
+    render(<TestChatInput client={client} queryClient={qc} />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "/goal Build a lobby" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+
+    expect(client.session.promptAsync).not.toHaveBeenCalled();
+    expect(client.session.command.mock.calls[0][0]).toMatchObject({
+      name: "goal",
+      parts: [{ type: "text", text: "Build a lobby" }],
+    });
+  });
+
+  it("sends a slash that names no command as a normal message", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    render(<TestChatInput client={client} queryClient={qc} />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "/usr/bin is a path" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+    expect(client.session.command).not.toHaveBeenCalled();
+    expect(client.session.promptAsync).toHaveBeenCalled();
+  });
+
   it("sends a text message on submit", async () => {
     const client = createClient();
     const qc = createQueryClient();

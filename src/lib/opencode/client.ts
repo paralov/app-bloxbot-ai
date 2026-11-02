@@ -447,6 +447,46 @@ export function createOpencodeClient(options: {
         }),
       prompt: (input: PromptInput, requestOptions?: RequestOptions) =>
         settle(requestOptions, () => prompt(input)),
+      /** Runs one of OpenCode's slash commands, such as /goal, instead of sending it as a prompt. */
+      command: (input: PromptInput & { name: string }, requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => {
+          await prepareTurn(input);
+          await api.session.command({
+            sessionID: input.sessionID,
+            name: input.name,
+            text: input.parts
+              .flatMap((part) => (part.type === "text" ? [part.text] : []))
+              .join("\n"),
+            files: input.parts.flatMap((part) =>
+              part.type === "file"
+                ? [{ uri: part.url as string, name: part.filename as string | undefined }]
+                : [],
+            ),
+          });
+        }),
+      compact: (input: { sessionID: string }, requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => {
+          await api.session.compact({ sessionID: input.sessionID });
+        }),
+      fork: (input: { sessionID: string; before?: string }, requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => remember(await api.session.fork(input))),
+      /** Rewinds to before a message, and puts the files back. Sending again makes it final. */
+      undo: (input: { sessionID: string; messageID: string }, requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => {
+          await api.session.interrupt({ sessionID: input.sessionID });
+          await api.experimental.session.wait({ sessionID: input.sessionID });
+          await api.session.revert.stage(input);
+        }),
+      redo: (input: { sessionID: string }, requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => {
+          await api.session.revert.clear(input);
+        }),
+      /** The chat as OpenCode stores it, for saving to a file. */
+      exportData: (input: { sessionID: string }, requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => ({
+          info: await api.session.get({ sessionID: input.sessionID }),
+          messages: await history(input.sessionID),
+        })),
     },
     experimental: {
       session: {
@@ -468,6 +508,13 @@ export function createOpencodeClient(options: {
         }
         return { stream: translated() };
       },
+    },
+    location: {
+      /** Rereads config, commands, agents and skills without restarting. */
+      reload: (requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => {
+          await api.location.reload();
+        }),
     },
     command: {
       list: (_input: object = {}, requestOptions?: RequestOptions) =>

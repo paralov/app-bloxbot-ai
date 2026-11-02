@@ -26,8 +26,10 @@ import { DEFAULT_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { createOpenCodeConfig, withSystemPrompt } from "../../electron/opencodeConfig";
 
 const BIN = process.env.OPENCODE_LIVE_BIN;
+// Points the real-model suite at another provider, so it doesn't spend the free tier.
+const LIVE_PROVIDERS = process.env.OPENCODE_LIVE_PROVIDERS;
 const MODEL = {
-  providerID: "opencode",
+  providerID: process.env.OPENCODE_LIVE_PROVIDER ?? "opencode",
   modelID: process.env.OPENCODE_LIVE_MODEL ?? "deepseek-v4.1-flash-free",
 };
 const TURN_MS = 120_000;
@@ -115,7 +117,15 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
     });
     await new Promise<void>((resolve) => mcp.listen(0, "127.0.0.1", resolve));
     const url = `http://127.0.0.1:${(mcp.address() as AddressInfo).port}/mcp`;
-    await writeFile(join(config, "opencode.json"), JSON.stringify(createOpenCodeConfig({ url })));
+    await writeFile(
+      join(config, "opencode.json"),
+      JSON.stringify({
+        ...createOpenCodeConfig({ url }),
+        ...(LIVE_PROVIDERS
+          ? { providers: JSON.parse(await readFile(LIVE_PROVIDERS, "utf8")) }
+          : {}),
+      }),
+    );
 
     server = spawn(BIN as string, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
       cwd: workspace,
@@ -165,7 +175,33 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
     await rm(home, { recursive: true, force: true }).catch(() => undefined);
   });
 
-  it("lists the free provider, its models and ways to connect", async () => {
+  it("runs a real goal, and pauses and clears it", async () => {
+    const sessionID = await newChat();
+    const run = (text: string) =>
+      client.session.command(
+        { sessionID, name: "goal", model: MODEL, parts: [{ type: "text", text }] },
+        { throwOnError: true },
+      );
+    const from = events.length;
+    await run("Reply with the single word done, then stop.");
+    await waitFor("the model to reply", () =>
+      events
+        .slice(from)
+        .some(
+          (event) => event.type === "message.updated" && event.properties.info.role === "assistant",
+        ),
+    );
+    await waitFor("the goal to settle", () =>
+      events
+        .slice(from)
+        .some((event) => event.type === "session.idle" && event.properties.sessionID === sessionID),
+    );
+    // Whether the reviewer calls it met, a bare /goal always reports the state.
+    await expect(run("")).rejects.toMatchObject({ name: "CommandExecutionError" });
+    await run("clear").catch(() => undefined);
+  }, 180_000);
+
+  it.skipIf(LIVE_PROVIDERS)("lists the free provider, its models and ways to connect", async () => {
     const { data } = await client.provider.list({}, { throwOnError: true });
     expect(data.connected).toContain("opencode");
     const zen = data.all.find((provider) => provider.id === "opencode");
@@ -278,8 +314,9 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
       const shell = tools.find((tool) => tool.tool === "bash");
       expect(shell?.state.status).toBe("completed");
       expect(shell?.state.status === "completed" && shell.state.output).toContain("live-probe");
-      const write = tools.find((tool) => tool.tool === "write");
-      expect(write?.state.input.filePath).toContain("note.txt");
+      // GPT models edit through OpenCode's patch tool instead of write.
+      const write = tools.find((tool) => tool.tool === "write" || tool.tool === "patch");
+      expect(JSON.stringify(write?.state.input)).toContain("note.txt");
 
       const todos = await client.session.todo({ sessionID }, { throwOnError: true });
       expect(todos.data.length).toBeGreaterThan(0);
@@ -750,6 +787,64 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
+
+  it("runs /goal and undoes a message through OpenCode's own commands", async () => {
+    await withServer(
+      [{ content: "On it." }, { content: "Again." }, { content: "Once more." }],
+      async ({ client, events }) => {
+        const created = await client.session.create({}, { throwOnError: true });
+        const sessionID = created.data.id;
+        const run = (name: string, text: string) =>
+          client.session.command(
+            { sessionID, name, model: MODEL, parts: [{ type: "text", text }] },
+            { throwOnError: true },
+          );
+
+        // A bare /goal reports through a rejection, which the composer shows as a message.
+        await expect(run("goal", "")).rejects.toMatchObject({ name: "CommandExecutionError" });
+        await expect(run("nosuch", "")).rejects.toThrow(/not found/i);
+
+        const from = events.length;
+        await run("goal", "Make it work");
+        const deadline = Date.now() + 30_000;
+        while (!events.slice(from).some((event) => event.type === "session.idle")) {
+          if (Date.now() > deadline) throw new Error("The goal's turn didn't end.");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        await run("goal", "clear");
+
+        await turn(client, events, sessionID, "Second prompt");
+        const before = await client.session.messages({ sessionID }, { throwOnError: true });
+        const prompt = before.data?.findLast((message) => message.info.role === "user");
+        expect(prompt).toBeDefined();
+        await client.session.undo(
+          { sessionID, messageID: prompt?.info.id as string },
+          { throwOnError: true },
+        );
+        const revertOf = async () => {
+          const sessions = await client.experimental.session.list({}, { throwOnError: true });
+          return sessions.data?.find((session) => session.id === sessionID)?.revert;
+        };
+        expect((await revertOf())?.messageID).toBe(prompt?.info.id);
+        await client.session.redo({ sessionID }, { throwOnError: true });
+        expect(await revertOf()).toBeUndefined();
+
+        // Sending after an undo makes it final, and clears the mark that hides those messages.
+        await client.session.undo(
+          { sessionID, messageID: prompt?.info.id as string },
+          { throwOnError: true },
+        );
+        await turn(client, events, sessionID, "Instead do this");
+        expect(await revertOf()).toBeUndefined();
+        const after = await client.session.messages({ sessionID }, { throwOnError: true });
+        expect(after.data?.some((message) => message.info.id === prompt?.info.id)).toBe(false);
+
+        const forked = await client.session.fork({ sessionID }, { throwOnError: true });
+        expect(forked.data?.id).not.toBe(sessionID);
+        await client.session.compact({ sessionID }, { throwOnError: true });
+      },
+    );
+  }, 90_000);
 
   it("streams a reply and runs a shell tool on this platform", async () => {
     await withServer(

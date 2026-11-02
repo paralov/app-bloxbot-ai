@@ -408,6 +408,24 @@ function EditToolView({ input, status }: ToolViewProps) {
   );
 }
 
+/** GPT models edit through a patch that can touch several files. */
+function PatchToolView({ input, status }: ToolViewProps) {
+  const patch = inputField(input, "patchText");
+  const files = [...patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((match) =>
+    shortPath(match[1] ?? ""),
+  );
+  return (
+    <ToolRow
+      icon={FilePen}
+      label={status === "completed" ? "Edited" : "Editing"}
+      detail={files.join(", ")}
+      running={status === "running"}
+    >
+      {patch ? <ToolText text={patch} language="diff" /> : undefined}
+    </ToolRow>
+  );
+}
+
 function ReadToolView({ input, status }: ToolViewProps) {
   return (
     <ToolRow
@@ -771,6 +789,8 @@ const ToolPartView = memo(function ToolPartView({
         return <BashToolView input={input} output={output} status={status} />;
       case "edit":
         return <EditToolView input={input} output={output} status={status} />;
+      case "patch":
+        return <PatchToolView input={input} status={status} />;
       case "read":
         return <ReadToolView input={input} status={status} />;
       case "write":

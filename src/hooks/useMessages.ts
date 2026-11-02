@@ -1,6 +1,7 @@
 import { hashKey, type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import type { OpencodeClient } from "@/lib/opencode/client";
+import type { Session } from "@/lib/opencode/types";
 
 import { hasPlaytestContext } from "@/lib/playtestPlan";
 import { qk } from "@/lib/queryKeys";
@@ -107,7 +108,18 @@ export function useMessageIds(): string[] {
     enabled: ready && !!client && !!activeSessionId,
     select: useCallback((d: MessagesCache) => d.messageIds, []),
   });
-  return data ?? EMPTY_IDS;
+  // Undo hides a message and everything after it until it's redone or made final.
+  const { data: revertedId } = useQuery<Session[], Error, string | undefined>({
+    queryKey: qk.sessions,
+    enabled: false,
+    select: (sessions) =>
+      sessions.find((session) => session.id === activeSessionId)?.revert?.messageID,
+  });
+  const ids = data ?? EMPTY_IDS;
+  return useMemo(() => {
+    const boundary = revertedId ? ids.indexOf(revertedId) : -1;
+    return boundary === -1 ? ids : ids.slice(0, boundary);
+  }, [ids, revertedId]);
 }
 
 export function useMessage(messageId: string): MessageWithParts | undefined {

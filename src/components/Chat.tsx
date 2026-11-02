@@ -265,7 +265,7 @@ function Chat() {
             </div>
 
             <ChatMessages />
-            <ChatInput />
+            <ChatInput onOpenSettings={handleOpenSettings} />
           </>
         )}
 

@@ -376,6 +376,26 @@ export class EventTranslator {
           }),
         ];
       }
+      case "session.revert.staged": {
+        const { messageID } = event.data.revert;
+        return this.updateSession(event.data.sessionID, (session) => ({
+          ...session,
+          revert: { messageID },
+        }));
+      }
+      case "session.revert.cleared":
+        return this.updateSession(event.data.sessionID, (session) => ({
+          ...session,
+          revert: undefined,
+        }));
+      case "session.revert.committed":
+        return [
+          ...this.updateSession(event.data.sessionID, (session) => ({
+            ...session,
+            revert: undefined,
+          })),
+          { type: "session.compacted", properties: { sessionID: event.data.sessionID } },
+        ];
       case "session.compaction.ended":
         return [{ type: "session.compacted", properties: { sessionID: event.data.sessionID } }];
       case "permission.asked":

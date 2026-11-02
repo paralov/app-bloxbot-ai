@@ -3,6 +3,8 @@ import type { ExplorerNode } from "@/lib/explorer";
 import type { Command } from "@/lib/opencode/types";
 import {
   buildObjectSearchIndex,
+  mergeCommands,
+  parseSlashCommand,
   promptTriggerMatch,
   searchCommands,
   searchObjects,
@@ -38,6 +40,7 @@ describe("promptTriggerMatch", () => {
     expect(object("@part ")).toBeNull();
     expect(command("src/app")).toBeNull();
     expect(command("/usr/bin")).toBeNull();
+    expect(command("run /goal")).toBeNull();
   });
 });
 
@@ -60,7 +63,7 @@ describe("searching", () => {
     const index = buildObjectSearchIndex(
       Array.from({ length: 20 }, (_, i) => node(`Part${i}`, `game.Part${i}`)),
     );
-    expect(searchObjects(index, "")).toHaveLength(8);
+    expect(searchObjects(index, "")).toHaveLength(12);
   });
 
   it("ranks commands by name before description", () => {
@@ -69,5 +72,24 @@ describe("searching", () => {
       { name: "init", description: "Set up the project", hints: [] },
     ] as unknown as Command[];
     expect(searchCommands(commands, "init").map((found) => found.name)).toEqual(["init", "review"]);
+  });
+});
+
+describe("commands", () => {
+  it("parses a command and its argument like the desktop app", () => {
+    expect(parseSlashCommand("/goal Build a lobby")).toEqual({
+      name: "goal",
+      input: "Build a lobby",
+    });
+    expect(parseSlashCommand("  /review\n")).toEqual({ name: "review", input: "" });
+    expect(parseSlashCommand("run /goal")).toBeNull();
+  });
+
+  it("offers OpenCode's catalog beside the app's own commands", () => {
+    const catalog = [{ name: "goal", description: "keep working", template: "", hints: [] }];
+    const names = mergeCommands(catalog).map(({ name }) => name);
+    expect(names).toEqual(
+      expect.arrayContaining(["goal", "new", "undo", "redo", "compact", "fork"]),
+    );
   });
 });

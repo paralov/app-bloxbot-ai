@@ -17,6 +17,8 @@ export function useCommands(): Command[] {
       return Array.isArray(response.data) ? response.data : [];
     },
     enabled: ready && !!client,
+    // OpenCode's catalog can be empty until its plugins finish loading.
+    refetchInterval: (query) => (query.state.data?.length ? false : 3000),
   });
 
   return data ?? EMPTY;
