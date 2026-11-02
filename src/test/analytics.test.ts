@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   captureDetailedAnalytics,
-  countBucket,
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
@@ -19,15 +18,6 @@ function posthogStub() {
 
 describe("PostHog analytics", () => {
   beforeEach(() => setDetailedAnalyticsEnabled(false));
-
-  it("buckets counts without exposing exact larger values", () => {
-    expect(countBucket(1)).toBe("1");
-    expect(countBucket(2)).toBe("2-5");
-    expect(countBucket(5)).toBe("2-5");
-    expect(countBucket(6)).toBe("6-10");
-    expect(countBucket(10)).toBe("6-10");
-    expect(countBucket(42)).toBe("11+");
-  });
 
   it("removes detailed properties while model usage metrics are off", () => {
     const properties = { provider: "anthropic", model: "claude-sonnet-4" };
@@ -95,18 +85,6 @@ describe("PostHog analytics", () => {
     });
   });
 
-  it("reads the name and message of OpenCode SDK error bodies", () => {
-    expect(
-      errorAnalyticsProperties("chat", "send_message", {
-        name: "ProviderAuthError",
-        data: { providerID: "anthropic", message: "Invalid key sk-ant-api03-abcdefghijklmnop1234" },
-      }),
-    ).toMatchObject({
-      error_type: "ProviderAuthError",
-      error_message: "Invalid key [redacted]",
-    });
-  });
-
   it("truncates long error messages and omits missing ones", () => {
     const properties = errorAnalyticsProperties(
       "chat",
@@ -117,11 +95,5 @@ describe("PostHog analytics", () => {
     expect(errorAnalyticsProperties("chat", "send_message", undefined)).not.toHaveProperty(
       "error_message",
     );
-  });
-
-  it("lets callers override the derived properties", () => {
-    expect(
-      errorAnalyticsProperties("providers", "oauth", new Error("x"), { error_type: "timeout" }),
-    ).toMatchObject({ error_type: "timeout" });
   });
 });

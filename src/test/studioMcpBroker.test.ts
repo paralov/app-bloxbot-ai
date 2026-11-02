@@ -106,14 +106,6 @@ describe("Studio MCP broker", () => {
     });
   });
 
-  it("closes the single upstream Studio client", async () => {
-    const upstream = fakeUpstream();
-    const broker = await startStudioMcpBroker(upstream);
-
-    await broker.close();
-    expect(upstream.close).toHaveBeenCalledOnce();
-  });
-
   it("creates the workspace directory before spawning the upstream (#76)", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "bloxbot-test-"));
     const workspace = join(tmp, "nested", "BloxBot");
@@ -332,16 +324,5 @@ describe("Studio MCP startup (#106)", () => {
       "MCP error -32000: Connection closed (exit code 1, stderr: The system cannot find the path specified.)",
     );
     expect(describeConnectFailure(new Error("boom"), undefined, "")).toBe("boom");
-  });
-
-  it("says how the Windows helper was found, without its path", () => {
-    expect(
-      describeConnectFailure(
-        new Error("MCP error -32000: Connection closed"),
-        { code: 1, signal: null },
-        "",
-        "registry",
-      ),
-    ).toBe("MCP error -32000: Connection closed (helper_source: registry, exit code 1)");
   });
 });

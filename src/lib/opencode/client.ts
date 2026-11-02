@@ -470,7 +470,7 @@ export function createOpencodeClient(options: {
         }),
       fork: (input: { sessionID: string; before?: string }, requestOptions?: RequestOptions) =>
         settle(requestOptions, async () => remember(await api.session.fork(input))),
-      /** Rewinds to before a message, and puts the files back. Sending again makes it final. */
+      /** Rewinds the chat to before a message. Sending again makes it final. */
       undo: (input: { sessionID: string; messageID: string }, requestOptions?: RequestOptions) =>
         settle(requestOptions, async () => {
           await api.session.interrupt({ sessionID: input.sessionID });

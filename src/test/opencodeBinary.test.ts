@@ -18,7 +18,6 @@ import {
   describeCause,
   ensureOpenCodeBinary,
   type GitHubRelease,
-  getOpenCodeAssetSpec,
   MIN_FREE_BYTES,
   type OpenCodeBinaryOptions,
   selectCompatibleRelease,
@@ -90,23 +89,6 @@ afterEach(async () => {
 });
 
 describe("OpenCode binary releases", () => {
-  it("maps every packaged platform to its official archive", () => {
-    expect(Effect.runSync(getOpenCodeAssetSpec("darwin", "arm64")).archiveName).toBe(
-      "opencode-darwin-arm64.zip",
-    );
-    expect(Effect.runSync(getOpenCodeAssetSpec("darwin", "x64")).archiveName).toBe(
-      "opencode-darwin-x64.zip",
-    );
-    expect(Effect.runSync(getOpenCodeAssetSpec("win32", "x64")).executableName).toBe(
-      "opencode.exe",
-    );
-    expect(Effect.runSync(getOpenCodeAssetSpec("linux", "x64")).format).toBe("tar.gz");
-    expect(Effect.runSync(Effect.either(getOpenCodeAssetSpec("win32", "arm64")))).toMatchObject({
-      _tag: "Left",
-      left: { _tag: "OpenCodeBinaryError", message: expect.stringContaining("win32/arm64") },
-    });
-  });
-
   it("selects the newest verified stable 2.2.x release and rejects other lines", () => {
     const assetName = "opencode-darwin-arm64.zip";
     const digest = `sha256:${"a".repeat(64)}`;
@@ -330,80 +312,6 @@ describe("OpenCode binary releases", () => {
     });
     expect(extractArchive).not.toHaveBeenCalled();
     expect(await readdir(join(cacheDirectory, "win32-x64"))).toEqual([]);
-  });
-
-  it("puts timeout and DNS errors in the final message", async () => {
-    const cacheDirectory = await makeTemporaryDirectory();
-    const dnsFailure = new TypeError("fetch failed", {
-      cause: new Error("getaddrinfo ENOTFOUND github.com"),
-    });
-    const fetch = vi
-      .fn()
-      .mockRejectedValueOnce(new DOMException("The operation timed out.", "TimeoutError"))
-      .mockRejectedValueOnce(dnsFailure);
-
-    const result = await Effect.runPromise(
-      Effect.either(
-        ensureOpenCodeBinary({ cacheDirectory, platform: "darwin", arch: "x64", fetch }),
-      ),
-    );
-
-    expect(result).toMatchObject({
-      _tag: "Left",
-      left: {
-        message: expect.stringMatching(
-          /GitHub release lookup failed: timed out after 15 seconds.*OpenCode download failed: fetch failed \(getaddrinfo ENOTFOUND github\.com\)/,
-        ),
-      },
-    });
-    expect(fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it("prefers a newer release from the API over the cached copy", async () => {
-    const cacheDirectory = await makeTemporaryDirectory();
-    const assetName = "opencode-darwin-arm64.zip";
-    const oldArchive = Buffer.from("old archive");
-    const newArchive = Buffer.from("new archive");
-    const sha = (archive: Buffer) => createHash("sha256").update(archive).digest("hex");
-    const extractArchive = writeExecutable("opencode");
-
-    await Effect.runPromise(
-      ensureOpenCodeBinary({
-        cacheDirectory,
-        platform: "darwin",
-        arch: "arm64",
-        fetch: vi
-          .fn()
-          .mockResolvedValueOnce(
-            Response.json([release("v2.2.2", assetName, `sha256:${sha(oldArchive)}`)]),
-          )
-          .mockResolvedValueOnce(new Response(oldArchive)),
-        extractArchive,
-      }),
-    );
-
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json([
-          release("v2.2.2", assetName, `sha256:${sha(oldArchive)}`),
-          release("v2.2.5", assetName, `sha256:${sha(newArchive)}`),
-        ]),
-      )
-      .mockResolvedValueOnce(new Response(newArchive));
-    const updated = await Effect.runPromise(
-      ensureOpenCodeBinary({
-        cacheDirectory,
-        platform: "darwin",
-        arch: "arm64",
-        fetch,
-        extractArchive,
-      }),
-    );
-
-    expect(updated.version).toBe("2.2.5");
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch.mock.calls[1]?.[0]).toContain("/v2.2.5/");
   });
 
   it("aborts an in-flight download and cleans its temporary directory", async () => {

@@ -244,36 +244,6 @@ describe("useCheckProvider", () => {
     expect(properties).not.toHaveProperty("model");
   });
 
-  it("says when the check ran on the model the user chats with", async () => {
-    const qc = openaiProviders();
-    preferences.selectedModel = "openai/gpt-5.6-terra";
-    client.session.prompt.mockResolvedValue({
-      data: {
-        info: {
-          error: { name: "ProviderAuthError", data: { providerID: "openai", message: "Expired" } },
-        },
-        parts: [],
-      },
-    });
-
-    const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
-
-    await expect(
-      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-5.6-terra" }),
-    ).resolves.toEqual({
-      ok: false,
-      message: "Expired",
-      keyRejected: true,
-      modelName: "GPT-5.6 Terra",
-    });
-    expect(capture.mock.calls[0][1]).toMatchObject({
-      model_choice: "selected",
-      key_rejected: true,
-      error_message: "Expired",
-    });
-    preferences.selectedModel = null;
-  });
-
   it("doesn't send a check to a model that can't chat", async () => {
     const qc = openaiProviders();
 

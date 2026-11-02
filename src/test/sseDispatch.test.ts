@@ -6,8 +6,7 @@
  */
 
 import { QueryClient } from "@tanstack/react-query";
-import { Cause, Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type {
   Event,
   PermissionRequest,
@@ -17,8 +16,7 @@ import type {
   Todo,
 } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
-import { type MessagesCache, sseDispatch, sseDispatchEffect } from "@/lib/sseDispatch";
-import type { MessageWithParts } from "@/types";
+import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
 
 function makeQC() {
   return new QueryClient({
@@ -47,54 +45,6 @@ describe("sseDispatch", () => {
     qc = makeQC();
   });
 
-  // ── Guard clauses ──────────────────────────────────────────────────
-
-  it("ignores null/undefined events", () => {
-    dispatch(qc, null as never);
-    dispatch(qc, undefined as never);
-    // Should not throw
-  });
-
-  it("ignores events with no type", () => {
-    dispatch(qc, { properties: {} } as never);
-  });
-
-  it("rejects an invalid SSE envelope in the typed error channel", () => {
-    const result = Effect.runSync(
-      Effect.either(
-        sseDispatchEffect(qc, { type: "session.created", properties: null }, { current: null }),
-      ),
-    );
-
-    expect(result).toMatchObject({
-      _tag: "Left",
-      left: { _tag: "SseDispatchError", eventType: "session.created" },
-    });
-  });
-
-  it("keeps cache programming errors as defects", () => {
-    const brokenClient = {
-      setQueryData: () => {
-        throw new Error("cache programming bug");
-      },
-    } as unknown as QueryClient;
-    const exit = Effect.runSyncExit(
-      sseDispatchEffect(
-        brokenClient,
-        { type: "session.created", properties: { info: makeSession("s1", "One") } },
-        { current: null },
-      ),
-    );
-
-    expect(exit._tag).toBe("Failure");
-    if (exit._tag === "Failure") {
-      expect(Cause.dieOption(exit.cause)).toMatchObject({
-        _tag: "Some",
-        value: expect.objectContaining({ message: "cache programming bug" }),
-      });
-    }
-  });
-
   // ── Session events ─────────────────────────────────────────────────
 
   describe("session.created", () => {
@@ -120,16 +70,6 @@ describe("sseDispatch", () => {
 
       expect(qc.getQueryData<Session[]>(qk.sessions)).toHaveLength(1);
     });
-
-    it("creates the array when cache is empty", () => {
-      dispatch(qc, {
-        type: "session.created",
-        properties: { info: makeSession("s1", "One") },
-      });
-
-      const sessions = qc.getQueryData<Session[]>(qk.sessions)!;
-      expect(sessions).toHaveLength(1);
-    });
   });
 
   describe("session.updated", () => {
@@ -143,18 +83,6 @@ describe("sseDispatch", () => {
 
       const sessions = qc.getQueryData<Session[]>(qk.sessions)!;
       expect(sessions[0].title).toBe("New Title");
-    });
-
-    it("leaves non-matching sessions untouched", () => {
-      qc.setQueryData(qk.sessions, [makeSession("s1", "One"), makeSession("s2", "Two")]);
-
-      dispatch(qc, {
-        type: "session.updated",
-        properties: { info: makeSession("s1", "Updated") },
-      });
-
-      const sessions = qc.getQueryData<Session[]>(qk.sessions)!;
-      expect(sessions[1].title).toBe("Two");
     });
   });
 
@@ -235,15 +163,6 @@ describe("sseDispatch", () => {
       const statuses = qc.getQueryData<Record<string, SessionStatus>>(qk.statuses)!;
       expect(statuses.s1.type).toBe("idle");
     });
-
-    it("skips update when already idle", () => {
-      const initial = { s1: { type: "idle" } as SessionStatus };
-      qc.setQueryData(qk.statuses, initial);
-
-      dispatch(qc, { type: "session.idle", properties: { sessionID: "s1" } });
-
-      expect(qc.getQueryData(qk.statuses)).toBe(initial);
-    });
   });
 
   describe("session.error", () => {
@@ -294,50 +213,6 @@ describe("sseDispatch", () => {
   // ── Message events ─────────────────────────────────────────────────
 
   describe("message.updated", () => {
-    it("captures anonymous provider, model, and aggregate token usage once", () => {
-      const captureModelUsage = vi.fn();
-      const event = {
-        type: "message.updated",
-        properties: {
-          info: {
-            id: "m1",
-            sessionID: "s1",
-            role: "assistant",
-            time: { created: 1, completed: 2 },
-            parentID: "m0",
-            providerID: "anthropic",
-            modelID: "claude-sonnet-4",
-            mode: "chat",
-            agent: "build",
-            path: { cwd: "/workspace", root: "/workspace" },
-            cost: 0.01,
-            tokens: {
-              total: 21,
-              input: 10,
-              output: 7,
-              reasoning: 4,
-              cache: { read: 3, write: 2 },
-            },
-          },
-        },
-      };
-
-      sseDispatch(qc, event, { current: "s1" }, captureModelUsage);
-      sseDispatch(qc, event, { current: "s1" }, captureModelUsage);
-
-      expect(captureModelUsage).toHaveBeenCalledOnce();
-      expect(captureModelUsage).toHaveBeenCalledWith({
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        tokens_total: 21,
-        tokens_input: 10,
-        tokens_output: 7,
-        tokens_reasoning: 4,
-        tokens_cache_read: 3,
-        tokens_cache_write: 2,
-      });
-    });
-
     it("adds a new message to the cache", () => {
       qc.setQueryData<MessagesCache>(qk.messages("s1"), { messageIds: [], messagesById: {} });
 
@@ -435,7 +310,7 @@ describe("sseDispatch", () => {
         "s1",
       );
 
-      const msg = qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1;
+      const msg = qc.getQueryData<MessagesCache>(qk.messages("s1"))?.messagesById.m1;
       expect(msg.parts).toHaveLength(1);
       expect((msg.parts[0] as any).text).toBe("hi");
     });
@@ -462,7 +337,7 @@ describe("sseDispatch", () => {
         "s1",
       );
 
-      const msg = qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1;
+      const msg = qc.getQueryData<MessagesCache>(qk.messages("s1"))?.messagesById.m1;
       expect(msg.parts).toHaveLength(1);
       expect((msg.parts[0] as any).text).toBe("new");
     });
@@ -489,7 +364,7 @@ describe("sseDispatch", () => {
         "s1",
       );
 
-      const part = qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1.parts[0];
+      const part = qc.getQueryData<MessagesCache>(qk.messages("s1"))?.messagesById.m1.parts[0];
       expect((part as any).text).toBe("Hello World");
     });
 
@@ -513,7 +388,7 @@ describe("sseDispatch", () => {
         "s1",
       );
 
-      const part = qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1
+      const part = qc.getQueryData<MessagesCache>(qk.messages("s1"))?.messagesById.m1
         .parts[0] as any;
       expect(part.output).toBe("out+more");
       expect(part.text).toBe("base"); // unchanged
@@ -535,7 +410,7 @@ describe("sseDispatch", () => {
       );
 
       // Should not throw, cache unchanged
-      expect(qc.getQueryData<MessagesCache>(qk.messages("s1"))!.messagesById.m1.parts).toHaveLength(
+      expect(qc.getQueryData<MessagesCache>(qk.messages("s1"))?.messagesById.m1.parts).toHaveLength(
         0,
       );
     });

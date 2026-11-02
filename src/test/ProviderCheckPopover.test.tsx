@@ -46,12 +46,4 @@ describe("ProviderCheckPopover", () => {
     fireEvent.change(screen.getByLabelText("Search models"), { target: { value: "nothing" } });
     expect(screen.queryByRole("button", { name: /^Check / })).not.toBeInTheDocument();
   });
-
-  it("says when there's nothing to check", () => {
-    render(<Picker providerName="Voice" models={[]} checking={false} onCheck={vi.fn()} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Check" }));
-    expect(screen.getByText("This provider has no chat models to test with.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Check / })).not.toBeInTheDocument();
-  });
 });

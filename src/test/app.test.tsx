@@ -1,11 +1,6 @@
 /**
- * End-to-end integration tests.
- *
- * These render the real component tree (Chat, ChatSidebar, ChatMessages, ChatInput)
- * inside the real provider hierarchy. Only the system boundary is mocked:
- * - SDK client (createOpencodeClient)
- *
- * Each test simulates a real user journey and asserts on what appears on screen.
+ * The real component tree on a mocked client, for states that are hard to reach
+ * against the real server. workflows.test.tsx covers what people do end to end.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -325,37 +320,6 @@ describe("User journeys", () => {
     expect(await screen.findByRole("heading", { name: "Studio connected" })).toBeVisible();
   });
 
-  it("creates a session and shows the chat interface", async () => {
-    const newSession = makeSession("s1", "New Session");
-    const client = createClient({
-      create: vi.fn().mockResolvedValue({ data: newSession }),
-      get: vi.fn().mockResolvedValue({ data: newSession }),
-      messages: vi.fn().mockResolvedValue({ data: [] }),
-    });
-    const queryClient = createQueryClient();
-    seedReadyState(queryClient);
-
-    render(<TestApp client={client} queryClient={queryClient} />);
-
-    // We should see "What would you like to build?" and a "New Session" button
-    const newSessionBtn = await screen.findByText("New chat");
-    await act(async () => {
-      fireEvent.click(newSessionBtn);
-    });
-
-    // After session creation, the SDK should have been called
-    expect(client.session.create).toHaveBeenCalled();
-
-    // The chat area for the session should now be visible (textarea)
-    await waitFor(() => {
-      expect(screen.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
-    });
-
-    expect(
-      screen.queryByRole("button", { name: "Coordinate multiple Studio places" }),
-    ).not.toBeInTheDocument();
-  });
-
   it("switches to the latest session immediately without waiting for older requests", async () => {
     const first = makeSession("s1", "First Session");
     const second = makeSession("s2", "Second Session");
@@ -527,49 +491,6 @@ describe("User journeys", () => {
       },
       { throwOnError: true },
     );
-  });
-
-  it("snoozes a session and moves it out of the active list", async () => {
-    const s1 = makeSession("s1", "Session One");
-    const s2 = makeSession("s2", "Session Two");
-    const snoozed = { ...s1, time: { ...s1.time, archived: Date.now() } };
-    const client = createClient({
-      update: vi.fn().mockResolvedValue({ data: snoozed }),
-      get: vi.fn().mockResolvedValue({ data: s1 }),
-      messages: vi.fn().mockResolvedValue({ data: [] }),
-    });
-    const queryClient = createQueryClient();
-    seedReadyState(queryClient, { sessions: [s1, s2] });
-    queryClient.setQueryData(qk.todos("s1"), []);
-    queryClient.setQueryData(qk.questions("s1"), null);
-    queryClient.setQueryData(qk.permissions("s1"), null);
-
-    render(<TestApp client={client} queryClient={queryClient} />);
-
-    // Both sessions should be visible in sidebar
-    expect(await screen.findByText("Session One")).toBeInTheDocument();
-    expect(screen.getByText("Session Two")).toBeInTheDocument();
-
-    const snoozeButtons = screen.getAllByTitle("Snooze");
-    await act(async () => {
-      fireEvent.click(snoozeButtons[0]);
-    });
-
-    await waitFor(() =>
-      expect(client.session.update).toHaveBeenCalledWith(
-        { sessionID: "s1", time: { archived: expect.any(Number) } },
-        { throwOnError: true },
-      ),
-    );
-    expect(client.session.delete).not.toHaveBeenCalled();
-
-    // Session One leaves the active list and the folded snoozed section appears.
-    await waitFor(() => {
-      expect(screen.queryByText("Session One")).not.toBeInTheDocument();
-      expect(screen.getByText("Snoozed")).toBeInTheDocument();
-    });
-    // Session Two should still be there
-    expect(screen.getByText("Session Two")).toBeInTheDocument();
   });
 
   it("shows question prompt and user can answer it", async () => {
@@ -840,35 +761,5 @@ describe("User journeys", () => {
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByText(/They reset in about 2 hours/)).toBeInTheDocument();
-  });
-
-  it("SSE session.created adds a new session to the sidebar", async () => {
-    const s1 = makeSession("s1", "Existing Session");
-    const client = createClient();
-    const queryClient = createQueryClient();
-    seedReadyState(queryClient, { sessions: [s1] });
-
-    render(<TestApp client={client} queryClient={queryClient} />);
-    expect(await screen.findByText("Existing Session")).toBeInTheDocument();
-
-    // Simulate a session being created elsewhere (e.g. from OpenCode CLI)
-    const activeRef = { current: null };
-    act(() => {
-      sseDispatch(
-        queryClient,
-        {
-          type: "session.created",
-          properties: {
-            info: makeSession("s2", "New From CLI"),
-          },
-        } as never,
-        activeRef,
-      );
-    });
-
-    // The new session should appear in the sidebar (no filter — all sessions shown)
-    await waitFor(() => {
-      expect(screen.getByText("New From CLI")).toBeInTheDocument();
-    });
   });
 });

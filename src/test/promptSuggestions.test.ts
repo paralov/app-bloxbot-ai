@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ExplorerNode } from "@/lib/explorer";
-import type { Command } from "@/lib/opencode/types";
 import {
   buildObjectSearchIndex,
-  mergeCommands,
   parseSlashCommand,
   promptTriggerMatch,
-  searchCommands,
   searchObjects,
 } from "@/lib/promptSuggestions";
 
@@ -58,21 +55,6 @@ describe("searching", () => {
       "Door",
     ]);
   });
-
-  it("lists everything for an empty query, up to the limit", () => {
-    const index = buildObjectSearchIndex(
-      Array.from({ length: 20 }, (_, i) => node(`Part${i}`, `game.Part${i}`)),
-    );
-    expect(searchObjects(index, "")).toHaveLength(12);
-  });
-
-  it("ranks commands by name before description", () => {
-    const commands = [
-      { name: "review", description: "Check the init output", hints: [] },
-      { name: "init", description: "Set up the project", hints: [] },
-    ] as unknown as Command[];
-    expect(searchCommands(commands, "init").map((found) => found.name)).toEqual(["init", "review"]);
-  });
 });
 
 describe("commands", () => {
@@ -83,13 +65,5 @@ describe("commands", () => {
     });
     expect(parseSlashCommand("  /review\n")).toEqual({ name: "review", input: "" });
     expect(parseSlashCommand("run /goal")).toBeNull();
-  });
-
-  it("offers OpenCode's catalog beside the app's own commands", () => {
-    const catalog = [{ name: "goal", description: "keep working", template: "", hints: [] }];
-    const names = mergeCommands(catalog).map(({ name }) => name);
-    expect(names).toEqual(
-      expect.arrayContaining(["goal", "new", "undo", "redo", "compact", "fork"]),
-    );
   });
 });

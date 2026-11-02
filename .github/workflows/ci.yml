@@ -51,7 +51,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Run chats against the real server
-        run: pnpm vitest run src/test/opencodeLive.test.ts -t "no model"
+        run: pnpm vitest run src/test/opencodeLive.test.ts src/test/workflows.test.tsx -t "no model|Upgrading from OpenCode 1"
 
       - name: Build application
         run: pnpm build

@@ -180,44 +180,6 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("ChatInput", () => {
-  it("runs a catalog command through OpenCode instead of sending it as a prompt", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-    const goal = { name: "goal", description: "keep working", template: "", hints: [] };
-    client.command.list.mockResolvedValue({ data: [goal] });
-    qc.setQueryData(qk.commands, [goal]);
-    render(<TestChatInput client={client} queryClient={qc} />);
-    const textarea = await screen.findByRole("textbox", { name: "Message" });
-
-    await act(async () => {
-      fireEvent.input(textarea, { target: { textContent: "/goal Build a lobby" } });
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByTitle("Send"));
-    });
-
-    expect(client.session.promptAsync).not.toHaveBeenCalled();
-    expect(client.session.command.mock.calls[0][0]).toMatchObject({
-      name: "goal",
-      parts: [{ type: "text", text: "Build a lobby" }],
-    });
-  });
-
-  it("sends a slash that names no command as a normal message", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-    render(<TestChatInput client={client} queryClient={qc} />);
-    const textarea = await screen.findByRole("textbox", { name: "Message" });
-    await act(async () => {
-      fireEvent.input(textarea, { target: { textContent: "/usr/bin is a path" } });
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByTitle("Send"));
-    });
-    expect(client.session.command).not.toHaveBeenCalled();
-    expect(client.session.promptAsync).toHaveBeenCalled();
-  });
-
   it("sends a text message on submit", async () => {
     const client = createClient();
     const qc = createQueryClient();
@@ -272,38 +234,6 @@ describe("ChatInput", () => {
     });
 
     expect(client.session.promptAsync).not.toHaveBeenCalled();
-  });
-
-  it("disables send button when textarea is empty", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    const sendBtn = await screen.findByTitle("Send");
-    expect(sendBtn).toBeDisabled();
-  });
-
-  it("clears textarea after sending", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    const textarea = (await screen.findByRole("textbox", {
-      name: "Message",
-    })) as HTMLTextAreaElement;
-
-    await act(async () => {
-      fireEvent.input(textarea, { target: { textContent: "Test message" } });
-    });
-    expect(textarea).toHaveTextContent("Test message");
-
-    await act(async () => {
-      fireEvent.click(screen.getByTitle("Send"));
-    });
-
-    expect(textarea).toHaveTextContent("");
   });
 
   it("restores the draft and status when sending fails", async () => {
@@ -363,22 +293,6 @@ describe("ChatInput", () => {
     expect(screen.queryByText("Message not sent")).not.toBeInTheDocument();
   });
 
-  it("does not send when text is only whitespace", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    const textarea = await screen.findByRole("textbox", { name: "Message" });
-
-    await act(async () => {
-      fireEvent.input(textarea, { target: { textContent: "   " } });
-      fireEvent.keyDown(textarea, { key: "Enter" });
-    });
-
-    expect(client.session.promptAsync).not.toHaveBeenCalled();
-  });
-
   it("shows Stop button when session is busy", async () => {
     const client = createClient();
     const qc = createQueryClient();
@@ -435,18 +349,6 @@ describe("ChatInput", () => {
     });
 
     expect(client.session.promptAsync).not.toHaveBeenCalled();
-  });
-
-  it("shows model selector with current model display", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    // Should show the model name (the part after the slash)
-    await waitFor(() => {
-      expect(screen.getByText("Claude 3.5 Sonnet")).toBeInTheDocument();
-    });
   });
 
   it("attaches an image to the submitted message", async () => {

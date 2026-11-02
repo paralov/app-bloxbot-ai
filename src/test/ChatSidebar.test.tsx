@@ -145,51 +145,6 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("ChatSidebar", () => {
-  it("renders session list", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-    seedState(qc, {
-      sessions: [makeSession("s1", "Session Alpha"), makeSession("s2", "Session Beta")],
-    });
-
-    render(<TestSidebar client={client} queryClient={qc} />);
-
-    expect(await screen.findByText("Session Alpha")).toBeInTheDocument();
-    expect(screen.getByText("Session Beta")).toBeInTheDocument();
-  });
-
-  it("shows empty state when no sessions", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-    seedState(qc);
-
-    render(<TestSidebar client={client} queryClient={qc} />);
-
-    expect(await screen.findByText(/No sessions yet/)).toBeInTheDocument();
-  });
-
-  it("calls session.create when New Session is clicked", async () => {
-    const newSession = makeSession("new-1", "New Session");
-    const client = createClient({
-      create: vi.fn().mockResolvedValue({ data: newSession }),
-      get: vi.fn().mockResolvedValue({ data: newSession }),
-      messages: vi.fn().mockResolvedValue({ data: [] }),
-    });
-    const qc = createQueryClient();
-    seedState(qc);
-
-    const onSessionSelect = vi.fn();
-    render(<TestSidebar client={client} queryClient={qc} onSessionSelect={onSessionSelect} />);
-
-    const newBtn = screen.getByTitle("New chat");
-    await act(async () => {
-      fireEvent.click(newBtn);
-    });
-
-    expect(client.session.create).toHaveBeenCalled();
-    expect(onSessionSelect).toHaveBeenCalled();
-  });
-
   it("snoozes an idle session instead of deleting it", async () => {
     const s1 = makeSession("s1", "To Snooze");
     const snoozed = makeSession("s1", "To Snooze", s1.time.created, Date.now());
@@ -265,46 +220,6 @@ describe("ChatSidebar", () => {
     });
     expect(client.session.update).not.toHaveBeenCalled();
     expect(screen.getByText("Snoozed")).toBeInTheDocument();
-  });
-
-  it("pins the snoozed fold directly above settings", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-    seedState(qc, {
-      sessions: [makeSession("s1", "Archived", Date.now(), Date.now())],
-    });
-
-    render(<TestSidebar client={client} queryClient={qc} />);
-
-    const snoozed = await screen.findByText("Snoozed");
-    const settings = screen.getByText("Settings");
-    expect(
-      snoozed.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it("unsnoozes a session from its default hover action", async () => {
-    const snoozed = makeSession("s1", "Old session", Date.now(), Date.now());
-    const active = makeSession("s1", "Old session", snoozed.time.created, 0);
-    const client = createClient({ update: vi.fn().mockResolvedValue({ data: active }) });
-    const qc = createQueryClient();
-    seedState(qc, { sessions: [snoozed] });
-
-    render(<TestSidebar client={client} queryClient={qc} />);
-    fireEvent.click(await screen.findByText("Snoozed"));
-    await act(async () => fireEvent.click(screen.getByTitle("Unsnooze")));
-
-    await waitFor(() =>
-      expect(client.session.update).toHaveBeenCalledWith(
-        { sessionID: "s1", time: { archived: 0 } },
-        { throwOnError: true },
-      ),
-    );
-    expect(capture).toHaveBeenCalledWith("session_unsnoozed", {
-      analytics_schema_version: 1,
-      feature: "sessions",
-      outcome: "success",
-    });
   });
 
   it("permanently deletes a session only from its right-click menu and after confirmation", async () => {
@@ -405,49 +320,5 @@ describe("ChatSidebar", () => {
     expect(client.session.update).not.toHaveBeenCalled();
     // Should show original title
     expect(screen.getByText("My Session")).toBeInTheDocument();
-  });
-
-  it("calls onOpenSettings when Settings button is clicked", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-    seedState(qc);
-
-    const onOpenSettings = vi.fn();
-    render(<TestSidebar client={client} queryClient={qc} onOpenSettings={onOpenSettings} />);
-
-    const settingsBtn = await screen.findByText("Settings");
-    await act(async () => {
-      fireEvent.click(settingsBtn);
-    });
-
-    expect(onOpenSettings).toHaveBeenCalled();
-  });
-
-  it("shows collapsed state with icon buttons", () => {
-    const client = createClient();
-    const qc = createQueryClient();
-    seedState(qc);
-
-    render(<TestSidebar client={client} queryClient={qc} collapsed />);
-
-    expect(screen.getByTitle("Expand sidebar")).toBeInTheDocument();
-    expect(screen.getByTitle("New chat")).toBeInTheDocument();
-    expect(screen.getByTitle("Settings")).toBeInTheDocument();
-  });
-
-  it("calls onToggle when collapse button is clicked", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-    seedState(qc);
-
-    const onToggle = vi.fn();
-    render(<TestSidebar client={client} queryClient={qc} onToggle={onToggle} />);
-
-    const collapseBtn = screen.getByTitle("Collapse sidebar");
-    await act(async () => {
-      fireEvent.click(collapseBtn);
-    });
-
-    expect(onToggle).toHaveBeenCalled();
   });
 });

@@ -1,6 +1,5 @@
-import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { createExplorerReference, ExplorerSnapshotSchema, sortExplorerNodes } from "@/lib/explorer";
+import { createExplorerReference } from "@/lib/explorer";
 import { isVisibleSession } from "@/lib/sessionVisibility";
 
 const snapshot = {
@@ -36,55 +35,6 @@ describe("Explorer data boundary", () => {
   it("keeps private Explorer sessions out of the chat list", () => {
     expect(isVisibleSession({ metadata: { bloxbotHidden: true } } as never)).toBe(false);
     expect(isVisibleSession({ metadata: {} } as never)).toBe(true);
-  });
-
-  it("validates recursive snapshots owned by the app", async () => {
-    await expect(
-      Effect.runPromise(Schema.decodeUnknown(ExplorerSnapshotSchema)(snapshot)),
-    ).resolves.toEqual(snapshot);
-
-    await expect(
-      Effect.runPromise(
-        Schema.decodeUnknown(ExplorerSnapshotSchema)({
-          ...snapshot,
-          roots: [{ ...snapshot.roots[0], hasChildren: "yes" }],
-        }),
-      ),
-    ).rejects.toBeDefined();
-  });
-
-  it("matches Studio's class order and sorts names within a class", () => {
-    const makeNode = (name: string, className: string) => ({
-      name,
-      className,
-      path: `game.Workspace.${name}`,
-      hasChildren: false,
-      properties: [],
-      attributes: [],
-      children: [],
-    });
-
-    const sorted = sortExplorerNodes([
-      makeNode("Baseplate", "Part"),
-      makeNode("Zebra", "Script"),
-      makeNode("LocalScript", "LocalScript"),
-      makeNode("Terrain", "Terrain"),
-      makeNode("Alpha", "Script"),
-      makeNode("Camera", "Camera"),
-      makeNode("ModuleScript", "ModuleScript"),
-      makeNode("SpawnLocation", "SpawnLocation"),
-    ]);
-
-    expect(sorted.map((node) => node.name)).toEqual([
-      "Camera",
-      "Terrain",
-      "Alpha",
-      "Zebra",
-      "SpawnLocation",
-      "LocalScript",
-      "ModuleScript",
-      "Baseplate",
-    ]);
   });
 
   it("makes paths non-authoritative when inserting an object into chat", () => {

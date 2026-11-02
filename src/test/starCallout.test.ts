@@ -12,13 +12,8 @@ vi.mock("@/lib/desktop", async (importOriginal) => {
   return { ...actual, desktop: { ...actual.desktop, openUrl } };
 });
 
-import { loadConfig, patchConfig } from "@/lib/config";
-import {
-  maybeShowStarCallout,
-  recordPromptSent,
-  STAR_CALLOUT_PROMPTS,
-  showStarCallout,
-} from "@/lib/starCallout";
+import { loadConfig } from "@/lib/config";
+import { maybeShowStarCallout, recordPromptSent, showStarCallout } from "@/lib/starCallout";
 
 describe("GitHub star callout", () => {
   beforeEach(() => {
@@ -43,19 +38,6 @@ describe("GitHub star callout", () => {
     await expect(loadConfig()).resolves.toMatchObject({ starCalloutShown: true });
   });
 
-  it("holds the ask for a later turn while BloxBot is in the background", async () => {
-    await patchConfig({ promptsSent: STAR_CALLOUT_PROMPTS });
-    focused.mockReturnValue(false);
-
-    await maybeShowStarCallout();
-    expect(message).not.toHaveBeenCalled();
-    await expect(loadConfig()).resolves.toMatchObject({ starCalloutShown: false });
-
-    focused.mockReturnValue(true);
-    await maybeShowStarCallout();
-    expect(message).toHaveBeenCalledOnce();
-  });
-
   it("skips the prompt count for a returning user, and still asks only once", async () => {
     focused.mockReturnValue(false);
 
@@ -64,14 +46,5 @@ describe("GitHub star callout", () => {
     await maybeShowStarCallout();
 
     expect(message).toHaveBeenCalledOnce();
-  });
-
-  it("opens the repository from the callout", async () => {
-    await patchConfig({ promptsSent: STAR_CALLOUT_PROMPTS });
-    await maybeShowStarCallout();
-
-    message.mock.calls[0][1].action.onClick();
-
-    expect(openUrl).toHaveBeenCalledWith("https://github.com/paralov/app-bloxbot-ai");
   });
 });

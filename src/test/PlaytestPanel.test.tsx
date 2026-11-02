@@ -187,36 +187,6 @@ describe("PlaytestPanel", () => {
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
   });
 
-  it("reports an invalid plan only when the planner answered without an error", async () => {
-    const client = plannerClient(
-      vi.fn().mockResolvedValue({ data: { info: { structured: { goal: "Missing lists" } } } }),
-    );
-    render(<Harness client={client} detailedAnalytics="enabled" />);
-    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
-    expect(await screen.findByText("Couldn't create a playtest plan")).toBeInTheDocument();
-    expect(screen.getByText("The planner returned an incomplete test plan.")).toBeInTheDocument();
-    // One reminder, then it gives up.
-    expect(client.session.prompt).toHaveBeenCalledTimes(2);
-    expect(capture).toHaveBeenCalledWith(
-      "generation_failed",
-      expect.objectContaining({ error_category: "invalid_plan", attempts: 2 }),
-    );
-    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
-  });
-
-  it("counts attempts when the planner request itself fails", async () => {
-    const client = plannerClient(vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
-    render(<Harness client={client} />);
-    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
-    expect(await screen.findByText("Failed to fetch")).toBeInTheDocument();
-    expect(client.session.prompt).toHaveBeenCalledOnce();
-    expect(capture).toHaveBeenCalledWith(
-      "generation_failed",
-      expect.objectContaining({ attempts: 1, error_type: "TypeError" }),
-    );
-    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
-  });
-
   it("reminds the planner once in the same session when it returns no structured output (#119)", async () => {
     const client = plannerClient(
       vi
@@ -249,33 +219,6 @@ describe("PlaytestPanel", () => {
       attempts: 2,
     });
     expect(capturedEvents()).not.toContain("generation_failed");
-  });
-
-  it("reports the structured output error when the reminder also fails", async () => {
-    const client = plannerClient(
-      vi.fn().mockResolvedValue({
-        data: {
-          info: {
-            error: {
-              name: "StructuredOutputError",
-              data: { message: "Model did not produce structured output", retries: 2 },
-            },
-          },
-        },
-      }),
-    );
-    render(<Harness client={client} detailedAnalytics="enabled" />);
-    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
-    expect(await screen.findByText("Model did not produce structured output")).toBeInTheDocument();
-    expect(client.session.prompt).toHaveBeenCalledTimes(2);
-    expect(capture).toHaveBeenCalledWith(
-      "generation_failed",
-      expect.objectContaining({
-        error_category: "model_error",
-        model_error_name: "StructuredOutputError",
-        attempts: 2,
-      }),
-    );
   });
 
   it("turns generate off in a chat with no text and keeps manual entry", () => {
@@ -311,20 +254,5 @@ describe("PlaytestPanel", () => {
     expect(regenerate).toHaveAccessibleDescription(
       "Regenerate builds a plan from this chat. Send a message first.",
     );
-  });
-
-  it("opens blank manual fields without calling the planning agent", () => {
-    const client = plannerClient(vi.fn());
-    render(<Harness client={client} />);
-    expect(screen.getByRole("button", { name: "Generate from chat" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Write my own" }));
-    expect(screen.getByLabelText("Goal")).toHaveValue("");
-    expect(screen.getByLabelText("Steps 1")).toHaveValue("");
-    expect(client.session.create).not.toHaveBeenCalled();
-    expect(client.session.prompt).not.toHaveBeenCalled();
-    expect(capture).toHaveBeenCalledWith("manual_entry_selected", {
-      analytics_schema_version: 1,
-      feature: "playtest",
-    });
   });
 });

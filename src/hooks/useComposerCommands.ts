@@ -108,7 +108,7 @@ export function useComposerCommands(actions: {
         actions.restoreDraft(text.join("\n"));
         notify.message("Message undone", {
           description:
-            "Files are back as they were. Changes made in Studio stay, so use Studio's undo for those.",
+            "This only rewinds the chat. Changes already made to files or in Studio stay.",
         });
         return;
       }

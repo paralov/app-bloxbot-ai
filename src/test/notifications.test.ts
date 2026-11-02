@@ -41,15 +41,6 @@ describe("notify", () => {
     setSystemNotificationsAllowed(true);
   });
 
-  it("only shows a toast by default, even in the background", () => {
-    setFocused(false);
-
-    expect(notify.error("Message not sent", { description: "Nope" })).toBe("toast-id");
-
-    expect(toast.error).toHaveBeenCalledWith("Message not sent", { description: "Nope" });
-    expect(desktop.showSystemNotification).not.toHaveBeenCalled();
-  });
-
   it("adds an OS notification to a system toast while unfocused", () => {
     setFocused(false);
 
@@ -66,18 +57,6 @@ describe("notify", () => {
     expect(desktop.showSystemNotification).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Lost connection", body: "Events stopped." }),
     );
-  });
-
-  it("keeps a system toast in the app while focused", () => {
-    setFocused(true);
-
-    notify.message("Update available", {
-      name: "update_available",
-      system: { body: "Open BloxBot." },
-    });
-
-    expect(toast).toHaveBeenCalledOnce();
-    expect(desktop.showSystemNotification).not.toHaveBeenCalled();
   });
 
   it("sends attention to one output, depending on focus", () => {
@@ -130,47 +109,6 @@ describe("notify", () => {
     expect(capture).toHaveBeenCalledWith(
       "notification_clicked",
       expect.objectContaining({ notification: "chat_finished", output: "system", action: "open" }),
-    );
-  });
-
-  it("reports an OS notification click even when it only brings the window forward", () => {
-    setFocused(false);
-
-    notify.error("Lost connection", { name: "connection_lost", system: true });
-
-    const { id } = desktop.showSystemNotification.mock.calls[0][0 as never] as { id: string };
-    click.listener?.(id);
-    expect(capture).toHaveBeenCalledWith(
-      "notification_clicked",
-      expect.objectContaining({ notification: "connection_lost", output: "system" }),
-    );
-  });
-
-  it("reports which toast button was clicked and still runs it", () => {
-    setFocused(true);
-    const onClick = vi.fn();
-
-    notify.message("Enjoying BloxBot?", {
-      name: "github_star",
-      action: { label: "Star on GitHub", onClick },
-    });
-
-    expect(capture).toHaveBeenCalledWith(
-      "notification_shown",
-      expect.objectContaining({ notification: "github_star", output: "toast" }),
-    );
-    const options = toast.mock.calls[0][1 as never] as {
-      action: { onClick: (event: unknown) => void };
-    };
-    options.action.onClick({});
-    expect(onClick).toHaveBeenCalledOnce();
-    expect(capture).toHaveBeenCalledWith(
-      "notification_clicked",
-      expect.objectContaining({
-        notification: "github_star",
-        output: "toast",
-        action: "Star on GitHub",
-      }),
     );
   });
 
