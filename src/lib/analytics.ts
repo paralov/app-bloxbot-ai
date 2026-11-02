@@ -127,8 +127,6 @@ const EXPLORER_ANALYTICS_KEYS = new Set([
   "duration_ms",
   "has_attributes",
   "node_count",
-  "program_sequence",
-  "program_source",
   "reason",
   "root_count",
   "source",

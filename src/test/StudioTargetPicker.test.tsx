@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   discoverStudioTargets,
   selectStudioTarget,
-  installStudioTargetPrograms,
   patchConfig,
   capture,
   loadConfig,
@@ -14,7 +13,6 @@ const {
 } = vi.hoisted(() => ({
   discoverStudioTargets: vi.fn(),
   selectStudioTarget: vi.fn(),
-  installStudioTargetPrograms: vi.fn(),
   patchConfig: vi.fn(),
   capture: vi.fn(),
   loadConfig: vi.fn(),
@@ -23,27 +21,18 @@ const {
   activeSession: { id: "chat-session" },
 }));
 
-const programs = { discovery: {}, selection: {} };
-
 vi.mock("@/lib/desktop", () => ({
   desktop: {
     discoverStudioTargets,
     selectStudioTarget,
     loadConfig,
     patchConfig,
-    installStudioTargetPrograms,
-    getBloxBotPrograms: vi.fn().mockResolvedValue(null),
-    onBloxBotProgramsUpdated: vi.fn(() => () => {}),
   },
 }));
 
-vi.mock("@/lib/studioTargetPrograms", () => ({ generateStudioTargetPrograms: generatePrograms }));
 vi.mock("@/providers/OpenCodeClientProvider", () => ({ useOpenCodeClient: () => ({ client }) }));
 vi.mock("@/providers/ActiveSessionProvider", () => ({
   useActiveSession: () => ({ activeSessionId: activeSession.id }),
-}));
-vi.mock("@/providers/PreferencesProvider", () => ({
-  usePreferences: () => ({ selectedModel: null }),
 }));
 
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
@@ -71,8 +60,7 @@ describe("StudioTargetPicker", () => {
     capture.mockReset();
     patchConfig.mockReset();
     activeSession.id = "chat-session";
-    loadConfig.mockResolvedValue({ studioTargetPrograms: programs, studioTargetsBySession: {} });
-    installStudioTargetPrograms.mockResolvedValue(programs);
+    loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
     generatePrograms.mockRejectedValue(new Error("generation failed"));
   });
 
@@ -95,7 +83,7 @@ describe("StudioTargetPicker", () => {
       outcome: "success",
       selected: true,
     });
-    expect(selectStudioTarget).toHaveBeenCalledWith(programs, "private-session-id");
+    expect(selectStudioTarget).toHaveBeenCalledWith("private-session-id");
     expect(JSON.stringify(capture.mock.calls)).not.toContain("private-session-id");
     expect(JSON.stringify(capture.mock.calls)).not.toContain("Obby");
   });
@@ -142,7 +130,7 @@ describe("StudioTargetPicker", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Lobby/ }));
     fireEvent.click(screen.getByRole("button", { name: /Dungeon/ }));
 
-    await waitFor(() => expect(selectStudioTarget).toHaveBeenCalledWith(programs, "two"));
+    await waitFor(() => expect(selectStudioTarget).toHaveBeenCalledWith("two"));
     expect(screen.getByRole("button", { expanded: true })).toHaveTextContent("Dungeon");
     expect(capture).toHaveBeenCalledWith("studio_target_verification_succeeded", {
       analytics_schema_version: 1,
@@ -194,9 +182,7 @@ describe("StudioTargetPicker", () => {
     discoverStudioTargets.mockRejectedValueOnce(new Error("offline"));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByText("Couldn’t find Studios")).toBeVisible();
-    expect(
-      screen.getByText("Studio integration setup failed. Refresh to try again."),
-    ).toBeVisible();
+    expect(screen.getByText("Couldn't reach Roblox Studio. Refresh to try again.")).toBeVisible();
   });
 
   it("keeps the prior target when verification fails", async () => {
@@ -218,7 +204,6 @@ describe("StudioTargetPicker", () => {
 
   it("restores a session target by place name when its Studio id changes", async () => {
     loadConfig.mockResolvedValue({
-      studioTargetPrograms: programs,
       studioTargetsBySession: {
         "chat-session": { key: "old-id", label: "Dungeon", detail: null },
       },
@@ -238,7 +223,7 @@ describe("StudioTargetPicker", () => {
     renderPicker();
 
     expect(await screen.findByRole("button", { name: /Dungeon/ })).toBeVisible();
-    expect(selectStudioTarget).toHaveBeenCalledWith(programs, "new-id");
+    expect(selectStudioTarget).toHaveBeenCalledWith("new-id");
     expect(patchConfig).toHaveBeenCalledWith({
       studioTargetsBySession: {
         "chat-session": { key: "new-id", label: "Dungeon", detail: "Active" },
@@ -248,7 +233,6 @@ describe("StudioTargetPicker", () => {
 
   it("restores by Place ID before an ambiguous place name", async () => {
     loadConfig.mockResolvedValue({
-      studioTargetPrograms: programs,
       studioTargetsBySession: {
         "chat-session": {
           key: "old-id",
@@ -288,12 +272,11 @@ describe("StudioTargetPicker", () => {
     renderPicker();
 
     expect(await screen.findByRole("button", { name: /Untitled/ })).toBeVisible();
-    expect(selectStudioTarget).toHaveBeenCalledWith(programs, "right-studio");
+    expect(selectStudioTarget).toHaveBeenCalledWith("right-studio");
   });
 
   it("does not guess when multiple Studios match the remembered Place ID", async () => {
     loadConfig.mockResolvedValue({
-      studioTargetPrograms: programs,
       studioTargetsBySession: {
         "chat-session": {
           key: "old-id",

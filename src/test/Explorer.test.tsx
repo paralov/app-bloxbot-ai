@@ -2,11 +2,8 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  compile: vi.fn(),
-  invoke: vi.fn(),
-  resolvePrograms: vi.fn(),
+  getSnapshot: vi.fn(),
   capture: vi.fn(),
-  prompt: vi.fn(),
   // Stable, as the real providers' values are: a new one each render restarts Explorer's sync.
   client: {},
   studioTarget: { selected: { key: "studio-1" } },
@@ -16,17 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
   default: { capture: mocks.capture },
 }));
-vi.mock("@/lib/desktop", () => ({
-  desktop: {
-    compileExplorerProgram: mocks.compile,
-    invokeExplorerProgram: mocks.invoke,
-    onBloxBotProgramsUpdated: () => () => {},
-  },
-}));
-vi.mock("@/lib/bloxbotPrograms", () => ({
-  BUILTIN_BLOXBOT_PROGRAMS: { explorer: { source: "builtin", program: "builtin-program" } },
-  resolveBloxBotPrograms: mocks.resolvePrograms,
-}));
+vi.mock("@/lib/desktop", () => ({ desktop: { getExplorerSnapshot: mocks.getSnapshot } }));
 vi.mock("@/providers/OpenCodeClientProvider", () => ({
   useOpenCodeClient: () => ({ client: mocks.client }),
 }));
@@ -46,7 +33,7 @@ const tree = {
     {
       name: "Workspace",
       className: "Workspace",
-      path: "Workspace",
+      path: "game.Workspace",
       hasChildren: false,
       properties: [],
       attributes: [],
@@ -55,22 +42,21 @@ const tree = {
   ],
 };
 
-const builtin = { explorer: { source: "builtin", program: "builtin-program" } };
-const published = { explorer: { source: "published", program: "published-program", sequence: 4 } };
-
 const advance = (ms: number) =>
   act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
 
 describe("Explorer", () => {
+  const onToggle = () => {};
+  const start = () =>
+    render(<Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />);
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.spyOn(document, "hasFocus").mockReturnValue(true);
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-    mocks.client = { session: { prompt: mocks.prompt } };
-    mocks.compile.mockImplementation(async (program: string) => ({ program }));
   });
 
   afterEach(() => {
@@ -78,14 +64,9 @@ describe("Explorer", () => {
     vi.restoreAllMocks();
   });
 
-  const onToggle = () => {};
-  const start = () =>
-    render(<Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />);
-
-  it("retries a failed setup on its own, and never asks the model", async () => {
-    mocks.resolvePrograms.mockResolvedValue(builtin);
-    mocks.invoke.mockRejectedValueOnce(new Error("Studio has not returned a tree"));
-    mocks.invoke.mockResolvedValue(tree);
+  it("retries a failed first load on its own", async () => {
+    mocks.getSnapshot.mockRejectedValueOnce(new Error("Studio is busy"));
+    mocks.getSnapshot.mockResolvedValue(tree);
 
     start();
     await advance(0);
@@ -94,41 +75,34 @@ describe("Explorer", () => {
     await advance(10_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
-    expect(mocks.prompt).not.toHaveBeenCalled();
   });
 
-  it("falls back from a broken published program to the shipped one", async () => {
-    mocks.resolvePrograms.mockResolvedValue(published);
-    mocks.invoke.mockImplementation(async (artifact: { program: string }) => {
-      if (artifact.program === "published-program") throw new Error("Published program broke");
-      return tree;
-    });
+  it("treats an empty first tree as not ready yet", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce({ ...tree, roots: [] });
+    mocks.getSnapshot.mockResolvedValue(tree);
 
     start();
     await advance(0);
+    expect(screen.getByText(/Trying again shortly/)).toBeInTheDocument();
 
+    await advance(10_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(mocks.compile).toHaveBeenLastCalledWith("builtin-program");
-    expect(mocks.prompt).not.toHaveBeenCalled();
   });
 
   it("keeps the tree on screen when a later sync fails, then recovers", async () => {
-    mocks.resolvePrograms.mockResolvedValue(builtin);
-    mocks.invoke.mockResolvedValueOnce(tree);
+    mocks.getSnapshot.mockResolvedValueOnce(tree);
 
     start();
     await advance(0);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
 
-    mocks.invoke.mockRejectedValueOnce(new Error("Studio went away"));
+    mocks.getSnapshot.mockRejectedValueOnce(new Error("Studio went away"));
     await advance(5_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText(/Trying again shortly/)).toBeInTheDocument();
 
-    mocks.invoke.mockResolvedValue(tree);
+    mocks.getSnapshot.mockResolvedValue(tree);
     await advance(10_000);
     expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
-    expect(mocks.prompt).not.toHaveBeenCalled();
-    expect(mocks.compile).toHaveBeenCalledOnce();
   });
 });

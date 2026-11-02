@@ -24,14 +24,12 @@ import {
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
 } from "@/lib/analytics";
-import { BUILTIN_BLOXBOT_PROGRAMS, resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
 import {
   createExplorerReference,
-  type ExplorerCollection,
   type ExplorerField,
   type ExplorerNode,
-  type ExplorerProgramEnvelope,
+  type ExplorerSnapshot,
   sortExplorerSnapshot,
 } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
@@ -180,8 +178,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const { client } = useOpenCodeClient();
   const studioTarget = useStudioTargetOptional();
   const { referenceObject, publishObjects } = useExplorerReference();
-  const [collection, setCollection] = useState<ExplorerCollection | null>(null);
-  const collectionRef = useRef<ExplorerCollection | null>(null);
+  const [snapshot, setSnapshot] = useState<ExplorerSnapshot | null>(null);
+  const snapshotRef = useRef<ExplorerSnapshot | null>(null);
   const syncingRef = useRef(false);
   const resyncRequestedRef = useRef(false);
   const syncLatestRef = useRef<() => void>(() => undefined);
@@ -196,8 +194,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
   // Consecutive failed syncs, which set the retry backoff.
   const failuresRef = useRef(0);
-  // Set when newer published programs arrive; the next sync loads them.
-  const programsUpdatedRef = useRef(false);
 
   useEffect(() => {
     posthog.capture(
@@ -251,129 +247,28 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         posthog.capture("sync_started", analyticsProperties("explorer", { source: "initial" }));
       }
 
-      // Where the first-load program came from, to decide the next fallback.
-      let initialSource: "published" | "builtin" | null = null;
-
-      async function loadProgram(reason: "initial" | "builtin_fallback") {
-        const startedAt = performance.now();
-        posthog.capture(
-          "collector_generation_started",
-          analyticsProperties("explorer", { reason }),
-        );
-        // Where the program came from, so a broken published program shows up.
-        let programProperties: { program_source?: string; program_sequence?: number } = {};
-        // Compiles a program and runs it once, as every program is checked
-        // before Explorer uses it.
-        const tryProgram = async (program: ExplorerProgramEnvelope) => {
-          const artifact = await desktop.compileExplorerProgram(program);
-          const snapshot = sortExplorerSnapshot(
-            await desktop.invokeExplorerProgram(artifact, studioId),
-          );
-          if (snapshot.roots.length === 0) {
-            throw new Error("Studio has not returned an instance tree yet");
-          }
-          return { artifact, snapshot };
-        };
-        try {
-          const { explorer } =
-            reason === "initial" ? await resolveBloxBotPrograms() : BUILTIN_BLOXBOT_PROGRAMS;
-          if (reason === "initial") initialSource = explorer.source;
-          programProperties = {
-            program_source: explorer.source,
-            program_sequence: explorer.sequence,
-          };
-          const generated: ExplorerCollection = {
-            program: explorer.program,
-            ...(await tryProgram(explorer.program)),
-            origin: explorer.source,
-          };
-          posthog.capture(
-            "collector_generation_succeeded",
-            analyticsProperties(
-              "explorer",
-              explorerAnalyticsProperties({
-                duration_ms: Math.round(performance.now() - startedAt),
-                reason,
-                ...programProperties,
-                root_count: generated.snapshot.roots.length,
-                node_count: countNodes(generated.snapshot.roots),
-              }),
-            ),
-          );
-          return generated;
-        } catch (error) {
-          console.error("[explorer] collector generation failed", error);
-          posthog.capture(
-            "collector_generation_failed",
-            errorAnalyticsProperties(
-              "explorer",
-              "collector_generation",
-              error,
-              explorerAnalyticsProperties({
-                duration_ms: Math.round(performance.now() - startedAt),
-                reason,
-                ...programProperties,
-              }),
-            ),
-          );
-          throw error;
-        }
-      }
-
-      if (programsUpdatedRef.current) {
-        programsUpdatedRef.current = false;
-        collectionRef.current = null;
-      }
       try {
-        const current = collectionRef.current;
-        let next: ExplorerCollection;
-        if (current) {
-          try {
-            const snapshot = sortExplorerSnapshot(
-              await desktop.invokeExplorerProgram(current.artifact, studioId),
-            );
-            next = { ...current, snapshot };
-          } catch (error) {
-            // Only a published program has an older one to fall back to. Otherwise the current
-            // tree stays on screen and the next sync tries again.
-            if (current.origin !== "published") throw error;
-            telemetryRef.current.hadFailure = true;
-            if (failuresRef.current === 0)
-              posthog.capture(
-                "sync_failed",
-                errorAnalyticsProperties("explorer", "collector_runtime", error, {
-                  reason: "collector_runtime",
-                }),
-              );
-            next = await loadProgram("builtin_fallback");
-          }
-        } else {
-          try {
-            next = await loadProgram("initial");
-          } catch (error) {
-            // A broken published program falls back to the one this app shipped.
-            if (initialSource !== "published") throw error;
-            next = await loadProgram("builtin_fallback");
-          }
+        const current = snapshotRef.current;
+        const next = sortExplorerSnapshot(await desktop.getExplorerSnapshot(studioId));
+        if (!current && next.roots.length === 0) {
+          throw new Error("Studio has not returned an instance tree yet");
         }
 
         if (cancelled) return;
         const previousComparable = current
-          ? JSON.stringify({ placeName: current.snapshot.placeName, roots: current.snapshot.roots })
+          ? JSON.stringify({ placeName: current.placeName, roots: current.roots })
           : null;
         const nextComparable = JSON.stringify({
-          placeName: next.snapshot.placeName,
-          roots: next.snapshot.roots,
+          placeName: next.placeName,
+          roots: next.roots,
         });
         unchangedPolls = previousComparable === nextComparable ? unchangedPolls + 1 : 0;
         failuresRef.current = 0;
-        collectionRef.current = next;
-        setCollection(next);
-        publishObjects(next.snapshot.roots);
+        snapshotRef.current = next;
+        setSnapshot(next);
+        publishObjects(next.roots);
         setExpanded((currentExpanded) =>
-          currentExpanded.size > 0
-            ? currentExpanded
-            : new Set(next.snapshot.roots.map((node) => node.path)),
+          currentExpanded.size > 0 ? currentExpanded : new Set(next.roots.map((node) => node.path)),
         );
         if (isFirstSync || telemetryRef.current.hadFailure) {
           posthog.capture(
@@ -383,8 +278,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - syncStartedAt),
                 source: telemetryRef.current.hadFailure ? "recovery" : "initial",
-                root_count: next.snapshot.roots.length,
-                node_count: countNodes(next.snapshot.roots),
+                root_count: next.roots.length,
+                node_count: countNodes(next.roots),
               }),
             ),
           );
@@ -405,7 +300,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               error,
               explorerAnalyticsProperties({
                 duration_ms: Math.round(performance.now() - syncStartedAt),
-                reason: collectionRef.current ? "recovery_failed" : "initial_failed",
+                reason: snapshotRef.current ? "recovery_failed" : "initial_failed",
               }),
             ),
           );
@@ -450,19 +345,6 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     };
   }, [client, collapsed, publishObjects, sessionBusy, studioTarget?.selected]);
 
-  // Newer published programs replace the current one at the next sync, and retry a failed setup.
-  useEffect(
-    () =>
-      desktop.onBloxBotProgramsUpdated(() => {
-        // Applied at the start of the next sync, so a sync already running
-        // can't put the old program back afterwards.
-        programsUpdatedRef.current = true;
-        failuresRef.current = 0;
-        syncLatestRef.current();
-      }),
-    [],
-  );
-
   const toggleNode = useCallback((path: string) => {
     setExpanded((current) => {
       const next = new Set(current);
@@ -473,14 +355,14 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, []);
 
   const selected = useMemo(
-    () => (selectedPath && collection ? findNode(collection.snapshot.roots, selectedPath) : null),
-    [collection, selectedPath],
+    () => (selectedPath && snapshot ? findNode(snapshot.roots, selectedPath) : null),
+    [snapshot, selectedPath],
   );
 
   const visibleRoots = useMemo(() => {
-    if (!collection) return [];
+    if (!snapshot) return [];
     const query = search.trim().toLowerCase();
-    if (!query) return collection.snapshot.roots;
+    if (!query) return snapshot.roots;
     const filter = (node: ExplorerNode): ExplorerNode | null => {
       const children = node.children.flatMap((child) => {
         const match = filter(child);
@@ -489,11 +371,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       const matches = `${node.name} ${node.className} ${node.path}`.toLowerCase().includes(query);
       return matches || children.length > 0 ? { ...node, children } : null;
     };
-    return collection.snapshot.roots.flatMap((root) => {
+    return snapshot.roots.flatMap((root) => {
       const match = filter(root);
       return match ? [match] : [];
     });
-  }, [collection, search]);
+  }, [snapshot, search]);
   const visibleExpanded = useMemo(
     () => (search.trim() ? collectPaths(visibleRoots) : expanded),
     [expanded, search, visibleRoots],
@@ -571,8 +453,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         role="tree"
         aria-label="Instance hierarchy"
       >
-        {!collection && syncing ? <ExplorerLoading /> : null}
-        {!collection && !syncing && !syncError ? <ExplorerLoading /> : null}
+        {!snapshot && syncing ? <ExplorerLoading /> : null}
+        {!snapshot && !syncing && !syncError ? <ExplorerLoading /> : null}
         {visibleRoots.map((node) => (
           <TreeRow
             key={node.path}

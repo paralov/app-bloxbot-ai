@@ -15,18 +15,10 @@ import {
   errorAnalyticsProperties,
   setStudioAnalyticsContext,
 } from "@/lib/analytics";
-import { BUILTIN_BLOXBOT_PROGRAMS, resolveBloxBotPrograms } from "@/lib/bloxbotPrograms";
 import { desktop } from "@/lib/desktop";
-import { splitModelKey } from "@/lib/splitModelKey";
-import { generateStudioTargetPrograms } from "@/lib/studioTargetPrograms";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
-import { usePreferences } from "@/providers/PreferencesProvider";
-import type {
-  StudioTarget,
-  StudioTargetPrograms,
-  StudioTargetSelection,
-} from "@/types/studioTarget";
+import type { StudioTarget } from "@/types/studioTarget";
 
 export type StudioTargetStatus = "loading" | "ready" | "empty" | "error";
 
@@ -62,7 +54,6 @@ export function createStudioTargetPromptReference(target: StudioTarget): string 
 export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
-  const { selectedModel } = usePreferences();
   const [targets, setTargets] = useState<readonly StudioTarget[]>([]);
   const [selected, setSelected] = useState<StudioTarget | null>(null);
   const [status, setStatus] = useState<StudioTargetStatus>("loading");
@@ -71,15 +62,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const operationRef = useRef(0);
   const targetsRef = useRef<readonly StudioTarget[]>([]);
-  const programsRef = useRef<StudioTargetPrograms | null>(null);
-  // Where the installed programs came from; a failed published copy is skipped
-  // for the rest of the session in favour of the built-in programs.
-  const programsSourceRef = useRef<"published" | "builtin" | "model" | null>(null);
-  const publishedFailedRef = useRef(false);
-  const programsUpdatedRef = useRef(false);
-  const builtinInstallRef = useRef<Promise<StudioTargetPrograms> | null>(null);
   const discoveryRef = useRef<Promise<void> | null>(null);
-  const generationRef = useRef<Promise<StudioTargetPrograms> | null>(null);
   const targetsBySessionRef = useRef<Record<string, StudioTarget>>({});
   const configLoadedRef = useRef(false);
 
@@ -93,98 +76,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     [activeSessionId],
   );
 
-  const generatePrograms = useCallback(async () => {
-    if (generationRef.current) return generationRef.current;
-    if (!client) throw new Error("The local agent is not ready");
-    const model = selectedModel
-      ? (() => {
-          const [providerID, modelID] = splitModelKey(selectedModel);
-          return providerID && modelID ? { providerID, modelID } : undefined;
-        })()
-      : undefined;
-    const generation = generateStudioTargetPrograms(client, model)
-      .then((envelopes) => desktop.installStudioTargetPrograms(envelopes))
-      .then(async (programs) => {
-        programsRef.current = programs;
-        programsSourceRef.current = "model";
-        await desktop.patchConfig({ studioTargetPrograms: programs });
-        return programs;
-      })
-      .finally(() => {
-        generationRef.current = null;
-      });
-    generationRef.current = generation;
-    return generation;
-  }, [client, selectedModel]);
-
-  const getPrograms = useCallback(async () => {
-    if (programsUpdatedRef.current) {
-      programsUpdatedRef.current = false;
-      if (programsSourceRef.current !== "model") programsRef.current = null;
-    }
-    if (programsRef.current) return programsRef.current;
-    if (!builtinInstallRef.current) {
-      // Published programs when newer than the built-in ones (see bloxbotPrograms.ts).
-      builtinInstallRef.current = (
-        publishedFailedRef.current
-          ? Promise.resolve(BUILTIN_BLOXBOT_PROGRAMS)
-          : resolveBloxBotPrograms()
-      )
-        .then((resolved) => {
-          programsSourceRef.current = resolved.targets.source;
-          return desktop.installStudioTargetPrograms(resolved.targets.programs);
-        })
-        .finally(() => {
-          builtinInstallRef.current = null;
-        });
-    }
-    const programs = await builtinInstallRef.current;
-    if (!programsRef.current) {
-      programsRef.current = programs;
-    }
-    return programsRef.current;
-  }, []);
-
-  // Newer published programs replace shipped or published ones on next use; a
-  // working model-written pair is kept. A new version gets a fresh chance.
-  useEffect(
-    () =>
-      desktop.onBloxBotProgramsUpdated(() => {
-        publishedFailedRef.current = false;
-        // Applied on the next getPrograms, so an install already running
-        // can't put the old programs back afterwards.
-        programsUpdatedRef.current = true;
-      }),
-    [],
-  );
-
-  /** Runs with the current programs, retrying with the built-in ones if published ones fail. */
-  const withProgramFallbacks = useCallback(
-    async <T,>(attempt: (programs: StudioTargetPrograms) => Promise<T>): Promise<T> => {
-      try {
-        return await attempt(await getPrograms());
-      } catch (error) {
-        if (programsSourceRef.current !== "published") throw error;
-        const published = programsRef.current;
-        publishedFailedRef.current = true;
-        programsRef.current = null;
-        try {
-          // The published programs only count as broken if the built-in ones work.
-          return await attempt(await getPrograms());
-        } catch {
-          publishedFailedRef.current = false;
-          programsRef.current = published;
-          programsSourceRef.current = "published";
-          throw error;
-        }
-      }
-    },
-    [getPrograms],
-  );
-
   const applyDiscovery = useCallback(
-    async (programs: StudioTargetPrograms, operation: number) => {
-      const result = await desktop.discoverStudioTargets(programs);
+    async (operation: number) => {
+      const result = await desktop.discoverStudioTargets();
       if (operation !== operationRef.current) return;
       targetsRef.current = result.targets;
       setTargets(result.targets);
@@ -212,7 +106,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         : "automatic";
       if (nextSelected && result.selectedKey !== nextSelected.key) {
         setSelectingKey(nextSelected.key);
-        const selection = await desktop.selectStudioTarget(programs, nextSelected.key);
+        const selection = await desktop.selectStudioTarget(nextSelected.key);
         if (operation !== operationRef.current) return;
         if (!selection.verified) throw new Error("Target verification failed");
         nextSelected = selection.selected;
@@ -223,7 +117,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         const onlyTarget = result.targets[0];
         setSelectingKey(onlyTarget.key);
         posthog.capture("studio_target_selected", analyticsProperties("studio_target"));
-        const selection = await desktop.selectStudioTarget(programs, onlyTarget.key);
+        const selection = await desktop.selectStudioTarget(onlyTarget.key);
         if (operation !== operationRef.current) return;
         if (!selection.verified) throw new Error("Target verification failed");
         nextSelected = selection.selected;
@@ -265,26 +159,17 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         else setRefreshing(true);
         setError(null);
         try {
-          await withProgramFallbacks((programs) => applyDiscovery(programs, operation));
-        } catch {
+          await applyDiscovery(operation);
+        } catch (discoveryError) {
           if (operation !== operationRef.current) return;
-          try {
-            programsRef.current = null;
-            const regenerated = await generatePrograms();
-            await applyDiscovery(regenerated, operation);
-          } catch (repairError) {
-            if (operation !== operationRef.current) return;
-            setStatus(targetsRef.current.length > 0 ? "ready" : "error");
-            setSelectingKey(null);
-            console.error("[studio-target] discovery repair failed", repairError);
-            setError("Studio integration setup failed. Refresh to try again.");
-            posthog.capture(
-              "studio_target_discovery_failed",
-              errorAnalyticsProperties("studio_target", "discovery_repair", repairError, {
-                used_model_fallback: true,
-              }),
-            );
-          }
+          setStatus(targetsRef.current.length > 0 ? "ready" : "error");
+          setSelectingKey(null);
+          console.error("[studio-target] discovery failed", discoveryError);
+          setError("Couldn't reach Roblox Studio. Refresh to try again.");
+          posthog.capture(
+            "studio_target_discovery_failed",
+            errorAnalyticsProperties("studio_target", "discovery", discoveryError),
+          );
         }
       })().finally(() => {
         setRefreshing(false);
@@ -293,7 +178,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       discoveryRef.current = discovery;
       return discovery;
     },
-    [applyDiscovery, generatePrograms, withProgramFallbacks],
+    [applyDiscovery],
   );
 
   const select = useCallback(
@@ -305,19 +190,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         "studio_target_selected",
         analyticsProperties("studio_target", { selection_mode: "manual" }),
       );
-      const attempt = async (programs: StudioTargetPrograms) => {
-        const result = await desktop.selectStudioTarget(programs, target.key);
-        if (!result.verified) throw new Error("Target verification failed");
-        return result;
-      };
       try {
-        let result: StudioTargetSelection;
-        try {
-          result = await withProgramFallbacks(attempt);
-        } catch {
-          programsRef.current = null;
-          result = await attempt(await generatePrograms());
-        }
+        const result = await desktop.selectStudioTarget(target.key);
+        if (!result.verified) throw new Error("Target verification failed");
         if (operation !== operationRef.current) return;
         setSelected(result.selected);
         await rememberTarget(result.selected);
@@ -344,7 +219,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         if (operation === operationRef.current) setSelectingKey(null);
       }
     },
-    [generatePrograms, rememberTarget, withProgramFallbacks],
+    [rememberTarget],
   );
 
   // AI traces attach the Studio place the prompt was routed to.

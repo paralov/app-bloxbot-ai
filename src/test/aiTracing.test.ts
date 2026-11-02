@@ -90,9 +90,6 @@ describe("AI tracing", () => {
           parts: [textPart("prt_old", "msg_old", "Earlier question")] as never,
         },
       ],
-      loadTools: async () => [
-        { id: "roblox-studio_run_code", description: "Run Luau", parameters: { type: "object" } },
-      ],
     });
 
     tracer.beginTurn({
@@ -151,10 +148,6 @@ describe("AI tracing", () => {
       sessionID: "ses_1",
       todos: [{ content: "Recolor lava", status: "completed", priority: "high" }],
     });
-    send("session.diff", {
-      sessionID: "ses_1",
-      diff: [{ file: "Lava.luau", additions: 2, deletions: 1, status: "modified" }],
-    });
     advance(1_700);
     send("session.status", { sessionID: "ses_1", status: { type: "idle" } });
     send("session.idle", { sessionID: "ses_1" });
@@ -191,7 +184,6 @@ describe("AI tracing", () => {
           ],
         },
       ],
-      $ai_tools: [{ name: "roblox-studio_run_code", description: "Run Luau" }],
       $ai_input_tokens: 150,
       $ai_output_tokens: 50,
       $ai_latency: 0.9,
@@ -210,8 +202,6 @@ describe("AI tracing", () => {
         studio_tool_call_count: 1,
         tools_used: ["roblox-studio_run_code"],
         todos: [{ content: "Recolor lava", status: "completed", priority: "high" }],
-        session_files_changed_count: 1,
-        session_lines_added: 2,
         $ai_output_state: [{ role: "assistant", content: "Done, the lava is red." }],
         roblox_place_id: "123456",
         roblox_place_name: "Obby",
@@ -361,7 +351,7 @@ describe("AI tracing", () => {
     });
   });
 
-  it("holds a generation until history, tools, and instructions have loaded", async () => {
+  it("holds a generation until history and instructions have loaded", async () => {
     const { tracer, send, events } = setup();
     let resolveHistory: (history: MessageWithParts[]) => void = () => {};
     tracer.configure({

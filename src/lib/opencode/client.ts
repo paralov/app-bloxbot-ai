@@ -497,13 +497,6 @@ export function createOpencodeClient(options: {
           return true;
         }),
     },
-    tool: {
-      // OpenCode 2 has no tool catalogue endpoint. AI traces treat this as "no definitions".
-      list: (_input: { provider: string; model: string }, _requestOptions?: RequestOptions) =>
-        Promise.resolve({
-          data: [] as Array<{ id: string; description: string; parameters: unknown }>,
-        }),
-    },
     instance: {
       dispose: (_input: object = {}, requestOptions?: RequestOptions) =>
         settle(requestOptions, async () => {

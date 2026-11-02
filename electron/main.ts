@@ -15,25 +15,23 @@ import {
   type OpenCodeStartupProgress,
   SystemNotificationSchema,
 } from "../src/types/desktop";
-import { ExplorerProgramEnvelopeSchema, ExplorerSnapshotSchema } from "../src/lib/explorer";
-import { GeneratedProgramArtifactSchema } from "../src/types/generatedProgram";
+import { ExplorerSnapshotSchema } from "../src/lib/explorer";
 import {
   StudioTargetDiscoverySchema,
-  StudioTargetProgramEnvelopesSchema,
-  StudioTargetProgramsSchema,
   StudioTargetSelectionSchema,
 } from "../src/types/studioTarget";
 import { handleLastWindowClosed } from "./appLifecycle";
 import { createMainErrorReporter } from "./errorReporter";
 import { findInstructionFiles } from "./instructionFiles";
+import {
+  type CallStudioTool,
+  discoverStudioTargets,
+  readExplorerSnapshot,
+  selectStudioTarget,
+} from "./studioQueries";
 import { withSystemPrompt } from "./opencodeConfig";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
-import {
-  GeneratedProgramRuntime,
-  GeneratedProgramRuntimeLive,
-} from "./services/GeneratedProgramRuntime";
-import { createBloxBotProgramStore } from "./services/BloxBotProgramStore";
 import { createSystemNotifier } from "./systemNotifications";
 import { makeStudioMcpBrokerLayer, StudioMcpBroker } from "./services/StudioMcpBroker";
 
@@ -109,8 +107,7 @@ const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
 const openCodeBinaryDirectory = join(app.getPath("userData"), "opencode");
 
 const openCodeRuntime = ManagedRuntime.make(
-  Layer.merge(
-    makeOpenCodeLayer({
+  makeOpenCodeLayer({
       binaryCacheDirectory: openCodeBinaryDirectory,
       workspace: join(app.getPath("home"), "BloxBot"),
       loadSystemPrompt: () =>
@@ -123,34 +120,11 @@ const openCodeRuntime = ManagedRuntime.make(
           mainWindow.webContents.send(channels.openCodeStartupProgress, progress);
         }
       },
-    }).pipe(Layer.tapErrorCause(reportLayerFailure("opencode_start"))),
-    GeneratedProgramRuntimeLive.pipe(Layer.provide(studioMcpBrokerLayer)),
-  ).pipe(Layer.provideMerge(studioMcpBrokerLayer)),
+    }).pipe(
+    Layer.tapErrorCause(reportLayerFailure("opencode_start")),
+    Layer.provideMerge(studioMcpBrokerLayer),
+  ),
 );
-
-// Published BloxBot programs: downloaded, signature-checked and cached here so a
-// Roblox Studio MCP change can be fixed without an app release.
-const BLOXBOT_PROGRAMS_REFRESH_MS = 6 * 60 * 60 * 1000;
-const bloxbotProgramStore = createBloxBotProgramStore({
-  directory: join(app.getPath("userData"), "bloxbot-programs"),
-  log: (message) => console.log(message),
-  onError: (error) => reportMainError("bloxbot_programs_refresh", error),
-});
-
-const expectedContract = (name: string) => ({
-  name,
-  version: "1",
-  inputSchemaVersion: "1",
-  outputSchemaVersion: "1",
-});
-
-function requireContract(contract: { name: string; version: string; inputSchemaVersion: string; outputSchemaVersion: string }, name: string) {
-  const expected = expectedContract(name);
-  if (JSON.stringify(contract) !== JSON.stringify(expected)) {
-    return Effect.fail(new DesktopMainError({ message: `Generated program contract ${name} is invalid` }));
-  }
-  return Effect.void;
-}
 
 function isMissingFile(cause: unknown): boolean {
   return (
@@ -235,17 +209,26 @@ function patchConfig(input: unknown) {
 
 const runMain = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
+const StudioKeySchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512));
+
+/** Runs a read against Studio through the broker, keeping Studio's error text for the renderer. */
+const queryStudio = <A>(query: (callTool: CallStudioTool) => Promise<A>) =>
+  openCodeRuntime.runPromise(
+    Effect.gen(function* () {
+      const broker = yield* StudioMcpBroker;
+      return yield* Effect.tryPromise({
+        try: () => query((name, args) => Effect.runPromise(broker.callTool(name, args))),
+        catch: (cause) =>
+          new DesktopMainError({
+            message: cause instanceof Error ? cause.message : "Studio didn't answer",
+            cause,
+          }),
+      });
+    }),
+  );
+
 const registerIpcHandlers = Effect.sync(() => {
   ipcMain.on(channels.mainErrorReady, (event) => mainErrorReporter.attach(event.sender));
-  ipcMain.handle(channels.compileExplorerProgram, (_event, input: unknown) =>
-    openCodeRuntime.runPromise(
-      Effect.gen(function* () {
-        const program = yield* Schema.decodeUnknown(ExplorerProgramEnvelopeSchema)(input);
-        const runtime = yield* GeneratedProgramRuntime;
-        return yield* runtime.compile(program);
-      }),
-    ),
-  );
   ipcMain.handle(channels.getOpenCodeInfo, () =>
     openCodeRuntime.runPromise(
       OpenCode.pipe(Effect.flatMap((service) => service.info)),
@@ -264,7 +247,6 @@ const registerIpcHandlers = Effect.sync(() => {
       home: app.getPath("home"),
     }),
   );
-  ipcMain.handle(channels.getBloxBotPrograms, () => bloxbotProgramStore.current());
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));
   ipcMain.handle(channels.setSystemPrompt, (_event, input: unknown) =>
@@ -294,50 +276,23 @@ const registerIpcHandlers = Effect.sync(() => {
       }),
     ),
   );
-  ipcMain.handle(channels.installStudioTargetPrograms, (_event, input: unknown) =>
-    openCodeRuntime.runPromise(
-      Effect.gen(function* () {
-        const envelopes = yield* Schema.decodeUnknown(StudioTargetProgramEnvelopesSchema)(input);
-        yield* requireContract(envelopes.discovery.contract, "studio-target-discovery");
-        yield* requireContract(envelopes.selection.contract, "studio-target-selection");
-        const runtime = yield* GeneratedProgramRuntime;
-        const [discoveryArtifact, selectionArtifact] = yield* Effect.all([
-          runtime.compile(envelopes.discovery),
-          runtime.compile(envelopes.selection),
-        ], { concurrency: "unbounded" });
-        return yield* Schema.decodeUnknown(StudioTargetProgramsSchema)({
-          discovery: { envelope: envelopes.discovery, artifact: discoveryArtifact },
-          selection: { envelope: envelopes.selection, artifact: selectionArtifact },
-        });
-      }),
+  ipcMain.handle(channels.getExplorerSnapshot, (_event, input: unknown) =>
+    queryStudio(async (callTool) =>
+      Schema.decodeUnknownPromise(ExplorerSnapshotSchema)(
+        await readExplorerSnapshot(callTool, await Schema.decodeUnknownPromise(StudioKeySchema)(input)),
+      ),
     ),
   );
-  ipcMain.handle(channels.discoverStudioTargets, (_event, input: unknown) =>
-    openCodeRuntime.runPromise(
-      Effect.gen(function* () {
-        yield* Effect.logInfo("[studio-target] discovery requested");
-        const programs = yield* Schema.decodeUnknown(StudioTargetProgramsSchema)(input);
-        yield* requireContract(programs.discovery.artifact.contract, "studio-target-discovery");
-        const runtime = yield* GeneratedProgramRuntime;
-        const result = yield* runtime.invoke({ artifact: programs.discovery.artifact, input: {} });
-        const discovery = yield* Schema.decodeUnknown(StudioTargetDiscoverySchema)(result.value);
-        yield* Effect.logInfo(
-          `[studio-target] discovery completed targets=${discovery.targets.length} selected=${discovery.selectedKey !== null}`,
-        );
-        return discovery;
-      }),
+  ipcMain.handle(channels.discoverStudioTargets, () =>
+    queryStudio(async (callTool) =>
+      Schema.decodeUnknownPromise(StudioTargetDiscoverySchema)(await discoverStudioTargets(callTool)),
     ),
   );
-  ipcMain.handle(channels.selectStudioTarget, (_event, input: unknown, targetKey: unknown) =>
-    openCodeRuntime.runPromise(
-      Effect.gen(function* () {
-        const programs = yield* Schema.decodeUnknown(StudioTargetProgramsSchema)(input);
-        const key = yield* Schema.decodeUnknown(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)))(targetKey);
-        yield* requireContract(programs.selection.artifact.contract, "studio-target-selection");
-        const runtime = yield* GeneratedProgramRuntime;
-        const result = yield* runtime.invoke({ artifact: programs.selection.artifact, input: { targetKey: key } });
-        return yield* Schema.decodeUnknown(StudioTargetSelectionSchema)(result.value);
-      }),
+  ipcMain.handle(channels.selectStudioTarget, (_event, input: unknown) =>
+    queryStudio(async (callTool) =>
+      Schema.decodeUnknownPromise(StudioTargetSelectionSchema)(
+        await selectStudioTarget(callTool, await Schema.decodeUnknownPromise(StudioKeySchema)(input)),
+      ),
     ),
   );
   ipcMain.handle(channels.openUrl, (_event, rawUrl: string) =>
@@ -400,42 +355,6 @@ const registerIpcHandlers = Effect.sync(() => {
         yield* Effect.sync(() => autoUpdater.quitAndInstall());
       }),
     ),
-  );
-  ipcMain.handle(
-    channels.invokeExplorerProgram,
-    (_event, input: unknown, studioIdInput: unknown) =>
-      openCodeRuntime.runPromise(
-        Effect.gen(function* () {
-          const artifact = yield* Schema.decodeUnknown(GeneratedProgramArtifactSchema)(input);
-          const studioId = yield* Schema.decodeUnknown(
-            Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
-          )(studioIdInput);
-          if (
-            artifact.contract.name !== "explorer-snapshot" ||
-            artifact.contract.outputSchemaVersion !== "explorer-snapshot-v1"
-          ) {
-            return yield* Effect.fail(
-              new DesktopMainError({ message: "Explorer program contract is invalid" }),
-            );
-          }
-          const runtime = yield* GeneratedProgramRuntime;
-          const result = yield* runtime.invoke({ artifact, input: { studioId } });
-          return yield* Schema.decodeUnknown(ExplorerSnapshotSchema)(result.value).pipe(
-            Effect.mapError(
-              (cause) =>
-                new DesktopMainError({
-                  // The schema's own complaint, so a model-written program can be fixed.
-                  message: `Explorer output is invalid: ${cause.message.slice(0, 600)}`,
-                  cause,
-                }),
-            ),
-          );
-        }).pipe(
-          Effect.tapErrorCause((cause) =>
-            Effect.logError(`[explorer] invocation failed: ${String(cause)}`),
-          ),
-        ),
-      ),
   );
   ipcMain.handle(channels.relaunch, () =>
     runMain(
@@ -567,21 +486,7 @@ Effect.runFork(
       try: () => app.whenReady(),
       catch: (cause) => new DesktopMainError({ message: "Electron failed to become ready", cause }),
     });
-    // The cached copy is ready before the window asks for it; the download
-    // happens in the background and applies from the next time a program loads.
-    yield* Effect.promise(() => bloxbotProgramStore.load());
     yield* registerIpcHandlers;
-    yield* Effect.sync(() => {
-      // Tell the window when newer programs arrive, so they apply without a restart.
-      const refresh = () =>
-        void bloxbotProgramStore.refresh().then((result) => {
-          if (result === "updated" && mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(channels.bloxbotProgramsUpdated);
-          }
-        });
-      refresh();
-      setInterval(refresh, BLOXBOT_PROGRAMS_REFRESH_MS).unref();
-    });
     yield* Effect.sync(() => Menu.setApplicationMenu(null));
     yield* createWindow();
     yield* Effect.sync(() =>

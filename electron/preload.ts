@@ -9,8 +9,6 @@ import type {
 import { channels } from "./channels";
 
 const api: DesktopApi = {
-  compileExplorerProgram: (program) =>
-    ipcRenderer.invoke(channels.compileExplorerProgram, program),
   getOpenCodeInfo: () => ipcRenderer.invoke(channels.getOpenCodeInfo),
   getOpenCodeInstallFolder: () => ipcRenderer.invoke(channels.getOpenCodeInstallFolder),
   getStudioMcpStatus: () => ipcRenderer.invoke(channels.getStudioMcpStatus),
@@ -28,21 +26,7 @@ const api: DesktopApi = {
   setSystemPrompt: (systemPrompt) => ipcRenderer.invoke(channels.setSystemPrompt, systemPrompt),
   checkForUpdate: () => ipcRenderer.invoke(channels.checkForUpdate),
   installUpdate: () => ipcRenderer.invoke(channels.installUpdate),
-  invokeExplorerProgram: (artifact, studioId) =>
-    ipcRenderer.invoke(channels.invokeExplorerProgram, artifact, studioId),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
-  installStudioTargetPrograms: (envelopes) =>
-    ipcRenderer.invoke(channels.installStudioTargetPrograms, envelopes),
-  discoverStudioTargets: (programs) =>
-    ipcRenderer.invoke(channels.discoverStudioTargets, programs),
-  selectStudioTarget: (programs, targetKey) =>
-    ipcRenderer.invoke(channels.selectStudioTarget, programs, targetKey),
-  getBloxBotPrograms: () => ipcRenderer.invoke(channels.getBloxBotPrograms),
-  onBloxBotProgramsUpdated: (listener) => {
-    const handleUpdate = () => listener();
-    ipcRenderer.on(channels.bloxbotProgramsUpdated, handleUpdate);
-    return () => ipcRenderer.removeListener(channels.bloxbotProgramsUpdated, handleUpdate);
-  },
   showSystemNotification: (notification) =>
     ipcRenderer.invoke(channels.showSystemNotification, notification),
   onSystemNotificationClick: (listener) => {
@@ -50,6 +34,9 @@ const api: DesktopApi = {
     ipcRenderer.on(channels.systemNotificationClicked, handleClick);
     return () => ipcRenderer.removeListener(channels.systemNotificationClicked, handleClick);
   },
+  getExplorerSnapshot: (studioId) => ipcRenderer.invoke(channels.getExplorerSnapshot, studioId),
+  discoverStudioTargets: () => ipcRenderer.invoke(channels.discoverStudioTargets),
+  selectStudioTarget: (targetKey) => ipcRenderer.invoke(channels.selectStudioTarget, targetKey),
   onMainError: (listener) => {
     const handleError = (_event: Electron.IpcRendererEvent, report: MainErrorReport) =>
       listener(report);

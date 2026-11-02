@@ -673,28 +673,6 @@ export type Command = {
   hints: Array<string>;
 };
 
-export type Agent = {
-  name: string;
-  description?: string;
-  mode: "subagent" | "primary" | "all";
-  native?: boolean;
-  hidden?: boolean;
-  topP?: number;
-  temperature?: number;
-  color?: string;
-  permission: PermissionRuleset;
-  model?: {
-    modelID: string;
-    providerID: string;
-  };
-  variant?: string;
-  prompt?: string;
-  options: {
-    [key: string]: unknown;
-  };
-  steps?: number;
-};
-
 export type McpStatusConnected = {
   status: "connected";
 };
@@ -780,12 +758,6 @@ export type ProviderAuthMethod = {
         };
       }
   >;
-};
-
-export type ProviderAuthAuthorization = {
-  url: string;
-  method: "auto" | "code";
-  instructions: string;
 };
 
 export type EventSessionCreated = {

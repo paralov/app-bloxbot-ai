@@ -1,6 +1,6 @@
 import { win32 } from "node:path";
 
-import { STUDIO_MCP_SERVER_NAME } from "../src/lib/bloxbotProgramManifest";
+import { STUDIO_MCP_SERVER_NAME } from "../src/lib/studioMcp";
 import { DEFAULT_SYSTEM_PROMPT } from "../src/lib/systemPrompt";
 
 export interface StudioMcpWindowsEnvironment {

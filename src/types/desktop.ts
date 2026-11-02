@@ -1,12 +1,7 @@
 import { Schema } from "effect";
-import type { BloxBotProgramManifest } from "../lib/bloxbotProgramManifest";
-import type { ExplorerProgramEnvelope, ExplorerSnapshot } from "../lib/explorer";
-import type { GeneratedProgramArtifact } from "./generatedProgram";
+import type { ExplorerSnapshot } from "../lib/explorer";
 import {
   type StudioTargetDiscovery,
-  type StudioTargetProgramEnvelopes,
-  type StudioTargetPrograms,
-  StudioTargetProgramsSchema,
   StudioTargetSchema,
   type StudioTargetSelection,
 } from "./studioTarget";
@@ -26,7 +21,6 @@ export const AppConfigSchema = Schema.mutable(
     detailedAnalytics: DetailedAnalyticsPreferenceSchema,
     // Highest analytics policy notice the user has seen; 0 predates the opt-out model.
     analyticsNoticeVersion: Schema.Number,
-    studioTargetPrograms: Schema.NullOr(StudioTargetProgramsSchema),
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
     systemNotifications: Schema.Boolean,
     // What the user wrote in Settings; null follows BloxBot's default as it changes.
@@ -44,7 +38,6 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   theme: "system",
   detailedAnalytics: "unset",
   analyticsNoticeVersion: 0,
-  studioTargetPrograms: null,
   studioTargetsBySession: {},
   systemNotifications: true,
   systemPrompt: null,
@@ -121,12 +114,9 @@ export const SystemNotificationSchema = Schema.Struct({
 export type SystemNotification = typeof SystemNotificationSchema.Type;
 
 export interface DesktopApi {
-  compileExplorerProgram(program: ExplorerProgramEnvelope): Promise<GeneratedProgramArtifact>;
-  invokeExplorerProgram(
-    artifact: GeneratedProgramArtifact,
-    studioId: string,
-  ): Promise<ExplorerSnapshot>;
-  /** The Studio tools an Explorer program may call now, by Studio's own name. */
+  getExplorerSnapshot(studioId: string): Promise<ExplorerSnapshot>;
+  discoverStudioTargets(): Promise<StudioTargetDiscovery>;
+  selectStudioTarget(targetKey: string): Promise<StudioTargetSelection>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
   /** The folder OpenCode installs into, for antivirus exclusions. Null outside the desktop app. */
   getOpenCodeInstallFolder(): Promise<string | null>;
@@ -143,18 +133,8 @@ export interface DesktopApi {
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;
-  installStudioTargetPrograms(
-    envelopes: StudioTargetProgramEnvelopes,
-  ): Promise<StudioTargetPrograms>;
-  discoverStudioTargets(programs: StudioTargetPrograms): Promise<StudioTargetDiscovery>;
-  selectStudioTarget(
-    programs: StudioTargetPrograms,
-    targetKey: string,
-  ): Promise<StudioTargetSelection>;
   /** The newest verified published BloxBot programs, or null to use the built-in ones. */
-  getBloxBotPrograms(): Promise<BloxBotProgramManifest | null>;
   /** Called when newer published BloxBot programs arrive; returns an unsubscribe. */
-  onBloxBotProgramsUpdated(listener: () => void): () => void;
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
    * tells the main process the window is ready, which flushes errors buffered until then.

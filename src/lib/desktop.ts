@@ -1,8 +1,4 @@
 import { Data, Effect, Schema } from "effect";
-import {
-  type BloxBotProgramManifest,
-  BloxBotProgramManifestSchema,
-} from "@/lib/bloxbotProgramManifest";
 import { type ExplorerSnapshot, ExplorerSnapshotSchema } from "@/lib/explorer";
 import {
   type AppConfig,
@@ -22,15 +18,8 @@ import {
   UpdateInfoSchema,
 } from "@/types/desktop";
 import {
-  type GeneratedProgramArtifact,
-  GeneratedProgramArtifactSchema,
-} from "@/types/generatedProgram";
-import {
   type StudioTargetDiscovery,
   StudioTargetDiscoverySchema,
-  type StudioTargetProgramEnvelopes,
-  type StudioTargetPrograms,
-  StudioTargetProgramsSchema,
   type StudioTargetSelection,
   StudioTargetSelectionSchema,
 } from "@/types/studioTarget";
@@ -44,15 +33,7 @@ export class DesktopError extends Data.TaggedError("DesktopError")<{
 }> {}
 
 interface DesktopEffects {
-  readonly compileExplorerProgram: DesktopApi["compileExplorerProgram"] extends (
-    input: infer Input,
-  ) => Promise<infer Output>
-    ? (input: Input) => Effect.Effect<Output, DesktopError>
-    : never;
-  readonly invokeExplorerProgram: (
-    artifact: GeneratedProgramArtifact,
-    studioId: string,
-  ) => Effect.Effect<ExplorerSnapshot, DesktopError>;
+  readonly getExplorerSnapshot: (studioId: string) => Effect.Effect<ExplorerSnapshot, DesktopError>;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
   readonly getOpenCodeInstallFolder: Effect.Effect<string | null, DesktopError>;
   readonly getStudioMcpStatus: Effect.Effect<StudioMcpStatus, DesktopError>;
@@ -68,17 +49,10 @@ interface DesktopEffects {
   readonly checkForUpdate: Effect.Effect<UpdateInfo | null, DesktopError>;
   readonly installUpdate: Effect.Effect<void, DesktopError>;
   readonly relaunch: Effect.Effect<void, DesktopError>;
-  readonly installStudioTargetPrograms: (
-    envelopes: StudioTargetProgramEnvelopes,
-  ) => Effect.Effect<StudioTargetPrograms, DesktopError>;
-  readonly discoverStudioTargets: (
-    programs: StudioTargetPrograms,
-  ) => Effect.Effect<StudioTargetDiscovery, DesktopError>;
+  readonly discoverStudioTargets: Effect.Effect<StudioTargetDiscovery, DesktopError>;
   readonly selectStudioTarget: (
-    programs: StudioTargetPrograms,
     targetKey: string,
   ) => Effect.Effect<StudioTargetSelection, DesktopError>;
-  readonly getBloxBotPrograms: Effect.Effect<BloxBotProgramManifest | null, DesktopError>;
 }
 
 type StartupProgressListener = (progress: OpenCodeStartupProgress) => void;
@@ -103,7 +77,7 @@ const loadBrowserConfig = Effect.gen(function* () {
 }).pipe(Effect.catchAll(() => Effect.succeed(DEFAULT_CONFIG)));
 
 const browserEffects: DesktopEffects = {
-  compileExplorerProgram: () =>
+  getExplorerSnapshot: () =>
     Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
   getOpenCodeInfo: Effect.fail(
     new DesktopError({
@@ -138,22 +112,14 @@ const browserEffects: DesktopEffects = {
   installUpdate: Effect.fail(
     new DesktopError({ message: "Updates are only available in the desktop app." }),
   ),
-  invokeExplorerProgram: () =>
-    Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
   relaunch: Effect.sync(() => window.location.reload()),
-  installStudioTargetPrograms: () =>
-    Effect.fail(
-      new DesktopError({ message: "Studio targets are only available in the desktop app." }),
-    ),
-  discoverStudioTargets: () =>
-    Effect.fail(
-      new DesktopError({ message: "Studio targets are only available in the desktop app." }),
-    ),
+  discoverStudioTargets: Effect.fail(
+    new DesktopError({ message: "Studio targets are only available in the desktop app." }),
+  ),
   selectStudioTarget: () =>
     Effect.fail(
       new DesktopError({ message: "Studio targets are only available in the desktop app." }),
     ),
-  getBloxBotPrograms: Effect.succeed(null),
 };
 
 const invoke = <A>(message: string, operation: () => Promise<A>) =>
@@ -178,9 +144,9 @@ const decodeBridgeValue =
 
 function makeBridgeEffects(api: DesktopApi): DesktopEffects {
   return {
-    compileExplorerProgram: (program) =>
-      invoke("Failed to compile Explorer program", () => api.compileExplorerProgram(program)).pipe(
-        decodeBridgeValue("Explorer program artifact is invalid", GeneratedProgramArtifactSchema),
+    getExplorerSnapshot: (studioId) =>
+      invoke("Failed to read Studio's instance tree", () => api.getExplorerSnapshot(studioId)).pipe(
+        decodeBridgeValue("Explorer snapshot is invalid", ExplorerSnapshotSchema),
       ),
     getOpenCodeInfo: invoke("Failed to get OpenCode connection details", () =>
       api.getOpenCodeInfo(),
@@ -212,31 +178,14 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
       decodeBridgeValue("Update information is invalid", Schema.NullOr(UpdateInfoSchema)),
     ),
     installUpdate: invoke("Failed to install the update", () => api.installUpdate()),
-    invokeExplorerProgram: (artifact, studioId) =>
-      invoke("Failed to invoke Explorer program", () =>
-        api.invokeExplorerProgram(artifact, studioId),
-      ).pipe(decodeBridgeValue("Explorer snapshot is invalid", ExplorerSnapshotSchema)),
     relaunch: invoke("Failed to relaunch the app", () => api.relaunch()),
-    installStudioTargetPrograms: (envelopes) =>
-      invoke("Failed to install Studio target programs", () =>
-        api.installStudioTargetPrograms(envelopes),
-      ).pipe(decodeBridgeValue("Studio target programs are invalid", StudioTargetProgramsSchema)),
-    discoverStudioTargets: (programs) =>
-      invoke("Failed to discover Studio targets", () => api.discoverStudioTargets(programs)).pipe(
-        decodeBridgeValue("Studio target discovery is invalid", StudioTargetDiscoverySchema),
+    discoverStudioTargets: invoke("Failed to discover Studio targets", () =>
+      api.discoverStudioTargets(),
+    ).pipe(decodeBridgeValue("Studio target discovery is invalid", StudioTargetDiscoverySchema)),
+    selectStudioTarget: (targetKey) =>
+      invoke("Failed to select the Studio target", () => api.selectStudioTarget(targetKey)).pipe(
+        decodeBridgeValue("Studio target selection is invalid", StudioTargetSelectionSchema),
       ),
-    selectStudioTarget: (programs, targetKey) =>
-      invoke("Failed to select the Studio target", () =>
-        api.selectStudioTarget(programs, targetKey),
-      ).pipe(decodeBridgeValue("Studio target selection is invalid", StudioTargetSelectionSchema)),
-    getBloxBotPrograms: invoke("Failed to read published BloxBot programs", () =>
-      api.getBloxBotPrograms(),
-    ).pipe(
-      decodeBridgeValue(
-        "Published BloxBot programs are invalid",
-        Schema.NullOr(BloxBotProgramManifestSchema),
-      ),
-    ),
   };
 }
 
@@ -249,7 +198,7 @@ const runPromise = <A>(effect: Effect.Effect<A, DesktopError>): Promise<A> =>
 
 /** Promise-only adapter consumed by React and exposed by the Electron bridge contract. */
 export const desktop: DesktopApi = {
-  compileExplorerProgram: (program) => runPromise(desktopEffects.compileExplorerProgram(program)),
+  getExplorerSnapshot: (studioId) => runPromise(desktopEffects.getExplorerSnapshot(studioId)),
   getOpenCodeInfo: () => runPromise(desktopEffects.getOpenCodeInfo),
   getOpenCodeInstallFolder: () => runPromise(desktopEffects.getOpenCodeInstallFolder),
   getStudioMcpStatus: () => runPromise(desktopEffects.getStudioMcpStatus),
@@ -267,16 +216,8 @@ export const desktop: DesktopApi = {
   setSystemPrompt: (systemPrompt) => runPromise(desktopEffects.setSystemPrompt(systemPrompt)),
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),
   installUpdate: () => runPromise(desktopEffects.installUpdate),
-  invokeExplorerProgram: (artifact, studioId) =>
-    runPromise(desktopEffects.invokeExplorerProgram(artifact, studioId)),
   relaunch: () => runPromise(desktopEffects.relaunch),
-  installStudioTargetPrograms: (envelopes) =>
-    runPromise(desktopEffects.installStudioTargetPrograms(envelopes)),
-  discoverStudioTargets: (programs) => runPromise(desktopEffects.discoverStudioTargets(programs)),
-  selectStudioTarget: (programs, targetKey) =>
-    runPromise(desktopEffects.selectStudioTarget(programs, targetKey)),
-  getBloxBotPrograms: () => runPromise(desktopEffects.getBloxBotPrograms),
-  onBloxBotProgramsUpdated: (listener) =>
-    window.bloxbot?.onBloxBotProgramsUpdated(listener) ?? (() => {}),
+  discoverStudioTargets: () => runPromise(desktopEffects.discoverStudioTargets),
+  selectStudioTarget: (targetKey) => runPromise(desktopEffects.selectStudioTarget(targetKey)),
   onMainError: (listener) => window.bloxbot?.onMainError(listener) ?? (() => {}),
 };

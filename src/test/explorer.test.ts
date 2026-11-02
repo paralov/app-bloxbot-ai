@@ -1,11 +1,6 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import {
-  createExplorerReference,
-  ExplorerProgramEnvelopeSchema,
-  ExplorerSnapshotSchema,
-  sortExplorerNodes,
-} from "@/lib/explorer";
+import { createExplorerReference, ExplorerSnapshotSchema, sortExplorerNodes } from "@/lib/explorer";
 import { isVisibleSession } from "@/lib/sessionVisibility";
 
 const snapshot = {
@@ -90,23 +85,6 @@ describe("Explorer data boundary", () => {
       "ModuleScript",
       "Baseplate",
     ]);
-  });
-
-  it("rejects invalid generated program contracts", async () => {
-    await expect(
-      Effect.runPromise(
-        Schema.decodeUnknown(ExplorerProgramEnvelopeSchema)({
-          version: 1,
-          contract: {
-            name: "wrong-contract",
-            version: "1",
-            inputSchemaVersion: "explorer-input-v1",
-            outputSchemaVersion: "explorer-snapshot-v1",
-          },
-          source: "async function run() {}",
-        }),
-      ),
-    ).rejects.toBeDefined();
   });
 
   it("makes paths non-authoritative when inserting an object into chat", () => {

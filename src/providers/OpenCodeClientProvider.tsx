@@ -309,14 +309,12 @@ export function OpenCodeClientProvider({
     };
   }, [ready, queryClient]);
 
-  // AI traces read session history and tool definitions from the local server.
+  // AI traces read session history from the local server.
   useEffect(() => {
     if (!client) return;
     aiTracer.configure({
       loadHistory: async (sessionID) =>
         (await client.session.messages({ sessionID }, { throwOnError: true })).data,
-      loadTools: async (provider, model) =>
-        (await client.tool.list({ provider, model }, { throwOnError: true })).data,
       loadInstructions: () => desktop.getInstructionFiles(),
     });
     return () => aiTracer.configure({});

@@ -1,5 +1,4 @@
 import { Schema } from "effect";
-import type { GeneratedProgramArtifact, GeneratedProgramEnvelope } from "../types/generatedProgram";
 
 export const ExplorerFieldSchema = Schema.Struct({
   name: Schema.String,
@@ -107,34 +106,6 @@ export const ExplorerSnapshotSchema = Schema.Struct({
 });
 
 export type ExplorerSnapshot = typeof ExplorerSnapshotSchema.Type;
-
-export const EXPLORER_CONTRACT = {
-  name: "explorer-snapshot",
-  version: "1",
-  inputSchemaVersion: "explorer-input-v1",
-  outputSchemaVersion: "explorer-snapshot-v1",
-} as const;
-
-export const ExplorerProgramEnvelopeSchema = Schema.Struct({
-  version: Schema.Literal(1),
-  contract: Schema.Struct({
-    name: Schema.Literal(EXPLORER_CONTRACT.name),
-    version: Schema.Literal(EXPLORER_CONTRACT.version),
-    inputSchemaVersion: Schema.Literal(EXPLORER_CONTRACT.inputSchemaVersion),
-    outputSchemaVersion: Schema.Literal(EXPLORER_CONTRACT.outputSchemaVersion),
-  }),
-  source: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100_000)),
-});
-
-export type ExplorerProgramEnvelope = typeof ExplorerProgramEnvelopeSchema.Type;
-
-export interface ExplorerCollection {
-  readonly program: GeneratedProgramEnvelope;
-  /** Where the program came from, which decides how a later failure recovers. */
-  readonly origin: "published" | "builtin";
-  readonly artifact: GeneratedProgramArtifact;
-  readonly snapshot: ExplorerSnapshot;
-}
 
 export function createExplorerReference(node: ExplorerNode): string {
   return (

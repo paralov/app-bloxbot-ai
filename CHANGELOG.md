@@ -23,6 +23,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - The agent picker. BloxBot now has one assistant, and you change how it behaves with the system prompt.
 - Explorer no longer asks your model to write a program when its built-in one fails, so it can't use up your free messages. It keeps the last tree on screen and retries on its own.
+- The downloadable programs behind Explorer and Studio selection. These now ship with the app, so a change on Roblox's side needs an app update.
 
 ### Fixed
 

@@ -1,3 +1,0 @@
-# BloxBot programs are signed and compared byte for byte, so they must have the
-# same line endings on every platform (Windows checkouts would otherwise use CRLF).
-bloxbot-programs/** text eol=lf
