@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { isWindowFocused, notify } from "@/lib/notifications";
-import type { Event, Session } from "@/lib/opencode/types";
+import type { Event, Session, SessionStatus } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { isVisibleSession } from "@/lib/sessionVisibility";
 import { maybeShowStarCallout } from "@/lib/starCallout";
@@ -26,6 +26,13 @@ export function setSessionOpener(opener: OpenSession): void {
  */
 export class SessionNotifier {
   private readonly busySessions = new Set<string>();
+
+  /** A turn that started before the event stream did never reports its start. */
+  trackRunning(statuses: Record<string, SessionStatus> | undefined): void {
+    for (const [sessionID, status] of Object.entries(statuses ?? {})) {
+      if (status.type !== "idle") this.busySessions.add(sessionID);
+    }
+  }
 
   handleEvent(
     queryClient: QueryClient,

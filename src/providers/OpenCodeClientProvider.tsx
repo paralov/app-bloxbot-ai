@@ -369,6 +369,7 @@ export function OpenCodeClientProvider({
           return;
         }
         await reconcileServerState(queryClient, activeSessionIdRef.current);
+        sessionNotifier.trackRunning(queryClient.getQueryData(qk.statuses));
         consecutiveFailures = 0;
         dismissReconnectToast();
 

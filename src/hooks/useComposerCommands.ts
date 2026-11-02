@@ -3,6 +3,7 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useMemo } from "react";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useCommands } from "@/hooks/useCommands";
+import { fetchMessages } from "@/hooks/useMessages";
 import { analyticsProperties } from "@/lib/analytics";
 import { notify } from "@/lib/notifications";
 import type { Session } from "@/lib/opencode/types";
@@ -58,9 +59,13 @@ export function useComposerCommands(actions: {
   const catalog = useCommands();
   const commands = useMemo(() => mergeCommands(catalog), [catalog]);
 
-  function userMessages() {
-    if (!activeSessionId) return [];
-    const cache = queryClient.getQueryData<MessagesCache>(qk.messages(activeSessionId));
+  /** Loads the chat's history first if it hasn't arrived yet, so an empty list means empty. */
+  async function userMessages() {
+    if (!activeSessionId || !client) return [];
+    const cache = await queryClient.ensureQueryData<MessagesCache>({
+      queryKey: qk.messages(activeSessionId),
+      queryFn: () => fetchMessages(client, queryClient, activeSessionId),
+    });
     return (cache?.messageIds ?? []).flatMap((id) => {
       const message = cache?.messagesById[id];
       const isPrompt =
@@ -80,7 +85,7 @@ export function useComposerCommands(actions: {
     const options = { throwOnError: true as const };
     switch (name) {
       case "new":
-        createSession.mutate();
+        await createSession.mutateAsync();
         return;
       case "model":
         actions.chooseModel();
@@ -94,7 +99,7 @@ export function useComposerCommands(actions: {
         notify.success("Config reloaded");
         return;
       case "undo": {
-        const prompts = userMessages();
+        const prompts = await userMessages();
         const reverted = revertedMessage();
         const boundary = reverted
           ? prompts.findIndex((message) => message.info.id === reverted)
@@ -121,7 +126,7 @@ export function useComposerCommands(actions: {
         await client.session.redo({ sessionID }, options);
         return;
       case "compact":
-        if (userMessages().length === 0) {
+        if ((await userMessages()).length === 0) {
           notify.message("Nothing to compact yet");
           return;
         }

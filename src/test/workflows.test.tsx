@@ -162,7 +162,12 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
     } as never);
     const close = async () => {
       cleanup();
-      child.kill();
+      // A new server can't open the database until the old one has let go of it.
+      if (child.exitCode === null) {
+        const exited = new Promise((resolve) => child.once("exit", resolve));
+        child.kill();
+        await exited;
+      }
       llm.provider.close();
       studio.close();
     };

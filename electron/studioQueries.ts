@@ -101,7 +101,10 @@ const VISIBLE_SERVICES = new Set([
   "TextChatService",
 ]);
 
-async function readGameTree(callTool: CallStudioTool, studioId: string): Promise<any> {
+async function readGameTree(
+  callTool: CallStudioTool,
+  studioId: string,
+): Promise<{ data: any; truncated: boolean }> {
   // Studio caps max_depth at 10; use that ceiling and a generous result cap so
   // ordinary places are collected in one pass. Studio requires datamodel_type:
   // "Edit" normally, and it rejects "Edit" during a playtest, so fall back to
@@ -116,7 +119,12 @@ async function readGameTree(callTool: CallStudioTool, studioId: string): Promise
       head_limit: 100000,
     });
     const error = mcpError(result);
-    if (!error) return mcpData(result);
+    if (!error) {
+      const truncated = (result.content ?? []).some(
+        (part) => part.type === "text" && /^Note: Output limited/.test(part.text),
+      );
+      return { data: mcpData(result), truncated };
+    }
     errors.push([datamodelType, error]);
   }
   // Attempts that only say a data model "is not available in … mode" add nothing.
@@ -145,14 +153,17 @@ export async function inspectExplorerNode(
   const error = mcpError(result);
   if (error) throw new Error(error);
   const data = mcpData(result);
-  return { properties: toFields(data?.properties), attributes: toFields(data?.attributes) };
+  if (!data?.properties || typeof data.properties !== "object") {
+    throw new Error("Studio returned unreadable object details");
+  }
+  return { properties: toFields(data.properties), attributes: toFields(data.attributes) };
 }
 
 export async function readExplorerSnapshot(
   callTool: CallStudioTool,
   studioId: string,
 ): Promise<ExplorerSnapshot> {
-  const raw = await readGameTree(callTool, studioId);
+  const { data: raw, truncated } = await readGameTree(callTool, studioId);
   const rows: any[] = Array.isArray(raw) ? raw : raw?.instances;
   if (!Array.isArray(rows)) throw new Error("Studio returned an unreadable instance tree");
   const byPath = new Map<string, any>();
@@ -189,5 +200,5 @@ export async function readExplorerSnapshot(
       roots.push(node);
     }
   }
-  return { placeName, capturedAt: new Date().toISOString(), roots };
+  return { placeName, capturedAt: new Date().toISOString(), roots, truncated };
 }

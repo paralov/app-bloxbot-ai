@@ -442,6 +442,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         </div>
       ) : null}
 
+      {snapshot?.truncated ? (
+        <div className="shrink-0 border-b px-4 py-2 text-xs text-muted-foreground">
+          This place is too large to list in full, so some objects are missing here.
+        </div>
+      ) : null}
+
       <div
         className="min-h-0 flex-1 overflow-y-auto py-1"
         role="tree"

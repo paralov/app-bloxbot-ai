@@ -211,6 +211,8 @@ function patchConfig(input: unknown) {
 const runMain = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
 const StudioKeySchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512));
+// Instances can nest deeply under long names, so a path gets far more room than an ID.
+const InstancePathSchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(65_536));
 
 /** Runs a read against Studio through the broker, keeping Studio's error text for the renderer. */
 const queryStudio = <A>(query: (callTool: CallStudioTool) => Promise<A>) =>
@@ -290,7 +292,7 @@ const registerIpcHandlers = Effect.sync(() => {
         await inspectExplorerNode(
           callTool,
           await Schema.decodeUnknownPromise(StudioKeySchema)(studioId),
-          await Schema.decodeUnknownPromise(StudioKeySchema)(path),
+          await Schema.decodeUnknownPromise(InstancePathSchema)(path),
         ),
       ),
     ),

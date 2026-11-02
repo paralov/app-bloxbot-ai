@@ -606,15 +606,30 @@ describe.skipIf(!BIN || !V1_BIN)("Upgrading from OpenCode 1", () => {
           headers: { ...auth, "content-type": "application/json" },
           body: JSON.stringify({ title: "Made on v1" }),
         }).then((response) => response.json() as Promise<{ id: string }>);
+        // OpenCode's free models change, so use one this release actually lists.
+        const catalog = await fetch(`${v1.baseUrl}/config/providers`, { headers: auth }).then(
+          (response) =>
+            response.json() as Promise<{
+              providers: Array<{ id: string; models: Record<string, unknown> }>;
+            }>,
+        );
+        const freeModels = Object.keys(
+          catalog.providers.find((candidate) => candidate.id === "opencode")?.models ?? {},
+        ).filter((id) => id.endsWith("-free"));
         await fetch(`${v1.baseUrl}/session/${created.id}/message`, {
           method: "POST",
           headers: { ...auth, "content-type": "application/json" },
           body: JSON.stringify({
-            model: { providerID: "opencode", modelID: "deepseek-v4.1-flash-free" },
+            model: { providerID: "opencode", modelID: freeModels[0] },
             parts: [{ type: "text", text: "Reply with OK" }],
           }),
         });
+        const messages = await fetch(`${v1.baseUrl}/session/${created.id}/message`, {
+          headers: auth,
+        }).then((response) => response.json() as Promise<Array<{ info: { role: string } }>>);
+        const v1Roles = messages.map((message) => message.info.role);
         v1.child.kill();
+        expect(v1Roles).toContain("assistant");
         await new Promise((resolve) => setTimeout(resolve, 1500));
 
         await writeFile(
@@ -658,7 +673,7 @@ describe.skipIf(!BIN || !V1_BIN)("Upgrading from OpenCode 1", () => {
               ]),
             ),
           );
-          expect(history.data.map((message) => message.info.role)).toEqual(["user", "assistant"]);
+          expect(history.data.map((message) => message.info.role)).toEqual(v1Roles);
         } finally {
           v2.child.kill();
         }

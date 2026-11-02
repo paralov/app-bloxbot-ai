@@ -4,12 +4,18 @@ import { isWindowFocused, notify } from "@/lib/notifications";
 
 export const STAR_CALLOUT_PROMPTS = 3;
 const REPOSITORY_URL = "https://github.com/paralov/app-bloxbot-ai";
+let counting: Promise<void> = Promise.resolve();
 
 /** Counts prompts until the callout has been shown, after which the count is no longer needed. */
-export async function recordPromptSent(): Promise<void> {
-  const { promptsSent, starCalloutShown } = await loadConfig();
-  if (starCalloutShown || promptsSent >= STAR_CALLOUT_PROMPTS) return;
-  await patchConfig({ promptsSent: promptsSent + 1 });
+export function recordPromptSent(): Promise<void> {
+  // One at a time, so chats finishing together can't lose a count.
+  const counted = counting.then(async () => {
+    const { promptsSent, starCalloutShown } = await loadConfig();
+    if (starCalloutShown || promptsSent >= STAR_CALLOUT_PROMPTS) return;
+    await patchConfig({ promptsSent: promptsSent + 1 });
+  });
+  counting = counted.catch(() => undefined);
+  return counted;
 }
 
 /**
@@ -18,6 +24,7 @@ export async function recordPromptSent(): Promise<void> {
  */
 export async function maybeShowStarCallout(): Promise<void> {
   if (!isWindowFocused()) return;
+  await counting;
   const { promptsSent } = await loadConfig();
   if (promptsSent >= STAR_CALLOUT_PROMPTS) await showStarCallout();
 }

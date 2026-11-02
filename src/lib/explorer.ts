@@ -106,6 +106,7 @@ export function sortExplorerSnapshot(snapshot: ExplorerSnapshot): ExplorerSnapsh
 }
 
 export const ExplorerSnapshotSchema = Schema.Struct({
+  truncated: Schema.optional(Schema.Boolean),
   placeName: Schema.String,
   capturedAt: Schema.String,
   roots: Schema.Array(ExplorerNodeSchema),
