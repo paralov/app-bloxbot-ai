@@ -586,6 +586,14 @@ describe.skipIf(!BIN || !V1_BIN)("Upgrading from OpenCode 1", () => {
       const auth = {
         Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}`,
       };
+      // Scripted, so this can't hang on the free tier's quota.
+      const { provider, url } = await startScriptedProvider([{ content: "OK" }]);
+      const configFile = join(home, "config", "opencode", "opencode.json");
+      await mkdir(join(home, "config", "opencode"), { recursive: true });
+      await writeFile(
+        configFile,
+        JSON.stringify({ provider: { opencode: { options: { baseURL: url } } } }),
+      );
       try {
         const v1 = await startServer(V1_BIN as string, home);
         const created = await fetch(`${v1.baseUrl}/session`, {
@@ -597,13 +605,17 @@ describe.skipIf(!BIN || !V1_BIN)("Upgrading from OpenCode 1", () => {
           method: "POST",
           headers: { ...auth, "content-type": "application/json" },
           body: JSON.stringify({
-            model: { providerID: MODEL.providerID, modelID: MODEL.modelID },
+            model: { providerID: "opencode", modelID: "deepseek-v4.1-flash-free" },
             parts: [{ type: "text", text: "Reply with OK" }],
           }),
         });
         v1.child.kill();
         await new Promise((resolve) => setTimeout(resolve, 1500));
 
+        await writeFile(
+          configFile,
+          JSON.stringify({ providers: { opencode: { settings: { baseURL: url } } } }),
+        );
         const v2 = await startServer(BIN as string, home);
         try {
           const client = createOpencodeClient({
@@ -646,6 +658,7 @@ describe.skipIf(!BIN || !V1_BIN)("Upgrading from OpenCode 1", () => {
           v2.child.kill();
         }
       } finally {
+        provider.close();
         await rm(home, { recursive: true, force: true }).catch(() => undefined);
       }
     },
