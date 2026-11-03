@@ -142,6 +142,7 @@ describe("Explorer", () => {
         { name: "Size", value: "2048, 16.123456, 2048" },
         { name: "Shape", value: "Enum.PartType.Block" },
         { name: "Capabilities", value: "" },
+        { name: "Name", value: "007" },
       ],
       attributes: [],
     });
@@ -157,6 +158,28 @@ describe("Explorer", () => {
     expect(screen.getByText("2048, 16.123, 2048")).toBeInTheDocument();
     expect(screen.getByText("Block")).toBeInTheDocument();
     expect(screen.queryByText("Capabilities")).not.toBeInTheDocument();
+    expect(screen.getByText("007")).toBeInTheDocument();
+  });
+
+  it("keeps a link waiting until a sync finds an object the chat just added", async () => {
+    mocks.reference.focusRequest = "game.Workspace.Part";
+    mocks.getSnapshot.mockResolvedValueOnce(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [] });
+
+    start();
+    await advance(0);
+    expect(screen.queryByRole("treeitem", { selected: true })).not.toBeInTheDocument();
+
+    const part = { ...tree.roots[0], name: "Part", className: "Part", path: "game.Workspace.Part" };
+    mocks.getSnapshot.mockResolvedValue({
+      ...tree,
+      roots: [{ ...tree.roots[0], hasChildren: true, children: [part] }],
+    });
+    await advance(5_000);
+    expect(screen.getByRole("treeitem", { selected: true })).toHaveAttribute(
+      "data-path",
+      "game.Workspace.Part",
+    );
   });
 
   it("only links a bare name when one object has it", () => {

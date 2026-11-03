@@ -178,6 +178,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const studioTarget = useStudioTargetOptional();
   const { referenceObject, publishObjects, focusRequest, consumeFocus } = useExplorerReference();
   const treeRef = useRef<HTMLDivElement>(null);
+  // An object each time, so a second click on the same link still scrolls to it.
+  const [scrollTarget, setScrollTarget] = useState<{ path: string } | null>(null);
   const [snapshot, setSnapshot] = useState<ExplorerSnapshot | null>(null);
   const snapshotRef = useRef<ExplorerSnapshot | null>(null);
   const syncingRef = useRef(false);
@@ -355,11 +357,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, []);
 
   useEffect(() => {
-    if (!focusRequest || !snapshot) return;
+    // A reply can link to an object before this panel's next sync has it, so the request waits.
+    if (!focusRequest || !snapshot || !findNode(snapshot.roots, focusRequest)) return;
     consumeFocus();
-    if (!findNode(snapshot.roots, focusRequest)) return;
     setSearch("");
     setSelectedPath(focusRequest);
+    setScrollTarget({ path: focusRequest });
     setExpanded((current) => {
       const next = new Set(current);
       const parts = focusRequest.split(".");
@@ -371,11 +374,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, [focusRequest, snapshot, consumeFocus]);
 
   useEffect(() => {
-    if (!selectedPath) return;
+    if (!scrollTarget) return;
     treeRef.current
-      ?.querySelector(`[data-path="${CSS.escape(selectedPath)}"]`)
+      ?.querySelector(`[data-path="${CSS.escape(scrollTarget.path)}"]`)
       ?.scrollIntoView?.({ block: "nearest" });
-  }, [selectedPath]);
+  }, [scrollTarget]);
 
   const selected = useMemo(
     () => (selectedPath && snapshot ? findNode(snapshot.roots, selectedPath) : null),

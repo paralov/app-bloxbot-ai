@@ -115,17 +115,19 @@ export const ExplorerSnapshotSchema = Schema.Struct({
 export type ExplorerSnapshot = typeof ExplorerSnapshotSchema.Type;
 
 /**
- * A property value as people want to read it: `Enum.CameraType.Fixed` as "Fixed", and numbers,
- * alone or in lists like a Vector3, at 3 decimals. Anything else is left as Studio wrote it.
+ * A property value as people want to read it: `Enum.CameraType.Fixed` as "Fixed", and numbers with
+ * more than 3 decimals, alone or in lists like a Vector3, shortened. Studio's values are all text
+ * by now, so anything else stays as written: a name like "007" isn't a number.
  */
 export function formatFieldValue(value: string): string {
   const enumItem = /^Enum\.\w+\.(\w+)$/.exec(value);
   if (enumItem) return enumItem[1];
-  if (!/\d/.test(value) || !/^[-+\d.,;\se]+$/i.test(value)) return value;
-  return value.replace(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/gi, (text) => {
+  if (!/^[-+\d.,;\se]+$/i.test(value)) return value;
+  return value.replace(/-?\d+\.\d{4,}(?:e[-+]?\d+)?/gi, (text) => {
     const number = Number(text);
-    if (Number.isInteger(number) && Math.abs(number) < 1e15) return String(number);
-    return Math.abs(number) < 1e15 ? String(Number(number.toFixed(3))) : number.toExponential(2);
+    const size = Math.abs(number);
+    if (size >= 1e15 || (size > 0 && size < 0.001)) return number.toExponential(2);
+    return String(Number(number.toFixed(3)));
   });
 }
 
