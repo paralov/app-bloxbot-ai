@@ -599,7 +599,7 @@ const ChatSidebar = memo(function ChatSidebar({
                   aria-describedby="delete-session-description"
                   className="animate-scale-in w-full max-w-sm rounded-xl border bg-card p-5 text-card-foreground shadow-2xl"
                 >
-                  <h2 id="delete-session-title" className="text-base font-semibold">
+                  <h2 id="delete-session-title" className="text-base font-medium">
                     Delete chat?
                   </h2>
                   <p

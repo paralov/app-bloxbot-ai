@@ -200,7 +200,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       <div className="flex-1 overflow-y-auto p-5">
         {!plan ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <h3 className="text-sm font-semibold">Plan a focused test run</h3>
+            <h3 className="text-sm font-medium">Plan a focused test run</h3>
             <p className="mt-2 max-w-xs text-xs leading-5 text-muted-foreground">
               The planner reads this chat, but cannot use Studio tools or change your project.
             </p>
@@ -210,7 +210,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
                 onClick={generatePlan}
                 disabled={generate.isPending || !canGenerate}
                 aria-describedby={hasContext === false ? "playtest-no-context" : undefined}
-                className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
+                className="rounded-lg bg-foreground px-4 py-2 text-xs font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-50"
               >
                 {generate.isPending ? "Creating plan…" : "Generate from chat"}
               </button>
@@ -285,7 +285,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
               type="button"
               onClick={runPlaytest}
               disabled={sendMessage.isPending || generate.isPending}
-              className="rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-50"
+              className="rounded-lg bg-foreground px-4 py-2 text-xs font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-50"
             >
               {sendMessage.isPending ? "Starting…" : "Run playtest"}
             </button>

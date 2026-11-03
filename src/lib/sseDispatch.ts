@@ -253,6 +253,11 @@ function dispatchEvent(
       });
       break;
     }
+    case "goal.changed": {
+      const { sessionID, goal } = event.properties;
+      queryClient.setQueryData(qk.goal(sessionID), goal);
+      break;
+    }
     case "todo.updated": {
       const { sessionID, todos } = event.properties;
       if (sessionID === currentSessionId) {

@@ -18,7 +18,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
 import { desktop } from "@/lib/desktop";
-import { createOpencodeClient } from "@/lib/opencode/client";
+import { createOpencodeClient, type OpencodeClient } from "@/lib/opencode/client";
 import { PASSWORD, shellCall, startScriptedProvider, startServer } from "@/test/support/liveServer";
 import { createOpenCodeConfig } from "../../electron/opencodeConfig";
 
@@ -95,6 +95,18 @@ async function send(text: string) {
 
 const replyFinished = () =>
   waitFor(() => expect(screen.getByTitle("Send")).toBeInTheDocument(), { timeout: SLOW });
+
+/** Until OpenCode lists its commands, the app sends a "/goal" as a message. It rechecks every 3s. */
+async function commandsLoaded(client: OpencodeClient) {
+  await waitFor(
+    async () => {
+      const { data } = await client.command.list({}, { throwOnError: true });
+      expect(data?.map((command) => command.name)).toContain("goal");
+    },
+    { timeout: SLOW, interval: 500 },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+}
 
 const startChat = async () => {
   const button = await screen.findAllByTitle("New chat", {}, { timeout: SLOW });
@@ -294,27 +306,99 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
     "runs /goal, and sends a slash that isn't a command as a message",
     { timeout: 90_000 },
     async () => {
-      const { llm } = await openApp([{ content: "Working on the goal" }]);
+      const { client, llm } = await openApp([{ content: "Working on the goal" }]);
       await startChat();
-      // A bare /goal reports the goal's state. The catalog can take a moment to load.
-      await waitFor(
-        async () => {
-          await send("/goal");
-          await screen.findByText(/Usage: \/goal/, {}, { timeout: 1000 });
-        },
-        { timeout: SLOW, interval: 1000 },
-      );
+      await commandsLoaded(client);
+      // A bare /goal reports the goal's state.
+      await send("/goal");
+      await screen.findByText(/Usage: \/goal/, {}, { timeout: SLOW });
       await send("/goal Make it work");
       await screen.findByText("Working on the goal", {}, { timeout: SLOW });
       await replyFinished();
       await send("/goal clear");
-      await screen.findByText("Goal cleared", {}, { timeout: SLOW });
+      await waitFor(() => expect(screen.queryByRole("button", { name: /^Goal/ })).toBeNull(), {
+        timeout: SLOW,
+      });
 
       const requests = llm.bodies.length;
       await send("/usr/bin is a path");
       await screen.findByText("/usr/bin is a path", {}, { timeout: SLOW });
       await replyFinished();
       expect(llm.bodies.length).toBeGreaterThan(requests);
+    },
+  );
+
+  it("pauses, resumes and clears a goal from its pill", { timeout: 90_000 }, async () => {
+    const { client } = await openApp([
+      { content: "Working", hold: true },
+      { content: "Back at it" },
+    ]);
+    await startChat();
+    await commandsLoaded(client);
+    // A bare /goal reports the goal's state.
+    await send("/goal");
+    await screen.findByText(/Usage: \/goal/, {}, { timeout: SLOW });
+    await send("/goal Make it work");
+    const pill = (name: RegExp) => screen.findByRole("button", { name }, { timeout: SLOW });
+
+    await screen.findByText("Working", {}, { timeout: SLOW });
+    fireEvent.click(await pill(/^Goal$/));
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    expect(pause.closest("[data-slot=popover-content]")).toHaveTextContent("Make it work");
+    fireEvent.click(pause);
+    await pill(/^Goal paused$/);
+
+    fireEvent.click(screen.getByTitle("Stop"));
+    await replyFinished();
+    fireEvent.click(await pill(/^Goal paused$/));
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await screen.findByText("Back at it", {}, { timeout: SLOW });
+
+    fireEvent.click(await pill(/^Goal/));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Goal/ })).toBeNull(), {
+      timeout: SLOW,
+    });
+  });
+
+  it(
+    "shows the plan beside the composer only while it's running",
+    { timeout: 60_000 },
+    async () => {
+      await openApp([
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_todo",
+              type: "function",
+              function: {
+                name: "todowrite",
+                arguments: JSON.stringify({
+                  todos: [
+                    { content: "Read the place", status: "completed" },
+                    { content: "Build the lobby", status: "in_progress" },
+                  ],
+                }),
+              },
+            },
+          ],
+        },
+        { content: "Still building", hold: true },
+      ]);
+      await startChat();
+      await send("Plan it");
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Build the lobby" }, { timeout: SLOW }),
+      );
+      await screen.findByText("Read the place");
+
+      await screen.findByText("Still building", {}, { timeout: SLOW });
+      fireEvent.click(screen.getByTitle("Stop"));
+      await replyFinished();
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "Build the lobby" })).toBeNull(),
+      );
     },
   );
 

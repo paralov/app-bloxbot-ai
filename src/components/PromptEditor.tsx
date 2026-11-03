@@ -375,7 +375,7 @@ function TypeaheadPlugin({
                     role="option"
                     aria-selected={selectedIndex === index}
                     ref={option.setRefElement}
-                    className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm ${
+                    className={`flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-sm ${
                       selectedIndex === index ? "bg-accent" : ""
                     }`}
                     onMouseDown={(event) => event.preventDefault()}

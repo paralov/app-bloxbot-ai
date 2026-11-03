@@ -33,7 +33,6 @@ import type {
   QuestionAnswer,
   QuestionRequest,
   SessionStatus,
-  Todo,
 } from "@/lib/opencode/types";
 
 /** Module-level constant to avoid creating a new array on every render. */
@@ -65,8 +64,12 @@ import { useActivePermission } from "@/hooks/usePermissions";
 import { useActiveQuestion } from "@/hooks/useQuestions";
 import { useSessionError } from "@/hooks/useSessionError";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
-import { useTodos } from "@/hooks/useTodos";
-import { type ModelError, presentModelError } from "@/lib/modelError";
+import {
+  freeLimitEndsAt,
+  isFreeUsageLimit,
+  type ModelError,
+  presentModelError,
+} from "@/lib/modelError";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import type { MessageWithParts } from "@/types";
 
@@ -318,7 +321,7 @@ function ToolRow({
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((current) => !current)}
-          className={`group flex max-w-full items-center gap-1.5 py-0.5 text-left text-xs transition-colors hover:text-foreground ${tone}`}
+          className={`group flex max-w-full items-center gap-1.5 py-0.5 text-left text-sm transition-colors hover:text-foreground ${tone}`}
         >
           {summary}
           <ChevronRight
@@ -328,7 +331,7 @@ function ToolRow({
           />
         </button>
       ) : (
-        <div className={`flex max-w-full items-center gap-1.5 py-0.5 text-xs ${tone}`}>
+        <div className={`flex max-w-full items-center gap-1.5 py-0.5 text-sm ${tone}`}>
           {summary}
         </div>
       )}
@@ -530,71 +533,6 @@ function DefaultToolView({ tool, input, output, status }: ToolViewProps & { tool
   );
 }
 
-const TodoWriteToolView = memo(function TodoWriteToolView({
-  input,
-}: {
-  input: Record<string, unknown>;
-}) {
-  const rawTodos = input.todos;
-  if (!Array.isArray(rawTodos)) return null;
-  const items = rawTodos as Todo[];
-  return (
-    <div className="space-y-0.5">
-      {items.map((todo, idx) => (
-        <div key={idx} className="flex items-start gap-1.5 text-xs">
-          <span className="mt-px shrink-0">
-            {todo.status === "completed" ? (
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-emerald-500"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : todo.status === "in_progress" ? (
-              <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full border-2 border-amber-400" />
-            ) : todo.status === "cancelled" ? (
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-muted-foreground"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            ) : (
-              <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-muted-foreground/40" />
-            )}
-          </span>
-          <span
-            className={
-              todo.status === "completed"
-                ? "text-muted-foreground line-through"
-                : todo.status === "cancelled"
-                  ? "text-muted-foreground/50 line-through"
-                  : "text-foreground"
-            }
-          >
-            {todo.content}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-});
-
 // ── Part renderers ─────────────────────────────────────────────────────
 
 const markdownComponents: Components = {
@@ -602,16 +540,16 @@ const markdownComponents: Components = {
     return <p className="mb-2 last:mb-0">{children}</p>;
   },
   h1({ children }) {
-    return <h1 className="mb-2 mt-4 first:mt-0 text-lg font-semibold">{children}</h1>;
+    return <h1 className="mb-2 mt-4 first:mt-0 text-lg font-medium">{children}</h1>;
   },
   h2({ children }) {
-    return <h2 className="mb-2 mt-3 first:mt-0 text-base font-semibold">{children}</h2>;
+    return <h2 className="mb-2 mt-3 first:mt-0 text-base font-medium">{children}</h2>;
   },
   h3({ children }) {
-    return <h3 className="mb-1.5 mt-2.5 first:mt-0 text-sm font-semibold">{children}</h3>;
+    return <h3 className="mb-1.5 mt-2.5 first:mt-0 text-sm font-medium">{children}</h3>;
   },
   h4({ children }) {
-    return <h4 className="mb-1 mt-2 first:mt-0 text-sm font-semibold">{children}</h4>;
+    return <h4 className="mb-1 mt-2 first:mt-0 text-sm font-medium">{children}</h4>;
   },
   ul({ children }) {
     return <ul className="mb-2 ml-4 list-disc space-y-0.5 last:mb-0">{children}</ul>;
@@ -635,7 +573,7 @@ const markdownComponents: Components = {
     );
   },
   strong({ children }) {
-    return <strong className="font-semibold">{children}</strong>;
+    return <strong className="font-medium">{children}</strong>;
   },
   em({ children }) {
     return <em>{children}</em>;
@@ -689,7 +627,7 @@ const markdownComponents: Components = {
   table({ children }) {
     return (
       <div className="mb-2 overflow-x-auto last:mb-0">
-        <table className="min-w-full border-collapse text-xs">{children}</table>
+        <table className="min-w-full border-collapse text-sm">{children}</table>
       </div>
     );
   },
@@ -697,7 +635,7 @@ const markdownComponents: Components = {
     return <thead className="border-b border-border bg-muted">{children}</thead>;
   },
   th({ children }) {
-    return <th className="px-2 py-1 text-left font-semibold text-foreground">{children}</th>;
+    return <th className="px-2 py-1 text-left font-medium text-foreground">{children}</th>;
   },
   td({ children }) {
     return <td className="border-t border-border px-2 py-1 text-foreground">{children}</td>;
@@ -803,8 +741,6 @@ const ToolPartView = memo(function ToolPartView({
         return <TaskToolView input={input} output={output} status={status} />;
       case "webfetch":
         return <WebFetchToolView input={input} status={status} />;
-      case "todowrite":
-        return <TodoWriteToolView input={input} />;
       case "execute":
         return <ExecuteToolView input={input} output={output} status={status} />;
       default:
@@ -840,10 +776,31 @@ const CompactionPartView = memo(function CompactionPartView() {
 
 const OPENCODE_GO_URL = "https://opencode.ai/go";
 
-const ModelErrorCard = memo(function ModelErrorCard({ error }: { error: ModelError }) {
-  const presentation = presentModelError(error);
+const ModelErrorCard = memo(function ModelErrorCard({
+  error,
+  hitAt,
+  isLatest = true,
+}: {
+  error: ModelError;
+  /** When the error happened, for a free limit that has since lifted. */
+  hitAt?: number;
+  isLatest?: boolean;
+}) {
+  const isLimit = isFreeUsageLimit(error);
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!isLimit) return;
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [isLimit]);
+  const presentation = presentModelError(error, hitAt, now);
 
   if (presentation.kind === "usage") {
+    // Once the limit has lifted or the chat has moved on, it's just history.
+    const limitOver = hitAt !== undefined && now >= freeLimitEndsAt(error, hitAt);
+    if (limitOver || !isLatest) {
+      return <p className="my-1 text-xs text-muted-foreground">You reached the free limit here.</p>;
+    }
     return (
       <div role="alert" className="my-1 rounded-xl border bg-card px-3.5 py-3">
         <div className="text-sm font-medium">{presentation.title}</div>
@@ -907,6 +864,8 @@ const PartRenderer = memo(function PartRenderer({ part }: { part: Part }) {
     case "reasoning":
       return <ReasoningPartView part={part} />;
     case "tool":
+      // The plan shows in its pill above the composer, but that can't report a failed update.
+      if (baseToolName(part.tool) === "todowrite" && part.state.status !== "error") return null;
       return <ToolPartView part={part} />;
     case "compaction":
       return <CompactionPartView />;
@@ -916,81 +875,6 @@ const PartRenderer = memo(function PartRenderer({ part }: { part: Part }) {
 });
 
 // ── Inline todo panel ───────────────────────────────────────────────────
-
-const TodoPanel = memo(function TodoPanel({ todos }: { todos: Todo[] }) {
-  if (todos.length === 0) return null;
-  const completed = todos.filter((t) => t.status === "completed").length;
-  const total = todos.length;
-  return (
-    <div className="animate-fade-in my-2 rounded-lg border bg-card px-3 py-2.5">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-semibold text-foreground">Tasks</span>
-        <span className="text-xs text-muted-foreground">
-          {completed}/{total}
-        </span>
-      </div>
-      <div className="h-1 overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-          style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
-        />
-      </div>
-      <div className="mt-2 space-y-1">
-        {todos.map((todo, idx) => (
-          <div key={idx} className="flex items-start gap-1.5 text-xs">
-            <span className="mt-0.5 shrink-0">
-              {todo.status === "completed" ? (
-                <svg
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="text-emerald-500"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : todo.status === "in_progress" ? (
-                <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full border-2 border-amber-400" />
-              ) : todo.status === "cancelled" ? (
-                <svg
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="text-muted-foreground"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              ) : (
-                <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-muted-foreground/40" />
-              )}
-            </span>
-            <span
-              className={
-                todo.status === "completed"
-                  ? "text-muted-foreground line-through"
-                  : todo.status === "cancelled"
-                    ? "text-muted-foreground/50 line-through"
-                    : "text-foreground"
-              }
-            >
-              {todo.content}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-});
 
 // ── Question prompt ─────────────────────────────────────────────────────
 
@@ -1035,7 +919,7 @@ const QuestionPrompt = memo(function QuestionPrompt({
     <div className="animate-fade-in-up my-2 rounded-lg border border-blue-200 bg-blue-50/30 px-3 py-3">
       {question.questions.map((q, qIdx) => (
         <div key={qIdx} className={qIdx > 0 ? "mt-3 border-t border-blue-100 pt-3" : ""}>
-          <div className="text-xs font-semibold text-foreground">{q.header}</div>
+          <div className="text-xs font-medium text-foreground">{q.header}</div>
           <div className="mt-0.5 text-xs text-foreground">{q.question}</div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {q.options.map((opt) => {
@@ -1094,7 +978,7 @@ const PermissionPrompt = memo(function PermissionPrompt({
 }) {
   return (
     <div className="animate-fade-in-up my-2 rounded-lg border border-amber-200 bg-amber-50/30 px-3 py-3 dark:border-amber-900 dark:bg-amber-950/30">
-      <div className="text-xs font-semibold text-foreground">Permission Required</div>
+      <div className="text-xs font-medium text-foreground">Permission Required</div>
       <div className="mt-1 text-xs text-foreground">
         <span className="font-mono text-amber-700 dark:text-amber-400">
           {permission.permission}
@@ -1181,7 +1065,13 @@ const UserPartsView = memo(
 
 // ── Message bubble ─────────────────────────────────────────────────────
 
-const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: string }) {
+const MessageBubble = memo(function MessageBubble({
+  messageId,
+  isLatest,
+}: {
+  messageId: string;
+  isLatest: boolean;
+}) {
   const msg = useMessage(messageId);
   if (!msg) return null;
 
@@ -1209,7 +1099,11 @@ const MessageBubble = memo(function MessageBubble({ messageId }: { messageId: st
             {"error" in msg.info &&
               msg.info.error &&
               msg.info.error.name !== "MessageAbortedError" && (
-                <ModelErrorCard error={msg.info.error} />
+                <ModelErrorCard
+                  error={msg.info.error}
+                  hitAt={msg.info.time.completed ?? msg.info.time.created}
+                  isLatest={isLatest}
+                />
               )}
           </div>
         )}
@@ -1241,7 +1135,6 @@ function ChatMessages() {
   const { activeSessionId } = useActiveSession();
   const sessionStatus = useSessionStatus(activeSessionId);
   const isBusy = sessionStatus !== undefined && sessionStatus.type !== "idle";
-  const todos = useTodos();
   const activeQuestion = useActiveQuestion();
   const activePermission = useActivePermission();
   const lastMessageHasError =
@@ -1300,7 +1193,7 @@ function ChatMessages() {
     if (shouldAutoScroll.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [isBusy, todos, activeQuestion, activePermission]);
+  }, [isBusy, activeQuestion, activePermission]);
 
   const handleAnswer = useCallback(
     (requestID: string, answers: QuestionAnswer[]) => answerQuestion.mutate({ requestID, answers }),
@@ -1321,9 +1214,7 @@ function ChatMessages() {
       <div className="flex flex-1 flex-col items-center justify-center px-6">
         <ImageLightbox />
         <div className="animate-fade-in-up text-center">
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">
-            What would you like to build?
-          </h2>
+          <h2 className="text-lg font-medium text-foreground">What would you like to build?</h2>
           <p className="mt-2 text-xs text-muted-foreground">
             Ask me to create scripts, design game mechanics, or modify your Roblox Studio project.
           </p>
@@ -1360,13 +1251,15 @@ function ChatMessages() {
               }}
             >
               <div>
-                <MessageBubble messageId={messageIds[virtualItem.index]} />
+                <MessageBubble
+                  messageId={messageIds[virtualItem.index]}
+                  isLatest={virtualItem.index === messageIds.length - 1}
+                />
               </div>
             </div>
           ))}
         </div>
         <div className="space-y-4">
-          {todos.length > 0 && <TodoPanel todos={todos} />}
           {activeQuestion && (
             <QuestionPrompt
               question={activeQuestion}

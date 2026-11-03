@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isFreeUsageLimit, presentModelError } from "@/lib/modelError";
+import { freeLimitEndsAt, isFreeUsageLimit, presentModelError } from "@/lib/modelError";
 import type { AssistantMessage } from "@/lib/opencode/types";
 
 type ModelError = NonNullable<AssistantMessage["error"]>;
@@ -56,5 +56,12 @@ describe("free usage limit", () => {
       isFreeUsageLimit(limit({ responseBody: '{"error":{"type":"FreeUsageLimitError"}}' })),
     ).toBe(true);
     expect(isFreeUsageLimit(limit({ message: "Rate limit exceeded" }))).toBe(false);
+  });
+
+  it("counts a free limit down from when it hit, not from the saved text", () => {
+    const hour = 60 * 60 * 1000;
+    const hit = limit({ message: "Free usage limit reached.", retryAfterMs: 10 * hour });
+    expect(presentModelError(hit, 0, 8 * hour).description).toContain("about 2 hours");
+    expect(freeLimitEndsAt(hit, 0)).toBe(10 * hour);
   });
 });

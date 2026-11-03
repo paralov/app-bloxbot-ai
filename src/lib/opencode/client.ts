@@ -35,6 +35,7 @@ import type {
   QuestionAnswer,
   QuestionRequest,
   Session,
+  SessionGoal,
   SessionStatus,
   Todo,
 } from "./types";
@@ -517,6 +518,18 @@ export function createOpencodeClient(options: {
         }
         return { stream: translated() };
       },
+    },
+    goal: {
+      get: (input: { sessionID: string }, requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => {
+          const { output } = await api.rpc.call({
+            rpcID: "opencode.goal",
+            method: "get",
+            input,
+            location,
+          });
+          return (output ?? null) as SessionGoal | null;
+        }),
     },
     location: {
       /** Rereads config, commands, agents and skills without restarting. */

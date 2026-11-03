@@ -478,7 +478,7 @@ function ProvidersTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-semibold tracking-tight text-foreground">Providers</h4>
+      <h4 className="text-lg font-medium text-foreground">Providers</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Connect an AI provider to chat with its models.
       </p>
@@ -738,7 +738,7 @@ function ModelsTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-semibold tracking-tight text-foreground">Models</h4>
+      <h4 className="text-lg font-medium text-foreground">Models</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Toggle which models appear in the model selector.
       </p>
@@ -859,7 +859,7 @@ function AppearanceTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-semibold tracking-tight text-foreground">Appearance</h4>
+      <h4 className="text-lg font-medium text-foreground">Appearance</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Choose how BloxBot looks. System follows your OS preference.
       </p>
@@ -943,7 +943,7 @@ function SystemPromptTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-semibold tracking-tight text-foreground">System prompt</h4>
+      <h4 className="text-lg font-medium text-foreground">System prompt</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         The instructions BloxBot follows in every chat. Changes apply from your next message.
       </p>
@@ -985,7 +985,7 @@ function NotificationsTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-semibold tracking-tight text-foreground">Notifications</h4>
+      <h4 className="text-lg font-medium text-foreground">Notifications</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         While you work in Roblox Studio or another app, BloxBot can tell you when it needs you.
       </p>
@@ -1033,7 +1033,7 @@ function PrivacyTab() {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-semibold tracking-tight text-foreground">Privacy</h4>
+      <h4 className="text-lg font-medium text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         BloxBot uses PostHog's standard product analytics with persistent device and session
         identifiers, but events stay anonymous: no person profile is created. Error reports are
@@ -1186,7 +1186,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-semibold tracking-tight text-foreground">About BloxBot</h4>
+      <h4 className="text-lg font-medium text-foreground">About BloxBot</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         AI-assisted Roblox development, right from your desktop.
       </p>

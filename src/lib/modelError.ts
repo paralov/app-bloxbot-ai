@@ -27,22 +27,39 @@ export function isFreeUsageLimit(error: ModelError): boolean {
   );
 }
 
-function freeLimitReset(error: ModelError): string {
+/**
+ * When a free limit lifts: after OpenCode's retry delay, or the next day if it gave none. The error
+ * stays on its message for good, so this tells a current limit from an old one.
+ */
+export function freeLimitEndsAt(error: ModelError, hitAt: number): number {
+  const { retryAfterMs } = error.data as { retryAfterMs?: unknown };
+  const wait =
+    typeof retryAfterMs === "number" && retryAfterMs > 0 ? retryAfterMs : 24 * 60 * 60 * 1000;
+  return hitAt + wait;
+}
+
+function freeLimitReset(error: ModelError, hitAt: number | undefined, now: number): string {
   const { retryAfterMs } = error.data as { retryAfterMs?: unknown };
   if (typeof retryAfterMs !== "number" || retryAfterMs <= 0) return "They reset daily.";
-  const hours = Math.round(retryAfterMs / (60 * 60 * 1000));
+  const hours = Math.round(
+    (hitAt === undefined ? retryAfterMs : freeLimitEndsAt(error, hitAt) - now) / (60 * 60 * 1000),
+  );
   if (hours < 1) return "They reset in less than an hour.";
   return `They reset in about ${hours} ${hours === 1 ? "hour" : "hours"}.`;
 }
 
-export function presentModelError(error: ModelError): ModelErrorPresentation {
+export function presentModelError(
+  error: ModelError,
+  hitAt?: number,
+  now = Date.now(),
+): ModelErrorPresentation {
   const detail = modelErrorDetail(error);
 
   if (isFreeUsageLimit(error)) {
     return {
       kind: "usage",
       title: "You've used today's free messages",
-      description: `${freeLimitReset(error)} To keep going now, connect a provider in Settings or subscribe to OpenCode Go.`,
+      description: `${freeLimitReset(error, hitAt, now)} To keep going now, connect a provider in Settings or subscribe to OpenCode Go.`,
     };
   }
 

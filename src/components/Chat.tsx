@@ -228,9 +228,7 @@ function Chat() {
         ) : !activeSessionId ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6">
             <div className="animate-fade-in-up text-center">
-              <h2 className="text-xl font-semibold tracking-tight text-foreground">
-                What would you like to build?
-              </h2>
+              <h2 className="text-xl font-medium text-foreground">What would you like to build?</h2>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">
                 Start a new chat, or pick up where you left off.
               </p>
@@ -258,10 +256,12 @@ function Chat() {
         ) : (
           <>
             <div className="flex h-11 shrink-0 items-center justify-between gap-3 px-3">
-              <h3 className="min-w-0 truncate text-sm font-medium">
+              <h3 className="min-w-0 truncate text-lg font-medium">
                 {activeSessionTitle || "Untitled"}
               </h3>
-              <StudioTargetPicker />
+              <div className="flex max-w-[45%] shrink-0">
+                <StudioTargetPicker />
+              </div>
             </div>
 
             <ChatMessages />
