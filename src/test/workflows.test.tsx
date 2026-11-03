@@ -511,6 +511,8 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
       });
       fireEvent.click(await screen.findByRole("button", { name: "Connect" }, { timeout: SLOW }));
       const setup = (await screen.findByText("Install Claude Code")).closest("div") as HTMLElement;
+      expect(within(setup).getByRole("button", { name: "Connect" })).toBeDisabled();
+      fireEvent.click(within(setup).getByRole("checkbox"));
       fireEvent.click(within(setup).getByRole("button", { name: "Connect" }));
       await within(setup).findByRole("alert", {}, { timeout: 70_000 });
       expect(within(setup).getByRole("button", { name: "Check again" })).toBeEnabled();

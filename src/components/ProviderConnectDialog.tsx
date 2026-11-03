@@ -76,6 +76,7 @@ type ExternalCheck =
 
 const CLAUDE_CODE_SETUP_URL = "https://code.claude.com/docs/en/setup";
 const CLAUDE_SIGN_IN_COMMAND = "claude auth login";
+const ANTHROPIC_TERMS_URL = "https://code.claude.com/docs/en/legal-and-compliance";
 
 interface ProviderConnectDialogProps {
   provider: ProviderInfo;
@@ -100,6 +101,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
   const [copied, setCopied] = useState(false);
   const [externalCheck, setExternalCheck] = useState<ExternalCheck>({ state: "idle" });
   const connectExternalLogin = useExternalLogin();
+  const [riskAccepted, setRiskAccepted] = useState(false);
 
   // Bumped whenever the user leaves a sign-in (back, another method, close), so
   // a request that finishes afterwards knows its flow was abandoned.
@@ -337,7 +339,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
             )}
-            <ProviderLogo providerId={provider.id} name={provider.name} className="mr-1.5" />
+            <ProviderLogo providerId={provider.id} className="mr-1.5" />
             <h5 id="provider-connect-title" className="truncate text-sm font-medium">
               Connect {provider.name}
             </h5>
@@ -550,6 +552,30 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                 {copied ? <Check size={14} /> : <Copy size={14} />}
               </button>
             </div>
+            <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+              <p className="text-sm font-medium">You're proceeding on your own</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                This uses your own Claude Code login through OpenCode. BloxBot isn't affiliated with
+                Anthropic and can't vouch for this use. Anthropic's terms may limit using Claude
+                plans in other apps, and any limits or action on your account are your
+                responsibility.{" "}
+                <button
+                  type="button"
+                  onClick={() => desktop.openUrl(ANTHROPIC_TERMS_URL).catch(() => {})}
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  Read Anthropic's terms
+                </button>
+              </p>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={riskAccepted}
+                  onChange={(event) => setRiskAccepted(event.target.checked)}
+                />
+                I understand and want to continue
+              </label>
+            </div>
             {externalCheck.state === "problem" ? (
               <p role="alert" className="text-xs text-destructive">
                 {externalCheck.message}
@@ -563,7 +589,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
             ) : null}
             <button
               type="button"
-              disabled={externalCheck.state === "checking"}
+              disabled={!riskAccepted || externalCheck.state === "checking"}
               onClick={() => checkExternalLogin(state.option)}
               className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
             >

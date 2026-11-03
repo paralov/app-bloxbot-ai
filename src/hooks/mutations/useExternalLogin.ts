@@ -27,14 +27,22 @@ export function useExternalLogin() {
       const options = { throwOnError: true as const };
       try {
         await client.auth.connectExternal({ providerID, methodIndex }, options);
+      } catch (cause) {
+        return {
+          state: "problem",
+          message: cause instanceof Error ? cause.message : String(cause),
+        };
+      }
+      try {
         const deadline = Date.now() + CHECK_MS;
+        let looksReady = false;
         while (!abandoned()) {
           const { data } = await client.auth.externalStatus({ providerID }, options);
           if (data?.state === "problem") return { state: "problem", message: data.message };
-          if (data?.state === "ready") {
-            await queryClient.invalidateQueries({ queryKey: qk.providers });
-            return { state: "ready" };
-          }
+          // A signed-out Claude Code still lists its models and the problem arrives separately,
+          // so read again before treating the models as a working login, as OpenCode does.
+          if (data?.state === "ready" && looksReady) return { state: "ready" };
+          looksReady = data?.state === "ready";
           if (Date.now() > deadline) return { state: "timeout" };
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
@@ -44,6 +52,9 @@ export function useExternalLogin() {
           state: "problem",
           message: cause instanceof Error ? cause.message : String(cause),
         };
+      } finally {
+        // The connection is saved by now, even if the user has left the dialog.
+        await queryClient.invalidateQueries({ queryKey: qk.providers });
       }
     },
     [client, queryClient],

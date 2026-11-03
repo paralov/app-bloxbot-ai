@@ -1,13 +1,13 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { Effect, Either, Logger, LogLevel } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-
 import {
   findOpenCodeListeningPort,
   trackOpenCodeOutput,
   waitForListeningPort,
   withOutputTail,
 } from "../../electron/services/OpenCode";
+import { parseShellEnv } from "../../electron/shellEnv";
 
 describe("OpenCode server startup", () => {
   const connection = {
@@ -115,5 +115,14 @@ describe("OpenCode startup output", () => {
     expect(withOutputTail("OpenCode exited", { ...output, stdout: () => "" })).toBe(
       "OpenCode exited",
     );
+  });
+});
+
+describe("the shell environment", () => {
+  it("reads the output of env -0, including values with = and newlines", () => {
+    expect(parseShellEnv("PATH=/a:/b\0NOTE=x=y\nz\0\0broken\0")).toEqual({
+      PATH: "/a:/b",
+      NOTE: "x=y\nz",
+    });
   });
 });
