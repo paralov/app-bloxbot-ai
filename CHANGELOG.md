@@ -13,6 +13,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Objects a reply mentions in code formatting open in the Explorer when clicked.
 - The Explorer shows properties for services and Terrain, with rounded numbers and readable values.
 - Tools on your shell's PATH, like Claude Code, are now found when BloxBot is opened from the Finder.
+- BloxBot no longer picks up skills, instructions or config from `~/.claude`, `~/.agents` or `~/.opencode`, or from `AGENTS.md` and `opencode.json` files in folders above or inside `~/BloxBot`. Use the system prompt in Settings instead.
+- AI usage data no longer includes instruction files from outside BloxBot's folder, such as `~/.claude/CLAUDE.md`.
 - Providers show OpenCode's official logos, which work offline.
 - System notifications. While BloxBot isn't the app in front, it tells you when a chat finishes, runs into a problem, or is waiting for an answer or your approval, and when an update is ready or the connection is lost. Clicking one takes you to that chat. Turn them off in Settings → Notifications.
 - A toast when a chat you aren't looking at finishes or needs you, with a button to open it.

@@ -696,8 +696,10 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
       events: Event[];
     }) => Promise<void>,
     mcpUrl = "http://127.0.0.1:9/mcp",
+    prepare?: (home: string) => Promise<void>,
   ) {
     const home = await mkdtemp(join(tmpdir(), "bloxbot-chat-"));
+    await prepare?.(home);
     const { provider, url, bodies } = await startScriptedProvider(replies);
     const configFile = join(home, "config", "opencode", "opencode.json");
     await mkdir(join(home, "config", "opencode"), { recursive: true });
@@ -731,6 +733,47 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
       await rm(home, { recursive: true, force: true }).catch(() => undefined);
     }
   }
+
+  it("keeps the user's other setups out of the chat", async () => {
+    const skill = async (root: string, marker: string) => {
+      await mkdir(join(root, "skills", marker), { recursive: true });
+      await writeFile(
+        join(root, "skills", marker, "SKILL.md"),
+        `---\nname: ${marker}\ndescription: ${marker}\n---\nBody\n`,
+      );
+    };
+    const fakeHome = await mkdtemp(join(tmpdir(), "bloxbot-home-"));
+    await skill(join(fakeHome, ".claude"), "FROM_CLAUDE_FOLDER");
+    await skill(join(fakeHome, ".agents"), "FROM_AGENTS_FOLDER");
+    const realHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    try {
+      await withServer(
+        [{ content: "OK" }],
+        async ({ client, bodies, events }) => {
+          const created = await client.session.create({}, { throwOnError: true });
+          await turn(client, events, created.data.id, "Hello");
+          const body = bodies.at(-1);
+          expect(body).toContain(DEFAULT_SYSTEM_PROMPT.slice(0, 40));
+          expect(body).not.toContain("FROM_");
+        },
+        undefined,
+        async (home) => {
+          // The folder above the workspace, as the home folder is above ~/BloxBot.
+          await skill(join(home, ".opencode"), "FROM_PARENT_OPENCODE");
+          await writeFile(join(home, "AGENTS.md"), "FROM_PARENT_AGENTS_MD");
+          await writeFile(join(home, "instruction.md"), "FROM_PARENT_CONFIG");
+          await writeFile(
+            join(home, "opencode.json"),
+            JSON.stringify({ instructions: [join(home, "instruction.md")] }),
+          );
+        },
+      );
+    } finally {
+      process.env.HOME = realHome;
+      await rm(fakeHome, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }, 60_000);
 
   async function turn(client: OpencodeClient, events: Event[], sessionID: string, text: string) {
     const from = events.length;
