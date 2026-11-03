@@ -864,8 +864,8 @@ const PartRenderer = memo(function PartRenderer({ part }: { part: Part }) {
     case "reasoning":
       return <ReasoningPartView part={part} />;
     case "tool":
-      // The plan shows in its pill above the composer.
-      if (baseToolName(part.tool) === "todowrite") return null;
+      // The plan shows in its pill above the composer, but that can't report a failed update.
+      if (baseToolName(part.tool) === "todowrite" && part.state.status !== "error") return null;
       return <ToolPartView part={part} />;
     case "compaction":
       return <CompactionPartView />;

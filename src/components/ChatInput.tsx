@@ -284,11 +284,13 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const objectsRequest = useRef(0);
 
   // Objects belong to one place, so a different Studio starts with none.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: studioId is what triggers the reset
   useEffect(() => {
     objectsRequest.current += 1;
     publishObjects([]);
     setObjectsLoading(false);
-  }, [publishObjects]);
+    setObjectsFailed(false);
+  }, [studioId, publishObjects]);
 
   // The Explorer panel may be closed, so "@" fetches what it can offer itself.
   const loadObjects = useCallback(() => {
