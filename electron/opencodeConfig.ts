@@ -43,6 +43,12 @@ export function studioMcpInstallPath(
   return null;
 }
 
+/**
+ * Keeps other setups out of BloxBot. OpenCode would otherwise walk up from ~/BloxBot and load
+ * ~/AGENTS.md, ~/opencode.json and ~/.opencode, which belong to the user's own OpenCode.
+ */
+export const OPENCODE_ISOLATION_ENV = { OPENCODE_DISABLE_PROJECT_CONFIG: "1" };
+
 export function createOpenCodeConfig(broker: { url: string }, systemPrompt?: string | null) {
   return {
     // Keep OpenCode's standard automatic context compaction enabled for long sessions.
@@ -61,6 +67,8 @@ export function createOpenCodeConfig(broker: { url: string }, systemPrompt?: str
         },
       },
     },
+    // OpenCode would otherwise load skills from ~/.claude and ~/.agents, which belong to other tools.
+    plugins: ["*", "-opencode.config.compatibility"],
     default_agent: "studio",
     agents: {
       studio: {

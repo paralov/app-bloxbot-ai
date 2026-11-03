@@ -728,7 +728,7 @@ export type PermissionRequest = {
 };
 
 export type ProviderAuthMethod = {
-  type: "oauth" | "api";
+  type: "oauth" | "api" | "external";
   label: string;
   prompts?: Array<
     | {

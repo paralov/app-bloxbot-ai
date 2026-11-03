@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Search, Sparkles } from "lucide-react";
+import { Search } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProviderCheckPopover from "@/components/ProviderCheckPopover";
@@ -35,6 +35,7 @@ const POPULAR_PROVIDERS = [
   "opencode",
   "opencode-go",
   "anthropic",
+  "claude-agent",
   "github-copilot",
   "openai",
   "google",
@@ -457,7 +458,7 @@ function ProvidersTab() {
   function renderAvailable(provider: ProviderInfo) {
     return (
       <div key={provider.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
-        <ProviderLogo providerId={provider.id} name={provider.name} />
+        <ProviderLogo providerId={provider.id} />
         <div className="min-w-[7rem] flex-1">
           <div className="truncate text-sm font-medium">{provider.name}</div>
           <div className="truncate text-xs text-muted-foreground">
@@ -500,11 +501,7 @@ function ProvidersTab() {
       {recommendGo && (
         <div className="mt-6 rounded-lg border bg-card p-4">
           <div className="flex items-start gap-3">
-            <ProviderLogo
-              providerId={OPENCODE_GO.providerId}
-              name="OpenCode Go"
-              className="hidden @md:flex"
-            />
+            <ProviderLogo providerId={OPENCODE_GO.providerId} className="hidden @md:flex" />
             <div className="min-w-0">
               <div className="text-sm font-medium">Want more than the free models?</div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -543,23 +540,14 @@ function ProvidersTab() {
               return (
                 <div key={provider.id} className="px-3 py-2.5">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    {isFreeZen(provider) ? (
-                      <span
-                        aria-hidden="true"
-                        className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
-                      >
-                        <Sparkles className="h-4 w-4" />
-                      </span>
-                    ) : (
-                      <ProviderLogo providerId={provider.id} name={provider.name} />
-                    )}
+                    <ProviderLogo providerId={provider.id} />
                     <div className="min-w-[7rem] flex-1">
                       <div className="truncate text-sm font-medium">
                         {providerDisplayName(provider)}
                       </div>
                       {isFreeZen(provider) && (
                         <div className="truncate text-xs text-muted-foreground">
-                          Included with BloxBot
+                          Provided by OpenCode
                         </div>
                       )}
                     </div>
@@ -799,7 +787,7 @@ function ModelsTab() {
         {modelsByProvider.map(([providerId, group]) => (
           <div key={providerId}>
             <div className="flex items-center gap-2 pb-2">
-              <ProviderLogo providerId={providerId} name={group.providerName} />
+              <ProviderLogo providerId={providerId} />
               <span className="text-sm font-medium">{group.providerName}</span>
             </div>
             <div className="rounded-lg border bg-card">

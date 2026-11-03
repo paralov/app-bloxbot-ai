@@ -494,6 +494,32 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
     );
   });
 
+  it(
+    "explains a Claude Code login that isn't ready, without connecting it",
+    { timeout: 90_000 },
+    async () => {
+      const previous = process.env.OPENCODE_CLAUDE_PATH;
+      process.env.OPENCODE_CLAUDE_PATH = join(tmpdir(), "no-claude-here");
+      cleanups.push(() => {
+        if (previous === undefined) delete process.env.OPENCODE_CLAUDE_PATH;
+        else process.env.OPENCODE_CLAUDE_PATH = previous;
+      });
+      await openApp([{ content: "unused" }]);
+      fireEvent.click(await screen.findByText("Settings", {}, { timeout: SLOW }));
+      fireEvent.change(await screen.findByLabelText("Search providers", {}, { timeout: SLOW }), {
+        target: { value: "Claude Agent" },
+      });
+      fireEvent.click(await screen.findByRole("button", { name: "Connect" }, { timeout: SLOW }));
+      const setup = (await screen.findByText("Install Claude Code")).closest("div") as HTMLElement;
+      expect(within(setup).getByRole("button", { name: "Connect" })).toBeDisabled();
+      fireEvent.click(within(setup).getByRole("checkbox"));
+      fireEvent.click(within(setup).getByRole("button", { name: "Connect" }));
+      await within(setup).findByRole("alert", {}, { timeout: 70_000 });
+      expect(within(setup).getByRole("button", { name: "Check again" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
+    },
+  );
+
   it("brings the chat back after a restart", { timeout: 90_000 }, async () => {
     const home = await mkdtemp(join(tmpdir(), "bloxbot-restart-"));
     cleanups.push(() => rm(home, { recursive: true, force: true }).catch(() => {}));

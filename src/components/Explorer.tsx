@@ -31,6 +31,7 @@ import {
   type ExplorerNode,
   type ExplorerNodeDetails,
   type ExplorerSnapshot,
+  formatFieldValue,
   sortExplorerSnapshot,
 } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
@@ -97,6 +98,7 @@ const TreeRow = memo(function TreeRow({
     <>
       <div
         role="treeitem"
+        data-path={node.path}
         tabIndex={0}
         aria-selected={selectedPath === node.path}
         aria-expanded={canExpand ? isExpanded : undefined}
@@ -174,7 +176,10 @@ function collectPaths(nodes: readonly ExplorerNode[]): Set<string> {
 export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
   const { client } = useOpenCodeClient();
   const studioTarget = useStudioTargetOptional();
-  const { referenceObject, publishObjects } = useExplorerReference();
+  const { referenceObject, publishObjects, focusRequest, consumeFocus } = useExplorerReference();
+  const treeRef = useRef<HTMLDivElement>(null);
+  // An object each time, so a second click on the same link still scrolls to it.
+  const [scrollTarget, setScrollTarget] = useState<{ path: string } | null>(null);
   const [snapshot, setSnapshot] = useState<ExplorerSnapshot | null>(null);
   const snapshotRef = useRef<ExplorerSnapshot | null>(null);
   const syncingRef = useRef(false);
@@ -351,6 +356,30 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     });
   }, []);
 
+  useEffect(() => {
+    // A reply can link to an object before this panel's next sync has it, so the request waits.
+    if (!focusRequest || !snapshot || !findNode(snapshot.roots, focusRequest)) return;
+    consumeFocus();
+    setSearch("");
+    setSelectedPath(focusRequest);
+    setScrollTarget({ path: focusRequest });
+    setExpanded((current) => {
+      const next = new Set(current);
+      const parts = focusRequest.split(".");
+      for (let depth = 1; depth < parts.length; depth++) {
+        next.add(parts.slice(0, depth).join("."));
+      }
+      return next;
+    });
+  }, [focusRequest, snapshot, consumeFocus]);
+
+  useEffect(() => {
+    if (!scrollTarget) return;
+    treeRef.current
+      ?.querySelector(`[data-path="${CSS.escape(scrollTarget.path)}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [scrollTarget]);
+
   const selected = useMemo(
     () => (selectedPath && snapshot ? findNode(snapshot.roots, selectedPath) : null),
     [snapshot, selectedPath],
@@ -449,6 +478,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       ) : null}
 
       <div
+        ref={treeRef}
         className="min-h-0 flex-1 overflow-y-auto py-1"
         role="tree"
         aria-label="Instance hierarchy"
@@ -553,19 +583,21 @@ function FieldSection({ title, fields }: { title: string; fields: readonly Explo
     <section className="border-b px-3 py-2 last:border-b-0">
       <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">{title}</h4>
       <dl className="space-y-1">
-        {fields.map((field) => (
-          <div
-            key={`${field.name}-${field.value}`}
-            className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-2 text-xs"
-          >
-            <dt className="truncate text-muted-foreground" title={field.name}>
-              {field.name}
-            </dt>
-            <dd className="break-words font-mono text-foreground" title={field.value}>
-              {field.value}
-            </dd>
-          </div>
-        ))}
+        {fields
+          .filter((field) => field.value !== "")
+          .map((field) => (
+            <div
+              key={`${field.name}-${field.value}`}
+              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 text-xs"
+            >
+              <dt className="truncate text-muted-foreground" title={field.name}>
+                {field.name}
+              </dt>
+              <dd className="truncate text-foreground tabular-nums" title={field.value}>
+                {formatFieldValue(field)}
+              </dd>
+            </div>
+          ))}
       </dl>
     </section>
   );

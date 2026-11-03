@@ -1,51 +1,39 @@
-import { useState } from "react";
+// OpenCode's own provider logos (MIT, see the LICENSE beside them), and its generic mark for any
+// provider without one. They're inlined because a CSS mask can't load a file:// URL.
+const LOGOS = import.meta.glob<string>("../assets/provider-icons/*.svg", {
+  eager: true,
+  query: "?inline",
+  import: "default",
+});
 
-// models.dev serves a monochrome logo for every provider OpenCode lists, and a
-// generic mark for any it doesn't know. Offline, the first letter stands in.
 function logoUrl(providerId: string) {
-  return `https://models.dev/logos/${encodeURIComponent(providerId)}.svg`;
+  return (
+    LOGOS[`../assets/provider-icons/${providerId}.svg`] ??
+    LOGOS["../assets/provider-icons/synthetic.svg"]
+  );
 }
 
 interface ProviderLogoProps {
   providerId: string;
-  name: string;
   className?: string;
 }
 
-function ProviderLogo({ providerId, name, className = "" }: ProviderLogoProps) {
-  const [loaded, setLoaded] = useState(false);
-  const url = logoUrl(providerId);
-
+function ProviderLogo({ providerId, className = "" }: ProviderLogoProps) {
   return (
     <span
       aria-hidden="true"
       className={`relative flex h-5 w-5 shrink-0 items-center justify-center text-foreground ${className}`}
     >
-      {loaded ? (
-        // A mask lets the logo take the text color, so it works in light and dark themes.
-        <span
-          className="h-4 w-4 bg-current"
-          style={{
-            maskImage: `url("${url}")`,
-            maskSize: "contain",
-            maskRepeat: "no-repeat",
-            maskPosition: "center",
-          }}
-        />
-      ) : (
-        <span className="text-xs font-medium text-muted-foreground">
-          {name.trim().charAt(0).toUpperCase()}
-        </span>
-      )}
-      {!loaded && (
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          onLoad={() => setLoaded(true)}
-          className="pointer-events-none absolute h-px w-px opacity-0"
-        />
-      )}
+      {/* A mask lets the logo take the text color, so it works in light and dark themes. */}
+      <span
+        className="h-4 w-4 bg-current"
+        style={{
+          maskImage: `url("${logoUrl(providerId)}")`,
+          maskSize: "contain",
+          maskRepeat: "no-repeat",
+          maskPosition: "center",
+        }}
+      />
     </span>
   );
 }

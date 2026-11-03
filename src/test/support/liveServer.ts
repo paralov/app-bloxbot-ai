@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
+import { OPENCODE_ISOLATION_ENV } from "../../../electron/opencodeConfig";
 
 export const PASSWORD = "live-test";
 
@@ -13,6 +14,7 @@ export async function startServer(bin: string, home: string, password = PASSWORD
     cwd: workspace,
     env: {
       ...process.env,
+      ...OPENCODE_ISOLATION_ENV,
       XDG_CONFIG_HOME: join(home, "config"),
       XDG_DATA_HOME: join(home, "data"),
       XDG_STATE_HOME: join(home, "state"),

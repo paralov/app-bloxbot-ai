@@ -1,6 +1,7 @@
 import { Check, ChevronLeft, Copy, ExternalLink, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ProviderLogo from "@/components/ProviderLogo";
+import { useExternalLogin } from "@/hooks/mutations/useExternalLogin";
 import {
   captureProviderConnectFailure,
   useCompleteOAuth,
@@ -66,7 +67,16 @@ type Step =
       instructions: string | null;
       url: string | null;
     }
-  | { step: "apikey"; option: AuthMethodOption };
+  | { step: "apikey"; option: AuthMethodOption }
+  | { step: "external"; option: AuthMethodOption };
+
+type ExternalCheck =
+  | { state: "idle" | "checking" | "timeout" }
+  | { state: "problem"; message: string };
+
+const CLAUDE_CODE_SETUP_URL = "https://code.claude.com/docs/en/setup";
+const CLAUDE_SIGN_IN_COMMAND = "claude auth login";
+const ANTHROPIC_TERMS_URL = "https://code.claude.com/docs/en/legal-and-compliance";
 
 interface ProviderConnectDialogProps {
   provider: ProviderInfo;
@@ -89,6 +99,9 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
   const [oauthCodeInput, setOauthCodeInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [externalCheck, setExternalCheck] = useState<ExternalCheck>({ state: "idle" });
+  const connectExternalLogin = useExternalLogin();
+  const [riskAccepted, setRiskAccepted] = useState(false);
 
   // Bumped whenever the user leaves a sign-in (back, another method, close), so
   // a request that finishes afterwards knows its flow was abandoned.
@@ -152,11 +165,25 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
     setError(null);
     if (option.type === "api") {
       setState({ step: "apikey", option });
+    } else if (option.type === "external") {
+      setState({ step: "external", option });
     } else if (option.prompts.length > 0) {
       setState({ step: "prompts", option, inputs: initialPromptInputs(option.prompts) });
     } else {
       startOAuthFlow(option, {});
     }
+  }
+
+  async function checkExternalLogin(option: AuthMethodOption) {
+    cancelPendingOAuth();
+    const flow = oauthFlowRef.current;
+    const abandoned = () => oauthFlowRef.current !== flow;
+    setExternalCheck({ state: "checking" });
+    const result = await connectExternalLogin(provider.id, option.index, abandoned);
+    if (abandoned() || result.state === "abandoned") return;
+    if (result.state !== "ready") setExternalCheck(result);
+    // Otherwise the provider shows up as connected, which closes the dialog.
+    else if (alreadyConnected) finish();
   }
 
   async function startOAuthFlow(option: AuthMethodOption, inputs: Record<string, string>) {
@@ -312,7 +339,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
             )}
-            <ProviderLogo providerId={provider.id} name={provider.name} className="mr-1.5" />
+            <ProviderLogo providerId={provider.id} className="mr-1.5" />
             <h5 id="provider-connect-title" className="truncate text-sm font-medium">
               Connect {provider.name}
             </h5>
@@ -493,6 +520,88 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
                 Stuck? Use a different way to connect
               </button>
             )}
+          </div>
+        )}
+
+        {state.step === "external" && (
+          <div className="mt-4 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Use your Claude plan or another Claude Code login. Install Claude Code and sign in
+              first.
+            </p>
+            <button
+              type="button"
+              onClick={() => desktop.openUrl(CLAUDE_CODE_SETUP_URL).catch(() => {})}
+              className="inline-flex items-center gap-1 text-sm underline-offset-2 hover:underline"
+            >
+              Install Claude Code
+              <ExternalLink aria-hidden="true" size={12} />
+            </button>
+            <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
+              <code className="min-w-0 truncate font-mono text-xs">{CLAUDE_SIGN_IN_COMMAND}</code>
+              <button
+                type="button"
+                title="Copy the sign-in command"
+                onClick={() => {
+                  navigator.clipboard.writeText(CLAUDE_SIGN_IN_COMMAND).catch(() => {});
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+                className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+            </div>
+            <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+              <p className="text-sm font-medium">You're proceeding on your own</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                This uses your own Claude Code login through OpenCode. BloxBot isn't affiliated with
+                Anthropic and can't vouch for this use. Anthropic's terms may limit using Claude
+                plans in other apps, and any limits or action on your account are your
+                responsibility.{" "}
+                <button
+                  type="button"
+                  onClick={() => desktop.openUrl(ANTHROPIC_TERMS_URL).catch(() => {})}
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  Read Anthropic's terms
+                </button>
+              </p>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={riskAccepted}
+                  onChange={(event) => setRiskAccepted(event.target.checked)}
+                />
+                I understand and want to continue
+              </label>
+            </div>
+            {externalCheck.state === "problem" ? (
+              <p role="alert" className="text-xs text-destructive">
+                {externalCheck.message}
+              </p>
+            ) : null}
+            {externalCheck.state === "timeout" ? (
+              <p role="alert" className="text-xs text-destructive">
+                Couldn't confirm that Claude Code is ready. Make sure it's installed and signed in,
+                then check again.
+              </p>
+            ) : null}
+            <button
+              type="button"
+              disabled={!riskAccepted || externalCheck.state === "checking"}
+              onClick={() => checkExternalLogin(state.option)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {externalCheck.state === "checking" ? (
+                <Loader2 aria-hidden="true" size={12} className="animate-spin" />
+              ) : null}
+              {externalCheck.state === "checking"
+                ? "Checking Claude Code"
+                : externalCheck.state === "idle"
+                  ? "Connect"
+                  : "Check again"}
+            </button>
           </div>
         )}
 

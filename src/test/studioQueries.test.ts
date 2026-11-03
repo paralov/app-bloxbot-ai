@@ -125,8 +125,8 @@ describe("Studio targets", () => {
     ).resolves.toEqual({
       properties: [
         { name: "Anchored", value: "true" },
-        { name: "Size", value: "2048, 16, 2048" },
-        { name: "Transparency", value: "0" },
+        { name: "Size", value: "2048, 16, 2048", numeric: true },
+        { name: "Transparency", value: "0", numeric: true },
       ],
       attributes: [],
     });
@@ -134,6 +134,38 @@ describe("Studio targets", () => {
       studio_id: "studio-1",
       path: "game.Workspace.Baseplate",
     });
+  });
+
+  it("reads properties another way when Studio's inspect tool has none, as for Terrain", async () => {
+    const callTool = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      if (name === "inspect_instance") {
+        return json({ name: "Terrain", className: "Terrain", properties: [] });
+      }
+      if (args.datamodel_type === "Edit") return failure("Edit is not available in Play mode");
+      return json({ WaterColor: "0.04, 0.32, 0.36" });
+    });
+    await expect(
+      inspectExplorerNode(callTool, "studio-1", 'game.Workspace.Ter"rain'),
+    ).resolves.toEqual({
+      properties: [{ name: "WaterColor", value: "0.04, 0.32, 0.36", numeric: true }],
+      attributes: [],
+    });
+    const [, args] = callTool.mock.lastCall ?? [];
+    expect(args?.datamodel_type).toBe("Server");
+    expect(args?.code).toContain('"Workspace.Ter\\"rain"');
+    expect(args?.code).toContain('local className = "Terrain"');
+    expect(args?.code).toContain("if #matches ~= 1 then error(");
+  });
+
+  it("shows the first of several objects that share a path", async () => {
+    const callTool = async () =>
+      json({ matches: [{ properties: { Anchored: true } }, { properties: { Anchored: false } }] });
+    await expect(inspectExplorerNode(callTool, "studio-1", "game.Workspace.Part")).resolves.toEqual(
+      {
+        properties: [{ name: "Anchored", value: "true" }],
+        attributes: [],
+      },
+    );
   });
 
   it("reports Studio's errors and unusable output instead of showing nothing", async () => {

@@ -313,6 +313,11 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
       });
   }, [studioId, publishObjects]);
 
+  // Replies link to these objects, and a turn can add some, so stay current without the Explorer.
+  useEffect(() => {
+    if (!isBusy) loadObjects();
+  }, [isBusy, loadObjects]);
+
   // Available variants for the currently selected model
   const availableVariants = useMemo(() => {
     if (!selectedModel) return [];

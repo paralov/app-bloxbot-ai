@@ -3,6 +3,8 @@ import { Schema } from "effect";
 export const ExplorerFieldSchema = Schema.Struct({
   name: Schema.String,
   value: Schema.String,
+  /** A number or a list of them, so it can be shortened. Other text stays as written. */
+  numeric: Schema.optional(Schema.Boolean),
 });
 
 export type ExplorerField = typeof ExplorerFieldSchema.Type;
@@ -113,6 +115,39 @@ export const ExplorerSnapshotSchema = Schema.Struct({
 });
 
 export type ExplorerSnapshot = typeof ExplorerSnapshotSchema.Type;
+
+/**
+ * A property value as people want to read it: `Enum.CameraType.Fixed` as "Fixed", and numbers with
+ * more than 3 decimals, alone or in lists like a Vector3, shortened.
+ */
+export function formatFieldValue({ value, numeric }: ExplorerField): string {
+  const enumItem = /^Enum\.\w+\.(\w+)$/.exec(value);
+  if (enumItem) return enumItem[1];
+  if (!numeric) return value;
+  return value.replace(/-?\d+\.\d{4,}(?:e[-+]?\d+)?/gi, (text) => {
+    const number = Number(text);
+    const size = Math.abs(number);
+    if (size >= 1e15 || (size > 0 && size < 0.001)) return number.toExponential(2);
+    return String(Number(number.toFixed(3)));
+  });
+}
+
+/**
+ * Finds objects by how a reply might name them: the full path, with or without "game.", or a name
+ * only one object has. A name several objects share stays out, so it can't open the wrong one.
+ */
+export function indexExplorerObjects(roots: readonly ExplorerNode[]) {
+  const byName = new Map<string, ExplorerNode | null>();
+  const byPath = new Map<string, ExplorerNode>();
+  const visit = (node: ExplorerNode) => {
+    byName.set(node.name, byName.has(node.name) ? null : node);
+    byPath.set(node.path, node);
+    byPath.set(node.path.replace(/^game\./, ""), node);
+    node.children.forEach(visit);
+  };
+  roots.forEach(visit);
+  return new Map([...byName, ...byPath]);
+}
 
 export function createExplorerReference(node: ExplorerNode): string {
   return (

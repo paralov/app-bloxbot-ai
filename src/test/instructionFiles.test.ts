@@ -12,31 +12,25 @@ afterEach(async () => {
 });
 
 describe("instruction files", () => {
-  it("finds the global file and every project match of the first file name, like OpenCode", async () => {
+  it("reads only BloxBot's own file, never another tool's in the home folder", async () => {
     root = await mkdtemp(join(tmpdir(), "bloxbot-instructions-"));
-    const home = join(root, "home");
-    const workspace = join(home, "BloxBot");
-    const globalConfigDirectory = join(workspace, ".opencode", "config", "opencode");
-    await mkdir(join(root, ".git"), { recursive: true });
+    const globalConfigDirectory = join(root, "BloxBot", ".opencode", "config", "opencode");
     await mkdir(globalConfigDirectory, { recursive: true });
-    await mkdir(join(home, ".claude"), { recursive: true });
-    await writeFile(join(globalConfigDirectory, "AGENTS.md"), "global rules");
-    await writeFile(join(home, ".claude", "CLAUDE.md"), "skipped: global AGENTS.md wins");
-    await writeFile(join(workspace, "AGENTS.md"), "workspace rules");
-    await writeFile(join(home, "AGENTS.md"), "home rules");
-    await writeFile(join(workspace, "CLAUDE.md"), "skipped: AGENTS.md matched first");
+    await mkdir(join(root, ".claude"), { recursive: true });
+    await writeFile(join(root, ".claude", "CLAUDE.md"), "Private");
+    await writeFile(join(root, "AGENTS.md"), "Private");
 
-    const files = await findInstructionFiles({ workspace, globalConfigDirectory, home });
+    const options = { globalConfigDirectory, home: root };
+    await expect(findInstructionFiles(options)).resolves.toEqual([]);
 
-    expect(files).toEqual([
+    await writeFile(join(globalConfigDirectory, "AGENTS.md"), "Use tabs");
+    await expect(findInstructionFiles(options)).resolves.toEqual([
       {
         path: "~/BloxBot/.opencode/config/opencode/AGENTS.md",
         scope: "global",
-        chars: 12,
-        content: "global rules",
+        chars: 8,
+        content: "Use tabs",
       },
-      { path: "~/BloxBot/AGENTS.md", scope: "project", chars: 15, content: "workspace rules" },
-      { path: "~/AGENTS.md", scope: "project", chars: 10, content: "home rules" },
     ]);
   });
 });
