@@ -154,6 +154,7 @@ describe("Studio targets", () => {
     expect(args?.datamodel_type).toBe("Server");
     expect(args?.code).toContain('"Workspace.Ter\\"rain"');
     expect(args?.code).toContain('local className = "Terrain"');
+    expect(args?.code).toContain("if #matches ~= 1 then error(");
   });
 
   it("shows the first of several objects that share a path", async () => {

@@ -158,21 +158,23 @@ function isFieldTable(value: unknown) {
 }
 
 // Object names come from the place, so they go in JSON-encoded. A name can contain a period, so
-// this follows whole names instead of splitting the path. This only reads.
+// this follows whole names instead of splitting the path. Studio's paths can't tell A.B from B
+// inside A, and scripts can't read an object's UniqueId, so it refuses to guess between them.
+// This only reads.
 function readPropertiesLuau(path: string, className: string) {
   return `local className = ${JSON.stringify(className)}
+local matches = {}
 local function find(parent, rest)
   for _, child in parent:GetChildren() do
-    if child.Name == rest and child.ClassName == className then return child end
+    if child.Name == rest and child.ClassName == className then table.insert(matches, child) end
     if string.sub(rest, 1, #child.Name + 1) == child.Name .. "." then
-      local found = find(child, string.sub(rest, #child.Name + 2))
-      if found then return found end
+      find(child, string.sub(rest, #child.Name + 2))
     end
   end
-  return nil
 end
-local instance = find(game, ${JSON.stringify(path.replace(/^game\./, ""))})
-if not instance then error("Object not found") end
+find(game, ${JSON.stringify(path.replace(/^game\./, ""))})
+if #matches ~= 1 then error("Found " .. #matches .. " objects at this path") end
+local instance = matches[1]
 local values = {}
 for _, property in game:GetService("ReflectionService"):GetPropertiesOfClass(instance.ClassName) do
   -- Lowercase names are deprecated aliases, like archivable for Archivable.
