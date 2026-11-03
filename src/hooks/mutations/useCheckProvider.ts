@@ -1,10 +1,8 @@
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-
 import { analyticsProperties, detailedAnalyticsProperties } from "@/lib/analytics";
 import { scrubErrorMessage } from "@/lib/errorReporting";
-import { ASK_ALL_PERMISSIONS, rejectPermissions } from "@/lib/hiddenSession";
+import type { ProviderListResponse } from "@/lib/opencode/types";
 import {
   canChat,
   checkFailure,
@@ -50,15 +48,11 @@ export function useCheckProvider() {
         {
           title: "BloxBot connection check",
           metadata: { bloxbotHidden: true, purpose: "provider-check" },
-          permission: ASK_ALL_PERMISSIONS,
         },
         { throwOnError: true },
       );
       const sessionID = created.data.id;
-      const stopRejecting = rejectPermissions(client, sessionID);
       try {
-        // A normal-shaped request: OpenCode's free tier and Go reject traffic
-        // that doesn't look like a coding agent's.
         const response = await client.session.prompt(
           {
             sessionID,
@@ -91,7 +85,6 @@ export function useCheckProvider() {
         );
         return result;
       } finally {
-        stopRejecting();
         await client.session.delete({ sessionID }, { throwOnError: true }).catch(() => undefined);
       }
     },

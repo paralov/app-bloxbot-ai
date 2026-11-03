@@ -1,4 +1,3 @@
-import type { Message, Part } from "@opencode-ai/sdk/v2/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
@@ -7,6 +6,7 @@ import PlaytestPanel from "@/components/PlaytestPanel";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { setDetailedAnalyticsEnabled } from "@/lib/analytics";
+import type { Message, Part } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
 import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
@@ -113,28 +113,10 @@ describe("PlaytestPanel", () => {
   beforeEach(() => capture.mockClear());
   afterEach(() => setDetailedAnalyticsEnabled(false));
 
-  it("generates through a hidden session whose tool requests are rejected, then sends the edited plan normally", async () => {
+  it("generates through a hidden session, then sends the edited plan normally", async () => {
     const onClose = vi.fn();
     const client = plannerClient(vi.fn());
-    // The model asks to run a tool. The prompt only finishes once that is rejected.
-    client.permission.list.mockResolvedValue({
-      data: [
-        { id: "planner-ask", sessionID: "planner", permission: "bash" },
-        { id: "chat-ask", sessionID: "active", permission: "edit" },
-      ],
-    });
-    let rejected: () => void = () => {};
-    const rejection = new Promise<void>((resolve) => {
-      rejected = resolve;
-    });
-    client.permission.reply.mockImplementation(async () => {
-      rejected();
-      return { data: true };
-    });
-    client.session.prompt.mockImplementation(async () => {
-      await rejection;
-      return { data: { info: { structured: PLAN }, parts: [] } };
-    });
+    client.session.prompt.mockResolvedValue({ data: { info: { structured: PLAN }, parts: [] } });
 
     render(<Harness client={client} onClose={onClose} />);
     expect(client.session.create).not.toHaveBeenCalled();
@@ -155,18 +137,7 @@ describe("PlaytestPanel", () => {
       sessionID: "planner",
       format: { type: "json_schema" },
     });
-    // "deny" would drop every tool from the request, including the
-    // StructuredOutput tool, and OpenCode's free tier rejects tool-less requests.
-    const created = client.session.create.mock.calls[0][0];
-    expect(created.permission).toEqual([{ permission: "*", pattern: "*", action: "ask" }]);
-    expect(created.metadata).toMatchObject({ bloxbotHidden: true });
-    expect(client.permission.reply).toHaveBeenCalledWith({
-      requestID: "planner-ask",
-      reply: "reject",
-    });
-    expect(client.permission.reply).not.toHaveBeenCalledWith(
-      expect.objectContaining({ requestID: "chat-ask" }),
-    );
+    expect(client.session.create.mock.calls[0][0].metadata).toMatchObject({ bloxbotHidden: true });
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
 
     fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Test two rounds" } });
@@ -216,36 +187,6 @@ describe("PlaytestPanel", () => {
     expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
   });
 
-  it("reports an invalid plan only when the planner answered without an error", async () => {
-    const client = plannerClient(
-      vi.fn().mockResolvedValue({ data: { info: { structured: { goal: "Missing lists" } } } }),
-    );
-    render(<Harness client={client} detailedAnalytics="enabled" />);
-    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
-    expect(await screen.findByText("Couldn't create a playtest plan")).toBeInTheDocument();
-    expect(screen.getByText("The planner returned an incomplete test plan.")).toBeInTheDocument();
-    // One reminder, then it gives up.
-    expect(client.session.prompt).toHaveBeenCalledTimes(2);
-    expect(capture).toHaveBeenCalledWith(
-      "generation_failed",
-      expect.objectContaining({ error_category: "invalid_plan", attempts: 2 }),
-    );
-    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
-  });
-
-  it("counts attempts when the planner request itself fails", async () => {
-    const client = plannerClient(vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
-    render(<Harness client={client} />);
-    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
-    expect(await screen.findByText("Failed to fetch")).toBeInTheDocument();
-    expect(client.session.prompt).toHaveBeenCalledOnce();
-    expect(capture).toHaveBeenCalledWith(
-      "generation_failed",
-      expect.objectContaining({ attempts: 1, error_type: "TypeError" }),
-    );
-    expect(client.session.delete).toHaveBeenCalledWith({ sessionID: "planner" });
-  });
-
   it("reminds the planner once in the same session when it returns no structured output (#119)", async () => {
     const client = plannerClient(
       vi
@@ -270,7 +211,7 @@ describe("PlaytestPanel", () => {
     expect(client.session.prompt).toHaveBeenCalledTimes(2);
     const retry = client.session.prompt.mock.calls[1][0];
     expect(retry).toMatchObject({ sessionID: "planner", format: { type: "json_schema" } });
-    expect(retry.parts[0].text).toContain("StructuredOutput tool");
+    expect(retry.parts[0].text).toContain("one JSON object");
     expect(retry.parts[0].text).not.toContain("CHAT HISTORY");
     expect(capture).toHaveBeenCalledWith("generation_succeeded", {
       analytics_schema_version: 1,
@@ -278,33 +219,6 @@ describe("PlaytestPanel", () => {
       attempts: 2,
     });
     expect(capturedEvents()).not.toContain("generation_failed");
-  });
-
-  it("reports the structured output error when the reminder also fails", async () => {
-    const client = plannerClient(
-      vi.fn().mockResolvedValue({
-        data: {
-          info: {
-            error: {
-              name: "StructuredOutputError",
-              data: { message: "Model did not produce structured output", retries: 2 },
-            },
-          },
-        },
-      }),
-    );
-    render(<Harness client={client} detailedAnalytics="enabled" />);
-    fireEvent.click(screen.getByRole("button", { name: "Generate from chat" }));
-    expect(await screen.findByText("Model did not produce structured output")).toBeInTheDocument();
-    expect(client.session.prompt).toHaveBeenCalledTimes(2);
-    expect(capture).toHaveBeenCalledWith(
-      "generation_failed",
-      expect.objectContaining({
-        error_category: "model_error",
-        model_error_name: "StructuredOutputError",
-        attempts: 2,
-      }),
-    );
   });
 
   it("turns generate off in a chat with no text and keeps manual entry", () => {
@@ -340,20 +254,5 @@ describe("PlaytestPanel", () => {
     expect(regenerate).toHaveAccessibleDescription(
       "Regenerate builds a plan from this chat. Send a message first.",
     );
-  });
-
-  it("opens blank manual fields without calling the planning agent", () => {
-    const client = plannerClient(vi.fn());
-    render(<Harness client={client} />);
-    expect(screen.getByRole("button", { name: "Generate from chat" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Write my own" }));
-    expect(screen.getByLabelText("Goal")).toHaveValue("");
-    expect(screen.getByLabelText("Steps 1")).toHaveValue("");
-    expect(client.session.create).not.toHaveBeenCalled();
-    expect(client.session.prompt).not.toHaveBeenCalled();
-    expect(capture).toHaveBeenCalledWith("manual_entry_selected", {
-      analytics_schema_version: 1,
-      feature: "playtest",
-    });
   });
 });

@@ -72,7 +72,7 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
               <path d="m5 12 4 4L19 6" />
             </svg>
           </div>
-          <h1 className="mt-5 font-serif text-3xl italic">Studio connected</h1>
+          <h1 className="mt-5 text-lg font-semibold tracking-tight">Studio connected</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             BloxBot is in the driver&apos;s seat. You&apos;re ready to build.
           </p>
@@ -94,10 +94,8 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
         <header className="flex items-center gap-4">
           <BloxBotFace />
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              One tiny setup
-            </p>
-            <h1 id="studio-setup-title" className="font-serif text-2xl italic">
+            <p className="text-xs font-medium text-muted-foreground">One tiny setup</p>
+            <h1 id="studio-setup-title" className="text-lg font-semibold tracking-tight">
               Let&apos;s connect Studio
             </h1>
           </div>
@@ -106,7 +104,7 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
         <div className="mt-4 overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-5 py-3">
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              <p className="text-xs font-medium text-muted-foreground">
                 Step {stepIndex + 1} of {STEPS.length}
               </p>
               <h2 className="mt-0.5 text-base font-semibold">{step.title}</h2>
@@ -185,12 +183,12 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
         </div>
 
         {problem ? (
-          <output className="mx-auto mt-3 flex max-w-lg items-start justify-center gap-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+          <output className="mx-auto mt-3 flex max-w-lg items-start justify-center gap-2 text-center text-xs leading-relaxed text-muted-foreground">
             <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
             {PROBLEM_COPY[problem]}
           </output>
         ) : (
-          <div className="mt-3 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
             Looking for Roblox Studio
           </div>

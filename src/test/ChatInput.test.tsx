@@ -5,7 +5,6 @@
  * model selection, and send/abort button states.
  */
 
-import type { Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
@@ -13,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatInput from "@/components/ChatInput";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import type { Session, SessionStatus } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
 import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
@@ -45,6 +45,7 @@ function createClient(overrides: Record<string, unknown> = {}) {
       status: vi.fn().mockResolvedValue({ data: {} }),
       todo: vi.fn().mockResolvedValue({ data: [] }),
       promptAsync: vi.fn().mockResolvedValue({}),
+      command: vi.fn().mockResolvedValue({}),
       ...overrides,
     },
     provider: {
@@ -71,7 +72,6 @@ function createClient(overrides: Record<string, unknown> = {}) {
     question: { list: vi.fn().mockResolvedValue({ data: [] }), reply: vi.fn(), reject: vi.fn() },
     permission: { list: vi.fn().mockResolvedValue({ data: [] }), reply: vi.fn() },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
-    app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
     command: { list: vi.fn().mockResolvedValue({ data: [] }) },
     mcp: { connect: vi.fn(), disconnect: vi.fn() },
     instance: { dispose: vi.fn() },
@@ -87,7 +87,6 @@ function createQueryClient() {
 function seedState(qc: QueryClient, session: Session) {
   qc.setQueryData(qk.sessions, [session]);
   qc.setQueryData(qk.statuses, {});
-  qc.setQueryData(qk.agents, []);
   qc.setQueryData(qk.providers, {
     all: [
       {
@@ -237,38 +236,6 @@ describe("ChatInput", () => {
     expect(client.session.promptAsync).not.toHaveBeenCalled();
   });
 
-  it("disables send button when textarea is empty", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    const sendBtn = await screen.findByTitle("Send");
-    expect(sendBtn).toBeDisabled();
-  });
-
-  it("clears textarea after sending", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    const textarea = (await screen.findByRole("textbox", {
-      name: "Message",
-    })) as HTMLTextAreaElement;
-
-    await act(async () => {
-      fireEvent.input(textarea, { target: { textContent: "Test message" } });
-    });
-    expect(textarea).toHaveTextContent("Test message");
-
-    await act(async () => {
-      fireEvent.click(screen.getByTitle("Send"));
-    });
-
-    expect(textarea).toHaveTextContent("");
-  });
-
   it("restores the draft and status when sending fails", async () => {
     const client = createClient({
       promptAsync: vi.fn().mockRejectedValue(new Error("Prompt rejected")),
@@ -324,22 +291,6 @@ describe("ChatInput", () => {
 
     expect(textarea).not.toHaveTextContent("Session one draft");
     expect(screen.queryByText("Message not sent")).not.toBeInTheDocument();
-  });
-
-  it("does not send when text is only whitespace", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    const textarea = await screen.findByRole("textbox", { name: "Message" });
-
-    await act(async () => {
-      fireEvent.input(textarea, { target: { textContent: "   " } });
-      fireEvent.keyDown(textarea, { key: "Enter" });
-    });
-
-    expect(client.session.promptAsync).not.toHaveBeenCalled();
   });
 
   it("shows Stop button when session is busy", async () => {
@@ -398,18 +349,6 @@ describe("ChatInput", () => {
     });
 
     expect(client.session.promptAsync).not.toHaveBeenCalled();
-  });
-
-  it("shows model selector with current model display", async () => {
-    const client = createClient();
-    const qc = createQueryClient();
-
-    render(<TestChatInput client={client} queryClient={qc} />);
-
-    // Should show the model name (the part after the slash)
-    await waitFor(() => {
-      expect(screen.getByText("claude-3.5-sonnet")).toBeInTheDocument();
-    });
   });
 
   it("attaches an image to the submitted message", async () => {

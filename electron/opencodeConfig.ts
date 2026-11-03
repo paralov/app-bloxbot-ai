@@ -1,6 +1,7 @@
 import { win32 } from "node:path";
 
-import { STUDIO_MCP_SERVER_NAME } from "../src/lib/bloxbotProgramManifest";
+import { STUDIO_MCP_SERVER_NAME } from "../src/lib/studioMcp";
+import { DEFAULT_SYSTEM_PROMPT } from "../src/lib/systemPrompt";
 
 export interface StudioMcpWindowsEnvironment {
   localAppData?: string;
@@ -42,28 +43,38 @@ export function studioMcpInstallPath(
   return null;
 }
 
-export function createOpenCodeConfig(broker: { url: string }) {
+export function createOpenCodeConfig(broker: { url: string }, systemPrompt?: string | null) {
   return {
     // Keep OpenCode's standard automatic context compaction enabled for long sessions.
     compaction: {
       auto: true,
     },
+    // The chat's task list. OpenCode 2 only offers the todo tool behind this flag.
+    experimental: {
+      todo: true,
+    },
     mcp: {
-      [STUDIO_MCP_SERVER_NAME]: {
-        type: "remote",
-        url: broker.url,
-        enabled: true,
+      servers: {
+        [STUDIO_MCP_SERVER_NAME]: {
+          type: "remote",
+          url: broker.url,
+        },
       },
     },
     default_agent: "studio",
-    agent: {
+    agents: {
       studio: {
         mode: "primary",
         description: "Roblox Studio development assistant",
-        // OpenCode loads project AGENTS.md separately; keep this Studio-specific and compact.
-        prompt:
-          "Use Studio MCP directly. Inspect before editing; never guess what MCP can read. Discover Studios when needed, choose by Studio ID and Place ID, and pass studio_id on every Studio-specific tool call; never call set_active_studio. Make the smallest coherent change, preserve Luau conventions, verify through reinspection and the most relevant Studio check, and report briefly. If Studio is unavailable, give one reconnect instruction, then stop retrying.",
+        system: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
       },
     },
   };
+}
+
+/** The config with its system prompt swapped, for a change while OpenCode is running. */
+export function withSystemPrompt(contents: string, systemPrompt: string | null): string {
+  const config = JSON.parse(contents);
+  config.agents.studio.system = systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  return JSON.stringify(config, null, 2);
 }

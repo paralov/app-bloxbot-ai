@@ -1,6 +1,5 @@
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useGeneratePlaytestPlan } from "@/hooks/mutations/useGeneratePlaytestPlan";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useHasPlaytestContext } from "@/hooks/useMessages";
@@ -9,6 +8,7 @@ import {
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
 } from "@/lib/analytics";
+import { notify } from "@/lib/notifications";
 import {
   formatPlaytestPrompt,
   InvalidPlaytestPlanError,
@@ -43,20 +43,18 @@ function ListEditor({
 }) {
   return (
     <fieldset>
-      <legend className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </legend>
+      <legend className="mb-1.5 text-xs font-medium text-muted-foreground">{label}</legend>
       <div className="space-y-2">
         {items.map((item, index) => (
           <div className="flex gap-2" key={`${label}-${index}`}>
-            <span className="mt-2 text-[11px] text-muted-foreground">{index + 1}.</span>
+            <span className="mt-2 text-xs text-muted-foreground">{index + 1}.</span>
             <textarea
               aria-label={`${label} ${index + 1}`}
               value={item}
               onChange={(event) =>
                 onChange(items.map((current, i) => (i === index ? event.target.value : current)))
               }
-              className="min-h-9 flex-1 resize-y rounded-md border bg-background px-2.5 py-2 text-xs outline-none focus:border-ring"
+              className="min-h-9 flex-1 resize-y rounded-md border bg-transparent px-2.5 py-2 text-xs outline-none focus:border-ring"
             />
             {items.length > 1 ? (
               <button
@@ -73,7 +71,7 @@ function ListEditor({
         <button
           type="button"
           onClick={() => onChange([...items, ""])}
-          className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+          className="text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           + Add item
         </button>
@@ -125,7 +123,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       );
     } catch (error) {
       if (error instanceof NoPlaytestContextError) {
-        toast.error("Couldn't create a playtest plan", { description: error.message });
+        notify.error("Couldn't create a playtest plan", { description: error.message });
         return;
       }
       posthog.capture(
@@ -147,7 +145,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
           }),
         }),
       );
-      toast.error("Couldn't create a playtest plan", {
+      notify.error("Couldn't create a playtest plan", {
         description: error instanceof Error ? error.message : "Try again.",
       });
     }
@@ -161,7 +159,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         (items) => items.length > 0 && items.every((item) => item.trim()),
       );
     if (!complete) {
-      toast.error("Complete every playtest field before running it.");
+      notify.error("Complete every playtest field before running it.");
       return;
     }
     posthog.capture(
@@ -181,20 +179,15 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       { text: formatPlaytestPrompt(plan) },
       {
         onSuccess: onClose,
-        onError: (error) => toast.error("Playtest not started", { description: error.message }),
+        onError: (error) => notify.error("Playtest not started", { description: error.message }),
       },
     );
   }
 
   return (
-    <aside
-      className="flex w-72 shrink-0 flex-col border-l bg-sidebar"
-      aria-label="Playtest planner"
-    >
-      <header className="flex h-10 shrink-0 items-center justify-between border-b px-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Playtest
-        </h2>
+    <aside className="flex w-72 shrink-0 flex-col bg-sidebar" aria-label="Playtest planner">
+      <header className="flex h-11 shrink-0 items-center justify-between px-3">
+        <h2 className="text-sm font-medium text-muted-foreground">Playtest</h2>
         <button
           type="button"
           onClick={onClose}
@@ -207,9 +200,6 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       <div className="flex-1 overflow-y-auto p-5">
         {!plan ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border bg-background text-2xl">
-              ▷
-            </div>
             <h3 className="text-sm font-semibold">Plan a focused test run</h3>
             <p className="mt-2 max-w-xs text-xs leading-5 text-muted-foreground">
               The planner reads this chat, but cannot use Studio tools or change your project.
@@ -228,7 +218,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
                 type="button"
                 onClick={writeOwnPlan}
                 disabled={generate.isPending}
-                className="rounded-lg border bg-background px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                className="rounded-md bg-secondary px-4 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
               >
                 Write my own
               </button>
@@ -236,7 +226,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
             {hasContext === false ? (
               <p
                 id="playtest-no-context"
-                className="mt-3 max-w-48 text-[11px] leading-4 text-muted-foreground"
+                className="mt-3 max-w-48 text-xs leading-4 text-muted-foreground"
               >
                 Plans are built from this chat. Send a message first, or write your own.
               </p>
@@ -245,14 +235,12 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         ) : (
           <div className="space-y-5">
             <label className="block">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Goal
-              </span>
+              <span className="mb-1.5 block text-xs font-medium text-muted-foreground">Goal</span>
               <textarea
                 aria-label="Goal"
                 value={plan.goal}
                 onChange={(e) => setPlan({ ...plan, goal: e.target.value })}
-                className="min-h-20 w-full resize-y rounded-md border bg-background px-3 py-2 text-xs outline-none focus:border-ring"
+                className="min-h-20 w-full resize-y rounded-md border bg-transparent px-3 py-2 text-xs outline-none focus:border-ring"
               />
             </label>
             <ListEditor
@@ -278,7 +266,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
           {hasContext === false ? (
             <p
               id="playtest-regenerate-no-context"
-              className="mb-3 text-[11px] leading-4 text-muted-foreground"
+              className="mb-3 text-xs leading-4 text-muted-foreground"
             >
               Regenerate builds a plan from this chat. Send a message first.
             </p>

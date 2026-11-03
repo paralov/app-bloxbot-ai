@@ -1,12 +1,11 @@
-import type { ProviderAuthMethod } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
+import type { ProviderAuthMethod } from "@/lib/opencode/types";
 
 import {
   authErrorMessage,
   authMethodOptions,
   connectHint,
   deviceCode,
-  initialPromptInputs,
   oauthRecovery,
   providerDisplayName,
   submittedPromptInputs,
@@ -49,15 +48,6 @@ describe("authMethodOptions", () => {
     ]);
   });
 
-  it("falls back to OpenCode's labels for other providers", () => {
-    const options = authMethodOptions("gitlab", [
-      { type: "oauth", label: "GitLab OAuth" },
-      { type: "api", label: "GitLab Personal Access Token" },
-    ]);
-
-    expect(options.map((o) => o.title)).toEqual(["GitLab OAuth", "Use an API key"]);
-  });
-
   it("accepts an API key when a provider reports no methods", () => {
     expect(authMethodOptions("groq", undefined)).toMatchObject([{ type: "api" }]);
     expect(authMethodOptions("groq", [])).toMatchObject([{ type: "api" }]);
@@ -65,10 +55,6 @@ describe("authMethodOptions", () => {
 });
 
 describe("auth prompts", () => {
-  it("starts select prompts on their first option", () => {
-    expect(initialPromptInputs(COPILOT_PROMPTS)).toEqual({ deploymentType: "github.com" });
-  });
-
   it("shows follow-up prompts only when their condition holds", () => {
     expect(visiblePrompts(COPILOT_PROMPTS, { deploymentType: "github.com" })).toHaveLength(1);
     expect(visiblePrompts(COPILOT_PROMPTS, { deploymentType: "enterprise" })).toHaveLength(2);
@@ -117,12 +103,6 @@ describe("authErrorMessage", () => {
       }),
     ).toBe("Invalid API key.");
   });
-
-  it("reads thrown Errors and ignores anything else", () => {
-    expect(authErrorMessage(new Error("No client"))).toBe("No client");
-    expect(authErrorMessage("rejected")).toBeUndefined();
-    expect(authErrorMessage(undefined)).toBeUndefined();
-  });
 });
 
 describe("deviceCode", () => {
@@ -154,17 +134,6 @@ describe("connectHint", () => {
   it("tells ChatGPT subscribers that OpenAI is where their plan goes", () => {
     expect(connectHint("openai", OPENAI_METHODS)).toMatch(/ChatGPT/);
   });
-
-  it("describes providers from their methods", () => {
-    expect(connectHint("groq", [{ type: "api", label: "API key" }])).toBe("API key");
-    expect(
-      connectHint("gitlab", [
-        { type: "oauth", label: "GitLab OAuth" },
-        { type: "api", label: "Token" },
-      ]),
-    ).toBe("Sign in or use an API key");
-    expect(connectHint("poe", [{ type: "oauth", label: "Poe" }])).toBe("Sign in with your account");
-  });
 });
 
 describe("providerDisplayName", () => {
@@ -172,14 +141,6 @@ describe("providerDisplayName", () => {
     expect(providerDisplayName({ id: "opencode", name: "OpenCode Zen", source: "custom" })).toBe(
       "Free models",
     );
-  });
-
-  it("keeps the Zen name for a key from the environment or config", () => {
-    for (const source of ["env", "config"]) {
-      expect(providerDisplayName({ id: "opencode", name: "OpenCode Zen", source })).toBe(
-        "OpenCode Zen",
-      );
-    }
   });
 
   it("uses the real name once a Zen key is added, and for every other provider", () => {

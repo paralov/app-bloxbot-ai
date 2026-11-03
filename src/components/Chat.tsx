@@ -1,6 +1,7 @@
 import { Boxes, Play } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import ChatInput from "@/components/ChatInput";
 import ChatMessages from "@/components/ChatMessages";
@@ -10,11 +11,13 @@ import LoadingScreen from "@/components/LoadingScreen";
 import PlaytestPanel from "@/components/PlaytestPanel";
 import StudioSetup from "@/components/StudioSetup";
 import StudioTargetPicker from "@/components/StudioTargetPicker";
+import { MENU_TRIGGER } from "@/components/ui/menu";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { analyticsProperties, POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
+import { setChatOnScreen, setSessionOpener } from "@/lib/sessionNotifications";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
@@ -23,7 +26,7 @@ const Settings = lazy(() => import("@/components/Settings"));
 
 function Chat() {
   const { ready, initError } = useOpenCodeClient();
-  const { activeSessionId, clearSession } = useActiveSession();
+  const { activeSessionId, clearSession, selectSession } = useActiveSession();
   const sessionStatus = useSessionStatus(activeSessionId);
   const isBusy = sessionStatus !== undefined && sessionStatus.type !== "idle";
   const createSession = useCreateSession();
@@ -38,9 +41,10 @@ function Chat() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [titlebarActions, setTitlebarActions] = useState<HTMLElement | null>(null);
+  useEffect(() => setTitlebarActions(document.getElementById("titlebar-actions")), []);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
   const [showPlaytest, setShowPlaytest] = useState(false);
-  const sidePanelOpen = showPlaytest || (hasStudioTarget && !explorerCollapsed);
   const desiredSidePanel = showPlaytest
     ? "playtest"
     : hasStudioTarget && !explorerCollapsed
@@ -75,6 +79,17 @@ function Chat() {
     posthog.register(screenProperties);
     posthog.capture("$pageview", analyticsProperties("navigation", screenProperties));
   }, [appScreen]);
+
+  useEffect(() => {
+    setChatOnScreen(appScreen === "chat");
+  }, [appScreen]);
+
+  useEffect(() => {
+    setSessionOpener((sessionID) => {
+      setShowSettings(false);
+      void selectSession(sessionID);
+    });
+  }, [selectSession]);
 
   useEffect(() => {
     if (studioConnection.state === "waiting") setShowStudioSetup(true);
@@ -143,9 +158,53 @@ function Chat() {
     setShowPlaytest(false);
   }, []);
 
+  // Settings brings its own sidebar, so the chat list steps aside for it.
+  if (
+    showSettings &&
+    !showStudioSetup &&
+    studioConnection.state !== "waiting" &&
+    studioConnection.state !== "checking"
+  ) {
+    return (
+      <div className="flex min-h-0 flex-1 bg-sidebar">
+        <Suspense fallback={<LoadingScreen message="Loading settings..." />}>
+          <Settings onClose={handleSessionSelect} />
+        </Suspense>
+      </div>
+    );
+  }
+
   // Main chat UI
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 bg-sidebar">
+      {titlebarActions && appScreen === "chat" && hasStudioTarget
+        ? createPortal(
+            <>
+              <button
+                type="button"
+                onClick={handleToggleExplorer}
+                className={`${MENU_TRIGGER} gap-1.5`}
+                aria-pressed={!explorerCollapsed && !showPlaytest}
+                title={explorerCollapsed ? "Open Explorer" : "Close Explorer"}
+              >
+                <Boxes aria-hidden="true" size={14} />
+                Explorer
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenPlaytest}
+                disabled={isBusy}
+                className={`${MENU_TRIGGER} gap-1.5`}
+                aria-pressed={showPlaytest}
+                title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
+              >
+                <Play aria-hidden="true" size={14} fill="currentColor" />
+                Playtest
+              </button>
+            </>,
+            titlebarActions,
+          )
+        : null}
       <ChatSidebar
         collapsed={sidebarCollapsed}
         onToggle={handleToggleSidebar}
@@ -153,7 +212,7 @@ function Chat() {
         onOpenSettings={handleOpenSettings}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-t-xl border-x border-t bg-background">
         {showStudioSetup || studioConnection.state === "waiting" ? (
           <StudioSetup
             connected={studioConnection.state === "connected"}
@@ -164,20 +223,16 @@ function Chat() {
           />
         ) : studioConnection.state === "checking" ? (
           <LoadingScreen message="Finding Roblox Studio" animation="dots" />
-        ) : showSettings ? (
-          <Suspense fallback={<LoadingScreen message="Loading settings..." />}>
-            <Settings onClose={handleSessionSelect} />
-          </Suspense>
         ) : !ready ? (
           <LoadingScreen message="Initializing..." />
         ) : !activeSessionId ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6">
             <div className="animate-fade-in-up text-center">
-              <h2 className="font-serif text-2xl italic text-foreground">
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
                 What would you like to build?
               </h2>
-              <p className="mt-2 max-w-md text-xs text-muted-foreground">
-                Create a new session or pick one from the sidebar to continue where you left off.
+              <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                Start a new chat, or pick up where you left off.
               </p>
               <button
                 onClick={() => createSession.mutate()}
@@ -196,65 +251,21 @@ function Chat() {
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-                New Session
+                New chat
               </button>
             </div>
           </div>
         ) : (
           <>
-            <div className="grid h-10 shrink-0 grid-cols-[minmax(6rem,2fr)_minmax(0,3fr)] items-center border-b px-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <h3 className="min-w-0 flex-1 truncate text-xs font-semibold">
-                  {activeSessionTitle || "Untitled"}
-                </h3>
-                {isBusy && (
-                  <span className="flex max-w-[42%] shrink items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
-                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                    <span className="truncate">
-                      {sessionStatus?.type === "retry" ? "Waiting to retry" : "Working"}
-                    </span>
-                  </span>
-                )}
-              </div>
-              <div className="ml-2 flex min-w-0 items-center justify-end gap-1.5">
-                <StudioTargetPicker />
-                {hasStudioTarget ? (
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleToggleExplorer}
-                      className="inline-flex h-7 items-center rounded-md border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground"
-                      aria-pressed={!explorerCollapsed}
-                      title={explorerCollapsed ? "Open Explorer" : "Close Explorer"}
-                    >
-                      <Boxes aria-hidden="true" size={13} />
-                      <span
-                        className={`overflow-hidden whitespace-nowrap transition-[max-width,margin,opacity] duration-200 ${sidePanelOpen ? "ml-0 max-w-0 opacity-0" : "ml-1.5 max-w-16 opacity-100"}`}
-                      >
-                        Explorer
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleOpenPlaytest}
-                      disabled={isBusy}
-                      className="inline-flex h-7 items-center rounded-md bg-foreground px-2 text-[11px] font-semibold text-background transition-opacity hover:opacity-85 disabled:opacity-40"
-                      title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
-                    >
-                      <Play aria-hidden="true" size={13} fill="currentColor" />
-                      <span
-                        className={`overflow-hidden whitespace-nowrap transition-[max-width,margin,opacity] duration-200 ${sidePanelOpen ? "ml-0 max-w-0 opacity-0" : "ml-1.5 max-w-16 opacity-100"}`}
-                      >
-                        Playtest
-                      </span>
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+            <div className="flex h-11 shrink-0 items-center justify-between gap-3 px-3">
+              <h3 className="min-w-0 truncate text-sm font-medium">
+                {activeSessionTitle || "Untitled"}
+              </h3>
+              <StudioTargetPicker />
             </div>
 
             <ChatMessages />
-            <ChatInput />
+            <ChatInput onOpenSettings={handleOpenSettings} />
           </>
         )}
 

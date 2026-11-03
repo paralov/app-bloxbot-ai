@@ -1,4 +1,4 @@
-import type { Message, Part } from "@opencode-ai/sdk/v2/client";
+import type { Message, Part } from "@/lib/opencode/types";
 
 // ── Chat types ──────────────────────────────────────────────────────────
 

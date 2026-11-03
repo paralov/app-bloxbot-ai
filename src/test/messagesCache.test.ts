@@ -1,7 +1,7 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { fetchMessages, mergeMessagesSnapshot } from "@/hooks/useMessages";
+import type { OpencodeClient } from "@/lib/opencode/client";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
 import type { MessageWithParts } from "@/types";

@@ -1,15 +1,15 @@
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-
 import {
   aiTracer,
   analyticsProperties,
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
 } from "@/lib/analytics";
+import type { SessionStatus } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
+import { recordPromptSent } from "@/lib/starCallout";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
@@ -28,7 +28,7 @@ interface SendMessageContext {
 export function useSendMessage(options?: { onError?: (error: Error) => void }) {
   const { client } = useOpenCodeClient();
   const { activeSessionId } = useActiveSession();
-  const { selectedModel, selectedAgent, selectedVariant } = usePreferences();
+  const { selectedModel, selectedVariant } = usePreferences();
   const queryClient = useQueryClient();
 
   return useMutation<void, Error, SendMessageInput, SendMessageContext | undefined>({
@@ -58,7 +58,6 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
         }
       }
 
-      if (selectedAgent) opts.agent = selectedAgent;
       if (selectedVariant) opts.variant = selectedVariant;
 
       aiTracer.beginTurn({
@@ -67,13 +66,19 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
         imageCount: images?.length ?? 0,
         provider,
         model,
-        agent: selectedAgent ?? undefined,
         variant: selectedVariant ?? undefined,
       });
       try {
-        await client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0], {
-          throwOnError: true,
+        const accepted = client.session.promptAsync(
+          opts as unknown as Parameters<typeof client.session.promptAsync>[0],
+          {
+            throwOnError: true,
+          },
+        );
+        recordPromptSent(accepted).catch((error) => {
+          console.warn("Failed to count the prompt:", error);
         });
+        await accepted;
       } catch (error) {
         aiTracer.cancelTurn(activeSessionId);
         throw error;

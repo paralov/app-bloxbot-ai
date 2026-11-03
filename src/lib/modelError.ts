@@ -1,9 +1,9 @@
-import type { AssistantMessage } from "@opencode-ai/sdk/v2/client";
+import type { AssistantMessage } from "./opencode/types";
 
 export type ModelError = NonNullable<AssistantMessage["error"]>;
 
 export interface ModelErrorPresentation {
-  kind: "context" | "auth" | "aborted" | "generic";
+  kind: "context" | "auth" | "aborted" | "usage" | "generic";
   title: string;
   description: string;
   detail?: string;
@@ -18,8 +18,33 @@ export function modelErrorDetail(error: ModelError): string | undefined {
   return detail?.trim();
 }
 
+/** OpenCode's free tier refusing a prompt because the day's free messages are used up. */
+export function isFreeUsageLimit(error: ModelError): boolean {
+  const data = error.data as { message?: unknown; responseBody?: unknown };
+  return (
+    (typeof data.responseBody === "string" && data.responseBody.includes("FreeUsageLimitError")) ||
+    (typeof data.message === "string" && /free usage (limit|exceeded)/i.test(data.message))
+  );
+}
+
+function freeLimitReset(error: ModelError): string {
+  const { retryAfterMs } = error.data as { retryAfterMs?: unknown };
+  if (typeof retryAfterMs !== "number" || retryAfterMs <= 0) return "They reset daily.";
+  const hours = Math.round(retryAfterMs / (60 * 60 * 1000));
+  if (hours < 1) return "They reset in less than an hour.";
+  return `They reset in about ${hours} ${hours === 1 ? "hour" : "hours"}.`;
+}
+
 export function presentModelError(error: ModelError): ModelErrorPresentation {
   const detail = modelErrorDetail(error);
+
+  if (isFreeUsageLimit(error)) {
+    return {
+      kind: "usage",
+      title: "You've used today's free messages",
+      description: `${freeLimitReset(error)} To keep going now, connect a provider in Settings or subscribe to OpenCode Go.`,
+    };
+  }
 
   if (error.name === "ContextOverflowError") {
     return {

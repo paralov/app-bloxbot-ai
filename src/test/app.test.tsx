@@ -1,14 +1,8 @@
 /**
- * End-to-end integration tests.
- *
- * These render the real component tree (Chat, ChatSidebar, ChatMessages, ChatInput)
- * inside the real provider hierarchy. Only the system boundary is mocked:
- * - SDK client (createOpencodeClient)
- *
- * Each test simulates a real user journey and asserts on what appears on screen.
+ * The real component tree on a mocked client, for states that are hard to reach
+ * against the real server. workflows.test.tsx covers what people do end to end.
  */
 
-import type { Session } from "@opencode-ai/sdk/v2/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
@@ -16,6 +10,7 @@ import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@/components/theme-provider";
 import { desktop } from "@/lib/desktop";
+import type { Session } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
@@ -154,7 +149,6 @@ function createClient(overrides: Record<string, unknown> = {}) {
       reply: vi.fn().mockResolvedValue({}),
     },
     event: { subscribe: vi.fn().mockResolvedValue({ stream: null }) },
-    app: { agents: vi.fn().mockResolvedValue({ data: [] }) },
     command: { list: vi.fn().mockResolvedValue({ data: [] }) },
     mcp: {
       status: vi.fn().mockResolvedValue({
@@ -192,7 +186,6 @@ function seedReadyState(
 
   queryClient.setQueryData(qk.sessions, sessions);
   queryClient.setQueryData(qk.statuses, {});
-  queryClient.setQueryData(qk.agents, []);
   queryClient.setQueryData(qk.providers, {
     all: [
       {
@@ -241,7 +234,7 @@ describe("User journeys", () => {
 
     const noticeTitle = await screen.findByText("BloxBot shares AI usage data");
     expect(noticeTitle).toBeVisible();
-    expect(noticeTitle.closest("[data-sonner-toast]")).toHaveClass("analytics-consent-toast");
+    expect(noticeTitle.closest("[data-sonner-toast]")).toHaveClass("card-toast");
     await expect(desktop.loadConfig()).resolves.toMatchObject({
       detailedAnalytics: "enabled",
       analyticsNoticeVersion: 2,
@@ -325,37 +318,6 @@ describe("User journeys", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
 
     expect(await screen.findByRole("heading", { name: "Studio connected" })).toBeVisible();
-  });
-
-  it("creates a session and shows the chat interface", async () => {
-    const newSession = makeSession("s1", "New Session");
-    const client = createClient({
-      create: vi.fn().mockResolvedValue({ data: newSession }),
-      get: vi.fn().mockResolvedValue({ data: newSession }),
-      messages: vi.fn().mockResolvedValue({ data: [] }),
-    });
-    const queryClient = createQueryClient();
-    seedReadyState(queryClient);
-
-    render(<TestApp client={client} queryClient={queryClient} />);
-
-    // We should see "What would you like to build?" and a "New Session" button
-    const newSessionBtn = await screen.findByText("New Session");
-    await act(async () => {
-      fireEvent.click(newSessionBtn);
-    });
-
-    // After session creation, the SDK should have been called
-    expect(client.session.create).toHaveBeenCalled();
-
-    // The chat area for the session should now be visible (textarea)
-    await waitFor(() => {
-      expect(screen.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
-    });
-
-    expect(
-      screen.queryByRole("button", { name: "Coordinate multiple Studio places" }),
-    ).not.toBeInTheDocument();
   });
 
   it("switches to the latest session immediately without waiting for older requests", async () => {
@@ -531,49 +493,6 @@ describe("User journeys", () => {
     );
   });
 
-  it("snoozes a session and moves it out of the active list", async () => {
-    const s1 = makeSession("s1", "Session One");
-    const s2 = makeSession("s2", "Session Two");
-    const snoozed = { ...s1, time: { ...s1.time, archived: Date.now() } };
-    const client = createClient({
-      update: vi.fn().mockResolvedValue({ data: snoozed }),
-      get: vi.fn().mockResolvedValue({ data: s1 }),
-      messages: vi.fn().mockResolvedValue({ data: [] }),
-    });
-    const queryClient = createQueryClient();
-    seedReadyState(queryClient, { sessions: [s1, s2] });
-    queryClient.setQueryData(qk.todos("s1"), []);
-    queryClient.setQueryData(qk.questions("s1"), null);
-    queryClient.setQueryData(qk.permissions("s1"), null);
-
-    render(<TestApp client={client} queryClient={queryClient} />);
-
-    // Both sessions should be visible in sidebar
-    expect(await screen.findByText("Session One")).toBeInTheDocument();
-    expect(screen.getByText("Session Two")).toBeInTheDocument();
-
-    const snoozeButtons = screen.getAllByTitle("Snooze");
-    await act(async () => {
-      fireEvent.click(snoozeButtons[0]);
-    });
-
-    await waitFor(() =>
-      expect(client.session.update).toHaveBeenCalledWith(
-        { sessionID: "s1", time: { archived: expect.any(Number) } },
-        { throwOnError: true },
-      ),
-    );
-    expect(client.session.delete).not.toHaveBeenCalled();
-
-    // Session One leaves the active list and the folded snoozed section appears.
-    await waitFor(() => {
-      expect(screen.queryByText("Session One")).not.toBeInTheDocument();
-      expect(screen.getByText("Snoozed")).toBeInTheDocument();
-    });
-    // Session Two should still be there
-    expect(screen.getByText("Session Two")).toBeInTheDocument();
-  });
-
   it("shows question prompt and user can answer it", async () => {
     const session = makeSession("s1", "My Session");
     const questionReq = {
@@ -719,8 +638,7 @@ describe("User journeys", () => {
     // The bash command should be visible
     await waitFor(() => {
       expect(screen.getByText("List source files")).toBeInTheDocument();
-      expect(screen.getByText("ls -la src/")).toBeInTheDocument();
-      expect(screen.getByText("Running...")).toBeInTheDocument();
+      expect(screen.getByText("Running")).toBeInTheDocument();
     });
 
     // SSE: tool completes with output
@@ -751,11 +669,11 @@ describe("User journeys", () => {
 
     // Running indicator should be gone, output should be available
     await waitFor(() => {
-      expect(screen.queryByText("Running...")).not.toBeInTheDocument();
+      expect(screen.queryByText("Running")).not.toBeInTheDocument();
     });
   });
 
-  it("shows OpenCode's structured free-tier action while waiting to retry", async () => {
+  it("ends the turn at the free limit with the reason and a way to keep going", async () => {
     const session = makeSession("s1", "Quota Session");
     const client = createClient({
       get: vi.fn().mockResolvedValue({ data: session }),
@@ -774,35 +692,24 @@ describe("User journeys", () => {
     act(() => {
       sseDispatch(
         queryClient,
-        {
-          type: "session.status",
-          properties: { sessionID: "s1", status: { type: "busy" } },
-        },
+        { type: "session.status", properties: { sessionID: "s1", status: { type: "busy" } } },
         activeRef,
       );
     });
-    expect(await screen.findByText("Working")).toBeInTheDocument();
 
     act(() => {
       sseDispatch(
         queryClient,
         {
-          type: "session.status",
+          type: "session.error",
           properties: {
             sessionID: "s1",
-            status: {
-              type: "retry",
-              attempt: 1,
-              message: "Free usage exceeded, subscribe to Go",
-              next: Date.now() + 60_000,
-              action: {
-                provider: "opencode",
-                reason: "free_tier_limit",
-                title: "Free limit reached",
-                message:
-                  "Subscribe to OpenCode Go for reliable access to the best open-source models.",
-                label: "Subscribe",
-                link: "https://opencode.ai/go",
+            error: {
+              name: "APIError",
+              data: {
+                message: "Free usage limit reached.",
+                retryAfterMs: 2 * 60 * 60 * 1000,
+                isRetryable: false,
               },
             },
           },
@@ -811,49 +718,48 @@ describe("User journeys", () => {
       );
     });
 
-    expect(await screen.findByRole("dialog")).toHaveTextContent("Free limit reached");
-    expect(screen.getByRole("dialog")).toHaveTextContent("Subscribe to OpenCode Go");
-    expect(screen.getByRole("link", { name: "Subscribe" })).toHaveAttribute(
-      "href",
-      "https://opencode.ai/go",
-    );
-    expect(screen.getByRole("button", { name: "Don't show again" })).toBeInTheDocument();
-    expect(screen.queryByText("Working")).not.toBeInTheDocument();
-    expect(screen.getByText("Waiting to retry")).toBeInTheDocument();
-    expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
+    expect(await screen.findByText("You've used today's free messages")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Don't show again" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(window.localStorage.getItem("bloxbot:usage-limit:free-tier:hidden")).toBe("true");
-  });
-
-  it("SSE session.created adds a new session to the sidebar", async () => {
-    const s1 = makeSession("s1", "Existing Session");
-    const client = createClient();
-    const queryClient = createQueryClient();
-    seedReadyState(queryClient, { sessions: [s1] });
-
-    render(<TestApp client={client} queryClient={queryClient} />);
-    expect(await screen.findByText("Existing Session")).toBeInTheDocument();
-
-    // Simulate a session being created elsewhere (e.g. from OpenCode CLI)
-    const activeRef = { current: null };
+    // The failed reply has no content, and it must not look like it's still thinking.
     act(() => {
       sseDispatch(
         queryClient,
         {
-          type: "session.created",
+          type: "message.updated",
           properties: {
-            info: makeSession("s2", "New From CLI"),
+            sessionID: "s1",
+            info: {
+              id: "reply",
+              sessionID: "s1",
+              role: "assistant",
+              time: { created: 1, completed: 2 },
+              parentID: "prompt",
+              modelID: "m",
+              providerID: "p",
+              mode: "studio",
+              agent: "studio",
+              path: { cwd: "", root: "" },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              error: {
+                name: "APIError",
+                data: {
+                  message: "Free usage limit reached.",
+                  retryAfterMs: 2 * 60 * 60 * 1000,
+                },
+              },
+            },
           },
         } as never,
         activeRef,
       );
     });
-
-    // The new session should appear in the sidebar (no filter — all sessions shown)
-    await waitFor(() => {
-      expect(screen.getByText("New From CLI")).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "See OpenCode Go" })).toHaveAttribute(
+      "href",
+      "https://opencode.ai/go",
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText(/They reset in about 2 hours/)).toBeInTheDocument();
   });
 });

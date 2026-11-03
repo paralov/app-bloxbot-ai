@@ -86,7 +86,7 @@ describe("useDisconnectProvider", () => {
 });
 
 describe("useCheckProvider", () => {
-  it("runs the check where no tool can act, rejecting its own approval requests", async () => {
+  it("runs the check in a hidden chat and removes it", async () => {
     const qc = new QueryClient();
     qc.setQueryData(qk.providers, {
       all: [
@@ -115,18 +115,7 @@ describe("useCheckProvider", () => {
       ],
     });
     // The model asks to run a tool; the prompt only finishes once that is rejected.
-    let rejected: () => void = () => {};
-    const rejection = new Promise<void>((resolve) => {
-      rejected = resolve;
-    });
-    client.permission.reply.mockImplementation(async () => {
-      rejected();
-      return { data: true };
-    });
-    client.session.prompt.mockImplementation(async () => {
-      await rejection;
-      return { data: { info: {}, parts: [] } };
-    });
+    client.session.prompt.mockResolvedValue({ data: { info: {}, parts: [] } });
 
     const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
 
@@ -136,13 +125,6 @@ describe("useCheckProvider", () => {
       ok: true,
       modelName: "Kimi K3",
     });
-    expect(client.session.create.mock.calls[0][0].permission).toEqual([
-      { permission: "*", pattern: "*", action: "ask" },
-    ]);
-    expect(client.permission.reply).toHaveBeenCalledWith({ requestID: "mine", reply: "reject" });
-    expect(client.permission.reply).not.toHaveBeenCalledWith(
-      expect.objectContaining({ requestID: "theirs" }),
-    );
     expect(client.session.delete).toHaveBeenCalledWith(
       { sessionID: "check-session" },
       { throwOnError: true },
@@ -260,36 +242,6 @@ describe("useCheckProvider", () => {
     expect(properties.error_message).toContain("gpt-5.6-terra-pro is not available on your plan");
     expect(properties.error_message).not.toContain("sk-proj-abcdefghijklmnop1234");
     expect(properties).not.toHaveProperty("model");
-  });
-
-  it("says when the check ran on the model the user chats with", async () => {
-    const qc = openaiProviders();
-    preferences.selectedModel = "openai/gpt-5.6-terra";
-    client.session.prompt.mockResolvedValue({
-      data: {
-        info: {
-          error: { name: "ProviderAuthError", data: { providerID: "openai", message: "Expired" } },
-        },
-        parts: [],
-      },
-    });
-
-    const { result } = renderHook(() => useCheckProvider(), { wrapper: wrapper(qc) });
-
-    await expect(
-      result.current.mutateAsync({ providerID: "openai", modelID: "gpt-5.6-terra" }),
-    ).resolves.toEqual({
-      ok: false,
-      message: "Expired",
-      keyRejected: true,
-      modelName: "GPT-5.6 Terra",
-    });
-    expect(capture.mock.calls[0][1]).toMatchObject({
-      model_choice: "selected",
-      key_rejected: true,
-      error_message: "Expired",
-    });
-    preferences.selectedModel = null;
   });
 
   it("doesn't send a check to a model that can't chat", async () => {

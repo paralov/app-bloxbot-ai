@@ -113,6 +113,7 @@ interface PreparedOpenCode {
 }
 
 export interface OpenCodeOptions {
+  loadSystemPrompt?: () => Effect.Effect<string | null>;
   binaryCacheDirectory: string;
   workspace: string;
   onStartupProgress?: (progress: OpenCodeStartupProgress) => void;
@@ -296,7 +297,8 @@ function prepareOpenCode(
       ),
       { concurrency: "unbounded", discard: true },
     );
-    const config = createOpenCodeConfig(broker.info);
+    const systemPrompt = options.loadSystemPrompt ? yield* options.loadSystemPrompt() : null;
+    const config = createOpenCodeConfig(broker.info, systemPrompt);
     yield* fileOperation("Failed to write the OpenCode configuration", () =>
       writeFile(
         join(configDirectory, "opencode.json"),
@@ -329,7 +331,7 @@ function spawnOpenCode(prepared: PreparedOpenCode): Effect.Effect<OpenCodeProces
       try: () =>
         spawn(
           prepared.executable,
-          ["serve", "--port", "0", "--hostname", LOOPBACK, "--print-logs", "--log-level", "INFO"],
+          ["serve", "--port", "0", "--hostname", LOOPBACK],
           {
             cwd: prepared.workspace,
             env: {
@@ -338,8 +340,8 @@ function spawnOpenCode(prepared: PreparedOpenCode): Effect.Effect<OpenCodeProces
               XDG_CONFIG_HOME: prepared.xdgConfig,
               XDG_DATA_HOME: prepared.xdgData,
               XDG_STATE_HOME: prepared.xdgState,
-              OPENCODE_SERVER_PASSWORD: prepared.password,
-              OPENCODE_SERVER_USERNAME: SERVER_USERNAME,
+              OPENCODE_LOG_LEVEL: "info",
+              OPENCODE_PASSWORD: prepared.password,
             },
             stdio: "pipe",
             windowsHide: true,

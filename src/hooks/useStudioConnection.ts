@@ -1,9 +1,8 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { useQuery } from "@tanstack/react-query";
-
-import { STUDIO_MCP_SERVER_NAME } from "@/lib/bloxbotProgramManifest";
 import { desktop } from "@/lib/desktop";
+import type { OpencodeClient } from "@/lib/opencode/client";
 import { qk } from "@/lib/queryKeys";
+import { STUDIO_MCP_SERVER_NAME } from "@/lib/studioMcp";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import type { StudioMcpStatus } from "@/types/desktop";
 

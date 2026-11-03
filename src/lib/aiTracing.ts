@@ -1,3 +1,4 @@
+import type { Properties } from "posthog-js";
 import type {
   AssistantMessage,
   Event,
@@ -5,11 +6,9 @@ import type {
   Part,
   PermissionRequest,
   QuestionRequest,
-  SnapshotFileDiff,
   Todo,
   ToolPart,
-} from "@opencode-ai/sdk/v2/client";
-import type { Properties } from "posthog-js";
+} from "@/lib/opencode/types";
 import type { MessageWithParts } from "@/types";
 import type { InstructionFile } from "@/types/desktop";
 
@@ -25,7 +24,6 @@ import type { InstructionFile } from "@/types/desktop";
 
 const MAX_TEXT_LENGTH = 32_000;
 const MAX_CONVERSATION_CHARS = 400_000;
-const MAX_PATCH_LENGTH = 4_000;
 const MAX_TRACKED_MESSAGES = 2_000;
 const STUDIO_MCP_PREFIX = "roblox-studio_";
 // Snapshot loads (history, tools, instruction files) hold back a turn's events
@@ -51,15 +49,8 @@ export interface TurnInput {
   variant?: string;
 }
 
-export interface ToolDefinition {
-  id: string;
-  description: string;
-  parameters: unknown;
-}
-
 export interface AiTracerSources {
   loadHistory?: (sessionID: string) => Promise<MessageWithParts[]>;
-  loadTools?: (provider: string, model: string) => Promise<ToolDefinition[]>;
   loadInstructions?: () => Promise<readonly InstructionFile[]>;
 }
 
@@ -96,8 +87,6 @@ interface Turn {
   traceId: string | null;
   system: string | undefined;
   history: MessageWithParts[] | null;
-  tools: ToolDefinition[] | null;
-  toolsSentTo: Set<string>;
   instructions: InstructionsSnapshot | null;
   pendingLoads: number;
   waiters: Array<() => void>;
@@ -121,7 +110,6 @@ interface Turn {
   compactions: number;
   subagents: number;
   todos: Todo[];
-  diffs: Map<string, SnapshotFileDiff>;
   lastOutputText: string;
   error: string | null;
   errorMessage: string | null;
@@ -167,7 +155,11 @@ export function contentId(text: string): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
 }
 
-export function isStudioTool(tool: string): boolean {
+// Code Mode reaches Studio through `execute`, from code that names its tools under this server.
+const STUDIO_IN_CODE = /roblox[-_]studio/;
+
+export function isStudioTool(tool: string, input?: Record<string, unknown>): boolean {
+  if (tool === "execute") return typeof input?.code === "string" && STUDIO_IN_CODE.test(input.code);
   return tool.startsWith(STUDIO_MCP_PREFIX);
 }
 
@@ -308,7 +300,6 @@ export class AiTracer {
   private readonly sessionTitles = new Map<string, string>();
   private readonly pending = new Map<string, PendingRequest>();
   private readonly lastRetry = new Map<string, number>();
-  private readonly toolCache = new Map<string, Promise<ToolDefinition[] | null>>();
   private readonly sentInstructions = new Set<string>();
   private sources: AiTracerSources = {};
 
@@ -321,7 +312,6 @@ export class AiTracer {
 
   configure(sources: AiTracerSources): void {
     this.sources = sources;
-    this.toolCache.clear();
   }
 
   /** Discards everything buffered, so nothing observed while opted out is sent later. */
@@ -347,8 +337,6 @@ export class AiTracer {
       traceId: null,
       system: undefined,
       history: null,
-      tools: null,
-      toolsSentTo: new Set(),
       instructions: null,
       pendingLoads: 0,
       waiters: [],
@@ -372,7 +360,6 @@ export class AiTracer {
       compactions: 0,
       subagents: 0,
       todos: [],
-      diffs: new Map(),
       lastOutputText: "",
       error: null,
       errorMessage: null,
@@ -393,7 +380,6 @@ export class AiTracer {
         turn.instructions = this.recordInstructions(files);
       });
     }
-    if (input.provider && input.model) this.loadTools(turn, input.provider, input.model);
   }
 
   /** Drops a turn whose prompt never reached OpenCode. */
@@ -431,7 +417,10 @@ export class AiTracer {
         const tracked = this.messages.get(messageID);
         const part = tracked?.parts.get(partID) as Record<string, unknown> | undefined;
         const key = field || "text";
-        if (part && typeof part[key] === "string") part[key] = (part[key] as string) + delta;
+        // A new object: the part came from the event, which the message cache and the screen share.
+        if (tracked && part && typeof part[key] === "string") {
+          tracked.parts.set(partID, { ...part, [key]: (part[key] as string) + delta } as Part);
+        }
         if (tracked) this.markOutput(tracked);
         break;
       }
@@ -464,14 +453,6 @@ export class AiTracer {
         const turn = this.activeTurn(sessionID);
         if (turn) turn.compactions += 1;
         this.span(sessionID, turn, { name: "compaction", latencyMs: 0 });
-        break;
-      }
-      case "session.diff": {
-        const turn = this.activeTurn(event.properties.sessionID);
-        if (!turn) break;
-        for (const diff of event.properties.diff) {
-          turn.diffs.set(diff.file ?? `unknown-${turn.diffs.size}`, diff);
-        }
         break;
       }
       case "todo.updated": {
@@ -536,20 +517,6 @@ export class AiTracer {
   /** Sub-agent activity nests under the span emitted for its session. */
   private nestingParent(sessionID: string, turn: Turn | undefined): string | undefined {
     return turn && this.rootOf(sessionID) !== sessionID ? sessionID : undefined;
-  }
-
-  private loadTools(turn: Turn, provider: string, model: string): void {
-    const load = this.sources.loadTools;
-    if (!load) return;
-    const key = `${provider}/${model}`;
-    let tools = this.toolCache.get(key);
-    if (!tools) {
-      tools = load(provider, model).catch(() => null);
-      this.toolCache.set(key, tools);
-    }
-    this.awaitLoad(turn, tools, (definitions) => {
-      turn.tools = definitions;
-    });
   }
 
   /** Applies a snapshot load to the turn, holding its events until every load settles. */
@@ -645,7 +612,6 @@ export class AiTracer {
         if (!unbound.input.provider || !unbound.input.model) {
           unbound.input.provider = info.model.providerID;
           unbound.input.model = info.model.modelID;
-          this.loadTools(unbound, info.model.providerID, info.model.modelID);
         }
       }
       return;
@@ -750,16 +716,6 @@ export class AiTracer {
     }
 
     this.whenReady(turn, () => {
-      let tools: unknown;
-      if (turn?.tools && !turn.toolsSentTo.has(info.sessionID)) {
-        turn.toolsSentTo.add(info.sessionID);
-        tools = turn.tools.map((tool) => ({
-          name: tool.id,
-          description: truncateText(tool.description, 4_000),
-          input_schema: truncateValue(tool.parameters, 16_000),
-        }));
-      }
-
       this.capture("$ai_generation", {
         $ai_trace_id: this.traceIdFor(turn, info.parentID),
         $ai_session_id: this.rootOf(info.sessionID),
@@ -770,7 +726,6 @@ export class AiTracer {
         $ai_model: info.modelID,
         $ai_input: this.conversationBefore(info, turn, observed),
         $ai_output_choices: [{ role: "assistant", content: assistantBlocks(parts) }],
-        $ai_tools: tools,
         $ai_input_tokens: inputTokens,
         $ai_output_tokens: outputTokens,
         $ai_reasoning_tokens: info.tokens.reasoning,
@@ -812,7 +767,7 @@ export class AiTracer {
     const info = this.messages.get(part.messageID)?.info;
     const userMessageID = info?.role === "assistant" ? info.parentID : undefined;
     const turn = this.activeTurn(part.sessionID, userMessageID);
-    const studioTool = isStudioTool(part.tool);
+    const studioTool = isStudioTool(part.tool, state.input);
 
     if (turn) {
       turn.toolCalls += 1;
@@ -1028,7 +983,6 @@ export class AiTracer {
   private emitTrace(sessionID: string, turn: Turn): void {
     const finishedAt = this.now();
     const { input } = turn;
-    const diffs = [...turn.diffs.entries()];
     this.whenReady(turn, () =>
       this.capture("$ai_trace", {
         $ai_trace_id: turn.traceId ?? `unbound-${sessionID}-${turn.startedAt}`,
@@ -1078,17 +1032,6 @@ export class AiTracer {
           status: todo.status,
           priority: todo.priority,
         })),
-        // OpenCode reports the session's cumulative diff, not only this turn's.
-        session_files_changed: diffs.map(([file, diff]) => ({
-          file,
-          status: diff.status,
-          additions: diff.additions,
-          deletions: diff.deletions,
-          patch: diff.patch ? truncateText(diff.patch, MAX_PATCH_LENGTH) : undefined,
-        })),
-        session_files_changed_count: diffs.length,
-        session_lines_added: diffs.reduce((total, [, diff]) => total + diff.additions, 0),
-        session_lines_deleted: diffs.reduce((total, [, diff]) => total + diff.deletions, 0),
         started_at: iso(turn.startedAt),
         completed_at: iso(finishedAt),
         ...this.instructionProperties(turn),

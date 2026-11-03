@@ -67,9 +67,9 @@ Production builds require `VITE_POSTHOG_PROJECT_TOKEN`. Copy `.env.example` to
 `.env.local` for local packaging. GitHub Actions injects the public project token
 from the `POSTHOG_PROJECT_TOKEN` repository variable when building release artifacts.
 
-On first launch, BloxBot downloads the newest compatible OpenCode `1.x.x`
-release and verifies its SHA-256 digest. Later launches check for compatible
-minor and patch updates and can fall back to the newest verified cached copy
+On first launch, BloxBot downloads the newest compatible OpenCode `2.2.x`
+release and verifies its SHA-256 digest. Later launches check for newer
+patch releases and can fall back to the newest verified cached copy
 when offline.
 
 ### Project structure

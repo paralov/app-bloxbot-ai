@@ -1,5 +1,5 @@
-import type { Command } from "@opencode-ai/sdk/v2/client";
 import { useQuery } from "@tanstack/react-query";
+import type { Command } from "@/lib/opencode/types";
 
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -17,6 +17,8 @@ export function useCommands(): Command[] {
       return Array.isArray(response.data) ? response.data : [];
     },
     enabled: ready && !!client,
+    // OpenCode's catalog can be empty until its plugins finish loading.
+    refetchInterval: (query) => (query.state.data?.length ? false : 3000),
   });
 
   return data ?? EMPTY;

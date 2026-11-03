@@ -1,4 +1,4 @@
-import type { ProviderAuthMethod } from "@opencode-ai/sdk/v2/client";
+import type { ProviderAuthMethod } from "@/lib/opencode/types";
 
 export type AuthPrompt = NonNullable<ProviderAuthMethod["prompts"]>[number];
 

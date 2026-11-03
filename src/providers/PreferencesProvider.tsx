@@ -9,28 +9,27 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
-import { useAgents } from "@/hooks/useAgents";
 import { useConnectedProviders } from "@/hooks/useProviders";
 import {
   ANALYTICS_NOTICE_VERSION,
   setDetailedAnalyticsEnabled as setDetailedAnalyticsCollection,
 } from "@/lib/analytics";
 import { type AppConfig, loadConfig, patchConfig } from "@/lib/config";
+import { notify, setSystemNotificationsAllowed } from "@/lib/notifications";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
 
 interface PreferencesContextValue {
   selectedModel: string | null;
-  selectedAgent: string | null;
   selectedVariant: string | null;
   hiddenModels: Set<string>;
   detailedAnalyticsEnabled: boolean;
   setSelectedModel: (modelID: string) => void;
-  setSelectedAgent: (name: string) => void;
   setSelectedVariant: (variant: string | null) => void;
   toggleModelVisibility: (modelKey: string) => void;
   setDetailedAnalyticsEnabled: (enabled: boolean) => void;
+  systemNotificationsEnabled: boolean;
+  setSystemNotificationsEnabled: (enabled: boolean) => void;
 }
 
 export const PreferencesContext = createContext<PreferencesContextValue | undefined>(undefined);
@@ -48,13 +47,23 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   });
 
   const [selectedModel, setSelectedModelState] = useState<string | null>(null);
-  const [selectedAgent, setSelectedAgentState] = useState<string | null>(null);
   const [selectedVariant, setSelectedVariantState] = useState<string | null>(null);
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(new Set());
   const [detailedAnalyticsEnabled, setDetailedAnalyticsEnabledState] = useState(false);
   const detailedAnalyticsEnabledRef = useRef(false);
 
+  const [systemNotificationsEnabled, setSystemNotificationsEnabledState] = useState(true);
+
   const connectedProviders = useConnectedProviders();
+
+  const setSystemNotificationsEnabled = useCallback((enabled: boolean) => {
+    setSystemNotificationsEnabledState(enabled);
+    setSystemNotificationsAllowed(enabled);
+    patchConfig({ systemNotifications: enabled }).catch(() => {
+      setSystemNotificationsEnabledState(!enabled);
+      setSystemNotificationsAllowed(!enabled);
+    });
+  }, []);
 
   const setDetailedAnalyticsEnabled = useCallback((enabled: boolean) => {
     const previous = detailedAnalyticsEnabledRef.current;
@@ -72,6 +81,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!configData) return;
     setHiddenModels(new Set(configData.hiddenModels));
+    setSystemNotificationsEnabledState(configData.systemNotifications);
+    setSystemNotificationsAllowed(configData.systemNotifications);
 
     // Model usage metrics moved from opt-in to opt-out in notice version 1. Choices
     // recorded under the old consent prompt (including clickaways) do not carry
@@ -84,9 +95,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setDetailedAnalyticsEnabledState(enabled);
       setDetailedAnalyticsCollection(enabled);
       if (enabled) {
-        toast("BloxBot shares AI usage data", {
+        notify.message("BloxBot shares AI usage data", {
+          name: "analytics_notice",
           id: "analytics-optout-notice",
-          className: "analytics-consent-toast",
+          className: "card-toast",
           description:
             "Your chats and tool activity help improve BloxBot. Details in Settings → Privacy.",
           duration: Number.POSITIVE_INFINITY,
@@ -132,21 +144,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }
   }, [configData, connectedProviders, selectedModel]);
 
-  // Auto-select first agent
-  const agents = useAgents();
-  useEffect(() => {
-    if (agents.length === 0 || selectedAgent) return;
-    const primary = agents.find((a) => a.mode === "primary" && !a.hidden);
-    if (primary) setSelectedAgentState(primary.name);
-  }, [agents, selectedAgent]);
-
   const setSelectedModel = useCallback((modelID: string) => {
     setSelectedModelState(modelID);
     patchConfig({ lastModel: modelID }).catch(() => {});
-  }, []);
-
-  const setSelectedAgent = useCallback((name: string) => {
-    setSelectedAgentState(name);
   }, []);
 
   const setSelectedVariant = useCallback((variant: string | null) => {
@@ -170,27 +170,27 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PreferencesContextValue>(
     () => ({
       selectedModel,
-      selectedAgent,
       selectedVariant,
       hiddenModels,
       detailedAnalyticsEnabled,
+      systemNotificationsEnabled,
       setSelectedModel,
-      setSelectedAgent,
       setSelectedVariant,
       toggleModelVisibility,
       setDetailedAnalyticsEnabled,
+      setSystemNotificationsEnabled,
     }),
     [
       selectedModel,
-      selectedAgent,
       selectedVariant,
       hiddenModels,
       detailedAnalyticsEnabled,
+      systemNotificationsEnabled,
       setSelectedModel,
-      setSelectedAgent,
       setSelectedVariant,
       toggleModelVisibility,
       setDetailedAnalyticsEnabled,
+      setSystemNotificationsEnabled,
     ],
   );
 

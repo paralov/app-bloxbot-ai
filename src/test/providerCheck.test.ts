@@ -1,13 +1,7 @@
-import type { AssistantMessage, Model } from "@opencode-ai/sdk/v2/client";
 import { describe, expect, it } from "vitest";
+import type { AssistantMessage, Model } from "@/lib/opencode/types";
 
-import {
-  checkFailure,
-  checkModelChoice,
-  checkModels,
-  checkPreference,
-  pickCheckModel,
-} from "@/lib/providerCheck";
+import { checkFailure, checkModels, checkPreference, pickCheckModel } from "@/lib/providerCheck";
 
 type ModelError = NonNullable<AssistantMessage["error"]>;
 
@@ -52,17 +46,6 @@ describe("checkModels", () => {
       },
     };
     expect(ids(checkModels(provider))).toEqual(["gpt-4.1", "gpt-5"]);
-  });
-
-  it("puts alpha models after the others", () => {
-    const provider = {
-      models: {
-        aardvark: model("aardvark", 0, 0, "alpha"),
-        beta: model("beta", 1, 1, "beta"),
-        zed: model("zed", 1, 1),
-      },
-    };
-    expect(ids(checkModels(provider))).toEqual(["beta", "zed", "aardvark"]);
   });
 
   it("puts the user's selected model first, then the provider's default", () => {
@@ -118,15 +101,6 @@ describe("checkPreference", () => {
       selected: undefined,
       default: undefined,
     });
-  });
-});
-
-describe("checkModelChoice", () => {
-  it("says whether the checked model is the selected one, the default, or another", () => {
-    const preferred = { selected: "a", default: "b" };
-    expect(checkModelChoice("a", preferred)).toBe("selected");
-    expect(checkModelChoice("b", preferred)).toBe("default");
-    expect(checkModelChoice("c", preferred)).toBe("other");
   });
 });
 

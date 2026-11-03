@@ -102,7 +102,7 @@ export const MAX_PLAYTEST_PLAN_ATTEMPTS = 2;
 
 /** Sent in the same planning session when a reply has no valid plan. */
 export const PLAYTEST_PLAN_REMINDER =
-  "Your last reply did not include a valid plan. Answer only by calling the StructuredOutput tool once with the complete plan.";
+  "Your last reply did not include a valid plan. Answer only with the complete plan as one JSON object.";
 
 /** Whether a chat has any text a playtest plan can be built from. */
 export function hasPlaytestContext(messages: MessageWithParts[]): boolean {

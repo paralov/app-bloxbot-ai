@@ -88,7 +88,6 @@ export interface StudioMcpBrokerService {
     name: string,
     args: Record<string, unknown>,
   ) => Effect.Effect<CallToolResult, StudioMcpBrokerError>;
-  readonly listTools: Effect.Effect<Tool[], StudioMcpBrokerError>;
   readonly status: Effect.Effect<StudioMcpStatus>;
 }
 
@@ -483,11 +482,6 @@ export async function startStudioMcpBroker(
         try: () => upstream.callTool(name, args),
         catch: (cause) => new StudioMcpBrokerError({ message: "Studio MCP call failed", cause }),
       }),
-    listTools: Effect.tryPromise({
-      try: async () => (await upstream.listTools()).tools,
-      catch: (cause) =>
-        new StudioMcpBrokerError({ message: "Studio MCP tool list failed", cause }),
-    }),
     status: Effect.sync(() => upstream.status?.() ?? { state: "connected" }),
     close: async () => {
       for (const { server } of sessions.values()) await server.close();

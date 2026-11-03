@@ -1,15 +1,24 @@
+import { Paperclip } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor";
+import {
+  MENU_TRIGGER,
+  MenuChevron,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuSearch,
+} from "@/components/ui/menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Slider } from "@/components/ui/slider";
 import { useAbort } from "@/hooks/mutations/useAbort";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
-import { useAgents } from "@/hooks/useAgents";
-import { useCommands } from "@/hooks/useCommands";
+import { useComposerCommands } from "@/hooks/useComposerCommands";
 import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
+import { desktop } from "@/lib/desktop";
+import { sortExplorerSnapshot } from "@/lib/explorer";
+import { notify } from "@/lib/notifications";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
@@ -188,14 +197,14 @@ const SendButton = memo(function SendButton({
           onClick={() =>
             abort.mutate(undefined, {
               onError: (error) => {
-                toast.error("Couldn't stop the session", {
+                notify.error("Couldn't stop the session", {
                   description: error.message,
                 });
               },
             })
           }
           disabled={abort.isPending}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-foreground transition-colors hover:bg-accent hover:text-foreground"
           title="Stop"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
@@ -207,7 +216,7 @@ const SendButton = memo(function SendButton({
           type="button"
           onClick={onSend}
           disabled={(!text.trim() && !hasAttachments) || !canSend}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background transition-opacity disabled:opacity-30"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-30"
           title="Send"
         >
           <svg
@@ -229,24 +238,71 @@ const SendButton = memo(function SendButton({
   );
 });
 
-function ChatInput() {
-  const { pendingReference, consumeReference, objects } = useExplorerReference();
+const EFFORT_LABELS: Record<string, string> = {
+  none: "No",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
+/** OpenCode's names for a model's thinking levels, or Auto when the model decides. */
+function effortLabel(variant: string | null): string {
+  if (!variant) return "Auto";
+  return EFFORT_LABELS[variant] ?? variant;
+}
+
+function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
+  const { pendingReference, consumeReference, objects, publishObjects } = useExplorerReference();
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
-  const agents = useAgents();
-  const commands = useCommands();
   const { activeSessionId, activeSessionIdRef } = useActiveSession();
   const isBusy = useIsBusy(activeSessionId);
-  const {
-    selectedModel,
-    selectedAgent,
-    selectedVariant,
-    hiddenModels,
-    setSelectedModel,
-    setSelectedAgent,
-    setSelectedVariant,
-  } = usePreferences();
-  const studioTargetReference = useStudioTargetOptional()?.promptReference ?? null;
+  const { selectedModel, selectedVariant, hiddenModels, setSelectedModel, setSelectedVariant } =
+    usePreferences();
+  const studioTarget = useStudioTargetOptional();
+  const studioTargetReference = studioTarget?.promptReference ?? null;
+  const studioId = studioTarget?.selected?.key ?? null;
+  const { commands, run: runCommand } = useComposerCommands({
+    chooseModel: () => setShowModelPicker(true),
+    openSettings: () => onOpenSettings?.(),
+    restoreDraft: (draft, sessionID) => {
+      if (activeSessionIdRef.current === sessionID) promptEditorRef.current?.insertText(draft);
+    },
+  });
+  const [objectsLoading, setObjectsLoading] = useState(false);
+  const [objectsFailed, setObjectsFailed] = useState(false);
+  const objectsRequest = useRef(0);
+
+  // Objects belong to one place, so a different Studio starts with none.
+  useEffect(() => {
+    objectsRequest.current += 1;
+    publishObjects([]);
+    setObjectsLoading(false);
+  }, [studioId, publishObjects]);
+
+  // The Explorer panel may be closed, so "@" fetches what it can offer itself.
+  const loadObjects = useCallback(() => {
+    if (!studioId) return;
+    const request = ++objectsRequest.current;
+    setObjectsLoading(true);
+    setObjectsFailed(false);
+    desktop
+      .getExplorerSnapshot(studioId)
+      .then((snapshot) => {
+        if (request !== objectsRequest.current) return;
+        publishObjects(sortExplorerSnapshot(snapshot).roots);
+      })
+      .catch((error) => {
+        console.error("[composer] couldn't read Studio objects", error);
+        if (request === objectsRequest.current) setObjectsFailed(true);
+      })
+      .finally(() => {
+        if (request === objectsRequest.current) setObjectsLoading(false);
+      });
+  }, [studioId, publishObjects]);
 
   // Available variants for the currently selected model
   const availableVariants = useMemo(() => {
@@ -263,14 +319,12 @@ function ChatInput() {
   const [lbSlideDir, setLbSlideDir] = useState<"left" | "right" | null>(null);
   const [lbAnimKey, setLbAnimKey] = useState(0);
   const [showModelPicker, setShowModelPicker] = useState(false);
-  const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [rejectShake, setRejectShake] = useState(false);
   const promptEditorRef = useRef<PromptEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelSearchRef = useRef<HTMLInputElement>(null);
-  const modelPickerRef = useRef<HTMLDivElement>(null);
-  const agentPickerRef = useRef<HTMLDivElement>(null);
+  const [effortOpen, setEffortOpen] = useState(false);
   const dragCounterRef = useRef(0);
   const rejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const previousSessionRef = useRef(activeSessionId);
@@ -284,7 +338,7 @@ function ChatInput() {
       const failed = failedSendRef.current;
       failedSendRef.current = null;
       if (!failed || activeSessionIdRef.current !== failed.sessionId) return;
-      toast.error("Message not sent", { description: error.message });
+      notify.error("Message not sent", { description: error.message });
       if (failed.text) promptEditorRef.current?.insertText(failed.text);
       setAttachments((current) => {
         const currentIds = new Set(current.map((attachment) => attachment.id));
@@ -326,12 +380,12 @@ function ChatInput() {
       const toAdd: File[] = [];
       for (const file of Array.from(files)) {
         if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-          toast.error("That file isn't an image. Try a PNG, JPEG, GIF, or WebP instead.");
+          notify.error("That file isn't an image. Try a PNG, JPEG, GIF, or WebP instead.");
           triggerRejectShake();
           continue;
         }
         if (file.size > MAX_IMAGE_SIZE) {
-          toast.error("That image is too large. Please use one under 20 MB.");
+          notify.error("That image is too large. Please use one under 20 MB.");
           triggerRejectShake();
           continue;
         }
@@ -349,7 +403,7 @@ function ChatInput() {
         if (r.status === "fulfilled") {
           succeeded.push(r.value);
         } else {
-          toast.error("Failed to read an image file");
+          notify.error("Failed to read an image file");
           triggerRejectShake();
         }
       }
@@ -357,13 +411,13 @@ function ChatInput() {
       setAttachments((prev) => {
         const remaining = MAX_ATTACHMENTS - prev.length;
         if (remaining <= 0) {
-          toast.error(`Maximum ${MAX_ATTACHMENTS} images allowed`);
+          notify.error(`Maximum ${MAX_ATTACHMENTS} images allowed`);
           triggerRejectShake();
           return prev;
         }
         const allowed = succeeded.slice(0, remaining);
         if (succeeded.length > remaining) {
-          toast.error(`Only ${remaining} more image(s) allowed`);
+          notify.error(`Only ${remaining} more image(s) allowed`);
           triggerRejectShake();
         }
         return [
@@ -425,22 +479,6 @@ function ChatInput() {
     [addImageFiles],
   );
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
-        setShowModelPicker(false);
-        setModelSearch("");
-      }
-      if (agentPickerRef.current && !agentPickerRef.current.contains(e.target as Node)) {
-        setShowAgentPicker(false);
-      }
-    }
-    if (showModelPicker || showAgentPicker) {
-      document.addEventListener("mousedown", handleClick);
-      return () => document.removeEventListener("mousedown", handleClick);
-    }
-  }, [showModelPicker, showAgentPicker]);
-
   const modelsByProvider = useMemo(() => {
     const POPULAR = [
       "opencode",
@@ -480,27 +518,38 @@ function ChatInput() {
     return entries;
   }, [allModels, connectedProviders, hiddenModels, modelSearch]);
 
-  const visibleAgents = useMemo(
-    () => agents.filter((a) => !a.hidden && (a.mode === "primary" || a.mode === "all")),
-    [agents],
-  );
-
   function handleSubmit() {
     const editorText = promptEditorRef.current?.getText() ?? text;
     const trimmed = editorText.trim();
     if (!trimmed && attachments.length === 0) return;
-    if (isBusy) return;
     const submittedText = editorText;
     const submittedAttachments = attachments;
+    const images =
+      attachments.length > 0
+        ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
+        : undefined;
+    const ranCommand = runCommand(trimmed, {
+      images,
+      system: studioTargetReference,
+      onFailed: (error) => {
+        notify.error("Command failed", { description: error.message });
+        if (activeSessionIdRef.current !== activeSessionId) return;
+        promptEditorRef.current?.insertText(submittedText);
+        setAttachments(submittedAttachments);
+      },
+    });
+    if (ranCommand) {
+      setText("");
+      setAttachments([]);
+      promptEditorRef.current?.clear();
+      return;
+    }
+    if (isBusy) return;
     failedSendRef.current = {
       sessionId: activeSessionId,
       text: submittedText,
       attachments: submittedAttachments,
     };
-    const images =
-      attachments.length > 0
-        ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
-        : undefined;
     setText("");
     setAttachments([]);
     promptEditorRef.current?.clear();
@@ -516,14 +565,14 @@ function ChatInput() {
     setModelSearch("");
   }
 
-  const modelDisplay = selectedModel
-    ? (selectedModel.split("/").pop() ?? selectedModel)
+  const [selectedProviderId, selectedModelId] = selectedModel
+    ? splitModelKey(selectedModel)
+    : [undefined, undefined];
+  const modelDisplay = selectedModelId
+    ? (allModels.find(
+        (model) => model.providerId === selectedProviderId && model.id === selectedModelId,
+      )?.name ?? selectedModelId)
     : "Select model";
-  const agentDisplay = selectedAgent ?? "Default agent";
-  const selectedVariantIndex = selectedVariant
-    ? Math.max(0, availableVariants.indexOf(selectedVariant) + 1)
-    : 0;
-  const variantDisplay = selectedVariant ?? "Default";
 
   function renderProviderGroup(
     providerId: string,
@@ -531,23 +580,18 @@ function ChatInput() {
   ) {
     return (
       <div key={providerId}>
-        <div className="flex items-center gap-1.5 px-2 py-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {group.providerName}
-          </span>
-        </div>
+        <MenuLabel>{group.providerName}</MenuLabel>
         {group.models.map((model) => {
           const fullId = `${model.providerId}/${model.id}`;
-          const isSelected = selectedModel === fullId;
           return (
-            <button
+            <MenuItem
               key={fullId}
+              checked={selectedModel === fullId}
               onClick={() => handleModelClick(model)}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors ${isSelected ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
             >
               <span className="truncate">{model.name}</span>
               <ModelStatusBadge status={model.status} />
-            </button>
+            </MenuItem>
           );
         })}
       </div>
@@ -555,308 +599,185 @@ function ChatInput() {
   }
 
   return (
-    <div className="shrink-0 border-t bg-card px-4 py-3">
-      <div className="relative mb-2 flex items-center gap-1">
-        <div className="relative" ref={modelPickerRef}>
-          <button
-            onClick={() => {
-              setShowModelPicker(!showModelPicker);
-              setShowAgentPicker(false);
-              if (showModelPicker) {
-                setModelSearch("");
-              }
-            }}
-            className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-            </svg>
-            {modelDisplay}
-          </button>
-          {showModelPicker && (
-            <div className="absolute bottom-full left-0 z-50 mb-1 flex max-h-80 w-80 flex-col rounded-lg border bg-popover shadow-lg">
-              <div className="shrink-0 border-b px-2 py-1.5">
-                <div className="flex items-center gap-1.5 rounded-md border bg-background px-2">
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="shrink-0 text-muted-foreground/50"
+    <div className="shrink-0 px-4 pb-3 pt-1">
+      <div className="mx-auto max-w-2xl">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) addImageFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+
+        <div
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          data-composer=""
+          className={`relative rounded-xl border bg-card transition-colors focus-within:border-foreground/20 ${isDragging ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50/30" : ""}`}
+        >
+          {attachments.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto px-3 pt-2 pb-1">
+              {attachments.map((a, idx) => (
+                <div key={a.id} className="group relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLightboxIndex(idx);
+                      setLbSlideDir(null);
+                      setLbAnimKey((k) => k + 1);
+                    }}
+                    className="block cursor-zoom-in overflow-hidden rounded-lg border transition-opacity hover:opacity-80"
                   >
-                    <circle cx="11" cy="11" r="8" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
-                  <input
-                    ref={modelSearchRef}
-                    type="text"
-                    value={modelSearch}
-                    onChange={(e) => setModelSearch(e.target.value)}
-                    placeholder="Search models..."
-                    className="h-7 flex-1 bg-transparent text-xs placeholder:text-muted-foreground/40 focus:outline-none"
-                    autoFocus
-                  />
-                  {modelSearch && (
-                    <button
-                      onClick={() => {
-                        setModelSearch("");
-                        modelSearchRef.current?.focus();
-                      }}
-                      className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                    <img src={a.dataUrl} alt={a.filename} className="h-16 w-16 object-cover" />
+                  </button>
+                  <button
+                    onClick={() => removeAttachment(a.id)}
+                    className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover:opacity-100"
+                    title="Remove"
+                  >
+                    <svg
+                      width="8"
+                      height="8"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      <svg
-                        width="8"
-                        height="8"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-1">
-                {modelsByProvider.map(([id, group]) => renderProviderGroup(id, group))}
-                {modelsByProvider.length === 0 && (
-                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                    No models matching "{modelSearch}"
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                  <div className="mt-0.5 max-w-[64px] truncate text-center text-xs text-muted-foreground">
+                    {a.filename}
                   </div>
-                )}
-              </div>
+                </div>
+              ))}
             </div>
           )}
-        </div>
 
-        {availableVariants.length > 0 && (
-          <Popover>
-            <PopoverTrigger asChild>
+          <div className="flex min-h-10 items-start px-2 pt-1.5">
+            <PromptEditor
+              ref={promptEditorRef}
+              commands={commands}
+              objects={objects}
+              objectsLoading={objectsLoading}
+              objectsUnavailable={
+                !studioId
+                  ? "Open a place in Studio to reference its objects."
+                  : objectsFailed
+                    ? "Couldn't read this place in Studio. Type @ again to retry."
+                    : null
+              }
+              onObjectsWanted={loadObjects}
+              onChange={setText}
+              onSubmit={handleSubmit}
+              onPaste={(e) => {
+                const items = e.clipboardData.items;
+                const imageFiles: File[] = [];
+                for (const item of Array.from(items)) {
+                  if (item.kind === "file" && ACCEPTED_IMAGE_TYPES.includes(item.type)) {
+                    const file = item.getAsFile();
+                    if (file) imageFiles.push(file);
+                  }
+                }
+                if (imageFiles.length > 0) {
+                  e.preventDefault();
+                  addImageFiles(imageFiles);
+                }
+              }}
+              placeholder={
+                isDragging ? "Drop images here..." : "Describe what you want to build..."
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2 px-2 pb-2">
+            <div className="relative flex min-w-0 items-center gap-0.5">
               <button
                 type="button"
-                className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] capitalize text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                title={`Effort: ${variantDisplay}`}
-              >
-                {variantDisplay}
-                <svg
-                  width="9"
-                  height="9"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="w-64 p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <span className="text-xs font-medium">Reasoning effort</span>
-                <span className="text-[11px] capitalize text-muted-foreground">
-                  {variantDisplay}
-                </span>
-              </div>
-              <Slider
-                min={0}
-                max={availableVariants.length}
-                step={1}
-                value={[selectedVariantIndex]}
-                onValueChange={([index]) =>
-                  setSelectedVariant(index === 0 ? null : availableVariants[index - 1])
-                }
-                aria-label="Reasoning effort"
-              />
-              <div className="mt-2 flex justify-between gap-2 text-[9px] capitalize text-muted-foreground/70">
-                <span>Default</span>
-                <span>{availableVariants[availableVariants.length - 1]}</span>
-              </div>
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files) addImageFiles(e.target.files);
-          e.target.value = "";
-        }}
-      />
-
-      <div
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        className={`rounded-xl border bg-background transition-shadow focus-within:ring-2 ring-ring/20 ${isDragging ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50/30" : ""}`}
-      >
-        {attachments.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto px-3 pt-2 pb-1">
-            {attachments.map((a, idx) => (
-              <div key={a.id} className="group relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLightboxIndex(idx);
-                    setLbSlideDir(null);
-                    setLbAnimKey((k) => k + 1);
-                  }}
-                  className="block cursor-zoom-in overflow-hidden rounded-lg border transition-opacity hover:opacity-80"
-                >
-                  <img src={a.dataUrl} alt={a.filename} className="h-16 w-16 object-cover" />
-                </button>
-                <button
-                  onClick={() => removeAttachment(a.id)}
-                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover:opacity-100"
-                  title="Remove"
-                >
-                  <svg
-                    width="8"
-                    height="8"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-                <div className="mt-0.5 max-w-[64px] truncate text-center text-[9px] text-muted-foreground">
-                  {a.filename}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex min-h-14 items-start gap-1.5 px-2 pb-2 pt-1.5">
-          <PromptEditor
-            ref={promptEditorRef}
-            commands={commands}
-            objects={objects}
-            onChange={setText}
-            onSubmit={handleSubmit}
-            onPaste={(e) => {
-              const items = e.clipboardData.items;
-              const imageFiles: File[] = [];
-              for (const item of Array.from(items)) {
-                if (item.kind === "file" && ACCEPTED_IMAGE_TYPES.includes(item.type)) {
-                  const file = item.getAsFile();
-                  if (file) imageFiles.push(file);
-                }
-              }
-              if (imageFiles.length > 0) {
-                e.preventDefault();
-                addImageFiles(imageFiles);
-              }
-            }}
-            placeholder={isDragging ? "Drop images here..." : "Describe what you want to build..."}
-          />
-          <div className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
-            {visibleAgents.length > 1 && (
-              <div className="relative" ref={agentPickerRef}>
-                <button
-                  onClick={() => {
-                    setShowAgentPicker(!showAgentPicker);
-                    setShowModelPicker(false);
-                  }}
-                  className="flex max-w-28 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <svg
-                    width="9"
-                    height="9"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                  <span className="truncate">{agentDisplay}</span>
-                </button>
-                {showAgentPicker && (
-                  <div className="absolute bottom-full right-0 z-50 mb-1 max-h-48 w-56 overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
-                    {visibleAgents.map((agent) => {
-                      const isSelected = selectedAgent === agent.name;
-                      return (
-                        <button
-                          key={agent.name}
-                          onClick={() => {
-                            setSelectedAgent(agent.name);
-                            setShowAgentPicker(false);
-                          }}
-                          className={`flex w-full flex-col rounded-md px-2 py-1.5 text-left transition-colors ${isSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
-                        >
-                          <span className="text-xs font-medium">{agent.name}</span>
-                          {agent.description && (
-                            <span className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
-                              {agent.description}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="flex items-center gap-1">
-              <button
                 onClick={() => fileInputRef.current?.click()}
-                className={`flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-background transition-colors hover:bg-accent hover:text-foreground ${rejectShake ? "animate-reject-shake text-red-500" : "text-muted-foreground/60"}`}
+                className={`flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${rejectShake ? "animate-reject-shake text-destructive" : ""}`}
                 title="Attach images"
               >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                </svg>
+                <Paperclip aria-hidden="true" size={14} />
               </button>
-              <SendButton
-                text={text}
-                hasAttachments={attachments.length > 0}
-                isBusy={isBusy}
-                onSend={handleSubmit}
-              />
+
+              <Popover
+                open={showModelPicker}
+                onOpenChange={(open) => {
+                  setShowModelPicker(open);
+                  if (!open) setModelSearch("");
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <button type="button" className={MENU_TRIGGER}>
+                    <span className="truncate">{modelDisplay}</span>
+                    <MenuChevron />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  className="flex max-h-80 w-80 flex-col p-0!"
+                >
+                  <MenuSearch
+                    inputRef={modelSearchRef}
+                    value={modelSearch}
+                    onChange={setModelSearch}
+                    placeholder="Search models..."
+                  />
+                  <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                    {modelsByProvider.map(([id, group]) => renderProviderGroup(id, group))}
+                    {modelsByProvider.length === 0 && (
+                      <MenuLabel className="text-center">
+                        No models matching "{modelSearch}"
+                      </MenuLabel>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              {availableVariants.length > 0 && (
+                <Popover open={effortOpen} onOpenChange={setEffortOpen}>
+                  <PopoverTrigger asChild>
+                    <button type="button" className={MENU_TRIGGER}>
+                      {effortLabel(selectedVariant)} effort
+                      <MenuChevron />
+                    </button>
+                  </PopoverTrigger>
+                  <MenuContent side="top" align="start" className="w-56">
+                    <MenuLabel>
+                      How long the model thinks before it answers. More is slower.
+                    </MenuLabel>
+                    {[null, ...availableVariants].map((variant) => (
+                      <MenuItem
+                        key={variant ?? "auto"}
+                        checked={selectedVariant === variant}
+                        onClick={() => {
+                          setSelectedVariant(variant);
+                          setEffortOpen(false);
+                        }}
+                      >
+                        {effortLabel(variant)}
+                      </MenuItem>
+                    ))}
+                  </MenuContent>
+                </Popover>
+              )}
             </div>
+            <SendButton
+              text={text}
+              hasAttachments={attachments.length > 0}
+              isBusy={isBusy}
+              onSend={handleSubmit}
+            />
           </div>
         </div>
       </div>

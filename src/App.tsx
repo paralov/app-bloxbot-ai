@@ -4,6 +4,7 @@ import Chat from "@/components/Chat";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { useStarCalloutForReturningUsers } from "@/hooks/useStarCalloutForReturningUsers";
 import { useUpdater } from "@/hooks/useUpdater";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
 import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
@@ -14,10 +15,14 @@ import { StudioTargetProvider } from "@/providers/StudioTargetProvider";
 
 function AppInner() {
   useUpdater();
+  useStarCalloutForReturningUsers();
 
   return (
     <main className="flex h-full flex-col overflow-hidden">
-      <div className="app-titlebar flex h-9 shrink-0 items-center justify-end border-b bg-card px-3" />
+      <div
+        id="titlebar-actions"
+        className="app-titlebar flex h-9 shrink-0 items-center justify-end gap-1 bg-sidebar px-2"
+      />
       <ErrorBoundary>
         <Chat />
       </ErrorBoundary>

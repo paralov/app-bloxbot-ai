@@ -5,12 +5,7 @@ import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import {
-  LexicalTypeaheadMenuPlugin,
-  MenuOption,
-  useBasicTypeaheadTriggerMatch,
-} from "@lexical/react/LexicalTypeaheadMenuPlugin";
-import type { Command } from "@opencode-ai/sdk/v2/client";
+import { LexicalTypeaheadMenuPlugin, MenuOption } from "@lexical/react/LexicalTypeaheadMenuPlugin";
 import {
   $createParagraphNode,
   $createTextNode,
@@ -24,6 +19,7 @@ import {
   type NodeKey,
   type SerializedLexicalNode,
 } from "lexical";
+import { type LucideIcon, SquareSlash } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import {
   type ClipboardEventHandler,
@@ -33,11 +29,23 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { iconForClass } from "@/components/Explorer";
+import { MENU_LABEL, MENU_SURFACE } from "@/components/ui/menu";
 import { analyticsProperties } from "@/lib/analytics";
 import type { ExplorerNode } from "@/lib/explorer";
+import type { Command } from "@/lib/opencode/types";
+import {
+  buildObjectSearchIndex,
+  CLIENT_COMMANDS,
+  promptTriggerMatch,
+  type SearchableObject,
+  searchCommands,
+  searchObjects,
+} from "@/lib/promptSuggestions";
 
 type TokenKind = "object" | "command";
 
@@ -110,7 +118,7 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
   decorate() {
     return (
       <span
-        className={`mx-0.5 inline-flex select-all items-center rounded-md border px-1.5 py-0.5 align-baseline text-[11px] font-medium ${
+        className={`mx-0.5 inline-flex select-all items-center rounded-md border px-1.5 py-0.5 align-baseline text-xs font-medium ${
           this.__kind === "object"
             ? "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300"
             : "border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300"
@@ -132,40 +140,30 @@ class PromptOption extends MenuOption {
   label: string;
   detail: string;
   value: string;
+  glyph: LucideIcon;
 
-  constructor(key: string, kind: TokenKind, label: string, detail: string, value: string) {
+  constructor(
+    key: string,
+    kind: TokenKind,
+    label: string,
+    detail: string,
+    value: string,
+    glyph: LucideIcon,
+  ) {
     super(key);
     this.kind = kind;
     this.label = label;
     this.detail = detail;
     this.value = value;
+    this.glyph = glyph;
   }
 }
 
 const EMPTY_OBJECT_INDEX: readonly SearchableObject[] = [];
 const EMPTY_COMMANDS: readonly Command[] = [];
-
-interface SearchableObject {
-  node: ExplorerNode;
-  searchText: string;
-}
-
-function buildObjectSearchIndex(nodes: readonly ExplorerNode[]): SearchableObject[] {
-  const index: SearchableObject[] = [];
-  const pending = [...nodes].reverse();
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (!node) continue;
-    index.push({
-      node,
-      searchText: `${node.name} ${node.className} ${node.path}`.toLowerCase(),
-    });
-    for (let childIndex = node.children.length - 1; childIndex >= 0; childIndex -= 1) {
-      pending.push(node.children[childIndex]);
-    }
-  }
-  return index;
-}
+const OBJECT_TRIGGER = promptTriggerMatch("@");
+const COMMAND_TRIGGER = promptTriggerMatch("/");
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 function SetEditorRef({ editorRef }: { editorRef: React.MutableRefObject<LexicalEditor | null> }) {
   const [editor] = useLexicalComposerContext();
@@ -198,47 +196,53 @@ function DomInputFallbackPlugin() {
   return null;
 }
 
-function TypeaheadMenuPortal({ anchor, children }: { anchor: HTMLElement; children: ReactNode }) {
-  const [position, setPosition] = useState({ left: 8, top: 8, maxHeight: 256 });
+/**
+ * Sits on top of the composer, at its full width. The height follows the list
+ * as it filters, and closing leaves a copy behind to fade out, because Lexical
+ * unmounts the menu at once.
+ */
+function SuggestionMenu({ container, children }: { container: Element; children: ReactNode }) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
 
   useLayoutEffect(() => {
-    const updatePosition = () => {
-      const rect = anchor.getBoundingClientRect();
-      const menuWidth = 288;
-      setPosition({
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)),
-        top: rect.top - 8,
-        maxHeight: Math.max(96, Math.min(256, rect.top - 24)),
-      });
-    };
+    const list = listRef.current;
+    if (!list) return;
+    const measure = () => setHeight(list.offsetHeight + 2);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
 
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    window.visualViewport?.addEventListener("resize", updatePosition);
-    window.visualViewport?.addEventListener("scroll", updatePosition);
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
     return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-      window.visualViewport?.removeEventListener("resize", updatePosition);
-      window.visualViewport?.removeEventListener("scroll", updatePosition);
+      if (!surface || window.matchMedia?.(REDUCED_MOTION).matches) return;
+      const ghost = surface.cloneNode(true) as HTMLElement;
+      ghost.removeAttribute("data-prompt-menu");
+      ghost.setAttribute("aria-hidden", "true");
+      ghost.inert = true;
+      ghost.classList.replace("animate-suggestions-in", "animate-suggestions-out");
+      container.append(ghost);
+      window.setTimeout(() => ghost.remove(), 120);
     };
-  }, [anchor]);
+  }, [container]);
 
   return createPortal(
     <div
-      className="app-scrollbar fixed z-[100] w-72 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
-      style={{
-        left: position.left,
-        top: position.top,
-        maxHeight: position.maxHeight,
-        transform: "translateY(-100%)",
-      }}
-      role="listbox"
+      ref={surfaceRef}
+      data-prompt-menu=""
+      className={`animate-suggestions-in absolute inset-x-0 bottom-full z-50 mb-2 origin-bottom overflow-hidden transition-[height] duration-150 ease-out ${MENU_SURFACE} p-0!`}
+      style={{ height }}
     >
-      {children}
+      <div ref={listRef} className="app-scrollbar max-h-72 overflow-y-auto p-1">
+        {children}
+      </div>
     </div>,
-    document.body,
+    container,
   );
 }
 
@@ -246,58 +250,65 @@ function TypeaheadPlugin({
   kind,
   objectIndex,
   commands = EMPTY_COMMANDS,
+  objectsLoading = false,
+  objectsUnavailable = null,
+  onOpen,
+  onSubmit,
 }: {
   kind: TokenKind;
   objectIndex: readonly SearchableObject[];
   commands?: readonly Command[];
+  objectsLoading?: boolean;
+  /** Why there are no objects to offer, such as no Studio being open. */
+  objectsUnavailable?: string | null;
+  onOpen?: () => void;
+  onSubmit?: () => void;
 }) {
+  const [editor] = useLexicalComposerContext();
   const [query, setQuery] = useState<string | null>(null);
-  const triggerFn = useBasicTypeaheadTriggerMatch(kind === "object" ? "@" : "/", {
-    minLength: 0,
-  });
   const options = useMemo(() => {
-    const search = (query ?? "").toLowerCase();
+    const search = query ?? "";
     if (kind === "object") {
-      const objectOptions: PromptOption[] = [];
-      for (const entry of objectIndex) {
-        if (!entry.searchText.includes(search)) continue;
-        const { node } = entry;
-        objectOptions.push(
+      return searchObjects(objectIndex, search).map(
+        (node) =>
           new PromptOption(
             `object:${node.path}`,
             "object",
             `@${node.name}`,
-            `${node.className} · ${node.path}`,
             node.path,
+            node.path,
+            iconForClass(node.className),
           ),
-        );
-        if (objectOptions.length === 10) break;
-      }
-      return objectOptions;
+      );
     }
-
-    const commandOptions: PromptOption[] = [];
-    for (const command of commands) {
-      if (!command.name.toLowerCase().includes(search)) continue;
-      const usage = command.hints.length > 0 ? `/${command.name} ${command.hints.join(" ")}` : "";
-      commandOptions.push(
+    return searchCommands(commands, search).map(
+      (command) =>
         new PromptOption(
           `command:${command.name}`,
           "command",
           `/${command.name}`,
-          [usage, command.description].filter(Boolean).join(" · "),
+          command.description ?? "",
           `/${command.name}`,
+          SquareSlash,
         ),
-      );
-      if (commandOptions.length === 10) break;
-    }
-    return commandOptions;
+    );
   }, [commands, kind, objectIndex, query]);
+
+  /** Says why the list is empty. A slash that isn't a command stays out of the way. */
+  function emptyMessage(search: string): string | null {
+    if (kind === "command") return search ? null : "No commands available.";
+    if (objectIndex.length === 0) {
+      if (objectsLoading) return "Reading your place in Studio";
+      return objectsUnavailable ?? "Nothing to reference in this place yet.";
+    }
+    return `No objects match "${search}".`;
+  }
 
   return (
     <LexicalTypeaheadMenuPlugin<PromptOption>
-      triggerFn={triggerFn}
+      triggerFn={kind === "object" ? OBJECT_TRIGGER : COMMAND_TRIGGER}
       onQueryChange={setQuery}
+      onOpen={onOpen}
       options={options}
       onSelectOption={(option, nodeToReplace, closeMenu) => {
         const selection = $getSelection();
@@ -321,6 +332,10 @@ function TypeaheadPlugin({
             }),
           );
           closeMenu();
+          // Commands that act on the app take no argument, so picking one runs it.
+          if (CLIENT_COMMANDS.some(({ name }) => `/${name}` === option.value)) {
+            setTimeout(() => onSubmit?.(), 0);
+          }
           return;
         }
 
@@ -340,39 +355,51 @@ function TypeaheadPlugin({
         );
         closeMenu();
       }}
-      menuRenderFn={(anchorRef, { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) =>
-        anchorRef.current && options.length > 0 ? (
-          <TypeaheadMenuPortal anchor={anchorRef.current}>
-            {options.map((option, index) => (
-              <button
-                key={option.key}
-                type="button"
-                ref={option.setRefElement}
-                className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
-                  selectedIndex === index ? "bg-accent" : "hover:bg-accent/70"
-                }`}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setHighlightedIndex(index)}
-                onClick={() => selectOptionAndCleanUp(option)}
-              >
-                <span className="flex w-full items-center justify-between gap-3">
-                  <span className="text-xs font-medium">{option.label}</span>
-                  {option.kind === "command" && selectedIndex === index ? (
-                    <kbd className="rounded border bg-background px-1.5 py-0.5 text-[9px] font-normal text-muted-foreground">
-                      Tab
-                    </kbd>
-                  ) : null}
-                </span>
-                {option.detail ? (
-                  <span className="truncate text-[10px] text-muted-foreground">
-                    {option.detail}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </TypeaheadMenuPortal>
-        ) : null
-      }
+      menuRenderFn={(_anchor, { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) => {
+        const root = editor.getRootElement();
+        const container = root?.closest("[data-composer]") ?? root?.parentElement;
+        if (!container) return null;
+        const empty = options.length === 0 ? emptyMessage(query ?? "") : null;
+        if (options.length === 0 && !empty) return null;
+        return (
+          <SuggestionMenu container={container}>
+            <div className={MENU_LABEL}>{kind === "object" ? "Objects" : "Commands"}</div>
+            {empty ? (
+              <div className="px-2 pb-1.5 text-sm text-muted-foreground">{empty}</div>
+            ) : (
+              <div role="listbox" aria-label={kind === "object" ? "Objects" : "Commands"}>
+                {options.map((option, index) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedIndex === index}
+                    ref={option.setRefElement}
+                    className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm ${
+                      selectedIndex === index ? "bg-accent" : ""
+                    }`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseMove={() => setHighlightedIndex(index)}
+                    onClick={() => selectOptionAndCleanUp(option)}
+                  >
+                    <option.glyph
+                      aria-hidden="true"
+                      size={14}
+                      className="shrink-0 text-muted-foreground"
+                    />
+                    <span className="shrink-0">{option.label}</span>
+                    {option.detail ? (
+                      <span className="min-w-0 truncate text-xs text-muted-foreground">
+                        {option.detail}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </SuggestionMenu>
+        );
+      }}
     />
   );
 }
@@ -388,13 +415,27 @@ interface PromptEditorProps {
   commands: readonly Command[];
   objects: readonly ExplorerNode[];
   placeholder: string;
+  objectsLoading?: boolean;
+  objectsUnavailable?: string | null;
+  /** Typing "@" asks for a fresh copy of the place's objects. */
+  onObjectsWanted?: () => void;
   onChange(text: string): void;
   onSubmit(): void;
   onPaste?: ClipboardEventHandler<HTMLDivElement>;
 }
 
 export default forwardRef<PromptEditorHandle, PromptEditorProps>(function PromptEditor(
-  { commands, objects, placeholder, onChange, onSubmit, onPaste },
+  {
+    commands,
+    objects,
+    placeholder,
+    objectsLoading,
+    objectsUnavailable,
+    onObjectsWanted,
+    onChange,
+    onSubmit,
+    onPaste,
+  },
   ref,
 ) {
   const editorRef = useMemo(() => ({ current: null as LexicalEditor | null }), []);
@@ -441,11 +482,11 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
         <RichTextPlugin
           contentEditable={
             <ContentEditable
-              className="app-scrollbar max-h-48 min-h-10 overflow-y-auto whitespace-pre-wrap pb-2 pt-1 text-[13px] leading-relaxed outline-none"
+              className="app-scrollbar max-h-48 min-h-10 overflow-y-auto whitespace-pre-wrap pb-2 pt-1 text-sm leading-relaxed outline-none"
               aria-label="Message"
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey) return;
-                if (document.querySelector('[role="listbox"] button')) return;
+                if (document.querySelector("[data-prompt-menu] [role=option]")) return;
                 event.preventDefault();
                 onSubmit();
               }}
@@ -453,7 +494,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-0 top-1 text-[13px] text-muted-foreground/50">
+            <div className="pointer-events-none absolute left-0 top-1 text-sm text-muted-foreground/50">
               {placeholder}
             </div>
           }
@@ -471,8 +512,19 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
           }
         />
         <DomInputFallbackPlugin />
-        <TypeaheadPlugin kind="object" objectIndex={objectIndex} />
-        <TypeaheadPlugin kind="command" objectIndex={EMPTY_OBJECT_INDEX} commands={commands} />
+        <TypeaheadPlugin
+          kind="object"
+          objectIndex={objectIndex}
+          objectsLoading={objectsLoading}
+          objectsUnavailable={objectsUnavailable}
+          onOpen={onObjectsWanted}
+        />
+        <TypeaheadPlugin
+          kind="command"
+          objectIndex={EMPTY_OBJECT_INDEX}
+          commands={commands}
+          onSubmit={onSubmit}
+        />
         <SetEditorRef editorRef={editorRef} />
       </div>
     </LexicalComposer>

@@ -82,7 +82,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={resolvedTheme}
       className="toaster group"
-      position="top-right"
+      position="bottom-right"
       closeButton
       gap={8}
       icons={{

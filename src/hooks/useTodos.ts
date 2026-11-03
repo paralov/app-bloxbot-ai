@@ -1,5 +1,5 @@
-import type { Todo } from "@opencode-ai/sdk/v2/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Todo } from "@/lib/opencode/types";
 
 import { qk } from "@/lib/queryKeys";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";

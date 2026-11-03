@@ -27,14 +27,12 @@
     "test:watch": "vitest",
     "check:opencode-pin": "OPENCODE_PIN_CHECK=1 vitest run src/test/opencodePinnedRelease.test.ts",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit && tsc -p scripts/bloxbot-programs/tsconfig.json --noEmit",
-    "bloxbot-programs": "jiti scripts/bloxbot-programs/cli.ts"
+    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@lexical/react": "^0.48.0",
-    "@lexical/utils": "^0.48.0",
     "@modelcontextprotocol/sdk": "1.26.0",
-    "@opencode-ai/sdk": "^1.18.4",
+    "@opencode/client": "2.2.5",
     "@shikijs/core": "^4.3.1",
     "@shikijs/engine-javascript": "^4.3.1",
     "@shikijs/langs": "^4.3.1",
@@ -53,7 +51,6 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
-    "sucrase": "3.35.0",
     "systeminformation": "^5.31.16",
     "tar": "^7.5.20"
   },
@@ -69,7 +66,6 @@
     "@vitest/coverage-v8": "^4.1.10",
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
-    "jiti": "^2.7.0",
     "jsdom": "^29.0.1",
     "shadcn": "^3.8.4",
     "tailwindcss": "^4.3.3",

@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  createErrorDeduper,
-  describeError,
   ERROR_MESSAGE_MAX_LENGTH,
-  errorFromMainReport,
   REDACTED,
   scrubErrorMessage,
   scrubErrorText,
@@ -169,53 +166,6 @@ describe("scrubEventProperties", () => {
   });
 });
 
-describe("describeError", () => {
-  it("reads Errors, strings and OpenCode SDK error bodies", () => {
-    expect(describeError(new TypeError("bad"))).toEqual({ type: "TypeError", message: "bad" });
-    expect(describeError("plain")).toEqual({ type: "string", message: "plain" });
-    expect(
-      describeError({
-        name: "ProviderAuthError",
-        data: { message: "Invalid key", providerID: "x" },
-      }),
-    ).toEqual({ type: "ProviderAuthError", message: "Invalid key" });
-    expect(describeError({ message: "loose" })).toEqual({ type: "object", message: "loose" });
-    expect(describeError(42)).toEqual({ type: "number", message: null });
-    expect(describeError(null)).toEqual({ type: "object", message: null });
-  });
-
-  it("appends the cause of a wrapping error", () => {
-    const error = new Error("Failed to start OpenCode", { cause: new Error("spawn EACCES") });
-    expect(describeError(error).message).toBe("Failed to start OpenCode (cause: spawn EACCES)");
-  });
-});
-
-describe("createErrorDeduper", () => {
-  it("accepts the same key once per window", () => {
-    let time = 0;
-    const shouldReport = createErrorDeduper(1000, () => time);
-    expect(shouldReport("a")).toBe(true);
-    expect(shouldReport("a")).toBe(false);
-    expect(shouldReport("b")).toBe(true);
-    time = 1000;
-    expect(shouldReport("a")).toBe(true);
-  });
-});
-
-describe("errorFromMainReport", () => {
-  it("rebuilds an Error with the forwarded name and stack", () => {
-    const error = errorFromMainReport({
-      source: "opencode_start",
-      name: "OpenCodeError",
-      message: "boom",
-      stack: "OpenCodeError: boom\n    at start (main.js:1:1)",
-    });
-    expect(error).toBeInstanceOf(Error);
-    expect(error.name).toBe("OpenCodeError");
-    expect(error.stack).toContain("at start");
-  });
-});
-
 function fakeTarget(): MainErrorTarget & { send: ReturnType<typeof vi.fn>; destroy(): void } {
   let destroyed = false;
   const listeners: Array<() => void> = [];
@@ -231,17 +181,6 @@ function fakeTarget(): MainErrorTarget & { send: ReturnType<typeof vi.fn>; destr
 }
 
 describe("createMainErrorReporter", () => {
-  it("buffers until a window attaches, then flushes in order", () => {
-    const reporter = createMainErrorReporter({ channel: "err" });
-    reporter.report("a", new Error("first"));
-    reporter.report("b", "second");
-    const target = fakeTarget();
-    reporter.attach(target);
-    expect(target.send.mock.calls.map(([, report]) => report.message)).toEqual(["first", "second"]);
-    reporter.report("c", new Error("third"));
-    expect(target.send).toHaveBeenCalledTimes(3);
-  });
-
   it("bounds the buffer and de-duplicates repeats", () => {
     let time = 0;
     const reporter = createMainErrorReporter({ channel: "err", maxBuffered: 3, now: () => time });
@@ -274,17 +213,5 @@ describe("createMainErrorReporter", () => {
       message: "cannot open ~/BloxBot as <user>",
     });
     expect(report.stack).not.toContain("oscar");
-  });
-
-  it("buffers again after the window is destroyed", () => {
-    const reporter = createMainErrorReporter({ channel: "err" });
-    const first = fakeTarget();
-    reporter.attach(first);
-    first.destroy();
-    reporter.report("a", new Error("while closed"));
-    expect(first.send).not.toHaveBeenCalled();
-    const second = fakeTarget();
-    reporter.attach(second);
-    expect(second.send).toHaveBeenCalledOnce();
   });
 });

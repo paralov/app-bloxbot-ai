@@ -1,8 +1,8 @@
 import { createElement, useEffect } from "react";
-import { toast } from "sonner";
 
 import { UpdateReleaseNotes } from "@/components/UpdateReleaseNotes";
 import { desktop } from "@/lib/desktop";
+import { notify } from "@/lib/notifications";
 
 // ── Semver helpers ──────────────────────────────────────────────────────
 
@@ -62,20 +62,22 @@ export function useUpdater(): void {
           // Minor/major — show persistent toast requiring manual action.
           console.debug(`[updater] Prompting for update ${currentVersion} → ${update.version}`);
 
-          toast(`BloxBot ${update.version} is available`, {
+          notify.message(`BloxBot ${update.version} is available`, {
+            name: "update_available",
             className: "update-available-toast",
             description: createElement(UpdateReleaseNotes, { body: update.body }),
             duration: Number.POSITIVE_INFINITY,
+            system: { body: "Open BloxBot to install it." },
             action: {
               label: "Install & Restart",
               onClick: async () => {
-                const toastId = toast.loading("Installing update...");
+                const toastId = notify.loading("Installing update...");
                 try {
                   await desktop.installUpdate();
                 } catch (err) {
                   console.error("[updater] Failed to install update:", err);
-                  toast.dismiss(toastId);
-                  toast.error("Update failed", {
+                  notify.dismiss(toastId);
+                  notify.error("Update failed", {
                     description: err instanceof Error ? err.message : "Installation failed",
                   });
                 }

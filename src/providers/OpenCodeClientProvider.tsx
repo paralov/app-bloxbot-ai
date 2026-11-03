@@ -1,4 +1,3 @@
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import {
@@ -10,11 +9,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 import LoadingScreen, { type StartupProgress } from "@/components/LoadingScreen";
 import { aiTracer, captureDetailedAnalytics } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
+import { notify } from "@/lib/notifications";
+import { createOpencodeClient, type OpencodeClient } from "@/lib/opencode/client";
 import { qk } from "@/lib/queryKeys";
+import { sessionNotifier } from "@/lib/sessionNotifications";
 import { sseDispatch } from "@/lib/sseDispatch";
 import type { OpenCodeStartupProgress } from "@/types/desktop";
 
@@ -79,9 +80,7 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
         step: 1,
         label: "Preparing",
         progress: fraction,
-        meta: [percentage, formatTransferSpeed(progress.bytesPerSecond)]
-          .filter(Boolean)
-          .join(" · "),
+        meta: [percentage, formatTransferSpeed(progress.bytesPerSecond)].filter(Boolean).join(" "),
       },
     };
   }
@@ -310,14 +309,12 @@ export function OpenCodeClientProvider({
     };
   }, [ready, queryClient]);
 
-  // AI traces read session history and tool definitions from the local server.
+  // AI traces read session history from the local server.
   useEffect(() => {
     if (!client) return;
     aiTracer.configure({
       loadHistory: async (sessionID) =>
         (await client.session.messages({ sessionID }, { throwOnError: true })).data,
-      loadTools: async (provider, model) =>
-        (await client.tool.list({ provider, model }, { throwOnError: true })).data,
       loadInstructions: () => desktop.getInstructionFiles(),
     });
     return () => aiTracer.configure({});
@@ -335,9 +332,11 @@ export function OpenCodeClientProvider({
 
     function showReconnectToast() {
       if (reconnectToastId != null) return;
-      reconnectToastId = toast.error("Lost connection to OpenCode", {
+      reconnectToastId = notify.error("Lost connection to OpenCode", {
+        name: "connection_lost",
         description: "Events are no longer being received.",
         duration: Number.POSITIVE_INFINITY,
+        system: true,
         action: {
           label: "Reconnect",
           onClick: () => window.location.reload(),
@@ -347,7 +346,7 @@ export function OpenCodeClientProvider({
 
     function dismissReconnectToast() {
       if (reconnectToastId != null) {
-        toast.dismiss(reconnectToastId);
+        notify.dismiss(reconnectToastId);
         reconnectToastId = undefined;
       }
     }
@@ -370,6 +369,7 @@ export function OpenCodeClientProvider({
           return;
         }
         await reconcileServerState(queryClient, activeSessionIdRef.current);
+        sessionNotifier.trackRunning(queryClient.getQueryData(qk.statuses));
         consecutiveFailures = 0;
         dismissReconnectToast();
 
@@ -378,6 +378,11 @@ export function OpenCodeClientProvider({
           sseDispatch(queryClient, event, activeSessionIdRef, (usage) => {
             captureDetailedAnalytics(posthog, "model_usage", usage);
           });
+          try {
+            sessionNotifier.handleEvent(queryClient, event, activeSessionIdRef);
+          } catch (error) {
+            console.warn("Session notification failed:", error);
+          }
           try {
             aiTracer.handleEvent(event);
           } catch (error) {
@@ -460,17 +465,15 @@ export async function prefetchServerState(client: OpencodeClient, queryClient: Q
     client.experimental.session.list({ archived: true }, { throwOnError: true }),
     client.provider.list({}, { throwOnError: true }),
     client.session.status({}, { throwOnError: true }),
-    client.app.agents({}, { throwOnError: true }),
     client.provider.auth({}, { throwOnError: true }),
   ]);
   if (results.every((result) => result.status === "rejected")) {
     throw new Error("OpenCode server state is unavailable");
   }
-  const [sessionResult, providerResult, statusResult, agentsResult, authResult] = results;
+  const [sessionResult, providerResult, statusResult, authResult] = results;
   const sessionRes = sessionResult.status === "fulfilled" ? sessionResult.value : undefined;
   const providerRes = providerResult.status === "fulfilled" ? providerResult.value : undefined;
   const statusRes = statusResult.status === "fulfilled" ? statusResult.value : undefined;
-  const agentsRes = agentsResult.status === "fulfilled" ? agentsResult.value : undefined;
   const authRes = authResult.status === "fulfilled" ? authResult.value : undefined;
 
   if (sessionRes?.data) {
@@ -480,10 +483,6 @@ export async function prefetchServerState(client: OpencodeClient, queryClient: Q
 
   if (statusRes?.data) {
     queryClient.setQueryData(qk.statuses, statusRes.data);
-  }
-
-  if (agentsRes?.data && Array.isArray(agentsRes.data)) {
-    queryClient.setQueryData(qk.agents, agentsRes.data);
   }
 
   if (providerRes?.data) {
@@ -502,7 +501,6 @@ export async function reconcileServerState(
     qk.sessions,
     qk.statuses,
     qk.providers,
-    qk.agents,
     ...(activeSessionId
       ? [
           qk.messages(activeSessionId),

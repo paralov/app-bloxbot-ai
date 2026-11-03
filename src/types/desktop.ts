@@ -1,12 +1,7 @@
 import { Schema } from "effect";
-import type { BloxBotProgramManifest } from "../lib/bloxbotProgramManifest";
-import type { ExplorerProgramEnvelope, ExplorerSnapshot } from "../lib/explorer";
-import type { GeneratedProgramArtifact } from "./generatedProgram";
+import type { ExplorerNodeDetails, ExplorerSnapshot } from "../lib/explorer";
 import {
   type StudioTargetDiscovery,
-  type StudioTargetProgramEnvelopes,
-  type StudioTargetPrograms,
-  StudioTargetProgramsSchema,
   StudioTargetSchema,
   type StudioTargetSelection,
 } from "./studioTarget";
@@ -26,8 +21,12 @@ export const AppConfigSchema = Schema.mutable(
     detailedAnalytics: DetailedAnalyticsPreferenceSchema,
     // Highest analytics policy notice the user has seen; 0 predates the opt-out model.
     analyticsNoticeVersion: Schema.Number,
-    studioTargetPrograms: Schema.NullOr(StudioTargetProgramsSchema),
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
+    systemNotifications: Schema.Boolean,
+    // What the user wrote in Settings; null follows BloxBot's default as it changes.
+    systemPrompt: Schema.NullOr(Schema.String),
+    promptsSent: Schema.Number,
+    starCalloutShown: Schema.Boolean,
   }),
 );
 
@@ -39,8 +38,11 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   theme: "system",
   detailedAnalytics: "unset",
   analyticsNoticeVersion: 0,
-  studioTargetPrograms: null,
   studioTargetsBySession: {},
+  systemNotifications: true,
+  systemPrompt: null,
+  promptsSent: 0,
+  starCalloutShown: false,
 };
 
 export const AppConfigPatchSchema = Schema.partial(AppConfigSchema);
@@ -103,14 +105,19 @@ export interface MainErrorReport {
   stack?: string;
 }
 
+export const SystemNotificationSchema = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  body: Schema.String,
+});
+
+export type SystemNotification = typeof SystemNotificationSchema.Type;
+
 export interface DesktopApi {
-  compileExplorerProgram(program: ExplorerProgramEnvelope): Promise<GeneratedProgramArtifact>;
-  invokeExplorerProgram(
-    artifact: GeneratedProgramArtifact,
-    studioId: string,
-  ): Promise<ExplorerSnapshot>;
-  /** The Studio tools an Explorer program may call now, by Studio's own name. */
-  listExplorerProgramTools(): Promise<readonly string[]>;
+  getExplorerSnapshot(studioId: string): Promise<ExplorerSnapshot>;
+  getExplorerNodeDetails(studioId: string, path: string): Promise<ExplorerNodeDetails>;
+  discoverStudioTargets(): Promise<StudioTargetDiscovery>;
+  selectStudioTarget(targetKey: string): Promise<StudioTargetSelection>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
   /** The folder OpenCode installs into, for antivirus exclusions. Null outside the desktop app. */
   getOpenCodeInstallFolder(): Promise<string | null>;
@@ -119,23 +126,16 @@ export interface DesktopApi {
   getVersion(): Promise<string>;
   getInstructionFiles(): Promise<readonly InstructionFile[]>;
   openUrl(url: string): Promise<void>;
+  showSystemNotification(notification: SystemNotification): Promise<boolean>;
+  onSystemNotificationClick(listener: (id: string) => void): () => void;
   loadConfig(): Promise<AppConfig>;
   patchConfig(patch: Partial<AppConfig>): Promise<void>;
+  setSystemPrompt(systemPrompt: string | null): Promise<void>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;
-  installStudioTargetPrograms(
-    envelopes: StudioTargetProgramEnvelopes,
-  ): Promise<StudioTargetPrograms>;
-  discoverStudioTargets(programs: StudioTargetPrograms): Promise<StudioTargetDiscovery>;
-  selectStudioTarget(
-    programs: StudioTargetPrograms,
-    targetKey: string,
-  ): Promise<StudioTargetSelection>;
   /** The newest verified published BloxBot programs, or null to use the built-in ones. */
-  getBloxBotPrograms(): Promise<BloxBotProgramManifest | null>;
   /** Called when newer published BloxBot programs arrive; returns an unsubscribe. */
-  onBloxBotProgramsUpdated(listener: () => void): () => void;
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
    * tells the main process the window is ready, which flushes errors buffered until then.

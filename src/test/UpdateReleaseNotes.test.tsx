@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { parseReleaseNotes, UpdateReleaseNotes } from "@/components/UpdateReleaseNotes";
+import { UpdateReleaseNotes } from "@/components/UpdateReleaseNotes";
 
 const releaseHtml = `
   <h2>Download BloxBot</h2>
@@ -11,12 +11,6 @@ const releaseHtml = `
 `;
 
 describe("UpdateReleaseNotes", () => {
-  it("keeps changelog sections and omits download links", () => {
-    expect(parseReleaseNotes(releaseHtml)).toEqual([
-      { title: "Added", items: ["Coordinate work across multiple Studio places."] },
-    ]);
-  });
-
   it("renders readable release notes instead of raw HTML", () => {
     render(<UpdateReleaseNotes body={releaseHtml} />);
     expect(screen.getByText("Added")).toBeVisible();

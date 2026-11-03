@@ -7,6 +7,37 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- System notifications. While BloxBot isn't the app in front, it tells you when a chat finishes, runs into a problem, or is waiting for an answer or your approval, and when an update is ready or the connection is lost. Clicking one takes you to that chat. Turn them off in Settings → Notifications.
+- A toast when a chat you aren't looking at finishes or needs you, with a button to open it.
+- Edit the instructions BloxBot follows in Settings → System prompt, and reset them to the default at any time.
+- A one-time invitation to star BloxBot on GitHub, shown when you open BloxBot if you already have chats, otherwise after your third prompt.
+
+### Changed
+
+- A redesigned interface: one calm surface for chats, compact tool activity you can open for detail, a single message box with your model and effort, and a clearer working state.
+- Reasoning effort now names its choices and explains what they do.
+- Notifications appear at the bottom right.
+- `@` and `/` suggestions open above the message box, find objects even with Explorer closed, and rank the closest matches first.
+- Explorer and Playtest moved to the top bar.
+- Slash commands now actually run, matching OpenCode's desktop app: `/goal`, `/init`, `/review`, custom commands, `/new`, `/undo`, `/redo`, `/compact`, `/fork`, `/export`, `/model`, `/connect` and `/reload`.
+- File edits from GPT models show as edits instead of an unknown tool.
+- BloxBot now runs on OpenCode 2. OpenCode no longer supports free models on version 1. Your chats and connected providers carry over.
+- Chats use OpenCode's Code Mode, so a model can script several Studio tool calls in one step. The chat shows the code it ran and the result.
+
+### Removed
+
+- Token counts in the chat.
+- The free limit popup. The chat now explains the limit in place.
+- The agent picker. BloxBot now has one assistant, and you change how it behaves with the system prompt.
+- Explorer no longer asks your model to write a program when its built-in one fails, so it can't use up your free messages. It keeps the last tree on screen and retries on its own.
+- The downloadable programs behind Explorer and Studio selection. These now ship with the app, so a change on Roblox's side needs an app update.
+
+### Fixed
+
+- Chats no longer get stuck on "Thinking..." or "Waiting to retry" when you reach the free limit. The chat stops and says when your free messages reset and how to keep going.
+
 ## [0.13.7] - 2026-10-01
 
 ### Changed
