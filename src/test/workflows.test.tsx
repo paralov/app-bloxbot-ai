@@ -137,7 +137,7 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
     for (const run of cleanups.reverse()) await run();
     cleanups = [];
     vi.restoreAllMocks();
-  });
+  }, 60_000); // OpenCode can take a while to exit on Windows.
 
   /** Starts OpenCode on a scripted model, and opens the app on it. */
   async function openApp(replies: ReadonlyArray<object>, home?: string, config: object = {}) {
@@ -166,7 +166,9 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
       if (child.exitCode === null) {
         const exited = new Promise((resolve) => child.once("exit", resolve));
         child.kill();
-        await exited;
+        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 20_000))]);
+        // Windows can hold the files briefly after the process goes.
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
       llm.provider.close();
       studio.close();

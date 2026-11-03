@@ -22,13 +22,18 @@ describe("GitHub star callout", () => {
     focused.mockReturnValue(true);
   });
 
+  it("doesn't count a prompt that failed to send", async () => {
+    await recordPromptSent(Promise.reject(new Error("offline")));
+    expect((await loadConfig()).promptsSent ?? 0).toBe(0);
+  });
+
   it("waits for the third prompt, then asks only once", async () => {
-    await recordPromptSent();
-    await recordPromptSent();
+    await recordPromptSent(Promise.resolve());
+    await recordPromptSent(Promise.resolve());
     await maybeShowStarCallout();
     expect(message).not.toHaveBeenCalled();
 
-    await recordPromptSent();
+    await recordPromptSent(Promise.resolve());
     await maybeShowStarCallout();
     expect(message).toHaveBeenCalledOnce();
     expect(message.mock.calls[0][0]).toBe("Enjoying BloxBot?");

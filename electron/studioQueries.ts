@@ -153,7 +153,9 @@ export async function inspectExplorerNode(
   const error = mcpError(result);
   if (error) throw new Error(error);
   const data = mcpData(result);
-  if (!data?.properties || typeof data.properties !== "object") {
+  const isRecord = (value: unknown) =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  if (!isRecord(data?.properties) || (data.attributes != null && !isRecord(data.attributes))) {
     throw new Error("Studio returned unreadable object details");
   }
   return { properties: toFields(data.properties), attributes: toFields(data.attributes) };

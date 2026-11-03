@@ -68,17 +68,17 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
         model,
         variant: selectedVariant ?? undefined,
       });
-      // Before sending: a fast turn can finish before the request returns, and it checks this count.
-      recordPromptSent().catch((error) => {
-        console.warn("Failed to count the prompt:", error);
-      });
       try {
-        await client.session.promptAsync(
+        const accepted = client.session.promptAsync(
           opts as unknown as Parameters<typeof client.session.promptAsync>[0],
           {
             throwOnError: true,
           },
         );
+        recordPromptSent(accepted).catch((error) => {
+          console.warn("Failed to count the prompt:", error);
+        });
+        await accepted;
       } catch (error) {
         aiTracer.cancelTurn(activeSessionId);
         throw error;

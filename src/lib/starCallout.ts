@@ -7,9 +7,16 @@ const REPOSITORY_URL = "https://github.com/paralov/app-bloxbot-ai";
 let counting: Promise<void> = Promise.resolve();
 
 /** Counts prompts until the callout has been shown, after which the count is no longer needed. */
-export function recordPromptSent(): Promise<void> {
-  // One at a time, so chats finishing together can't lose a count.
+export function recordPromptSent(accepted: Promise<unknown>): Promise<void> {
+  // One at a time, so chats finishing together can't lose a count. It's queued from when the
+  // prompt is sent, since a fast turn can finish before the request returns, and only counts
+  // once OpenCode has accepted the prompt.
   const counted = counting.then(async () => {
+    const wasAccepted = await accepted.then(
+      () => true,
+      () => false,
+    );
+    if (!wasAccepted) return;
     const { promptsSent, starCalloutShown } = await loadConfig();
     if (starCalloutShown || promptsSent >= STAR_CALLOUT_PROMPTS) return;
     await patchConfig({ promptsSent: promptsSent + 1 });

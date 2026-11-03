@@ -161,7 +161,7 @@ export function useComposerCommands(actions: {
   ) {
     if (!client) return;
     const [providerID, modelID] = selectedModel ? splitModelKey(selectedModel) : [];
-    await client.session.command(
+    const accepted = client.session.command(
       {
         sessionID,
         name,
@@ -175,9 +175,10 @@ export function useComposerCommands(actions: {
       } as Parameters<typeof client.session.command>[0],
       { throwOnError: true },
     );
-    recordPromptSent().catch((error) => {
+    recordPromptSent(accepted).catch((error) => {
       console.warn("Failed to count the command:", error);
     });
+    await accepted;
     if (name === "goal" && argument) notify.message(goalConfirmation(argument));
   }
 
