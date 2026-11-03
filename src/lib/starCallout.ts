@@ -4,24 +4,34 @@ import { isWindowFocused, notify } from "@/lib/notifications";
 
 export const STAR_CALLOUT_PROMPTS = 3;
 const REPOSITORY_URL = "https://github.com/paralov/app-bloxbot-ai";
-let counting: Promise<void> = Promise.resolve();
+const COUNT_WAIT_MS = 5000;
+let writes: Promise<void> = Promise.resolve();
+const counting = new Set<Promise<void>>();
 
 /** Counts prompts until the callout has been shown, after which the count is no longer needed. */
 export function recordPromptSent(accepted: Promise<unknown>): Promise<void> {
-  // One at a time, so chats finishing together can't lose a count. It's queued from when the
-  // prompt is sent, since a fast turn can finish before the request returns, and only counts
-  // once OpenCode has accepted the prompt.
-  const counted = counting.then(async () => {
-    const wasAccepted = await accepted.then(
-      () => true,
-      () => false,
-    );
-    if (!wasAccepted) return;
-    const { promptsSent, starCalloutShown } = await loadConfig();
-    if (starCalloutShown || promptsSent >= STAR_CALLOUT_PROMPTS) return;
-    await patchConfig({ promptsSent: promptsSent + 1 });
+  // A fast turn can finish before its request returns, so the callout check below waits for this.
+  // Only the writes queue, so a request that never returns holds up nothing but itself.
+  const counted = accepted.then(
+    () => {
+      const write = writes.then(async () => {
+        const { promptsSent, starCalloutShown } = await loadConfig();
+        if (starCalloutShown || promptsSent >= STAR_CALLOUT_PROMPTS) return;
+        await patchConfig({ promptsSent: promptsSent + 1 });
+      });
+      writes = write.catch(() => undefined);
+      return write;
+    },
+    () => undefined,
+  );
+  // The check only waits so long for each count, so a stuck request stops delaying it.
+  const settled = Promise.race([
+    counted.catch(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, COUNT_WAIT_MS)),
+  ]).finally(() => {
+    counting.delete(settled);
   });
-  counting = counted.catch(() => undefined);
+  counting.add(settled);
   return counted;
 }
 
@@ -31,7 +41,7 @@ export function recordPromptSent(accepted: Promise<unknown>): Promise<void> {
  */
 export async function maybeShowStarCallout(): Promise<void> {
   if (!isWindowFocused()) return;
-  await counting;
+  await Promise.all(counting);
   const { promptsSent } = await loadConfig();
   if (promptsSent >= STAR_CALLOUT_PROMPTS) await showStarCallout();
 }

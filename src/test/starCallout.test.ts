@@ -52,4 +52,11 @@ describe("GitHub star callout", () => {
 
     expect(message).toHaveBeenCalledOnce();
   });
+
+  // Last, since its stuck request stays pending for the rest of the file.
+  it("keeps counting when an earlier request never returns", async () => {
+    void recordPromptSent(new Promise(() => {}));
+    await recordPromptSent(Promise.resolve());
+    expect((await loadConfig()).promptsSent).toBe(1);
+  });
 });
