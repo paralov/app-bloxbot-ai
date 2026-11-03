@@ -308,14 +308,10 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
     async () => {
       const { client, llm } = await openApp([{ content: "Working on the goal" }]);
       await startChat();
-      // A bare /goal reports the goal's state. The catalog can take a moment to load.
-      await waitFor(
-        async () => {
-          await send("/goal");
-          await screen.findByText(/Usage: \/goal/, {}, { timeout: 1000 });
-        },
-        { timeout: SLOW, interval: 1000 },
-      );
+      await commandsLoaded(client);
+      // A bare /goal reports the goal's state.
+      await send("/goal");
+      await screen.findByText(/Usage: \/goal/, {}, { timeout: SLOW });
       await send("/goal Make it work");
       await screen.findByText("Working on the goal", {}, { timeout: SLOW });
       await replyFinished();
