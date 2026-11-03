@@ -283,8 +283,16 @@ export function createOpencodeClient(options: {
     api.integration.get({ integrationID: providerID, location }).then((result) => result.data);
 
   /** Applies the prompt's model and instructions, which OpenCode 2 keeps on the session. */
+  const defaultModel = async () => {
+    const { data } = await api.model.default({ location }).catch(() => ({ data: null }));
+    return data ? { providerID: data.providerID, modelID: data.modelID } : undefined;
+  };
+
   const prepareTurn = async (input: PromptInput) => {
-    const { sessionID, model, variant, system } = input;
+    const { sessionID, variant, system } = input;
+    // A chat keeps its last model. With none selected, as when that model's provider was
+    // disconnected, it moves to OpenCode's default instead of failing on the old one.
+    const model = input.model ?? (await defaultModel());
     if (model) {
       const key = `${model.providerID}/${model.modelID}#${variant ?? ""}`;
       if (sessionModels.get(sessionID) !== key) {

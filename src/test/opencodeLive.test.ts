@@ -803,6 +803,40 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
     );
   }, 90_000);
 
+  it("moves a chat to the default model when no model is selected", async () => {
+    await withServer(
+      [{ content: "One" }, { content: "Two" }],
+      async ({ client, bodies, events }) => {
+        const providers = await client.provider.list({}, { throwOnError: true });
+        const defaultID = providers.data?.default.opencode as string;
+        const other = Object.keys(
+          providers.data?.all.find((provider) => provider.id === "opencode")?.models ?? {},
+        ).find((id) => id !== defaultID) as string;
+        expect(defaultID).toBeTruthy();
+        expect(other).toBeTruthy();
+
+        const created = await client.session.create({}, { throwOnError: true });
+        const sessionID = created.data.id;
+        const send = async (model?: { providerID: string; modelID: string }) => {
+          const from = events.length;
+          await client.session.promptAsync(
+            { sessionID, model, parts: [{ type: "text", text: "Hello" }] },
+            { throwOnError: true },
+          );
+          const deadline = Date.now() + 30_000;
+          while (!events.slice(from).some((event) => event.type === "session.idle")) {
+            if (Date.now() > deadline) throw new Error("The turn didn't end.");
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          return JSON.parse(bodies.at(-1) ?? "{}").model;
+        };
+
+        expect(await send({ providerID: "opencode", modelID: other })).toBe(other);
+        expect(await send()).toBe(defaultID);
+      },
+    );
+  }, 60_000);
+
   it("streams a reply and runs a shell tool on this platform", async () => {
     await withServer(
       [shellCall("echo ci-probe"), { content: "All done" }],
