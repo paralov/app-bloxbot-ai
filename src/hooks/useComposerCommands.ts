@@ -23,14 +23,6 @@ function isCommandReport(error: unknown): error is Error {
   return error instanceof Error && error.name === "CommandExecutionError";
 }
 
-function goalConfirmation(argument: string): string {
-  const control = argument.toLowerCase();
-  if (control === "pause") return "Goal paused";
-  if (control === "resume") return "Goal resumed";
-  if (control === "clear") return "Goal cleared";
-  return "Goal set. BloxBot will keep working until it's met.";
-}
-
 function saveJson(filename: string, data: unknown) {
   const url = URL.createObjectURL(
     new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
@@ -179,7 +171,6 @@ export function useComposerCommands(actions: {
       console.warn("Failed to count the command:", error);
     });
     await accepted;
-    if (name === "goal" && argument) notify.message(goalConfirmation(argument));
   }
 
   /**

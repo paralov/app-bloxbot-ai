@@ -258,10 +258,12 @@ function Chat() {
         ) : (
           <>
             <div className="flex h-11 shrink-0 items-center justify-between gap-3 px-3">
-              <h3 className="min-w-0 truncate text-sm font-medium">
+              <h3 className="min-w-0 truncate text-lg font-semibold tracking-tight">
                 {activeSessionTitle || "Untitled"}
               </h3>
-              <StudioTargetPicker />
+              <div className="flex max-w-[45%] shrink-0">
+                <StudioTargetPicker />
+              </div>
             </div>
 
             <ChatMessages />

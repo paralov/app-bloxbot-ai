@@ -11,7 +11,7 @@ import {
   toToolPart,
   userInfo,
 } from "./messages";
-import type { AssistantMessage, Event, Part, Session, ToolPart } from "./types";
+import type { AssistantMessage, Event, EventGoalChanged, Part, Session, ToolPart } from "./types";
 
 type Translated = Event;
 
@@ -381,6 +381,9 @@ export class EventTranslator {
           }),
         ];
       }
+      // The goal plugin's own event, which arrives on the same stream.
+      case "rpc.opencode.goal.changed":
+        return [{ type: "goal.changed", properties: event.data as EventGoalChanged["properties"] }];
       case "session.revert.staged": {
         const { messageID } = event.data.revert;
         return this.updateSession(event.data.sessionID, (session) => ({

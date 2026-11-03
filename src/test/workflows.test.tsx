@@ -308,7 +308,9 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
       await screen.findByText("Working on the goal", {}, { timeout: SLOW });
       await replyFinished();
       await send("/goal clear");
-      await screen.findByText("Goal cleared", {}, { timeout: SLOW });
+      await waitFor(() => expect(screen.queryByRole("button", { name: /^Goal/ })).toBeNull(), {
+        timeout: SLOW,
+      });
 
       const requests = llm.bodies.length;
       await send("/usr/bin is a path");
@@ -317,6 +319,39 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
       expect(llm.bodies.length).toBeGreaterThan(requests);
     },
   );
+
+  it("pauses, resumes and clears a goal from its pill", { timeout: 90_000 }, async () => {
+    await openApp([{ content: "Working", hold: true }, { content: "Back at it" }]);
+    await startChat();
+    await waitFor(
+      async () => {
+        await send("/goal");
+        await screen.findByText(/Usage: \/goal/, {}, { timeout: 1000 });
+      },
+      { timeout: SLOW, interval: 1000 },
+    );
+    await send("/goal Make it work");
+    const pill = (name: RegExp) => screen.findByRole("button", { name }, { timeout: SLOW });
+
+    await screen.findByText("Working", {}, { timeout: SLOW });
+    fireEvent.click(await pill(/^Goal$/));
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    expect(pause.closest("[data-slot=popover-content]")).toHaveTextContent("Make it work");
+    fireEvent.click(pause);
+    await pill(/^Goal paused$/);
+
+    fireEvent.click(screen.getByTitle("Stop"));
+    await replyFinished();
+    fireEvent.click(await pill(/^Goal paused$/));
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    await screen.findByText("Back at it", {}, { timeout: SLOW });
+
+    fireEvent.click(await pill(/^Goal/));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Goal/ })).toBeNull(), {
+      timeout: SLOW,
+    });
+  });
 
   it("undoes a message back into the box, and redoes it", { timeout: 90_000 }, async () => {
     await openApp([{ content: "First reply" }]);

@@ -853,6 +853,22 @@ export type EventSessionError = {
   };
 };
 
+export type SessionGoal = {
+  id: string;
+  objective: string;
+  status: "active" | "paused" | "complete";
+  /** Why the goal last changed: the reviewer's reason, or what paused it. */
+  reason?: string;
+};
+
+export type EventGoalChanged = {
+  type: "goal.changed";
+  properties: {
+    sessionID: string;
+    goal: SessionGoal | null;
+  };
+};
+
 export type EventTodoUpdated = {
   type: "todo.updated";
   properties: {
@@ -979,6 +995,7 @@ export type Event =
   | EventMessagePartUpdated
   | EventMessagePartDelta
   | EventMessagePartRemoved
+  | EventGoalChanged
   | EventTodoUpdated
   | EventQuestionAsked
   | EventQuestionReplied

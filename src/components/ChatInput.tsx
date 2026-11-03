@@ -1,5 +1,6 @@
 import { Paperclip } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import GoalPill from "@/components/GoalPill";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor";
 import {
@@ -15,6 +16,7 @@ import { useAbort } from "@/hooks/mutations/useAbort";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useComposerCommands } from "@/hooks/useComposerCommands";
 import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
+import { useSessionGoal } from "@/hooks/useSessionGoal";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { desktop } from "@/lib/desktop";
 import { sortExplorerSnapshot } from "@/lib/explorer";
@@ -265,6 +267,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const studioTarget = useStudioTargetOptional();
   const studioTargetReference = studioTarget?.promptReference ?? null;
   const studioId = studioTarget?.selected?.key ?? null;
+  const goal = useSessionGoal();
   const { commands, run: runCommand } = useComposerCommands({
     chooseModel: () => setShowModelPicker(true),
     openSettings: () => onOpenSettings?.(),
@@ -601,6 +604,20 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   return (
     <div className="shrink-0 px-4 pb-3 pt-1">
       <div className="mx-auto max-w-2xl">
+        {goal ? (
+          <div className="mb-1 flex">
+            <GoalPill
+              goal={goal}
+              onCommand={(command) =>
+                runCommand(`/goal ${command}`, {
+                  system: studioTargetReference,
+                  onFailed: (error) =>
+                    notify.error("Command failed", { description: error.message }),
+                })
+              }
+            />
+          </div>
+        ) : null}
         <input
           ref={fileInputRef}
           type="file"
