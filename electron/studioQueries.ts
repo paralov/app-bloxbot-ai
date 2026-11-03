@@ -143,6 +143,47 @@ function toFields(values: unknown) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** A Lua empty table arrives as [], so that also means no fields. */
+function isFieldTable(value: unknown) {
+  return (
+    typeof value === "object" && value !== null && (!Array.isArray(value) || value.length === 0)
+  );
+}
+
+// Object names come from the place, so the path goes in JSON-encoded. This only reads.
+function readPropertiesLuau(path: string) {
+  return `local instance = game
+for name in string.gmatch(${JSON.stringify(path.replace(/^game\./, ""))}, "[^.]+") do
+  instance = instance:FindFirstChild(name)
+  if not instance then error("Object not found") end
+end
+local values = {}
+for _, property in game:GetService("ReflectionService"):GetPropertiesOfClass(instance.ClassName) do
+  -- Lowercase names are deprecated aliases, like archivable for Archivable.
+  if string.match(property.Name, "^%u") and property.Name ~= "ClassName" then
+    local ok, value = pcall(function() return instance[property.Name] end)
+    if ok and value ~= nil then values[property.Name] = tostring(value) end
+  end
+end
+return game:GetService("HttpService"):JSONEncode(values)`;
+}
+
+async function readPropertiesWithLuau(callTool: CallStudioTool, studioId: string, path: string) {
+  let lastError = "";
+  // As with the tree, a playtest rejects "Edit" and may not have a server.
+  for (const datamodelType of ["Edit", "Server", "Client"]) {
+    const result = await callTool("execute_luau", {
+      studio_id: studioId,
+      datamodel_type: datamodelType,
+      code: readPropertiesLuau(path),
+    });
+    const error = mcpError(result);
+    if (!error) return toFields(mcpData(result));
+    lastError = error;
+  }
+  throw new Error(lastError);
+}
+
 /** The tree has names and classes only, so an object's details are read when it's selected. */
 export async function inspectExplorerNode(
   callTool: CallStudioTool,
@@ -153,12 +194,21 @@ export async function inspectExplorerNode(
   const error = mcpError(result);
   if (error) throw new Error(error);
   const data = mcpData(result);
-  const isRecord = (value: unknown) =>
-    typeof value === "object" && value !== null && !Array.isArray(value);
-  if (!isRecord(data?.properties) || (data.attributes != null && !isRecord(data.attributes))) {
+  // Objects sharing a path come back as matches, and the tree shows them as one row.
+  const details = Array.isArray(data?.matches) ? data.matches[0] : data;
+  if (
+    !isFieldTable(details?.properties) ||
+    (details.attributes != null && !isFieldTable(details.attributes))
+  ) {
     throw new Error("Studio returned unreadable object details");
   }
-  return { properties: toFields(data.properties), attributes: toFields(data.attributes) };
+  const properties = toFields(details.properties);
+  return {
+    // inspect_instance reads nothing for services and Terrain.
+    properties:
+      properties.length > 0 ? properties : await readPropertiesWithLuau(callTool, studioId, path),
+    attributes: toFields(details.attributes),
+  };
 }
 
 export async function readExplorerSnapshot(

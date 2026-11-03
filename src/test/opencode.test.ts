@@ -120,7 +120,7 @@ describe("OpenCode startup output", () => {
 
 describe("the shell environment", () => {
   it("reads the output of env -0, including values with = and newlines", () => {
-    expect(parseShellEnv("PATH=/a:/b\0NOTE=x=y\nz\0\0broken\0")).toEqual({
+    expect(parseShellEnv("Welcome!\nPATH=/a:/b\0NOTE=x=y\nz\0\0broken\0")).toEqual({
       PATH: "/a:/b",
       NOTE: "x=y\nz",
     });

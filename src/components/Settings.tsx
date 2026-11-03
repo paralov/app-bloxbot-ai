@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Search, Sparkles } from "lucide-react";
+import { Search } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProviderCheckPopover from "@/components/ProviderCheckPopover";
@@ -540,23 +540,14 @@ function ProvidersTab() {
               return (
                 <div key={provider.id} className="px-3 py-2.5">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    {isFreeZen(provider) ? (
-                      <span
-                        aria-hidden="true"
-                        className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
-                      >
-                        <Sparkles className="h-4 w-4" />
-                      </span>
-                    ) : (
-                      <ProviderLogo providerId={provider.id} />
-                    )}
+                    <ProviderLogo providerId={provider.id} />
                     <div className="min-w-[7rem] flex-1">
                       <div className="truncate text-sm font-medium">
                         {providerDisplayName(provider)}
                       </div>
                       {isFreeZen(provider) && (
                         <div className="truncate text-xs text-muted-foreground">
-                          Included with BloxBot
+                          Provided by OpenCode
                         </div>
                       )}
                     </div>

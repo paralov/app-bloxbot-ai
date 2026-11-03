@@ -17,7 +17,9 @@ export function parseShellEnv(output: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const line of output.split("\0")) {
     const separator = line.indexOf("=");
-    if (separator > 0) env[line.slice(0, separator)] = line.slice(separator + 1);
+    // Text printed by the shell's startup files ends up before the first variable.
+    const start = line.lastIndexOf("\n", separator) + 1;
+    if (separator > start) env[line.slice(start, separator)] = line.slice(separator + 1);
   }
   return env;
 }

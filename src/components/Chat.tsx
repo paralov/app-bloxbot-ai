@@ -19,6 +19,7 @@ import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { analyticsProperties, POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
 import { setChatOnScreen, setSessionOpener } from "@/lib/sessionNotifications";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
+import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
@@ -157,6 +158,14 @@ function Chat() {
     posthog.capture("playtest_closed", analyticsProperties("playtest"));
     setShowPlaytest(false);
   }, []);
+
+  // A click on an object in a reply needs the Explorer to be showing.
+  const { focusRequest } = useExplorerReference();
+  useEffect(() => {
+    if (!focusRequest) return;
+    setShowPlaytest(false);
+    setExplorerCollapsed(false);
+  }, [focusRequest]);
 
   // Settings brings its own sidebar, so the chat list steps aside for it.
   if (

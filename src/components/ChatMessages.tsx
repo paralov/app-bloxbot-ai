@@ -14,6 +14,7 @@ import {
   SquareTerminal,
   Wrench,
 } from "lucide-react";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import {
   lazy,
   memo,
@@ -27,6 +28,7 @@ import {
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { HighlightLanguage } from "@/components/SyntaxHighlightedOutput";
+import { analyticsProperties } from "@/lib/analytics";
 import type {
   Part,
   PermissionRequest,
@@ -34,6 +36,7 @@ import type {
   QuestionRequest,
   SessionStatus,
 } from "@/lib/opencode/types";
+import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 
 /** Module-level constant to avoid creating a new array on every render. */
 const REMARK_PLUGINS = [remarkGfm];
@@ -535,6 +538,32 @@ function DefaultToolView({ tool, input, output, status }: ToolViewProps & { tool
 
 // ── Part renderers ─────────────────────────────────────────────────────
 
+const INLINE_CODE = "rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground";
+
+/** Inline code that names an object in the place opens it in the Explorer. */
+function InlineCode({ children }: { children?: ReactNode }) {
+  const { objectIndex, focusObject } = useExplorerReference();
+  const object = typeof children === "string" ? objectIndex.get(children.trim()) : null;
+  if (!object) return <code className={INLINE_CODE}>{children}</code>;
+  return (
+    <button
+      type="button"
+      title={`Show ${object.path} in the Explorer`}
+      onClick={() => {
+        posthog.capture("chat_object_opened", analyticsProperties("explorer"));
+        focusObject(object.path);
+      }}
+      className="cursor-pointer"
+    >
+      <code
+        className={`${INLINE_CODE} underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground`}
+      >
+        {children}
+      </code>
+    </button>
+  );
+}
+
 const markdownComponents: Components = {
   p({ children }) {
     return <p className="mb-2 last:mb-0">{children}</p>;
@@ -615,11 +644,7 @@ const markdownComponents: Components = {
         </div>
       );
     }
-    return (
-      <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
-        {children}
-      </code>
-    );
+    return <InlineCode>{children}</InlineCode>;
   },
   pre({ children }) {
     return <>{children}</>;
