@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import GoalPill from "@/components/GoalPill";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import PromptEditor, { type PromptEditorHandle } from "@/components/PromptEditor";
+import TodoPill, { hasOpenTodos } from "@/components/TodoPill";
 import {
   MENU_TRIGGER,
   MenuChevron,
@@ -18,6 +19,7 @@ import { useComposerCommands } from "@/hooks/useComposerCommands";
 import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useSessionGoal } from "@/hooks/useSessionGoal";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
+import { useTodos } from "@/hooks/useTodos";
 import { desktop } from "@/lib/desktop";
 import { sortExplorerSnapshot } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
@@ -268,6 +270,8 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const studioTargetReference = studioTarget?.promptReference ?? null;
   const studioId = studioTarget?.selected?.key ?? null;
   const goal = useSessionGoal();
+  const todos = useTodos();
+  const showTodos = isBusy && hasOpenTodos(todos);
   const { commands, run: runCommand } = useComposerCommands({
     chooseModel: () => setShowModelPicker(true),
     openSettings: () => onOpenSettings?.(),
@@ -284,7 +288,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
     objectsRequest.current += 1;
     publishObjects([]);
     setObjectsLoading(false);
-  }, [studioId, publishObjects]);
+  }, [publishObjects]);
 
   // The Explorer panel may be closed, so "@" fetches what it can offer itself.
   const loadObjects = useCallback(() => {
@@ -604,18 +608,21 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   return (
     <div className="shrink-0 px-4 pb-3 pt-1">
       <div className="mx-auto max-w-2xl">
-        {goal ? (
-          <div className="mb-1 flex">
-            <GoalPill
-              goal={goal}
-              onCommand={(command) =>
-                runCommand(`/goal ${command}`, {
-                  system: studioTargetReference,
-                  onFailed: (error) =>
-                    notify.error("Command failed", { description: error.message }),
-                })
-              }
-            />
+        {goal || showTodos ? (
+          <div className="mb-1 flex min-w-0 items-center gap-1">
+            {goal ? (
+              <GoalPill
+                goal={goal}
+                onCommand={(command) =>
+                  runCommand(`/goal ${command}`, {
+                    system: studioTargetReference,
+                    onFailed: (error) =>
+                      notify.error("Command failed", { description: error.message }),
+                  })
+                }
+              />
+            ) : null}
+            {showTodos ? <TodoPill todos={todos} /> : null}
           </div>
         ) : null}
         <input

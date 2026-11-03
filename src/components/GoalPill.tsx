@@ -45,7 +45,7 @@ export default function GoalPill({
         </button>
       </PopoverTrigger>
       <MenuContent side="top" align="start" className="w-72">
-        <p className="px-2 pt-1.5 text-xs break-words">{goal.objective}</p>
+        <p className="px-2 pt-1.5 text-sm break-words">{goal.objective}</p>
         {goal.reason ? (
           <p className="px-2 pt-1 text-xs break-words text-muted-foreground">{goal.reason}</p>
         ) : null}

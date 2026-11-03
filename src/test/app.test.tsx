@@ -732,7 +732,7 @@ describe("User journeys", () => {
               id: "reply",
               sessionID: "s1",
               role: "assistant",
-              time: { created: 1, completed: 2 },
+              time: { created: Date.now(), completed: Date.now() },
               parentID: "prompt",
               modelID: "m",
               providerID: "p",

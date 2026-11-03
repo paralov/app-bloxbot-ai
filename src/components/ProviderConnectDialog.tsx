@@ -313,7 +313,7 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
               </button>
             )}
             <ProviderLogo providerId={provider.id} name={provider.name} className="mr-1.5" />
-            <h5 id="provider-connect-title" className="truncate text-sm font-semibold">
+            <h5 id="provider-connect-title" className="truncate text-sm font-medium">
               Connect {provider.name}
             </h5>
           </div>
@@ -593,7 +593,7 @@ function DeviceCodeStep({
           : "Enter this code to approve BloxBot."}
       </p>
       <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-        <span className="select-all font-mono text-lg font-semibold tracking-[0.2em]">{code}</span>
+        <span className="select-all font-mono text-lg font-medium tracking-[0.2em]">{code}</span>
         <button
           onClick={() => onCopy(code)}
           className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"

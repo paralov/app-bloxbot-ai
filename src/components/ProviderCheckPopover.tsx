@@ -75,7 +75,7 @@ export default function ProviderCheckPopover({
         className="flex max-h-[min(22rem,var(--radix-popover-content-available-height))] w-72 max-w-[calc(100vw-2rem)] flex-col p-0!"
       >
         <div className="shrink-0 px-3 pt-2.5 pb-2">
-          <div className="text-xs font-medium">Check {providerName}</div>
+          <div className="text-sm font-medium">Check {providerName}</div>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
             Pick a model to send one short test message to.
           </p>

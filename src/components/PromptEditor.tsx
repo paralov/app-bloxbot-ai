@@ -365,7 +365,7 @@ function TypeaheadPlugin({
           <SuggestionMenu container={container}>
             <div className={MENU_LABEL}>{kind === "object" ? "Objects" : "Commands"}</div>
             {empty ? (
-              <div className="px-2 pb-1.5 text-xs text-muted-foreground">{empty}</div>
+              <div className="px-2 pb-1.5 text-sm text-muted-foreground">{empty}</div>
             ) : (
               <div role="listbox" aria-label={kind === "object" ? "Objects" : "Commands"}>
                 {options.map((option, index) => (
@@ -375,7 +375,7 @@ function TypeaheadPlugin({
                     role="option"
                     aria-selected={selectedIndex === index}
                     ref={option.setRefElement}
-                    className={`flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs ${
+                    className={`flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-sm ${
                       selectedIndex === index ? "bg-accent" : ""
                     }`}
                     onMouseDown={(event) => event.preventDefault()}

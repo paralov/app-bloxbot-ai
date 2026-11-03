@@ -162,7 +162,7 @@ function LoadingScreen({
         </svg>
 
         {/* Status text */}
-        <h1 className="mt-5 text-base font-semibold text-foreground">{message}</h1>
+        <h1 className="mt-5 text-base font-medium text-foreground">{message}</h1>
 
         {detail && (
           <p className="mt-2 max-w-sm text-center text-xs leading-relaxed text-muted-foreground">

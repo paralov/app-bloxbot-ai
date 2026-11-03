@@ -361,6 +361,47 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
     });
   });
 
+  it(
+    "shows the plan beside the composer only while it's running",
+    { timeout: 60_000 },
+    async () => {
+      await openApp([
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_todo",
+              type: "function",
+              function: {
+                name: "todowrite",
+                arguments: JSON.stringify({
+                  todos: [
+                    { content: "Read the place", status: "completed" },
+                    { content: "Build the lobby", status: "in_progress" },
+                  ],
+                }),
+              },
+            },
+          ],
+        },
+        { content: "Still building", hold: true },
+      ]);
+      await startChat();
+      await send("Plan it");
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Build the lobby" }, { timeout: SLOW }),
+      );
+      await screen.findByText("Read the place");
+
+      await screen.findByText("Still building", {}, { timeout: SLOW });
+      fireEvent.click(screen.getByTitle("Stop"));
+      await replyFinished();
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "Build the lobby" })).toBeNull(),
+      );
+    },
+  );
+
   it("undoes a message back into the box, and redoes it", { timeout: 90_000 }, async () => {
     await openApp([{ content: "First reply" }]);
     await startChat();

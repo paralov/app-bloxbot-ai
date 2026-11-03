@@ -107,7 +107,7 @@ const TreeRow = memo(function TreeRow({
             onSelect(node);
           }
         }}
-        className={`group flex h-7 cursor-default items-center rounded-md pr-2 text-xs ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+        className={`group flex h-7 cursor-default items-center rounded-md pr-2 text-sm ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         title={`${node.path} ${node.className}`}
       >

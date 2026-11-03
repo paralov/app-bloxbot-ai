@@ -33,7 +33,7 @@ function ProviderLogo({ providerId, name, className = "" }: ProviderLogoProps) {
           }}
         />
       ) : (
-        <span className="text-xs font-semibold text-muted-foreground">
+        <span className="text-xs font-medium text-muted-foreground">
           {name.trim().charAt(0).toUpperCase()}
         </span>
       )}

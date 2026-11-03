@@ -49,6 +49,17 @@
 /* ── Custom fonts ────────────────────────────────────────────────── */
 
 @theme inline {
+  /* A desktop scale, from OpenCode's and macOS's: Tailwind's defaults are sized for web pages. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.25rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
 
@@ -180,7 +191,7 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     font-weight: 440;
     font-feature-settings: "cv11", "ss03";
     -webkit-font-smoothing: antialiased;
@@ -731,7 +742,7 @@
 /* Toast title */
 [data-sonner-toaster] [data-sonner-toast] [data-title] {
   font-weight: 500;
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   line-height: 1.35;
   letter-spacing: -0.01em;
   color: var(--foreground);
@@ -740,7 +751,7 @@
 /* Toast description */
 [data-sonner-toaster] [data-sonner-toast] [data-description] {
   font-weight: 400;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   line-height: 1.4;
   color: var(--muted-foreground);
   margin-top: 2px;
@@ -749,7 +760,7 @@
 /* Toast action button */
 [data-sonner-toaster] [data-sonner-toast] [data-button] {
   font-weight: 500;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   padding: 5px 12px;
   border-radius: 6px;
   background: var(--primary);
@@ -822,7 +833,7 @@
 
 .update-release-notes-title {
   margin-bottom: 3px;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 500;
   color: var(--muted-foreground);
 }
