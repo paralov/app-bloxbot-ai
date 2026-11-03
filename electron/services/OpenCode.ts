@@ -8,7 +8,7 @@ import { networkConnections, type Systeminformation } from "systeminformation";
 
 import type { OpenCodeInfo, OpenCodeStartupProgress } from "../../src/types/desktop";
 import { createOpenCodeConfig } from "../opencodeConfig";
-import { loadShellEnv } from "../shellEnv";
+import { loadShellPath } from "../shellEnv";
 import { ensureOpenCodeBinary } from "./OpenCodeBinary";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 
@@ -328,7 +328,7 @@ function prepareOpenCode(
 
 function spawnOpenCode(prepared: PreparedOpenCode): Effect.Effect<OpenCodeProcess, OpenCodeError> {
   return Effect.gen(function* () {
-    const shellEnv = yield* Effect.promise(loadShellEnv);
+    const shellPath = yield* Effect.promise(loadShellPath);
     const child = yield* Effect.try({
       try: () =>
         spawn(
@@ -338,7 +338,7 @@ function spawnOpenCode(prepared: PreparedOpenCode): Effect.Effect<OpenCodeProces
             cwd: prepared.workspace,
             env: {
               ...process.env,
-              ...shellEnv,
+              ...(shellPath ? { PATH: shellPath } : {}),
               XDG_CACHE_HOME: prepared.xdgCache,
               XDG_CONFIG_HOME: prepared.xdgConfig,
               XDG_DATA_HOME: prepared.xdgData,

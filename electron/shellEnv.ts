@@ -45,16 +45,17 @@ function probe(shell: string, mode: "-il" | "-l"): Promise<Record<string, string
 }
 
 /**
- * The user's shell environment, loaded the way OpenCode's desktop app loads it. Apps opened from the
- * Finder don't get it, and OpenCode looks for tools like Claude Code on PATH.
+ * The user's shell PATH, loaded the way OpenCode's desktop app loads its environment. Apps opened
+ * from the Finder don't get it, and OpenCode looks for tools like Claude Code on PATH. Only PATH is
+ * kept, because the agent's commands inherit this and shell variables often hold credentials.
  */
-export async function loadShellEnv(): Promise<Record<string, string>> {
-  if (process.platform === "win32") return {};
+export async function loadShellPath(): Promise<string | null> {
+  if (process.platform === "win32") return null;
   const shell = userShell();
-  if (basename(shell).toLowerCase() === "nu") return {};
+  if (basename(shell).toLowerCase() === "nu") return null;
   const interactive = await probe(shell, "-il");
-  if (interactive === "timeout") return {};
-  if (interactive) return interactive;
+  if (interactive === "timeout") return null;
+  if (interactive) return interactive.PATH ?? null;
   const login = await probe(shell, "-l");
-  return login && login !== "timeout" ? login : {};
+  return (login && login !== "timeout" && login.PATH) || null;
 }
