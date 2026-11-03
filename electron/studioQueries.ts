@@ -135,11 +135,18 @@ async function readGameTree(
   throw new Error(details.length > 0 ? `${first} (${details.join("; ")})` : first);
 }
 
+// Studio writes values like Vector3s and CFrames as text, so this is how they look.
+const NUMBER_LIST = /^-?\d[\d.e+-]*(?:[,;]\s*-?\d[\d.e+-]*)+$/i;
+
 function toFields(values: unknown) {
   if (!values || typeof values !== "object") return [];
   return Object.entries(values)
     .filter(([, value]) => value !== null && typeof value !== "object")
-    .map(([name, value]) => ({ name, value: String(value) }))
+    .map(([name, value]) => {
+      const numeric =
+        typeof value === "number" || (typeof value === "string" && NUMBER_LIST.test(value));
+      return { name, value: String(value), ...(numeric ? { numeric } : {}) };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -150,32 +157,50 @@ function isFieldTable(value: unknown) {
   );
 }
 
-// Object names come from the place, so the path goes in JSON-encoded. This only reads.
-function readPropertiesLuau(path: string) {
-  return `local instance = game
-for name in string.gmatch(${JSON.stringify(path.replace(/^game\./, ""))}, "[^.]+") do
-  instance = instance:FindFirstChild(name)
-  if not instance then error("Object not found") end
+// Object names come from the place, so they go in JSON-encoded. A name can contain a period, so
+// this follows whole names instead of splitting the path. This only reads.
+function readPropertiesLuau(path: string, className: string) {
+  return `local className = ${JSON.stringify(className)}
+local function find(parent, rest)
+  for _, child in parent:GetChildren() do
+    if child.Name == rest and child.ClassName == className then return child end
+    if string.sub(rest, 1, #child.Name + 1) == child.Name .. "." then
+      local found = find(child, string.sub(rest, #child.Name + 2))
+      if found then return found end
+    end
+  end
+  return nil
 end
+local instance = find(game, ${JSON.stringify(path.replace(/^game\./, ""))})
+if not instance then error("Object not found") end
 local values = {}
 for _, property in game:GetService("ReflectionService"):GetPropertiesOfClass(instance.ClassName) do
   -- Lowercase names are deprecated aliases, like archivable for Archivable.
   if string.match(property.Name, "^%u") and property.Name ~= "ClassName" then
     local ok, value = pcall(function() return instance[property.Name] end)
-    if ok and value ~= nil then values[property.Name] = tostring(value) end
+    if ok and value ~= nil then
+      -- JSON can't hold inf or nan, and tostring would make other numbers look like text.
+      local isNumber = typeof(value) == "number" and value == value and math.abs(value) ~= math.huge
+      values[property.Name] = if isNumber then value else tostring(value)
+    end
   end
 end
 return game:GetService("HttpService"):JSONEncode(values)`;
 }
 
-async function readPropertiesWithLuau(callTool: CallStudioTool, studioId: string, path: string) {
+async function readPropertiesWithLuau(
+  callTool: CallStudioTool,
+  studioId: string,
+  path: string,
+  className: string,
+) {
   let lastError = "";
   // As with the tree, a playtest rejects "Edit" and may not have a server.
   for (const datamodelType of ["Edit", "Server", "Client"]) {
     const result = await callTool("execute_luau", {
       studio_id: studioId,
       datamodel_type: datamodelType,
-      code: readPropertiesLuau(path),
+      code: readPropertiesLuau(path, className),
     });
     const error = mcpError(result);
     if (!error) return toFields(mcpData(result));
@@ -206,7 +231,9 @@ export async function inspectExplorerNode(
   return {
     // inspect_instance reads nothing for services and Terrain.
     properties:
-      properties.length > 0 ? properties : await readPropertiesWithLuau(callTool, studioId, path),
+      properties.length > 0
+        ? properties
+        : await readPropertiesWithLuau(callTool, studioId, path, String(details.className)),
     attributes: toFields(details.attributes),
   };
 }

@@ -3,6 +3,8 @@ import { Schema } from "effect";
 export const ExplorerFieldSchema = Schema.Struct({
   name: Schema.String,
   value: Schema.String,
+  /** A number or a list of them, so it can be shortened. Other text stays as written. */
+  numeric: Schema.optional(Schema.Boolean),
 });
 
 export type ExplorerField = typeof ExplorerFieldSchema.Type;
@@ -116,13 +118,12 @@ export type ExplorerSnapshot = typeof ExplorerSnapshotSchema.Type;
 
 /**
  * A property value as people want to read it: `Enum.CameraType.Fixed` as "Fixed", and numbers with
- * more than 3 decimals, alone or in lists like a Vector3, shortened. Studio's values are all text
- * by now, so anything else stays as written: a name like "007" isn't a number.
+ * more than 3 decimals, alone or in lists like a Vector3, shortened.
  */
-export function formatFieldValue(value: string): string {
+export function formatFieldValue({ value, numeric }: ExplorerField): string {
   const enumItem = /^Enum\.\w+\.(\w+)$/.exec(value);
   if (enumItem) return enumItem[1];
-  if (!/^[-+\d.,;\se]+$/i.test(value)) return value;
+  if (!numeric) return value;
   return value.replace(/-?\d+\.\d{4,}(?:e[-+]?\d+)?/gi, (text) => {
     const number = Number(text);
     const size = Math.abs(number);

@@ -594,7 +594,7 @@ function FieldSection({ title, fields }: { title: string; fields: readonly Explo
                 {field.name}
               </dt>
               <dd className="truncate text-foreground tabular-nums" title={field.value}>
-                {formatFieldValue(field.value)}
+                {formatFieldValue(field)}
               </dd>
             </div>
           ))}

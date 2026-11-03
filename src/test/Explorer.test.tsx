@@ -138,8 +138,9 @@ describe("Explorer", () => {
     });
     mocks.getDetails.mockResolvedValue({
       properties: [
-        { name: "Transparency", value: "0.30000001192092896" },
-        { name: "Size", value: "2048, 16.123456, 2048" },
+        { name: "Transparency", value: "0.30000001192092896", numeric: true },
+        { name: "Size", value: "2048, 16.123456, 2048", numeric: true },
+        { name: "Value", value: "1.23456" },
         { name: "Shape", value: "Enum.PartType.Block" },
         { name: "Capabilities", value: "" },
         { name: "Name", value: "007" },
@@ -159,6 +160,7 @@ describe("Explorer", () => {
     expect(screen.getByText("Block")).toBeInTheDocument();
     expect(screen.queryByText("Capabilities")).not.toBeInTheDocument();
     expect(screen.getByText("007")).toBeInTheDocument();
+    expect(screen.getByText("1.23456")).toBeInTheDocument();
   });
 
   it("keeps a link waiting until a sync finds an object the chat just added", async () => {
