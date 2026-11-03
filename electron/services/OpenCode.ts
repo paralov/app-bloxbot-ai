@@ -1,6 +1,8 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { Context, Data, Duration, Effect, Layer } from "effect";
@@ -325,6 +327,22 @@ function prepareOpenCode(
   });
 }
 
+/**
+ * Where Claude Code is installed, for OpenCode's Claude Agent provider. Apps opened from the Finder
+ * don't get the shell's PATH, so OpenCode wouldn't find it in ~/.local/bin.
+ */
+function claudeCodePath(): Record<string, string> {
+  if (process.env.OPENCODE_CLAUDE_PATH) return {};
+  const binary = process.platform === "win32" ? "claude.exe" : "claude";
+  const found = [
+    join(homedir(), ".local", "bin", binary),
+    join(homedir(), ".claude", "local", binary),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ].find((candidate) => existsSync(candidate));
+  return found ? { OPENCODE_CLAUDE_PATH: found } : {};
+}
+
 function spawnOpenCode(prepared: PreparedOpenCode): Effect.Effect<OpenCodeProcess, OpenCodeError> {
   return Effect.gen(function* () {
     const child = yield* Effect.try({
@@ -336,6 +354,7 @@ function spawnOpenCode(prepared: PreparedOpenCode): Effect.Effect<OpenCodeProces
             cwd: prepared.workspace,
             env: {
               ...process.env,
+              ...claudeCodePath(),
               XDG_CACHE_HOME: prepared.xdgCache,
               XDG_CONFIG_HOME: prepared.xdgConfig,
               XDG_DATA_HOME: prepared.xdgData,

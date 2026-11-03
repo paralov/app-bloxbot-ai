@@ -2,6 +2,9 @@ import type { ProviderAuthMethod } from "@/lib/opencode/types";
 
 export type AuthPrompt = NonNullable<ProviderAuthMethod["prompts"]>[number];
 
+/** OpenCode's provider that runs the user's own Claude Code through the Agent SDK. */
+export const CLAUDE_AGENT_PROVIDER = "claude-agent";
+
 export interface AuthMethodOption {
   index: number;
   type: ProviderAuthMethod["type"];
@@ -140,6 +143,7 @@ const CONNECT_HINTS: Record<string, string> = {
   "opencode-go": "Subscription for open coding models, from $10/month",
   openai: "ChatGPT Plus or Pro plan, or an API key",
   "github-copilot": "GitHub Copilot subscription",
+  [CLAUDE_AGENT_PROVIDER]: "Use your Claude plan or another Claude Code login",
 };
 
 /** One line on how a provider connects, so plan holders can find their way in. */

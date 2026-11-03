@@ -35,6 +35,7 @@ const POPULAR_PROVIDERS = [
   "opencode",
   "opencode-go",
   "anthropic",
+  "claude-agent",
   "github-copilot",
   "openai",
   "google",

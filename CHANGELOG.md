@@ -9,6 +9,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Connect Claude Agent to use your Claude plan through your own Claude Code login.
 - System notifications. While BloxBot isn't the app in front, it tells you when a chat finishes, runs into a problem, or is waiting for an answer or your approval, and when an update is ready or the connection is lost. Clicking one takes you to that chat. Turn them off in Settings → Notifications.
 - A toast when a chat you aren't looking at finishes or needs you, with a button to open it.
 - Edit the instructions BloxBot follows in Settings → System prompt, and reset them to the default at any time.

@@ -110,6 +110,7 @@ function toPermissionRequest(request: V2PermissionRequest): PermissionRequest {
 function toAuthMethods(methods: ReadonlyArray<IntegrationMethod>): ProviderAuthMethod[] {
   return connectable(methods).map((method): ProviderAuthMethod => {
     if (method.type === "key") return { type: "api", label: method.label ?? "API key" };
+    if (method.type === "external") return { type: "external", label: method.label };
     return {
       type: "oauth",
       label: method.label,
@@ -144,12 +145,13 @@ function toAuthMethods(methods: ReadonlyArray<IntegrationMethod>): ProviderAuthM
   });
 }
 
-type ConnectableMethod = Extract<IntegrationMethod, { type: "key" | "oauth" }>;
+type ConnectableMethod = Extract<IntegrationMethod, { type: "key" | "oauth" | "external" }>;
 
 /** The ways to connect that BloxBot can offer, in the order the index in the UI refers to. */
 function connectable(methods: ReadonlyArray<IntegrationMethod>): ConnectableMethod[] {
   return methods.filter(
-    (method): method is ConnectableMethod => method.type === "key" || method.type === "oauth",
+    (method): method is ConnectableMethod =>
+      method.type === "key" || method.type === "oauth" || method.type === "external",
   );
 }
 
@@ -203,6 +205,16 @@ function providerSource(integration: IntegrationInfo): Provider["source"] {
   return "custom";
 }
 
+/** An external login, like Claude Code's, that failed OpenCode's last check of it. */
+function externalLoginProblem(integration: IntegrationInfo) {
+  for (const connection of integration.connections) {
+    if (connection.type === "credential" && connection.method === "external" && connection.status) {
+      return connection.status;
+    }
+  }
+  return undefined;
+}
+
 function toProviderList(
   integrations: ReadonlyArray<IntegrationInfo>,
   models: ReadonlyArray<ModelInfo>,
@@ -230,7 +242,16 @@ function toProviderList(
   return {
     all,
     default: defaultModel ? { [defaultModel.providerID]: defaultModel.modelID } : {},
-    connected: all.filter((provider) => Object.keys(provider.models).length > 0).map((p) => p.id),
+    connected: all
+      .filter((provider) => Object.keys(provider.models).length > 0)
+      // A signed-out Claude Code still lists its models.
+      .filter(
+        (provider) =>
+          !externalLoginProblem(
+            integrations.find((item) => item.id === provider.id) as IntegrationInfo,
+          ),
+      )
+      .map((p) => p.id),
   } as ProviderListResponse;
 }
 
@@ -650,6 +671,44 @@ export function createOpencodeClient(options: {
             location,
           });
           return true;
+        }),
+      /** Asks OpenCode to use a login it doesn't hold, and check it. Connecting again rechecks. */
+      connectExternal: (
+        input: { providerID: string; methodIndex: number },
+        requestOptions?: RequestOptions,
+      ) =>
+        settle(requestOptions, async () => {
+          const { methods, connections } = await integration(input.providerID);
+          const method = connectable(methods)[input.methodIndex];
+          if (method?.type !== "external") throw new Error("Choose a way to connect first.");
+          await api.integration.connect.external({
+            integrationID: input.providerID,
+            methodID: method.id,
+            location,
+          });
+          // Each connect saves a new account, so drop the ones this replaces.
+          await Promise.all(
+            connections.flatMap((connection) =>
+              connection.type === "credential"
+                ? [api.credential.remove({ credentialID: connection.id }).catch(() => undefined)]
+                : [],
+            ),
+          );
+          return true;
+        }),
+      /** Where OpenCode's check of an external login has got to. */
+      externalStatus: (input: { providerID: string }, requestOptions?: RequestOptions) =>
+        settle(requestOptions, async () => {
+          const [info, models] = await Promise.all([
+            integration(input.providerID),
+            api.model.list({ location }),
+          ]);
+          const problem = externalLoginProblem(info);
+          if (problem) return { state: "problem" as const, message: problem.message };
+          const ready = models.data.some(
+            (model) => model.providerID === input.providerID && model.enabled,
+          );
+          return { state: ready ? ("ready" as const) : ("checking" as const) };
         }),
       remove: (input: { providerID: string }, requestOptions?: RequestOptions) =>
         settle(requestOptions, async () => {

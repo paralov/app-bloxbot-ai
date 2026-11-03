@@ -15,6 +15,7 @@ vi.mock("@/hooks/mutations/useOAuth", () => ({
 vi.mock("@/hooks/mutations/useSetApiKey", () => ({
   useSetApiKey: () => ({ mutateAsync: vi.fn() }),
 }));
+vi.mock("@/hooks/mutations/useExternalLogin", () => ({ useExternalLogin: () => vi.fn() }));
 vi.mock("@/hooks/useProviders", () => ({
   useAuthMethods: () => ({
     openai: [
