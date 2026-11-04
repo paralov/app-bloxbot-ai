@@ -189,7 +189,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           (result.targets.find(
             (target) =>
               target.key === remembered.key &&
-              (!target.placeId || !remembered.placeId || target.placeId === remembered.placeId),
+              (target.placeId && remembered.placeId
+                ? target.placeId === remembered.placeId
+                : // Unpublished, the name is all there is to tell two places apart by.
+                  target.placeId ||
+                  remembered.placeId ||
+                  target.label.trim().toLowerCase() === remembered.label.trim().toLowerCase()),
           ) ??
           (placeMatches.length === 1 ? placeMatches[0] : undefined) ??
           null)
@@ -299,7 +304,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           const alreadyReported = errorSourceRef.current === "discovery";
           errorSourceRef.current = "discovery";
           console.error("[studio-target] discovery failed", discoveryError);
-          setError("Couldn't reach Roblox Studio. Refresh to try again.");
+          setError("Couldn't reach Roblox Studio. Check it's installed and open.");
           if (!alreadyReported)
             posthog.capture(
               "studio_target_discovery_failed",

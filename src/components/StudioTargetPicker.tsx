@@ -243,6 +243,14 @@ export default function StudioTargetPicker({
               >
                 {error ?? "The Studio integration could not be initialized."}
               </p>
+              <a
+                href="https://create.roblox.com/docs/studio/setup"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-0.5 inline-block text-xs underline underline-offset-2 hover:opacity-80"
+              >
+                Get Roblox Studio
+              </a>
             </div>
             {connectSteps}
           </>
@@ -264,8 +272,9 @@ export default function StudioTargetPicker({
                 checked={selected?.key === target.key}
                 description={twinNumber(target)}
                 trailing={selectingKey === target.key ? <Spinner /> : undefined}
-                disabled={selectingKey !== null}
+                aria-disabled={selectingKey !== null}
                 onClick={() => {
+                  if (selectingKey !== null) return;
                   if (selected?.key === target.key) {
                     setOpen(false);
                     return;

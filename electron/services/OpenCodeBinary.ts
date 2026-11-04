@@ -39,7 +39,7 @@ export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 /** How many tries in a row may get nothing more before a download counts as failed. */
 const DOWNLOAD_RESUMES = 3;
 /** How long a newer version may hold up a launch that already has a working one. */
-const UPDATE_DOWNLOAD_LIMIT_MS = 30_000;
+const UPDATE_DOWNLOAD_LIMIT_MS = 10_000;
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024;
 const EXTRACT_ATTEMPTS = 3;

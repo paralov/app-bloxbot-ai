@@ -101,6 +101,11 @@ export function ContextMenu({
     };
   }, []);
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    // A menu closes when focus leaves it, rather than staying open behind where it went.
+    if (event.key === "Tab") {
+      onClose();
+      return;
+    }
     const items = [...(menuRef.current?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? [])];
     const at = items.indexOf(document.activeElement as HTMLElement);
     const to =

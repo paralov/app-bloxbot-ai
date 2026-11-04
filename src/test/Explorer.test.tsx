@@ -328,6 +328,9 @@ describe("Explorer", () => {
     expect(items[0]).toHaveFocus();
     fireEvent.keyDown(items[0] as HTMLElement, { key: "ArrowDown" });
     expect(items[1]).toHaveFocus();
+
+    fireEvent.keyDown(items[1] as HTMLElement, { key: "Tab" });
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("doesn't carry a selection over to another place, where it'd be a different object", async () => {

@@ -35,6 +35,9 @@ describe("startup progress", () => {
 
     fireEvent.click(install);
     expect(installUpdate).toHaveBeenCalledOnce();
+    // The same button, so keyboard focus stays on it while it works.
+    expect(install).toHaveAttribute("aria-busy", "true");
+    expect(await screen.findByRole("status")).toHaveTextContent("Installing the update");
   });
 
   it("names what to do when the engine stops right away", () => {

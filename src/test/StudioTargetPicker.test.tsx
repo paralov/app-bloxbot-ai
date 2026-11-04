@@ -165,7 +165,9 @@ describe("StudioTargetPicker", () => {
     discoverStudioTargets.mockRejectedValueOnce(new Error("offline"));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByText("Couldn’t find Studios")).toBeVisible();
-    expect(screen.getByText("Couldn't reach Roblox Studio. Refresh to try again.")).toBeVisible();
+    expect(
+      screen.getByText("Couldn't reach Roblox Studio. Check it's installed and open."),
+    ).toBeVisible();
   });
 
   it("keeps the prior target when verification fails", async () => {
@@ -379,7 +381,9 @@ describe("StudioTargetPicker", () => {
       await refresh();
 
       expect(screen.getByText(STUCK_HEADING)).toBeVisible();
-      expect(screen.getByText("Couldn't reach Roblox Studio. Refresh to try again.")).toBeVisible();
+      expect(
+        screen.getByText("Couldn't reach Roblox Studio. Check it's installed and open."),
+      ).toBeVisible();
     });
 
     it("doesn't call someone stuck for empty Refreshes spread past the window", async () => {

@@ -261,25 +261,32 @@ function LoadingScreen({
                 ? "Copied"
                 : copyStatus === "error" || folderCopied === "error"
                   ? "Couldn't copy"
-                  : updateStatus === "install-error"
-                    ? "Couldn't install the update"
-                    : updateStatus === "error"
-                      ? "Couldn't check for updates"
-                      : downloadedBucket
-                        ? `Downloaded ${downloadedBucket}%`
-                        : null}
+                  : updateStatus === "downloading"
+                    ? "Installing the update"
+                    : updateStatus === "install-error"
+                      ? "Couldn't install the update"
+                      : updateStatus === "error"
+                        ? "Couldn't check for updates"
+                        : downloadedBucket
+                          ? `Downloaded ${downloadedBucket}%`
+                          : null}
         </output>
 
         {/* Error state: help actions */}
         {error ? (
           <div className="mt-5 flex flex-col items-center gap-3">
-            {updateStatus === "available" && updateVersion && (
+            {(updateStatus === "available" || updateStatus === "downloading") && updateVersion && (
               <button
                 type="button"
-                onClick={handleInstall}
-                className="inline-flex h-9 items-center rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+                onClick={() => {
+                  if (updateStatus === "available") void handleInstall();
+                }}
+                aria-busy={updateStatus === "downloading"}
+                className="inline-flex h-9 items-center rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90 aria-busy:opacity-60"
               >
-                Install v{updateVersion} &amp; restart
+                {updateStatus === "downloading"
+                  ? "Installing..."
+                  : `Install v${updateVersion} & restart`}
               </button>
             )}
 
@@ -364,21 +371,6 @@ function LoadingScreen({
 
               {updateStatus === "up-to-date" && (
                 <span className="text-emerald-700 dark:text-emerald-400">Up to date</span>
-              )}
-
-              {updateStatus === "downloading" && (
-                <span className="flex items-center gap-1.5">
-                  <svg
-                    className="h-3 w-3 animate-spin"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                  </svg>
-                  Installing...
-                </span>
               )}
 
               {updateStatus === "install-error" && (

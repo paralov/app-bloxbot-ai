@@ -337,6 +337,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   useEffect(() => {
     if (selectionStudioRef.current === studioId) return;
     selectionStudioRef.current = studioId;
+    setSearch("");
     setSelectedId(null);
     setFocusedId(null);
     setRenamingId(null);

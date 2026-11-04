@@ -106,7 +106,7 @@ export default function StudioNotice({
       <output className="sr-only">{message ?? returned}</output>
       {message ? (
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-0.5 px-4 pb-2 text-xs text-muted-foreground">
-          <span aria-hidden="true" className="min-w-0 truncate">
+          <span aria-hidden="true" className="text-center">
             {message}
           </span>
           {nameMatch ? (

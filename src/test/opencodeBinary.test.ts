@@ -1250,7 +1250,7 @@ describe("OpenCode downloads on a poor connection", () => {
               init.signal?.addEventListener("abort", () => {
                 abortedAfterMs = Date.now() - fetchedAt;
               });
-              return new Response(slowBody(pieces, 20_000));
+              return new Response(slowBody(pieces, 5_000));
             }),
           extractArchive: writeExecutable("opencode"),
           delays: { verifyMs: 0 },
@@ -1260,8 +1260,8 @@ describe("OpenCode downloads on a poor connection", () => {
       expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
       // Measured from the request itself, since the test's clock also runs during real disk work.
       // The limit starts just before the request, so this can read a little under it too.
-      expect(abortedAfterMs).toBeGreaterThan(25_000);
-      expect(abortedAfterMs).toBeLessThan(35_000);
+      expect(abortedAfterMs).toBeGreaterThan(5_000);
+      expect(abortedAfterMs).toBeLessThan(15_000);
 
       const resume = vi
         .fn()

@@ -159,6 +159,8 @@ export function useChatStudioUse(): { started: boolean; usedStudio: boolean } | 
             d.messagesById[id]?.parts.some(
               (part) =>
                 part.type === "tool" &&
+                // Looking at what's open isn't working in any of it.
+                !part.tool.endsWith("list_roblox_studios") &&
                 isStudioTool(part.tool, part.state.input as Record<string, unknown> | undefined),
             ),
           ),

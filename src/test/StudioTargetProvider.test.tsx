@@ -429,6 +429,25 @@ describe("StudioTargetProvider", () => {
     expect(screen.getByText("selected: none")).toBeInTheDocument();
   });
 
+  it("doesn't follow an id Studio reused for a different unpublished place", async () => {
+    const baseplate = { key: "s1", label: "Baseplate", detail: null, placeId: null };
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { chat: baseplate },
+      chatsWithChosenPlace: ["chat"],
+    });
+    mocks.discover.mockResolvedValue({
+      targets: [{ ...baseplate, label: "Racetrack" }],
+      selectedKey: null,
+    });
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("missing: Baseplate")).toBeInTheDocument();
+    expect(screen.getByText("selected: none")).toBeInTheDocument();
+  });
+
   it("gives a forked chat its parent's place", async () => {
     const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
     mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: dungeon } });

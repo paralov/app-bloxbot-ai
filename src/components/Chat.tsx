@@ -74,6 +74,14 @@ function Chat() {
   // From the picker the helper is already connected, so setup is done only once a Studio shows up.
   const [setupFromPicker, setSetupFromPicker] = useState(false);
   const [pickerRequest, setPickerRequest] = useState(0);
+  const newChatRef = useRef<HTMLButtonElement>(null);
+  // Setup is gone and took focus with it, so it goes to the message box, or New chat with no chat open.
+  const focusWhatsNext = useCallback(() => {
+    requestAnimationFrame(() => {
+      const box = document.querySelector<HTMLElement>('[aria-label="Message"]');
+      (box ?? newChatRef.current)?.focus();
+    });
+  }, []);
   const explorerToggleRef = useRef<HTMLButtonElement>(null);
   const [focusComposer, setFocusComposer] = useState(false);
   const [showPlaytest, setShowPlaytest] = useState(false);
@@ -97,9 +105,10 @@ function Chat() {
   const handleSkipSetup = useCallback(() => {
     setSetupSkipped(true);
     setShowStudioSetup(false);
+    focusWhatsNext();
     posthog.capture("studio_setup_skipped", analyticsProperties("studio_target"));
     void desktop.patchConfig({ studioSetupSkipped: true });
-  }, []);
+  }, [focusWhatsNext]);
   // Setup is for getting started. Once connected, Studio closing mustn't take over someone's chat.
   const everConnected = useRef(false);
   if (studioConnection.state === "connected") everConnected.current = true;
@@ -220,7 +229,8 @@ function Chat() {
     setSetupFromPicker(false);
     setShowStudioSetup(false);
     setFocusComposer(true);
-  }, []);
+    focusWhatsNext();
+  }, [focusWhatsNext]);
   // The picker isn't on screen until setup has gone, so asking it to open has to wait until then.
   const openPickerAfterSetup = useRef(false);
   useEffect(() => {
@@ -228,7 +238,12 @@ function Chat() {
     openPickerAfterSetup.current = false;
     setPickerRequest((request) => request + 1);
   }, [showStudioSetup]);
-  const placeMissing = studioTarget?.missing != null;
+  // Connected isn't the end of it if this chat still has to be told which Studio to use.
+  const needsStudioChoice =
+    studioTarget?.missing != null ||
+    studioTarget?.withoutStudio === true ||
+    studioTarget?.unknownPlace === true ||
+    (!studioTarget?.selected && (studioTarget?.targets.length ?? 0) > 1);
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
   const handleToggleExplorer = useCallback(() => {
@@ -330,14 +345,14 @@ function Chat() {
             }}
             onContinue={() => {
               handleCloseStudioSetup();
-              if (placeMissing || studioTarget?.withoutStudio) {
+              if (needsStudioChoice) {
                 openPickerAfterSetup.current = true;
                 setFocusComposer(false);
               }
             }}
             onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
             onSkip={setupFromPicker ? undefined : handleSkipSetup}
-            needsChoice={placeMissing || studioTarget?.withoutStudio === true}
+            needsChoice={needsStudioChoice}
           />
         ) : connectionPending ? (
           <LoadingScreen message="Finding Roblox Studio" animation="dots" />
@@ -351,6 +366,7 @@ function Chat() {
                 Start a new chat, or pick up where you left off.
               </p>
               <button
+                ref={newChatRef}
                 onClick={() => createSession.mutate()}
                 className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90"
               >
