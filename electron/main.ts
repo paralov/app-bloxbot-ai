@@ -15,25 +15,31 @@ import {
   type OpenCodeStartupProgress,
   SystemNotificationSchema,
 } from "../src/types/desktop";
-import { ExplorerNodeDetailsSchema, ExplorerSnapshotSchema } from "../src/lib/explorer";
+import {
+  ExplorerDetailsRequestSchema,
+  ExplorerEditSchema,
+  ExplorerNodeDetailsSchema,
+  ExplorerSyncRequestSchema,
+} from "../src/lib/explorer";
 import {
   StudioTargetDiscoverySchema,
   StudioTargetSelectionSchema,
 } from "../src/types/studioTarget";
 import { handleLastWindowClosed } from "./appLifecycle";
 import { createMainErrorReporter } from "./errorReporter";
-import { findInstructionFiles } from "./instructionFiles";
+import { syncExplorerTree } from "./explorerTree";
+import { findInstructionFiles, readInstructions, saveInstructions } from "./instructionFiles";
 import {
   type CallStudioTool,
   discoverStudioTargets,
+  editExplorerObject,
   inspectExplorerNode,
-  readExplorerSnapshot,
   selectStudioTarget,
 } from "./studioQueries";
 import { withSystemPrompt } from "./opencodeConfig";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
-import { createSystemNotifier } from "./systemNotifications";
+import { createSystemNotifier, notificationSettingsUrl } from "./systemNotifications";
 import { makeStudioMcpBrokerLayer, StudioMcpBroker } from "./services/StudioMcpBroker";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -49,7 +55,8 @@ let quitting = false;
 
 const showSystemNotification = createSystemNotifier({
   isSupported: () => Notification.isSupported(),
-  create: (content) => new Notification(content),
+  // BloxBot plays its own sound, if the user wants one.
+  create: (content) => new Notification({ ...content, silent: true }),
   onClick: (id) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -212,15 +219,18 @@ const runMain = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
 const StudioKeySchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512));
 // Instances can nest deeply under long names, so a path gets far more room than an ID.
-const InstancePathSchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(65_536));
 
 /** Runs a read against Studio through the broker, keeping Studio's error text for the renderer. */
+// OpenCode runs with XDG_CONFIG_HOME inside the workspace (see services/OpenCode.ts).
+const openCodeConfigDirectory = () =>
+  join(app.getPath("home"), "BloxBot", ".opencode", "config", "opencode");
+
 const queryStudio = <A>(query: (callTool: CallStudioTool) => Promise<A>) =>
   openCodeRuntime.runPromise(
     Effect.gen(function* () {
       const broker = yield* StudioMcpBroker;
       return yield* Effect.tryPromise({
-        try: () => query((name, args) => Effect.runPromise(broker.callTool(name, args))),
+        try: () => query((name, args, options) => Effect.runPromise(broker.callTool(name, args, options))),
         catch: (cause) =>
           new DesktopMainError({
             message: cause instanceof Error ? cause.message : "Studio didn't answer",
@@ -244,10 +254,15 @@ const registerIpcHandlers = Effect.sync(() => {
   ipcMain.handle(channels.getVersion, () => runMain(Effect.sync(() => app.getVersion())));
   ipcMain.handle(channels.getInstructionFiles, () =>
     findInstructionFiles({
-      // OpenCode runs with XDG_CONFIG_HOME inside the workspace (see services/OpenCode.ts).
-      globalConfigDirectory: join(app.getPath("home"), "BloxBot", ".opencode", "config", "opencode"),
+      globalConfigDirectory: openCodeConfigDirectory(),
       home: app.getPath("home"),
     }),
+  );
+  ipcMain.handle(channels.readInstructions, () => readInstructions(openCodeConfigDirectory()));
+  ipcMain.handle(channels.saveInstructions, (_event, text: unknown) =>
+    Schema.decodeUnknownPromise(Schema.String)(text).then((value) =>
+      saveInstructions(openCodeConfigDirectory(), value),
+    ),
   );
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));
@@ -261,14 +276,7 @@ const registerIpcHandlers = Effect.sync(() => {
         );
         yield* patchConfig({ systemPrompt });
         // OpenCode reads this file. The renderer reloads it once this has written the change.
-        const configFile = join(
-          app.getPath("home"),
-          "BloxBot",
-          ".opencode",
-          "config",
-          "opencode",
-          "opencode.json",
-        );
+        const configFile = join(openCodeConfigDirectory(), "opencode.json");
         yield* Effect.tryPromise({
           try: async () =>
             writeFile(configFile, withSystemPrompt(await readFile(configFile, "utf8"), systemPrompt)),
@@ -278,21 +286,42 @@ const registerIpcHandlers = Effect.sync(() => {
       }),
     ),
   );
-  ipcMain.handle(channels.getExplorerSnapshot, (_event, input: unknown) =>
-    queryStudio(async (callTool) =>
-      Schema.decodeUnknownPromise(ExplorerSnapshotSchema)(
-        await readExplorerSnapshot(callTool, await Schema.decodeUnknownPromise(StudioKeySchema)(input)),
-      ),
-    ),
+  // A newer read replaces one still running, so a closed place doesn't keep Studio busy.
+  let explorerTreeRead: AbortController | null = null;
+  ipcMain.handle(channels.syncExplorerTree, (event, studioId: unknown, request: unknown) =>
+    queryStudio(async (callTool) => {
+      const id = await Schema.decodeUnknownPromise(StudioKeySchema)(studioId);
+      const options = await Schema.decodeUnknownPromise(ExplorerSyncRequestSchema)(request);
+      explorerTreeRead?.abort();
+      const read = new AbortController();
+      explorerTreeRead = read;
+      return syncExplorerTree(callTool, id, {
+        ...options,
+        signal: read.signal,
+        onUpdate: (update) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(channels.explorerTreeUpdate, { studioId: id, ...update });
+          }
+        },
+      });
+    }),
   );
-  ipcMain.handle(channels.getExplorerNodeDetails, (_event, studioId: unknown, path: unknown) =>
+  ipcMain.handle(channels.getExplorerNodeDetails, (_event, studioId: unknown, request: unknown) =>
+    queryStudio(async (callTool) => {
+      const details = await inspectExplorerNode(
+        callTool,
+        await Schema.decodeUnknownPromise(StudioKeySchema)(studioId),
+        await Schema.decodeUnknownPromise(ExplorerDetailsRequestSchema)(request),
+      );
+      return details && Schema.decodeUnknownPromise(ExplorerNodeDetailsSchema)(details);
+    }),
+  );
+  ipcMain.handle(channels.editExplorerObject, (_event, studioId: unknown, edit: unknown) =>
     queryStudio(async (callTool) =>
-      Schema.decodeUnknownPromise(ExplorerNodeDetailsSchema)(
-        await inspectExplorerNode(
-          callTool,
-          await Schema.decodeUnknownPromise(StudioKeySchema)(studioId),
-          await Schema.decodeUnknownPromise(InstancePathSchema)(path),
-        ),
+      editExplorerObject(
+        callTool,
+        await Schema.decodeUnknownPromise(StudioKeySchema)(studioId),
+        await Schema.decodeUnknownPromise(ExplorerEditSchema)(edit),
       ),
     ),
   );
@@ -320,6 +349,10 @@ const registerIpcHandlers = Effect.sync(() => {
       ),
     ),
   );
+  ipcMain.handle(channels.openNotificationSettings, () => {
+    const url = notificationSettingsUrl(process.platform, "ai.bloxbot.desktop");
+    return url ? shell.openExternal(url) : undefined;
+  });
   ipcMain.handle(channels.showSystemNotification, (_event, input: unknown) =>
     runMain(
       Schema.decodeUnknown(SystemNotificationSchema)(input).pipe(
@@ -327,7 +360,7 @@ const registerIpcHandlers = Effect.sync(() => {
           (cause) => new DesktopMainError({ message: "System notification is invalid", cause }),
         ),
         Effect.flatMap((notification) =>
-          Effect.try({
+          Effect.tryPromise({
             try: () => showSystemNotification(notification),
             catch: (cause) =>
               new DesktopMainError({ message: "Failed to show a system notification", cause }),

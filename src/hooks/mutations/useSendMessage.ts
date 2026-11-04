@@ -6,6 +6,7 @@ import {
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
 } from "@/lib/analytics";
+import { offerNotificationsOnce } from "@/lib/notificationOffer";
 import type { SessionStatus } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
@@ -75,6 +76,10 @@ export function useSendMessage(options?: { onError?: (error: Error) => void }) {
             throwOnError: true,
           },
         );
+        // Waiting on a reply is when a ping starts to sound useful.
+        offerNotificationsOnce().catch((error) => {
+          console.warn("Failed to offer notifications:", error);
+        });
         recordPromptSent(accepted).catch((error) => {
           console.warn("Failed to count the prompt:", error);
         });

@@ -9,7 +9,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -24,6 +24,7 @@ import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { PASSWORD, shellCall, startScriptedProvider, startServer } from "@/test/support/liveServer";
+import { saveInstructions } from "../../electron/instructionFiles";
 import { createOpenCodeConfig, withSystemPrompt } from "../../electron/opencodeConfig";
 
 const BIN = process.env.OPENCODE_LIVE_BIN;
@@ -733,6 +734,36 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
       await rm(home, { recursive: true, force: true }).catch(() => undefined);
     }
   }
+
+  it("follows the instructions saved in Settings, and adding them keeps the conversation's start", async () => {
+    await withServer(
+      [{ content: "OK" }, { content: "OK" }, { content: "OK" }],
+      async ({ client, configFile, bodies, events }) => {
+        const created = await client.session.create({}, { throwOnError: true });
+        const folder = dirname(configFile);
+        await turn(client, events, created.data.id, "FIRST_MESSAGE");
+        const before = bodies.at(-1) as string;
+
+        await saveInstructions(folder, "FIRST_RULE");
+        await client.instance.dispose({}, { throwOnError: true });
+        await turn(client, events, created.data.id, "Again");
+        const after = bodies.at(-1) as string;
+        expect(after).toContain("FIRST_RULE");
+        // BloxBot's own prompt stays, and the rule comes after what the model has already cached.
+        expect(after).toContain(DEFAULT_SYSTEM_PROMPT.slice(0, 40));
+        expect(after.indexOf("FIRST_RULE")).toBeGreaterThan(after.indexOf("FIRST_MESSAGE"));
+        const start = before.slice(0, before.indexOf("FIRST_MESSAGE"));
+        expect(after.startsWith(start)).toBe(true);
+
+        await saveInstructions(folder, "");
+        await client.instance.dispose({}, { throwOnError: true });
+        // It stays in a chat that already has it, as part of that conversation, but new ones don't.
+        const next = await client.session.create({}, { throwOnError: true });
+        await turn(client, events, next.data.id, "Once more");
+        expect(bodies.at(-1)).not.toContain("FIRST_RULE");
+      },
+    );
+  }, 30_000);
 
   it("keeps the user's other setups out of the chat", async () => {
     const skill = async (root: string, marker: string) => {

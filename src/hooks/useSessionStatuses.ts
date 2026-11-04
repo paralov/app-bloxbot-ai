@@ -19,6 +19,12 @@ export function useSessionStatuses() {
   });
 }
 
+/** Whether any chat is running, including ones the user isn't looking at. */
+export function useAnyChatBusy(): boolean {
+  const { data } = useSessionStatuses();
+  return Object.values(data ?? {}).some((status) => status.type !== "idle");
+}
+
 export function useIsBusy(sessionId: string | null): boolean {
   const status = useSessionStatus(sessionId);
   return status !== undefined && status.type !== "idle";

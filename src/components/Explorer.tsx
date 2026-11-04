@@ -1,3 +1,4 @@
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Box,
   Boxes,
@@ -18,7 +19,24 @@ import {
   Users,
 } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MouseEvent,
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  InlineEdit,
+  menuPosition,
+} from "@/components/ExplorerControls";
+import { type FieldChange, Inspector } from "@/components/ExplorerInspector";
 import {
   analyticsProperties,
   errorAnalyticsProperties,
@@ -26,25 +44,21 @@ import {
 } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import {
-  createExplorerReference,
-  type ExplorerField,
+  canEditObject,
+  type ExplorerEdit,
   type ExplorerNode,
-  type ExplorerNodeDetails,
-  type ExplorerSnapshot,
-  formatFieldValue,
-  sortExplorerSnapshot,
+  explorerRows,
+  nodeId,
+  OBJECT_DRAG_NAME_TYPE,
+  OBJECT_DRAG_TYPE,
+  renamedId,
+  siblingPath,
 } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
-import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
-import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
+import { useExplorerReference, useExplorerTree } from "@/providers/ExplorerReferenceProvider";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
-const ACTIVE_SYNC_MS = 2_500;
-const IDLE_SYNC_MS = 5_000;
-const MAX_UNCHANGED_SYNC_MS = 30_000;
-// After failures, wait longer each time up to this, so a broken Studio setup
-// doesn't retry every few seconds.
-const MAX_FAILURE_BACKOFF_MS = 5 * 60_000;
+const ROW_HEIGHT = 28;
 
 interface ExplorerProps {
   collapsed: boolean;
@@ -55,10 +69,17 @@ interface ExplorerProps {
 interface TreeRowProps {
   node: ExplorerNode;
   depth: number;
-  expanded: ReadonlySet<string>;
-  selectedPath: string | null;
+  position: number;
+  siblings: number;
+  start: number;
+  isExpanded: boolean;
+  isSelected: boolean;
+  isRenaming: boolean;
   onToggle: (path: string) => void;
   onSelect: (node: ExplorerNode) => void;
+  onOpenMenu: (event: MouseEvent, node: ExplorerNode) => void;
+  onRenamed: (node: ExplorerNode, name: string | null) => void;
+  onDroppedInChat: (node: ExplorerNode) => void;
 }
 
 const CLASS_ICONS: ReadonlyArray<[RegExp, LucideIcon]> = [
@@ -85,117 +106,160 @@ export function iconForClass(className: string): LucideIcon {
 const TreeRow = memo(function TreeRow({
   node,
   depth,
-  expanded,
-  selectedPath,
+  position,
+  siblings,
+  start,
+  isExpanded,
+  isSelected,
+  isRenaming,
   onToggle,
   onSelect,
+  onOpenMenu,
+  onRenamed,
+  onDroppedInChat,
 }: TreeRowProps) {
-  const isExpanded = expanded.has(node.path);
+  const id = nodeId(node);
   const canExpand = node.hasChildren || node.children.length > 0;
   const InstanceIcon = iconForClass(node.className);
 
   return (
-    <>
-      <div
-        role="treeitem"
-        data-path={node.path}
-        tabIndex={0}
-        aria-selected={selectedPath === node.path}
-        aria-expanded={canExpand ? isExpanded : undefined}
-        onClick={() => onSelect(node)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelect(node);
-          }
+    <div
+      role="treeitem"
+      data-path={node.path}
+      data-id={id}
+      tabIndex={0}
+      draggable={!isRenaming}
+      onDragStart={(event) => {
+        event.dataTransfer.setData(OBJECT_DRAG_TYPE, node.path);
+        event.dataTransfer.setData(OBJECT_DRAG_NAME_TYPE, node.name);
+        event.dataTransfer.effectAllowed = "copy";
+      }}
+      onDragEnd={(event) => {
+        // The message box is the only place that accepts this drag.
+        if (event.dataTransfer.dropEffect !== "none") onDroppedInChat(node);
+      }}
+      aria-level={depth + 1}
+      aria-posinset={position}
+      aria-setsize={siblings}
+      aria-selected={isSelected}
+      aria-expanded={canExpand ? isExpanded : undefined}
+      onClick={() => onSelect(node)}
+      onContextMenu={(event) => onOpenMenu(event, node)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(node);
+        }
+      }}
+      className={`group absolute top-0 left-0 flex h-7 w-full cursor-default items-center rounded-md pr-2 text-sm ${isSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+      style={{ paddingLeft: `${8 + depth * 14}px`, transform: `translateY(${start}px)` }}
+      title={`${node.path} ${node.className}`}
+    >
+      <button
+        type="button"
+        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`}
+        disabled={!canExpand}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle(id);
         }}
-        className={`group flex h-7 cursor-default items-center rounded-md pr-2 text-sm ${selectedPath === node.path ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
-        style={{ paddingLeft: `${8 + depth * 14}px` }}
-        title={`${node.path} ${node.className}`}
+        className="flex h-5 w-4 shrink-0 items-center justify-center disabled:opacity-0"
       >
-        <button
-          type="button"
-          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`}
-          disabled={!canExpand}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggle(node.path);
-          }}
-          className="flex h-5 w-4 shrink-0 items-center justify-center disabled:opacity-0"
-        >
-          <ChevronRight
-            size={10}
-            className={`transition-transform ${isExpanded ? "rotate-90" : ""}`}
+        <ChevronRight
+          size={10}
+          className={`transition-transform ${isExpanded ? "rotate-90" : ""}`}
+        />
+      </button>
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        <InstanceIcon size={13} strokeWidth={1.8} className="shrink-0 text-muted-foreground/80" />
+        {isRenaming ? (
+          <InlineEdit
+            value={node.name}
+            label={`Rename ${node.name}`}
+            maxLength={100}
+            className="flex-1 text-sm"
+            onDone={(name) => onRenamed(node, name)}
           />
-        </button>
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          <InstanceIcon size={13} strokeWidth={1.8} className="shrink-0 text-muted-foreground/80" />
+        ) : (
           <span className="truncate">{node.name}</span>
-        </span>
-      </div>
-      {isExpanded
-        ? node.children.map((child) => (
-            <TreeRow
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              expanded={expanded}
-              selectedPath={selectedPath}
-              onToggle={onToggle}
-              onSelect={onSelect}
-            />
-          ))
-        : null}
-    </>
+        )}
+      </span>
+    </div>
   );
 });
-
-function findNode(nodes: readonly ExplorerNode[], path: string): ExplorerNode | null {
-  for (const node of nodes) {
-    if (node.path === path) return node;
-    const child = findNode(node.children, path);
-    if (child) return child;
-  }
-  return null;
-}
 
 function countNodes(nodes: readonly ExplorerNode[]): number {
   return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
 }
 
+/** The chain of objects down to the first one at a path, which a link in the chat names. */
+function chainToPath(nodes: readonly ExplorerNode[], path: string): ExplorerNode[] | null {
+  for (const node of nodes) {
+    if (node.path === path) return [node];
+    const rest = chainToPath(node.children, path);
+    if (rest) return [node, ...rest];
+  }
+  return null;
+}
+
 function collectPaths(nodes: readonly ExplorerNode[]): Set<string> {
   const paths = new Set<string>();
   const visit = (node: ExplorerNode) => {
-    paths.add(node.path);
+    paths.add(nodeId(node));
     node.children.forEach(visit);
   };
   nodes.forEach(visit);
   return paths;
 }
 
+/** Replaces a renamed object's path, and the same start on everything inside it. */
+function movedPath(path: string, from: string, to: string): string {
+  if (path === from) return to;
+  return path.startsWith(`${from}.`) ? `${to}${path.slice(from.length)}` : path;
+}
+
+const EDIT_VERBS: Record<ExplorerEdit["action"], string> = {
+  rename: "rename",
+  duplicate: "duplicate",
+  delete: "delete",
+  setField: "change",
+  addAttribute: "add an attribute to",
+  removeAttribute: "remove an attribute from",
+  addTag: "add a tag to",
+  removeTag: "remove a tag from",
+};
+
+function editErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("Stop the playtest first")) return "Stop the playtest first.";
+  if (message.includes("That value doesn't fit this field")) {
+    return "That value doesn't fit this field.";
+  }
+  if (message.includes("BloxBot can't edit this kind of value")) {
+    return "BloxBot can't edit this kind of value yet.";
+  }
+  if (message.includes("This attribute already exists")) return "This attribute already exists.";
+  if (!/Found \d+ objects at this path/.test(message)) return "Studio didn't allow this.";
+  return "The place has changed since this was read, so nothing was edited. Try again in a moment.";
+}
+
 export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
-  const { client } = useOpenCodeClient();
   const studioTarget = useStudioTargetOptional();
-  const { referenceObject, publishObjects, focusRequest, consumeFocus } = useExplorerReference();
+  const { referenceObject, focusRequest, focusObject, consumeFocus } = useExplorerReference();
+  const { tree, truncated, syncing, syncError, setDemand, requestSync } = useExplorerTree();
   const treeRef = useRef<HTMLDivElement>(null);
   // An object each time, so a second click on the same link still scrolls to it.
-  const [scrollTarget, setScrollTarget] = useState<{ path: string } | null>(null);
-  const [snapshot, setSnapshot] = useState<ExplorerSnapshot | null>(null);
-  const snapshotRef = useRef<ExplorerSnapshot | null>(null);
-  const syncingRef = useRef(false);
-  const resyncRequestedRef = useRef(false);
-  const syncLatestRef = useRef<() => void>(() => undefined);
-  // The latest sync effect's scheduler, for a sync that finishes after its
-  // own effect was replaced.
-  const scheduleLatestRef = useRef<() => void>(() => {});
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
+  const [scrollTarget, setScrollTarget] = useState<{ id: string } | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
-  // Consecutive failed syncs, which set the retry backoff.
-  const failuresRef = useRef(0);
+  const [menu, setMenu] = useState<{ node: ExplorerNode; x: number; y: number } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ExplorerNode | null>(null);
+  const studioId = studioTarget?.selected?.key;
+  const openedStudioRef = useRef<string | undefined>(undefined);
+  const latestTreeRef = useRef(tree);
+  latestTreeRef.current = tree;
 
   useEffect(() => {
     posthog.capture(
@@ -204,148 +268,20 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     );
   }, [collapsed]);
 
-  // Reopening Explorer or switching Studio retries straight away. This lives outside the sync
-  // effect, which also re-runs whenever the chat turns busy or idle and must not clear the backoff.
-  const studioKey = studioTarget?.selected?.key;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resets when Explorer opens or the Studio changes
   useEffect(() => {
-    failuresRef.current = 0;
-  }, [collapsed, studioKey]);
+    setDemand({ open: !collapsed, busy: sessionBusy });
+    // Settings takes this panel's place, and nothing there needs the tree kept up to date.
+    return () => setDemand({ open: false, busy: false });
+  }, [collapsed, sessionBusy, setDemand]);
 
+  // A place opens with its services showing, once.
   useEffect(() => {
-    if (!client || collapsed || !studioTarget?.selected) return;
-    const studioId = studioTarget.selected.key;
-    let cancelled = false;
-    let timer: number | undefined;
-    let unchangedPolls = 0;
+    if (!tree?.roots.length || openedStudioRef.current === studioId) return;
+    openedStudioRef.current = studioId;
+    setExpanded(new Set(tree.roots.map(nodeId)));
+  }, [tree, studioId]);
 
-    function scheduleNext() {
-      if (cancelled) return;
-      const baseDelay = sessionBusy ? ACTIVE_SYNC_MS : IDLE_SYNC_MS;
-      const delay =
-        failuresRef.current > 0
-          ? Math.min(IDLE_SYNC_MS * 2 ** failuresRef.current, MAX_FAILURE_BACKOFF_MS)
-          : Math.min(baseDelay * 2 ** Math.min(unchangedPolls, 3), MAX_UNCHANGED_SYNC_MS);
-      // Replace any pending timer, so scheduling twice never runs two syncs.
-      if (timer !== undefined) window.clearTimeout(timer);
-      timer = window.setTimeout(() => void sync(), delay);
-    }
-
-    async function sync() {
-      if (syncingRef.current) {
-        resyncRequestedRef.current = true;
-        return;
-      }
-      if (document.visibilityState === "hidden" || !document.hasFocus()) {
-        scheduleNext();
-        return;
-      }
-      syncingRef.current = true;
-      setSyncing(true);
-      setSyncError(null);
-      const syncStartedAt = performance.now();
-      const isFirstSync = !telemetryRef.current.firstSyncReported;
-      if (isFirstSync) {
-        posthog.capture("sync_started", analyticsProperties("explorer", { source: "initial" }));
-      }
-
-      try {
-        const current = snapshotRef.current;
-        const next = sortExplorerSnapshot(await desktop.getExplorerSnapshot(studioId));
-        if (!current && next.roots.length === 0) {
-          throw new Error("Studio has not returned an instance tree yet");
-        }
-
-        if (cancelled) return;
-        const previousComparable = current
-          ? JSON.stringify({ placeName: current.placeName, roots: current.roots })
-          : null;
-        const nextComparable = JSON.stringify({
-          placeName: next.placeName,
-          roots: next.roots,
-        });
-        unchangedPolls = previousComparable === nextComparable ? unchangedPolls + 1 : 0;
-        failuresRef.current = 0;
-        snapshotRef.current = next;
-        setSnapshot(next);
-        publishObjects(next.roots);
-        setExpanded((currentExpanded) =>
-          currentExpanded.size > 0 ? currentExpanded : new Set(next.roots.map((node) => node.path)),
-        );
-        if (isFirstSync || telemetryRef.current.hadFailure) {
-          posthog.capture(
-            "sync_succeeded",
-            analyticsProperties(
-              "explorer",
-              explorerAnalyticsProperties({
-                duration_ms: Math.round(performance.now() - syncStartedAt),
-                source: telemetryRef.current.hadFailure ? "recovery" : "initial",
-                root_count: next.roots.length,
-                node_count: countNodes(next.roots),
-              }),
-            ),
-          );
-          telemetryRef.current.firstSyncReported = true;
-          telemetryRef.current.hadFailure = false;
-        }
-      } catch (error) {
-        console.error("[explorer] sync failed", error);
-        telemetryRef.current.hadFailure = true;
-        failuresRef.current += 1;
-        // Report the first failure of a streak, not every retry.
-        if (failuresRef.current === 1)
-          posthog.capture(
-            "sync_failed",
-            errorAnalyticsProperties(
-              "explorer",
-              "sync",
-              error,
-              explorerAnalyticsProperties({
-                duration_ms: Math.round(performance.now() - syncStartedAt),
-                reason: snapshotRef.current ? "recovery_failed" : "initial_failed",
-              }),
-            ),
-          );
-        if (!cancelled) setSyncError(error instanceof Error ? error.message : String(error));
-      } finally {
-        syncingRef.current = false;
-        if (!cancelled) setSyncing(false);
-        // A re-sync requested while this one ran waits for the backoff if
-        // this one failed.
-        if (resyncRequestedRef.current && failuresRef.current === 0) {
-          resyncRequestedRef.current = false;
-          queueMicrotask(() => syncLatestRef.current());
-        } else {
-          resyncRequestedRef.current = false;
-          scheduleLatestRef.current();
-        }
-      }
-    }
-
-    syncLatestRef.current = () => void sync();
-    scheduleLatestRef.current = scheduleNext;
-    // This effect also re-runs when the chat turns busy or idle; during a
-    // failure streak, wait for the backoff instead of retrying straight away.
-    if (failuresRef.current > 0) scheduleNext();
-    else void sync();
-    const resume = () => {
-      // While failing, wait for the backoff timer rather than retrying every time the window
-      // regains focus.
-      if (failuresRef.current > 0) return;
-      if (document.visibilityState === "visible" && document.hasFocus()) {
-        if (timer !== undefined) window.clearTimeout(timer);
-        void sync();
-      }
-    };
-    document.addEventListener("visibilitychange", resume);
-    window.addEventListener("focus", resume);
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-      document.removeEventListener("visibilitychange", resume);
-      window.removeEventListener("focus", resume);
-    };
-  }, [client, collapsed, publishObjects, sessionBusy, studioTarget?.selected]);
+  const selectNode = useCallback((node: ExplorerNode) => setSelectedId(nodeId(node)), []);
 
   const toggleNode = useCallback((path: string) => {
     setExpanded((current) => {
@@ -358,37 +294,23 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
   useEffect(() => {
     // A reply can link to an object before this panel's next sync has it, so the request waits.
-    if (!focusRequest || !snapshot || !findNode(snapshot.roots, focusRequest)) return;
+    const chain = focusRequest && tree ? chainToPath(tree.roots, focusRequest) : null;
+    if (!chain) return;
     consumeFocus();
     setSearch("");
-    setSelectedPath(focusRequest);
-    setScrollTarget({ path: focusRequest });
-    setExpanded((current) => {
-      const next = new Set(current);
-      const parts = focusRequest.split(".");
-      for (let depth = 1; depth < parts.length; depth++) {
-        next.add(parts.slice(0, depth).join("."));
-      }
-      return next;
-    });
-  }, [focusRequest, snapshot, consumeFocus]);
+    const ids = chain.map(nodeId);
+    setSelectedId(ids[ids.length - 1]);
+    setScrollTarget({ id: ids[ids.length - 1] });
+    setExpanded((current) => new Set([...current, ...ids.slice(0, -1)]));
+  }, [focusRequest, tree, consumeFocus]);
 
-  useEffect(() => {
-    if (!scrollTarget) return;
-    treeRef.current
-      ?.querySelector(`[data-path="${CSS.escape(scrollTarget.path)}"]`)
-      ?.scrollIntoView?.({ block: "nearest" });
-  }, [scrollTarget]);
+  const selected = selectedId ? (tree?.byId.get(selectedId) ?? null) : null;
 
-  const selected = useMemo(
-    () => (selectedPath && snapshot ? findNode(snapshot.roots, selectedPath) : null),
-    [snapshot, selectedPath],
-  );
-
+  // Typing stays quick in a big place, with the list catching up behind it.
+  const query = useDeferredValue(search).trim().toLowerCase();
   const visibleRoots = useMemo(() => {
-    if (!snapshot) return [];
-    const query = search.trim().toLowerCase();
-    if (!query) return snapshot.roots;
+    if (!tree) return [];
+    if (!query) return tree.roots;
     const filter = (node: ExplorerNode): ExplorerNode | null => {
       const children = node.children.flatMap((child) => {
         const match = filter(child);
@@ -397,30 +319,132 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       const matches = `${node.name} ${node.className} ${node.path}`.toLowerCase().includes(query);
       return matches || children.length > 0 ? { ...node, children } : null;
     };
-    return snapshot.roots.flatMap((root) => {
+    return tree.roots.flatMap((root) => {
       const match = filter(root);
       return match ? [match] : [];
     });
-  }, [snapshot, search]);
+  }, [tree, query]);
   const visibleExpanded = useMemo(
-    () => (search.trim() ? collectPaths(visibleRoots) : expanded),
-    [expanded, search, visibleRoots],
+    () => (query ? collectPaths(visibleRoots) : expanded),
+    [expanded, query, visibleRoots],
   );
+  const rows = useMemo(
+    () => explorerRows(visibleRoots, visibleExpanded),
+    [visibleRoots, visibleExpanded],
+  );
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => treeRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 12,
+  });
 
-  const handleReference = useCallback(() => {
-    if (!selected) return;
-    referenceObject(createExplorerReference(selected));
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const index = rows.findIndex((row) => !row.loading && nodeId(row.node) === scrollTarget.id);
+    // The rows of what a link just expanded arrive with the next render.
+    if (index < 0) return;
+    virtualizer.scrollToIndex(index, { align: "auto" });
+    setScrollTarget(null);
+  }, [scrollTarget, rows, virtualizer]);
+
+  const captureReference = useCallback((node: ExplorerNode, source: "drag" | "menu") => {
     posthog.capture(
       "reference_added",
       analyticsProperties(
         "explorer",
         explorerAnalyticsProperties({
-          class_category: iconForClass(selected.className) === Box ? "generic" : "known",
+          class_category: iconForClass(node.className) === Box ? "generic" : "known",
+          source,
         }),
       ),
     );
-    notify.success(`${selected.name} added to your message`);
-  }, [referenceObject, selected]);
+  }, []);
+  const handleDroppedInChat = useCallback(
+    (node: ExplorerNode) => captureReference(node, "drag"),
+    [captureReference],
+  );
+
+  const openMenu = useCallback((event: MouseEvent, node: ExplorerNode) => {
+    event.preventDefault();
+    setSelectedId(nodeId(node));
+    setMenu({ node, ...menuPosition(event) });
+    posthog.capture("object_menu_opened", analyticsProperties("explorer"));
+  }, []);
+
+  const copyPath = async (node: ExplorerNode) => {
+    try {
+      await navigator.clipboard.writeText(node.path);
+      notify.success("Path copied");
+    } catch {
+      notify.error("Couldn't copy the path");
+    }
+  };
+
+  const editObject = useCallback(
+    async (
+      node: ExplorerNode,
+      edit: { action: "rename"; name: string } | { action: "duplicate" | "delete" } | FieldChange,
+      onDone: (name: string) => void,
+    ) => {
+      if (!studioId) return;
+      const request = {
+        ...edit,
+        path: node.path,
+        className: node.className,
+        occurrence: node.occurrence,
+        occurrences: node.occurrences,
+      } as ExplorerEdit;
+      try {
+        const { name } = await desktop.editExplorerObject(studioId, request);
+        posthog.capture("object_edited", analyticsProperties("explorer", { action: edit.action }));
+        onDone(name);
+        requestSync({ force: true });
+      } catch (error) {
+        console.error(`[explorer] couldn't ${edit.action} an object`, error);
+        posthog.capture(
+          "object_edit_failed",
+          errorAnalyticsProperties("explorer", edit.action, error),
+        );
+        notify.error(`Couldn't ${EDIT_VERBS[edit.action]} ${node.name}`, {
+          description: editErrorMessage(error),
+        });
+      }
+    },
+    [studioId, requestSync],
+  );
+
+  const handleRenamed = useCallback(
+    (node: ExplorerNode, name: string | null) => {
+      setRenamingId(null);
+      const next = name?.trim();
+      if (!next || next === node.name) return;
+      void editObject(node, { action: "rename", name: next }, (renamed) => {
+        const from = nodeId(node);
+        const to = renamedId(node, renamed);
+        // A sibling already has that id, and the next read decides which of them gets it. Following
+        // it could leave the panel editing the other object.
+        if (latestTreeRef.current?.byId.has(to)) {
+          setSelectedId((current) =>
+            current === from || current?.startsWith(`${from}.`) ? null : current,
+          );
+          return;
+        }
+        setSelectedId((current) => current && movedPath(current, from, to));
+        setExpanded((current) => new Set([...current].map((id) => movedPath(id, from, to))));
+      });
+    },
+    [editObject],
+  );
+
+  const handleDelete = (node: ExplorerNode) => {
+    setDeleteTarget(null);
+    void editObject(node, { action: "delete" }, () => {
+      setSelectedId((current) =>
+        current === nodeId(node) || current?.startsWith(`${nodeId(node)}.`) ? null : current,
+      );
+    });
+  };
 
   if (collapsed) {
     return (
@@ -471,7 +495,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         </div>
       ) : null}
 
-      {snapshot?.truncated ? (
+      {truncated ? (
         <div className="shrink-0 border-b px-4 py-2 text-xs text-muted-foreground">
           This place is too large to list in full, so some objects are missing here.
         </div>
@@ -483,123 +507,204 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         role="tree"
         aria-label="Instance hierarchy"
       >
-        {!snapshot && syncing ? <ExplorerLoading /> : null}
-        {!snapshot && !syncing && !syncError ? <ExplorerLoading /> : null}
-        {visibleRoots.map((node) => (
-          <TreeRow
-            key={node.path}
-            node={node}
-            depth={0}
-            expanded={visibleExpanded}
-            selectedPath={selectedPath}
-            onToggle={toggleNode}
-            onSelect={(next) => setSelectedPath(next.path)}
-          />
-        ))}
+        {!tree && (syncing || !syncError) ? <ExplorerLoading /> : null}
+        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map((item) => {
+            const row = rows[item.index];
+            if (!row) return null;
+            const id = nodeId(row.node);
+            if (row.loading) {
+              return (
+                <div
+                  key={`${id} loading`}
+                  className="absolute top-0 left-0 flex h-7 w-full items-center text-xs text-muted-foreground"
+                  style={{
+                    paddingLeft: `${28 + row.depth * 14}px`,
+                    transform: `translateY(${item.start}px)`,
+                  }}
+                >
+                  Loading...
+                </div>
+              );
+            }
+            return (
+              <TreeRow
+                key={id}
+                node={row.node}
+                depth={row.depth}
+                position={row.position}
+                siblings={row.siblings}
+                start={item.start}
+                isExpanded={visibleExpanded.has(id)}
+                isSelected={selectedId === id}
+                isRenaming={renamingId === id}
+                onToggle={toggleNode}
+                onSelect={selectNode}
+                onOpenMenu={openMenu}
+                onRenamed={handleRenamed}
+                onDroppedInChat={handleDroppedInChat}
+              />
+            );
+          })}
+        </div>
       </div>
 
       {selected ? (
         <Inspector
           node={selected}
-          studioId={studioTarget?.selected?.key ?? null}
-          onReference={handleReference}
+          studioId={studioId ?? null}
+          onReference={(reference) => {
+            referenceObject(reference);
+            captureReference(selected, "menu");
+          }}
+          onChange={(change, onDone) => void editObject(selected, change, onDone)}
+          onRename={(name) => handleRenamed(selected, name)}
         />
       ) : (
         <div className="shrink-0 border-t px-3 py-2 text-xs text-muted-foreground">
-          Select an object to inspect and reference it.
+          Select an object to see its details, or drag it into your message.
         </div>
       )}
+
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label={`Actions for ${menu.node.name}`}
+          onClose={() => setMenu(null)}
+        >
+          <ContextMenuItem
+            onClick={() => {
+              referenceObject(menu.node);
+              captureReference(menu.node, "menu");
+              setMenu(null);
+            }}
+          >
+            Reference in chat
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              void copyPath(menu.node);
+              setMenu(null);
+            }}
+          >
+            Copy path
+          </ContextMenuItem>
+          {canEditObject(menu.node) ? (
+            <>
+              <div className="my-1 h-px bg-border" />
+              <ContextMenuItem
+                onClick={() => {
+                  setRenamingId(nodeId(menu.node));
+                  setMenu(null);
+                }}
+              >
+                Rename
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => {
+                  const { node } = menu;
+                  setMenu(null);
+                  void editObject(node, { action: "duplicate" }, (name) =>
+                    focusObject(siblingPath(node, name)),
+                  );
+                }}
+              >
+                Duplicate
+              </ContextMenuItem>
+              <ContextMenuItem
+                className="text-destructive"
+                onClick={() => {
+                  // While searching, this row only holds the children that match.
+                  setDeleteTarget(tree?.byId.get(nodeId(menu.node)) ?? menu.node);
+                  setMenu(null);
+                }}
+              >
+                Delete
+              </ContextMenuItem>
+            </>
+          ) : null}
+        </ContextMenu>
+      ) : null}
+
+      {deleteTarget ? (
+        <DeleteObjectDialog
+          node={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => handleDelete(deleteTarget)}
+        />
+      ) : null}
     </aside>
   );
 }
 
-function Inspector({
+function DeleteObjectDialog({
   node,
-  studioId,
-  onReference,
+  onCancel,
+  onConfirm,
 }: {
   node: ExplorerNode;
-  studioId: string | null;
-  onReference: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
 }) {
-  const [details, setDetails] = useState<ExplorerNodeDetails | "loading" | "failed">("loading");
+  const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (!studioId) return;
-    let current = true;
-    setDetails("loading");
-    desktop.getExplorerNodeDetails(studioId, node.path).then(
-      (next) => {
-        if (current) setDetails(next);
-      },
-      (error) => {
-        console.error("[explorer] couldn't read object details", error);
-        if (current) setDetails("failed");
-      },
-    );
-    return () => {
-      current = false;
+    cancelRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
     };
-  }, [studioId, node.path]);
-  const loaded = typeof details === "object" ? details : null;
-  const InstanceIcon = iconForClass(node.className);
-  return (
-    <div className="max-h-[42%] shrink-0 overflow-y-auto border-t bg-card/60">
-      <div className="sticky top-0 border-b bg-card/95 p-3 backdrop-blur-sm">
-        <div className="flex items-start gap-2">
-          <InstanceIcon size={15} className="mt-0.5 shrink-0 text-muted-foreground/80" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-medium">{node.name}</div>
-            <div className="truncate font-mono text-xs text-muted-foreground" title={node.path}>
-              {node.path}
-            </div>
-          </div>
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  const inside = countNodes(node.children);
+  return createPortal(
+    <div
+      className="animate-lightbox-backdrop fixed inset-0 z-[300] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-object-title"
+        aria-describedby="delete-object-description"
+        className="animate-scale-in w-full max-w-sm rounded-xl border bg-card p-5 text-card-foreground shadow-2xl"
+      >
+        <h2 id="delete-object-title" className="text-base font-medium">
+          Delete {node.name}?
+        </h2>
+        <p
+          id="delete-object-description"
+          className="mt-1.5 text-xs leading-relaxed text-muted-foreground"
+        >
+          {node.pending
+            ? "This removes it and everything inside it from your place."
+            : inside > 0
+              ? `This removes it and the ${inside === 1 ? "object" : `${inside} objects`} inside it from your place.`
+              : "This removes it from your place."}
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={onCancel}
+            className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent"
+          >
+            Cancel
+          </button>
           <button
             type="button"
-            onClick={onReference}
-            className="shrink-0 rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background hover:opacity-90"
+            onClick={onConfirm}
+            className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
           >
-            Reference
+            Delete
           </button>
         </div>
       </div>
-      <FieldSection
-        title="Properties"
-        fields={[{ name: "ClassName", value: node.className }, ...(loaded?.properties ?? [])]}
-      />
-      {details === "failed" ? (
-        <p className="px-3 pb-3 text-xs text-muted-foreground">
-          Couldn't read this object's properties from Studio.
-        </p>
-      ) : null}
-      {loaded && loaded.attributes.length > 0 ? (
-        <FieldSection title="Attributes" fields={loaded.attributes} />
-      ) : null}
-    </div>
-  );
-}
-
-function FieldSection({ title, fields }: { title: string; fields: readonly ExplorerField[] }) {
-  return (
-    <section className="border-b px-3 py-2 last:border-b-0">
-      <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">{title}</h4>
-      <dl className="space-y-1">
-        {fields
-          .filter((field) => field.value !== "")
-          .map((field) => (
-            <div
-              key={`${field.name}-${field.value}`}
-              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 text-xs"
-            >
-              <dt className="truncate text-muted-foreground" title={field.name}>
-                {field.name}
-              </dt>
-              <dd className="truncate text-foreground tabular-nums" title={field.value}>
-                {formatFieldValue(field)}
-              </dd>
-            </div>
-          ))}
-      </dl>
-    </section>
+    </div>,
+    document.body,
   );
 }
 

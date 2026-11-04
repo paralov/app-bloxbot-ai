@@ -12,13 +12,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatInput from "@/components/ChatInput";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { desktop } from "@/lib/desktop";
+import { type ExplorerTreeUpdate, OBJECT_DRAG_NAME_TYPE, OBJECT_DRAG_TYPE } from "@/lib/explorer";
 import type { Session, SessionStatus } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
 import { ActiveSessionContext } from "@/providers/ActiveSessionProvider";
-import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
+import {
+  ExplorerReferenceProvider,
+  useExplorerReference,
+} from "@/providers/ExplorerReferenceProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
+
+const studio = vi.hoisted(() => ({ selected: null as { key: string } | null }));
+vi.mock("@/providers/StudioTargetProvider", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/providers/StudioTargetProvider")>()),
+  useStudioTargetOptional: () => studio,
+}));
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -121,7 +132,9 @@ function TestChatInput({
   queryClient,
   sessionId = "s1",
   clientStatus = "ready",
+  onOpenSettings,
 }: {
+  onOpenSettings?: () => void;
   client: ReturnType<typeof createClient>;
   queryClient: QueryClient;
   sessionId?: string;
@@ -156,7 +169,8 @@ function TestChatInput({
           >
             <PreferencesProvider>
               <ExplorerReferenceProvider>
-                <ChatInput />
+                <ChatInput onOpenSettings={onOpenSettings} />
+                <ReferenceButton />
                 <Toaster />
               </ExplorerReferenceProvider>
             </PreferencesProvider>
@@ -167,10 +181,39 @@ function TestChatInput({
   );
 }
 
+const PART = {
+  name: "Part",
+  className: "Part",
+  path: "game.Workspace.Part",
+  hasChildren: false,
+  properties: [],
+  attributes: [],
+  children: [],
+};
+
+/** What Explorer's right-click action does, and the objects its sync shares. */
+function ReferenceButton() {
+  const { referenceObject } = useExplorerReference();
+  return (
+    <>
+      <button type="button" onClick={() => referenceObject(PART)}>
+        Reference Part
+      </button>
+      <button
+        type="button"
+        onClick={() => referenceObject({ ...PART, field: { kind: "property", name: "Anchored" } })}
+      >
+        Reference Anchored
+      </button>
+    </>
+  );
+}
+
 // ── Setup ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
   vi.clearAllMocks();
+  studio.selected = null;
 });
 
 afterEach(() => {
@@ -201,6 +244,123 @@ describe("ChatInput", () => {
     const args = client.session.promptAsync.mock.calls[0][0];
     expect(args.parts[0].text).toBe("Build a game");
     expect(args.sessionID).toBe("s1");
+  });
+
+  it("offers a way to add providers and models from the model picker", async () => {
+    const onOpenSettings = vi.fn();
+    const client = createClient();
+    const queryClient = createQueryClient();
+    render(
+      <TestChatInput client={client} queryClient={queryClient} onOpenSettings={onOpenSettings} />,
+    );
+    await screen.findByRole("textbox", { name: "Message" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Select model|GPT|Claude/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add providers and models" }));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: "Add providers and models" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("adds a referenced property as a chip that names it", async () => {
+    const client = createClient();
+    render(<TestChatInput client={client} queryClient={createQueryClient()} />);
+    await screen.findByRole("textbox", { name: "Message" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference Anchored" }));
+
+    expect(await screen.findByText("@Part.Anchored")).toHaveAttribute(
+      "title",
+      `Property of ${PART.path}`,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+    expect(client.session.promptAsync.mock.calls[0][0].parts[0].text).toBe(
+      '<Instance reference="game.Workspace.Part" property="Anchored">@Part.Anchored</Instance>',
+    );
+  });
+
+  it("adds an object dragged from Explorer as a chip", async () => {
+    studio.selected = { key: "studio-1" };
+    let send: (update: ExplorerTreeUpdate) => void = () => {};
+    vi.spyOn(desktop, "onExplorerTreeUpdate").mockImplementation((listener) => {
+      send = listener;
+      return () => {};
+    });
+    vi.spyOn(desktop, "syncExplorerTree").mockImplementation(async (studioId) => {
+      send({ studioId, parentId: null, children: [PART] });
+      return {
+        changed: true,
+        watching: false,
+        complete: true,
+        truncated: false,
+        slowestReadMs: 0,
+      };
+    });
+    render(<TestChatInput client={createClient()} queryClient={createQueryClient()} />);
+    const textbox = await screen.findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(desktop.syncExplorerTree).toHaveBeenCalled());
+    // An object only offers itself once the tree has been read.
+    await act(async () => {});
+
+    const composer = textbox.closest("[data-composer]") as Element;
+    const dataTransfer = {
+      types: [OBJECT_DRAG_TYPE],
+      files: [],
+      dropEffect: "none",
+      getData: (type: string) => (type === OBJECT_DRAG_TYPE ? PART.path : ""),
+    };
+    fireEvent.dragEnter(composer, { dataTransfer });
+    expect(screen.getByText("Drop to reference this object...")).toBeInTheDocument();
+    fireEvent.dragOver(composer, { dataTransfer });
+    fireEvent.drop(composer, { dataTransfer });
+
+    expect(await screen.findByText("@Part")).toHaveAttribute("title", PART.path);
+    expect(screen.queryByText("Drop to reference this object...")).not.toBeInTheDocument();
+  });
+
+  it("takes an object dragged from Explorer before the message box has heard of it", async () => {
+    render(<TestChatInput client={createClient()} queryClient={createQueryClient()} />);
+    const textbox = await screen.findByRole("textbox", { name: "Message" });
+    const composer = textbox.closest("[data-composer]") as Element;
+    const dataTransfer = {
+      types: [OBJECT_DRAG_TYPE],
+      files: [],
+      dropEffect: "none",
+      getData: (type: string) =>
+        type === OBJECT_DRAG_TYPE
+          ? "game.Workspace.Model.La.te"
+          : type === OBJECT_DRAG_NAME_TYPE
+            ? "La.te"
+            : "",
+    };
+    fireEvent.dragEnter(composer, { dataTransfer });
+    fireEvent.drop(composer, { dataTransfer });
+
+    expect(await screen.findByText("@La.te")).toHaveAttribute(
+      "title",
+      "game.Workspace.Model.La.te",
+    );
+  });
+
+  it("adds Explorer's Reference as the same chip and text as an @ mention", async () => {
+    const client = createClient();
+
+    render(<TestChatInput client={client} queryClient={createQueryClient()} />);
+    await screen.findByRole("textbox", { name: "Message" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reference Part" }));
+
+    expect(await screen.findByText("@Part")).toHaveAttribute("title", "game.Workspace.Part");
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+    expect(client.session.promptAsync.mock.calls[0][0].parts[0].text).toBe(
+      '<Instance reference="game.Workspace.Part">@Part</Instance>',
+    );
   });
 
   it("sends message on Enter key (without Shift)", async () => {

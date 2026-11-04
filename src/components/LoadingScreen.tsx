@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 
+import { appLink } from "@/lib/appLink";
 import { desktop } from "@/lib/desktop";
 import type { UpdateInfo } from "@/types/desktop";
 
@@ -292,7 +293,7 @@ function LoadingScreen({
               <span className="text-muted-foreground/40">|</span>
 
               <a
-                href="https://bloxbot.ai"
+                href={appLink("https://bloxbot.ai", "loading")}
                 target="_blank"
                 rel="noreferrer"
                 className="underline transition-colors hover:text-foreground"

@@ -5,6 +5,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useRef } from "react";
 import { toast } from "sonner";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -286,16 +287,56 @@ describe("User journeys", () => {
     expect(screen.queryByText("BloxBot shares AI usage data")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
       "href",
-      "https://bloxbot.ai/privacy",
+      "https://bloxbot.ai/privacy?utm_source=bloxbot&utm_medium=desktop_app&utm_campaign=app_links&utm_content=privacy",
     );
     expect(screen.getByRole("link", { name: "Terms of Service" })).toHaveAttribute(
       "href",
-      "https://bloxbot.ai/terms",
+      "https://bloxbot.ai/terms?utm_source=bloxbot&utm_medium=desktop_app&utm_campaign=app_links&utm_content=privacy",
     );
     expect(screen.getByRole("switch", { name: "Share AI usage data" })).toHaveAttribute(
       "aria-checked",
       "false",
     );
+  });
+
+  it("shows the device ID to quote in a data request", async () => {
+    const loaded = vi.spyOn(posthog, "__loaded", "get").mockReturnValue(true);
+    const distinctId = vi.spyOn(posthog, "get_distinct_id").mockReturnValue("device-123");
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { detailedAnalytics: "disabled", analyticsNoticeVersion: 2 });
+
+    try {
+      render(<TestApp client={createClient()} queryClient={queryClient} />);
+
+      fireEvent.click(await screen.findByText("Settings"));
+      fireEvent.click(await screen.findByRole("button", { name: "Privacy" }));
+      expect(screen.getByText("device-123")).toBeInTheDocument();
+      expect(screen.getByText("support@bloxbot.ai")).toBeInTheDocument();
+    } finally {
+      loaded.mockRestore();
+      distinctId.mockRestore();
+    }
+  });
+
+  it("links to Paralov, Studs.gg and the legal pages from About", async () => {
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { detailedAnalytics: "disabled", analyticsNoticeVersion: 2 });
+
+    render(<TestApp client={createClient()} queryClient={queryClient} />);
+
+    fireEvent.click(await screen.findByText("Settings"));
+    fireEvent.click(await screen.findByRole("button", { name: "About" }));
+    const utm =
+      "?utm_source=bloxbot&utm_medium=desktop_app&utm_campaign=app_links&utm_content=about";
+    for (const [name, url] of [
+      ["Website", "https://bloxbot.ai/"],
+      ["Paralov", "https://paralov.com/"],
+      ["Studs.gg", "https://studs.gg/"],
+      ["Privacy Policy", "https://bloxbot.ai/privacy"],
+      ["Terms of Service", "https://bloxbot.ai/terms"],
+    ]) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", `${url}${utm}`);
+    }
   });
 
   it("guides the user until Roblox Studio connects", async () => {

@@ -71,7 +71,11 @@ export interface StudioMcpBrokerInfo {
 }
 
 export interface StudioMcpUpstream {
-  callTool(name: string, args: Record<string, unknown>): Promise<CallToolResult>;
+  callTool(
+    name: string,
+    args: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
+  ): Promise<CallToolResult>;
   close(): Promise<void>;
   listTools(): Promise<{ tools: Tool[] }>;
   onToolsChanged(listener: () => void): void;
@@ -87,6 +91,7 @@ export interface StudioMcpBrokerService {
   readonly callTool: (
     name: string,
     args: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
   ) => Effect.Effect<CallToolResult, StudioMcpBrokerError>;
   readonly status: Effect.Effect<StudioMcpStatus>;
 }
@@ -154,10 +159,18 @@ class SdkStudioMcpUpstream implements StudioMcpUpstream {
     return this.client.listTools();
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
+  ): Promise<CallToolResult> {
     const startedAt = performance.now();
     process.stderr.write(`[studio-mcp] call ${name}\n`);
-    const result = await this.client.callTool({ name, arguments: args }, CallToolResultSchema);
+    const result = await this.client.callTool(
+      { name, arguments: args },
+      CallToolResultSchema,
+      options,
+    );
     const parsed = CallToolResultSchema.parse(result);
     const summary = summarizeToolResult(name, parsed);
     process.stderr.write(
@@ -318,8 +331,12 @@ export class StudioMcpConnection implements StudioMcpUpstream {
     return (await this.ready()).listTools();
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
-    return (await this.ready()).callTool(name, args);
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
+  ): Promise<CallToolResult> {
+    return (await this.ready()).callTool(name, args, options);
   }
 
   async close(): Promise<void> {
@@ -477,9 +494,9 @@ export async function startStudioMcpBroker(
   process.stderr.write(`[studio-mcp] broker listening on ${LOOPBACK}:${address.port}\n`);
   return {
     info: { url: `http://${LOOPBACK}:${address.port}/mcp` },
-    callTool: (name, args) =>
+    callTool: (name, args, options) =>
       Effect.tryPromise({
-        try: () => upstream.callTool(name, args),
+        try: () => upstream.callTool(name, args, options),
         catch: (cause) => new StudioMcpBrokerError({ message: "Studio MCP call failed", cause }),
       }),
     status: Effect.sync(() => upstream.status?.() ?? { state: "connected" }),
