@@ -91,4 +91,19 @@ describe("StudioSetup", () => {
       screen.getByText("Not found yet. Check these steps, then restart Studio."),
     ).toBeVisible();
   });
+
+  it("lets someone who isn't here for Studio skip it, the first time", () => {
+    const onSkip = vi.fn();
+    render(
+      <StudioSetup
+        connected={false}
+        checking={false}
+        onCheck={vi.fn()}
+        onContinue={vi.fn()}
+        onSkip={onSkip}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(onSkip).toHaveBeenCalledOnce();
+  });
 });

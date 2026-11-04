@@ -62,7 +62,7 @@ describe("StudioNotice", () => {
       "Dungeon isn't open. Reopen it or choose another.",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "choose another" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose another" }));
     expect(onOpenPicker).toHaveBeenCalledOnce();
     expect(onOpenSetup).not.toHaveBeenCalled();
   });
@@ -111,6 +111,45 @@ describe("StudioNotice", () => {
   it("says Studio couldn't be reached instead of naming a place as closed", () => {
     show({ status: "error", missing: DUNGEON });
     expect(screen.getByRole("status")).toHaveTextContent("Couldn't reach Studio.");
+  });
+
+  it("stays out of a chat that's under way without a Studio", () => {
+    mocks.studioTarget = {
+      status: "empty",
+      selected: null,
+      selectingKey: null,
+      targets: [],
+      missing: null,
+    };
+    render(<StudioNotice onOpenSetup={onOpenSetup} onOpenPicker={onOpenPicker} chatStarted />);
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("still speaks up in a started chat when it has a place to lose", () => {
+    mocks.studioTarget = {
+      status: "empty",
+      selected: null,
+      selectingKey: null,
+      targets: [],
+      missing: DUNGEON,
+    };
+    render(<StudioNotice onOpenSetup={onOpenSetup} onOpenPicker={onOpenPicker} chatStarted />);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Dungeon isn't open. Reopen it to use Studio again.",
+    );
+  });
+
+  it("offers to carry on without Studio, and goes quiet once chosen", () => {
+    const workWithoutStudio = vi.fn();
+    const { unmount } = show({ status: "empty", workWithoutStudio });
+    fireEvent.click(screen.getByRole("button", { name: "Work without Studio" }));
+    expect(workWithoutStudio).toHaveBeenCalledOnce();
+    unmount();
+
+    show({ status: "empty", withoutStudio: true });
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("asks for a choice when several Studios are open and this chat has none", () => {

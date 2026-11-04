@@ -69,13 +69,15 @@ export default function StudioTargetPicker({
   }, [hasTargets]);
 
   if (!studioTarget) return null;
-  const { targets, selected, status, error, missing, discover, select } = studioTarget;
+  const { targets, selected, status, error, missing, withoutStudio, discover, select } =
+    studioTarget;
   const busy = status === "loading" || refreshing || selectingKey !== null;
 
   const buttonLabel =
     status === "loading"
       ? "Finding Studios…"
-      : (selected?.label ?? (status === "empty" ? "No Studio" : "Choose Studio"));
+      : (selected?.label ??
+        (withoutStudio ? "Not using Studio" : status === "empty" ? "No Studio" : "Choose Studio"));
 
   const refresh = async () => {
     // Refresh keeps keyboard focus while it's busy, so it can't use the disabled attribute.
@@ -201,7 +203,14 @@ export default function StudioTargetPicker({
             {showMeHow}
           </div>
         ) : status === "empty" ? (
-          connectSteps
+          <>
+            {withoutStudio ? (
+              <p className="px-2 pb-1.5 text-xs leading-relaxed">
+                This chat isn't using Studio. To use it, follow these steps.
+              </p>
+            ) : null}
+            {connectSteps}
+          </>
         ) : status === "error" ? (
           <>
             <div className="px-2 pb-1.5">
@@ -217,6 +226,11 @@ export default function StudioTargetPicker({
           </>
         ) : (
           <div className="max-h-72 overflow-y-auto">
+            {withoutStudio ? (
+              <p className="px-2 pb-1.5 text-xs leading-relaxed text-muted-foreground">
+                This chat isn't using Studio. Choose one to start.
+              </p>
+            ) : null}
             {missing ? (
               <p className="px-2 pb-1.5 text-xs leading-relaxed text-muted-foreground">
                 {studioTarget.sendBlock}

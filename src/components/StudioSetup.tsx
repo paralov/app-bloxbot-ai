@@ -49,6 +49,8 @@ interface StudioSetupProps {
   onContinue: () => void;
   /** Offered when this was opened by choice, so there's a way back without connecting. */
   onDismiss?: () => void;
+  /** Offered the first time, for people who aren't here to use Studio at all. */
+  onSkip?: () => void;
   /** Connected, but this chat's own place isn't open, so it needs someone to pick one. */
   needsChoice?: boolean;
 }
@@ -60,6 +62,7 @@ function StudioSetup({
   onCheck,
   onContinue,
   onDismiss,
+  onSkip,
   needsChoice = false,
 }: StudioSetupProps) {
   const [stepIndex, setStepIndex] = useState(0);
@@ -159,6 +162,14 @@ function StudioSetup({
               className="h-9 shrink-0 rounded-lg border px-4 text-xs font-medium transition-colors hover:bg-muted"
             >
               Back to chat
+            </button>
+          ) : onSkip ? (
+            <button
+              type="button"
+              onClick={onSkip}
+              className="h-9 shrink-0 rounded-lg border px-4 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              Skip for now
             </button>
           ) : null}
         </header>

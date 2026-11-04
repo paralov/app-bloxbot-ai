@@ -29,7 +29,11 @@ vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
   default: { capture: mocks.capture, register: vi.fn() },
 }));
 
-import { StudioTargetProvider, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
+import {
+  NO_STUDIO_PROMPT_REFERENCE,
+  StudioTargetProvider,
+  useStudioTargetOptional,
+} from "@/providers/StudioTargetProvider";
 
 /** Writes down every target the app was told to read, which the Explorer would have read at once. */
 function Seen({ keys }: { keys: Array<string | null> }) {
@@ -174,21 +178,175 @@ describe("StudioTargetProvider", () => {
     ).toBeInTheDocument();
   });
 
-  it("ties a chat to the Studio it took, so it won't follow to another place", async () => {
-    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
-    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
-    mocks.discover.mockResolvedValue({ targets: [dungeon], selectedKey: "s1" });
+  it("doesn't tie a chat to a Studio just for being open, only once the agent has used it", async () => {
+    vi.useFakeTimers();
+    try {
+      const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+      const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+      mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+      mocks.discover.mockResolvedValue({ targets: [dungeon], selectedKey: null });
+      mocks.select.mockResolvedValue({ selected: dungeon, verified: true });
+      let tie: () => void = () => {};
+      function Tie() {
+        tie = useStudioTargetOptional()?.tieToStudio ?? tie;
+        return null;
+      }
+      const tree = (
+        <StudioTargetProvider>
+          <Seen keys={[]} />
+          <Tie />
+        </StudioTargetProvider>
+      );
+      render(tree);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("selected: s1")).toBeInTheDocument();
+      expect(mocks.patchConfig).not.toHaveBeenCalled();
 
-    render(
-      <StudioTargetProvider>
-        <Seen keys={[]} />
-      </StudioTargetProvider>,
-    );
+      // Closing it costs nothing yet: this chat may be about something else entirely.
+      mocks.discover.mockResolvedValue({ targets: [], selectedKey: null });
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
+      expect(screen.getByText("missing: none")).toBeInTheDocument();
+      expect(screen.getByText("block: none")).toBeInTheDocument();
 
-    expect(await screen.findByText("selected: s1")).toBeInTheDocument();
-    expect(mocks.select).not.toHaveBeenCalled();
-    expect(mocks.patchConfig).toHaveBeenCalledWith({
-      studioTargetsBySession: { chat: dungeon },
+      mocks.discover.mockResolvedValue({ targets: [dungeon], selectedKey: null });
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(screen.getByText("selected: s1")).toBeInTheDocument();
+
+      act(() => tie());
+      expect(mocks.patchConfig).toHaveBeenCalledWith({
+        studioTargetsBySession: { chat: dungeon },
+      });
+
+      // Now it's tied, so another place doesn't take over when this one closes.
+      mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
+      expect(screen.getByText("selected: none")).toBeInTheDocument();
+      expect(screen.getByText("missing: Dungeon")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays with the Studio it has when a second one opens, if it hasn't used either", async () => {
+    vi.useFakeTimers();
+    try {
+      const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+      const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+      mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+      mocks.discover.mockResolvedValue({ targets: [dungeon], selectedKey: null });
+      mocks.select.mockResolvedValue({ selected: dungeon, verified: true });
+      render(
+        <StudioTargetProvider>
+          <Seen keys={[]} />
+        </StudioTargetProvider>,
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+
+      mocks.discover.mockResolvedValue({ targets: [dungeon, lobby], selectedKey: null });
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
+
+      expect(screen.getByText("selected: s1")).toBeInTheDocument();
+      expect(screen.getByText("block: none")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  describe("working without Studio", () => {
+    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    const renderIt = () =>
+      render(
+        <StudioTargetProvider>
+          <Seen keys={[]} />
+          <Spy />
+        </StudioTargetProvider>,
+      );
+
+    it("frees a chat stuck on a closed place, with another Studio open, for good", async () => {
+      mocks.loadConfig.mockResolvedValue({
+        studioTargetsBySession: { chat: { ...lobby, key: "gone", label: "Dungeon", placeId: "1" } },
+      });
+      mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+      renderIt();
+      expect(await screen.findByText("missing: Dungeon")).toBeInTheDocument();
+      expect(
+        screen.getByText("block: Dungeon isn't open. Reopen it or choose another."),
+      ).toBeInTheDocument();
+
+      await act(async () => context?.workWithoutStudio());
+
+      expect(screen.getByText("missing: none")).toBeInTheDocument();
+      expect(screen.getByText("block: none")).toBeInTheDocument();
+      expect(screen.getByText("selected: none")).toBeInTheDocument();
+      expect(context?.promptReference).toBe(NO_STUDIO_PROMPT_REFERENCE);
+      expect(mocks.patchConfig).toHaveBeenCalledWith({ studioTargetsBySession: {} });
+      expect(mocks.patchConfig).toHaveBeenCalledWith({ chatsWithoutStudio: ["chat"] });
+    });
+
+    it("stays that way next time, even with only one Studio open", async () => {
+      mocks.loadConfig.mockResolvedValue({
+        studioTargetsBySession: {},
+        chatsWithoutStudio: ["chat"],
+      });
+      mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+      renderIt();
+      await waitFor(() => expect(context?.status).toBe("ready"));
+
+      expect(context?.withoutStudio).toBe(true);
+      expect(screen.getByText("selected: none")).toBeInTheDocument();
+      expect(mocks.select).not.toHaveBeenCalled();
+    });
+
+    it("ends when someone chooses a Studio", async () => {
+      mocks.loadConfig.mockResolvedValue({
+        studioTargetsBySession: {},
+        chatsWithoutStudio: ["chat"],
+      });
+      mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+      mocks.select.mockResolvedValue({ selected: lobby, verified: true });
+      renderIt();
+      await waitFor(() => expect(context?.status).toBe("ready"));
+
+      await act(async () => context?.select(lobby));
+
+      expect(context?.withoutStudio).toBe(false);
+      expect(screen.getByText("selected: lobby")).toBeInTheDocument();
+      expect(mocks.patchConfig).toHaveBeenCalledWith({ chatsWithoutStudio: [] });
+    });
+
+    it("lets go of a selection that switching chats replaced", async () => {
+      const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+      mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+      mocks.discover.mockResolvedValue({ targets: [lobby, dungeon], selectedKey: null });
+      let finish: (value: unknown) => void = () => {};
+      mocks.select.mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const { rerender } = renderIt();
+      await waitFor(() => expect(context?.status).toBe("ready"));
+      act(() => void context?.select(lobby));
+      expect(context?.selectingKey).toBe("lobby");
+
+      mocks.session.id = "next";
+      try {
+        rerender(
+          <StudioTargetProvider>
+            <Seen keys={[]} />
+            <Spy />
+          </StudioTargetProvider>,
+        );
+        await act(async () => finish({ selected: lobby, verified: true }));
+        await waitFor(() => expect(context?.selectingKey).toBeNull());
+      } finally {
+        mocks.session.id = "chat";
+      }
     });
   });
 
@@ -378,7 +536,7 @@ describe("StudioTargetProvider", () => {
       const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
       mocks.select.mockResolvedValue({ selected: lobby, verified: true });
       mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
-      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
       expect(screen.getByText("selected: lobby")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -460,7 +618,7 @@ describe("StudioTargetProvider", () => {
     );
   });
 
-  it("says it couldn't reach Studio rather than guessing a chat's place is closed", async () => {
+  it("doesn't hold a message back when Studio can't be reached", async () => {
     mocks.loadConfig.mockResolvedValue({
       studioTargetsBySession: { chat: { key: "s1", label: "Dungeon", detail: null, placeId: "1" } },
     });
@@ -470,10 +628,11 @@ describe("StudioTargetProvider", () => {
         <Seen keys={[]} />
       </StudioTargetProvider>,
     );
-    expect(await screen.findByText("block: Couldn't reach Studio.")).toBeInTheDocument();
+    expect(await screen.findByText("status: error")).toBeInTheDocument();
+    expect(screen.getByText("block: none")).toBeInTheDocument();
   });
 
-  it("doesn't offer another Studio when none is open", async () => {
+  it("doesn't hold a message back when no Studio is open, as there's no place to get wrong", async () => {
     mocks.loadConfig.mockResolvedValue({
       studioTargetsBySession: { chat: { key: "s1", label: "Dungeon", detail: null, placeId: "1" } },
     });
@@ -483,9 +642,9 @@ describe("StudioTargetProvider", () => {
         <Seen keys={[]} />
       </StudioTargetProvider>,
     );
-    expect(
-      await screen.findByText("block: Dungeon isn't open. Reopen it in Studio."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("status: empty")).toBeInTheDocument();
+    expect(screen.getByText("missing: Dungeon")).toBeInTheDocument();
+    expect(screen.getByText("block: none")).toBeInTheDocument();
   });
 
   it("picks a chat's place back up when it opens again", async () => {

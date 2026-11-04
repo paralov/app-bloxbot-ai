@@ -377,6 +377,11 @@ function ChatInput({
 
   useEffect(() => {
     if (previousSessionRef.current === activeSessionId) return;
+    const leaving = previousSessionRef.current;
+    const { text: leftText, attachments: leftAttachments } = draftRef.current;
+    if (leaving && (leftText || leftAttachments.length > 0)) {
+      savedDrafts.set(leaving, { text: leftText, attachments: leftAttachments });
+    }
     previousSessionRef.current = activeSessionId;
     setText("");
     setAttachments([]);

@@ -14,10 +14,12 @@ import StudioSetup from "@/components/StudioSetup";
 import StudioTargetPicker from "@/components/StudioTargetPicker";
 import { MENU_TRIGGER } from "@/components/ui/menu";
 import { useCreateSession } from "@/hooks/mutations/useCreateSession";
+import { useChatStudioUse } from "@/hooks/useMessages";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
 import { useSessions } from "@/hooks/useSessions";
 import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { analyticsProperties, POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
+import { desktop } from "@/lib/desktop";
 import { setChatOnScreen, setSessionOpener } from "@/lib/sessionNotifications";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
@@ -35,6 +37,13 @@ function Chat() {
   const { data: allSessions } = useSessions();
   const studioConnection = useStudioConnection();
   const studioTarget = useStudioTargetOptional();
+  const studioUse = useChatStudioUse();
+  const tieToStudio = studioTarget?.tieToStudio;
+  const usingStudioKey = studioTarget?.selected?.key;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs again for each Studio it could tie to
+  useEffect(() => {
+    if (studioUse.usedStudio) tieToStudio?.();
+  }, [studioUse.usedStudio, tieToStudio, usingStudioKey]);
   // A chat whose place closed keeps its Explorer, which says what happened and comes back with it.
   const hasStudioTarget =
     (studioTarget?.selected !== null && studioTarget?.status === "ready") ||
@@ -63,10 +72,28 @@ function Chat() {
   const [sidePanelExiting, setSidePanelExiting] = useState(false);
   const sidePanelTimerRef = useRef<number | null>(null);
 
+  // Studio isn't required: BloxBot is also fine for small websites and the like.
+  const [setupSkipped, setSetupSkipped] = useState<boolean | null>(null);
+  useEffect(() => {
+    void desktop.loadConfig().then(
+      (config) => setSetupSkipped(config.studioSetupSkipped === true),
+      () => setSetupSkipped(false),
+    );
+  }, []);
+  const handleSkipSetup = useCallback(() => {
+    setSetupSkipped(true);
+    posthog.capture("studio_setup_skipped", analyticsProperties("studio_target"));
+    void desktop.patchConfig({ studioSetupSkipped: true });
+  }, []);
+  const needsSetup = studioConnection.state === "waiting" && setupSkipped !== true;
+  const connectionPending =
+    studioConnection.state === "checking" ||
+    (studioConnection.state === "waiting" && setupSkipped === null);
+
   const appScreen =
-    showStudioSetup || studioConnection.state === "waiting"
+    showStudioSetup || (needsSetup && !connectionPending)
       ? "studio-setup"
-      : studioConnection.state === "checking"
+      : connectionPending
         ? "studio-checking"
         : showSettings
           ? "settings"
@@ -193,12 +220,7 @@ function Chat() {
   }, [focusRequest]);
 
   // Settings brings its own sidebar, so the chat list steps aside for it.
-  if (
-    showSettings &&
-    !showStudioSetup &&
-    studioConnection.state !== "waiting" &&
-    studioConnection.state !== "checking"
-  ) {
+  if (showSettings && !showStudioSetup && !needsSetup && !connectionPending) {
     return (
       <div className="flex min-h-0 flex-1 bg-sidebar">
         <Suspense fallback={<LoadingScreen message="Loading settings..." />}>
@@ -250,7 +272,7 @@ function Chat() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-t-xl border-x border-t bg-background">
-        {showStudioSetup || studioConnection.state === "waiting" ? (
+        {showStudioSetup || (needsSetup && !connectionPending) ? (
           <StudioSetup
             connected={
               studioConnection.state === "connected" &&
@@ -270,9 +292,10 @@ function Chat() {
               }
             }}
             onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
+            onSkip={setupFromPicker ? undefined : handleSkipSetup}
             needsChoice={placeMissing}
           />
-        ) : studioConnection.state === "checking" ? (
+        ) : connectionPending ? (
           <LoadingScreen message="Finding Roblox Studio" animation="dots" />
         ) : !ready ? (
           <LoadingScreen message="Initializing..." />
@@ -320,6 +343,7 @@ function Chat() {
 
             <ChatMessages />
             <StudioNotice
+              chatStarted={studioUse.started}
               onOpenSetup={handleOpenStudioSetup}
               onOpenPicker={() => setPickerRequest((request) => request + 1)}
             />

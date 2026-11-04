@@ -378,6 +378,16 @@ async function saveDownload(path: string, data: Buffer): Promise<void> {
     .catch(() => {});
 }
 
+async function removeOtherSavedDownloads(keep: string, archiveName: string): Promise<void> {
+  const directory = dirname(keep);
+  const names = await readdir(directory).catch(() => [] as string[]);
+  await Promise.all(
+    names
+      .filter((name) => name.startsWith(`${archiveName}.`) && join(directory, name) !== keep)
+      .map((name) => rm(join(directory, name), { force: true }).catch(() => {})),
+  );
+}
+
 const emptyDownload = (): PartialDownload => ({ chunks: [], bytes: 0, totalBytes: null });
 
 /** What an earlier attempt saved, which counts for nothing if it can't be read. */
@@ -490,6 +500,9 @@ async function downloadUntilDone(
           },
           { once: true },
         );
+      }).catch(async (reason: unknown) => {
+        await saveDownload(savedPath, Buffer.concat(partial.chunks, partial.bytes));
+        throw reason;
       });
     } finally {
       stall.stop();
@@ -1040,6 +1053,8 @@ function installRelease(
 
       return Effect.gen(function* () {
         yield* requireFreeSpace(context);
+        // A newer release replaces anything saved for an older one.
+        yield* Effect.promise(() => removeOtherSavedDownloads(savedDownload, spec.archiveName));
         // Setup can stop after the download, as when antivirus blocks unpacking. A complete, verified
         // copy from then means trying again doesn't have to fetch it.
         const savedArchive = yield* Effect.promise(() => readFile(savedDownload).catch(() => null));

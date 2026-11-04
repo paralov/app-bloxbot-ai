@@ -540,6 +540,26 @@ describe("ChatInput", () => {
     );
   });
 
+  it("keeps a draft when switching chats, and brings it back on return", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    const view = render(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "Half a thought" } });
+    });
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s2" />);
+    });
+    expect(textarea).not.toHaveTextContent("Half a thought");
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    });
+    expect(textarea).toHaveTextContent("Half a thought");
+  });
+
   it("brings a saved draft back when its chat is opened again", async () => {
     savedDrafts.set("s2", { text: "Saved for later", attachments: [] });
     const client = createClient();

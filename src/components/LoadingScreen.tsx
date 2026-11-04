@@ -55,7 +55,7 @@ function LoadingScreen({
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>("idle");
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
-  const [folderCopied, setFolderCopied] = useState(false);
+  const [folderCopied, setFolderCopied] = useState<"idle" | "copied" | "error">("idle");
   const [restarting, setRestarting] = useState(false);
   const busyRestarting = retrying || restarting;
   const updateRef = useRef<UpdateInfo | null>(null);
@@ -196,11 +196,18 @@ function LoadingScreen({
               <button
                 type="button"
                 onClick={() => {
-                  void navigator.clipboard.writeText(detailPath).then(() => setFolderCopied(true));
+                  void navigator.clipboard.writeText(detailPath).then(
+                    () => setFolderCopied("copied"),
+                    () => setFolderCopied("error"),
+                  );
                 }}
                 className="underline transition-colors hover:text-foreground"
               >
-                {folderCopied ? "Copied" : "Copy folder"}
+                {folderCopied === "copied"
+                  ? "Copied"
+                  : folderCopied === "error"
+                    ? "Couldn't copy"
+                    : "Copy folder"}
               </button>
             )}
             {helpLink && (

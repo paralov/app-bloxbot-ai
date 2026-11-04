@@ -39,6 +39,9 @@ export const AppConfigSchema = Schema.mutable(
     // Highest analytics policy notice the user has seen; 0 predates the opt-out model.
     analyticsNoticeVersion: Schema.Number,
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
+    // Chats someone chose to use for work that has nothing to do with Studio.
+    chatsWithoutStudio: MutableStrings,
+    studioSetupSkipped: Schema.Boolean,
     // Only for people who haven't chosen kinds yet: off here means every kind starts off.
     systemNotifications: Schema.Boolean,
     notificationKinds: Schema.NullOr(NotificationKindsSchema),
@@ -60,6 +63,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   detailedAnalytics: "unset",
   analyticsNoticeVersion: 0,
   studioTargetsBySession: {},
+  chatsWithoutStudio: [],
+  studioSetupSkipped: false,
   systemNotifications: true,
   notificationKinds: null,
   notificationSound: true,

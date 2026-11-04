@@ -4,13 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { analyticsProperties } from "@/lib/analytics";
 import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
+const LINK = "shrink-0 text-foreground underline underline-offset-2 hover:opacity-80";
+
 /** Says why this chat has no Studio to work in, right where someone is about to ask it for something. */
 export default function StudioNotice({
   onOpenSetup,
   onOpenPicker,
+  chatStarted = false,
 }: {
   onOpenSetup: () => void;
   onOpenPicker: () => void;
+  /** A chat that's under way without a Studio is about something else, so this stays out of it. */
+  chatStarted?: boolean;
 }) {
   const studioTarget = useStudioTargetOptional();
   const status = studioTarget?.status ?? "loading";
@@ -20,7 +25,12 @@ export default function StudioNotice({
   const twins = studioTarget?.twins ?? 0;
   const nameMatch = studioTarget?.nameMatch ?? null;
   const hidden =
-    !studioTarget || status === "loading" || selected !== null || !!studioTarget.selectingKey;
+    !studioTarget ||
+    status === "loading" ||
+    selected !== null ||
+    studioTarget.withoutStudio ||
+    !!studioTarget.selectingKey ||
+    (chatStarted && !canChoose && !missing);
 
   // The notice going away says nothing to a screen reader, so a return gets said out loud.
   const [returned, setReturned] = useState<string | null>(null);
@@ -38,7 +48,7 @@ export default function StudioNotice({
   const place = missing ? placeName(missing.label) : null;
   const message = hidden
     ? null
-    : status === "error"
+    : place && status === "error"
       ? "Couldn't reach Studio."
       : place && twins > 1
         ? `${twins} places named ${place} are open.`
@@ -46,64 +56,61 @@ export default function StudioNotice({
           ? `Is the open ${place} this chat's place?`
           : place
             ? canChoose
-              ? `${place} isn't open. Reopen it or`
-              : `${place} isn't open. Reopen it in Studio to keep going.`
+              ? `${place} isn't open. Reopen it or choose another.`
+              : `${place} isn't open. Reopen it to use Studio again.`
             : canChoose
               ? "Several Studios are open."
               : "No Studio connected.";
 
+  const openSetup = () => {
+    posthog.capture(
+      "studio_target_guidance_followed",
+      analyticsProperties("studio_target", { trigger: "notice", status }),
+    );
+    onOpenSetup();
+  };
+  const useMatch = () => {
+    if (!nameMatch) return;
+    // This button goes away with the question, so focus moves to what comes next.
+    void studioTarget?.select(nameMatch).then(() => {
+      document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
+    });
+  };
+  const workWithoutStudio = () => {
+    posthog.capture(
+      "studio_target_work_without",
+      analyticsProperties("studio_target", { status, had_place: place !== null }),
+    );
+    studioTarget?.workWithoutStudio();
+    document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
+  };
+
   return (
     <>
       {/* Always in the page, so a screen reader announces it when the words arrive. */}
-      <output className="sr-only">
-        {message && place && twins === 0 && canChoose && status !== "error"
-          ? `${place} isn't open. Reopen it or choose another.`
-          : (message ?? returned)}
-      </output>
+      <output className="sr-only">{message ?? returned}</output>
       {message ? (
-        <div className="flex shrink-0 items-center justify-center gap-1.5 px-4 pb-2 text-xs text-muted-foreground">
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-0.5 px-4 pb-2 text-xs text-muted-foreground">
           <span aria-hidden="true" className="min-w-0 truncate">
             {message}
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              if (nameMatch) {
-                // This button goes away with the question, so focus moves to what comes next.
-                void studioTarget?.select(nameMatch).then(() => {
-                  document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
-                });
-                return;
-              }
-              if (canChoose) {
-                onOpenPicker();
-                return;
-              }
-              posthog.capture(
-                "studio_target_guidance_followed",
-                analyticsProperties("studio_target", { trigger: "notice", status }),
-              );
-              onOpenSetup();
-            }}
-            className="shrink-0 text-foreground underline underline-offset-2 hover:opacity-80"
-          >
-            {nameMatch
-              ? "Use it"
-              : !canChoose
-                ? "Show me how"
-                : place && twins === 0
-                  ? "choose another"
-                  : "Choose one"}
-          </button>
           {nameMatch ? (
-            <button
-              type="button"
-              onClick={onOpenPicker}
-              className="shrink-0 text-foreground underline underline-offset-2 hover:opacity-80"
-            >
-              Choose another
+            <button type="button" onClick={useMatch} className={LINK}>
+              Use it
             </button>
           ) : null}
+          {canChoose ? (
+            <button type="button" onClick={onOpenPicker} className={LINK}>
+              {nameMatch || (place && twins === 0) ? "Choose another" : "Choose one"}
+            </button>
+          ) : (
+            <button type="button" onClick={openSetup} className={LINK}>
+              Show me how
+            </button>
+          )}
+          <button type="button" onClick={workWithoutStudio} className={LINK}>
+            Work without Studio
+          </button>
         </div>
       ) : null}
     </>

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   cp,
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -1227,7 +1228,8 @@ describe("OpenCode downloads on a poor connection", () => {
       const pieces = Array.from({ length: 10 }, (_, index) =>
         newer.subarray(index * 1024, (index + 1) * 1024),
       );
-      const { result, elapsedMs } = await runInVirtualTime(
+      let abortedAfterMs: number | undefined;
+      const { result } = await runInVirtualTime(
         ensureOpenCodeBinary({
           cacheDirectory,
           platform: "darwin",
@@ -1235,16 +1237,23 @@ describe("OpenCode downloads on a poor connection", () => {
           fetch: vi
             .fn()
             .mockResolvedValueOnce(Response.json(newerRelease))
-            .mockImplementationOnce(async () => new Response(slowBody(pieces, 20_000))),
+            .mockImplementationOnce(async (_url: string, init: RequestInit) => {
+              const fetchedAt = Date.now();
+              init.signal?.addEventListener("abort", () => {
+                abortedAfterMs = Date.now() - fetchedAt;
+              });
+              return new Response(slowBody(pieces, 20_000));
+            }),
           extractArchive: writeExecutable("opencode"),
           delays: { verifyMs: 0 },
         }),
       );
 
       expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
-      // Well short of the 200 seconds the whole file would take. This clock also runs during real
-      // disk work, so it can read a little over the limit itself.
-      expect(elapsedMs).toBeLessThan(120_000);
+      // Measured from the request itself, since the test's clock also runs during real disk work.
+      // The limit starts just before the request, so this can read a little under it too.
+      expect(abortedAfterMs).toBeGreaterThan(25_000);
+      expect(abortedAfterMs).toBeLessThan(35_000);
 
       const resume = vi
         .fn()
@@ -1271,6 +1280,30 @@ describe("OpenCode downloads on a poor connection", () => {
         }),
       );
       expect(next.result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+    });
+
+    it("clears out what was saved for an older release", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const stale = join(cacheDirectory, "partial", `${ASSET_NAME}.old.partial`);
+      await mkdir(join(cacheDirectory, "partial"), { recursive: true });
+      await writeFile(stale, "old bytes");
+
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: vi
+            .fn()
+            .mockResolvedValueOnce(Response.json(releases))
+            .mockResolvedValueOnce(new Response(archive)),
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }),
+      );
+
+      expect(result).toMatchObject({ _tag: "Right" });
+      await expect(readFile(stale)).rejects.toThrow();
     });
 
     it("rejects a joined file that doesn't match its checksum", async () => {

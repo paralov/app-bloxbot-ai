@@ -9,16 +9,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
-- A chat stays on its own place. If that place closes, BloxBot says so, holds messages that would set the agent to work, and picks the place back up when it reopens. Commands like `/new` and `/model` still run.
+- BloxBot works without Studio, for things like small websites. Skip setup the first time, or choose Work without Studio in any chat.
+- A chat is tied to a place once the agent has used it. If that place closes while another is open, BloxBot asks before going on, so the agent can't change the wrong one. It picks the place back up when it reopens, and commands like `/new` and `/model` always run.
 - A Studio with the same name as a chat's unpublished place is offered with one click rather than taken, since every new template is a Baseplate.
-- When several Studios are open, a new chat asks you to choose one before sending.
+- When several Studios are open and a chat hasn't used one, it asks you to choose, or to work without Studio.
 - Keyboard focus is easier to see across the app.
 
 ### Fixed
 
 - Windows: BloxBot now reads OpenCode's port from its output, for machines stuck at startup on "OpenCode did not open a listening port".
 - Slow connections can finish downloading OpenCode. A download now stops only after 60 seconds with no data, and carries on from where it stopped, even after a restart.
-- A newer version holds up a launch for at most 30 seconds when a working one is already installed.
+- Downloading a newer version stops after 30 seconds when a working one is installed, and carries on next launch.
 - Downloads refused over an unknown certificate, as behind some company networks and antivirus software, retry with your system's certificates. The file must still match the same checksum.
 - Installing OpenCode waits longer for antivirus software to release a new file, and doesn't download again after antivirus blocks unpacking.
 - Startup failures say what to try next and show the folder to allow in antivirus software. BloxBot also looks for an update by itself, and a step that has gone quiet says so and offers Try again.

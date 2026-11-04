@@ -102,6 +102,22 @@ describe("startup progress", () => {
     ).toBeUndefined();
   });
 
+  it("says when copying the folder didn't work", async () => {
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+    render(
+      <LoadingScreen
+        message="BloxBot couldn't start"
+        detailPath="C:\\BloxBot"
+        error
+        onRetry={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy folder" }));
+    expect(await screen.findByRole("button", { name: "Couldn't copy" })).toBeVisible();
+  });
+
   it("doesn't look for updates while everything is fine", () => {
     render(<LoadingScreen message="Starting up..." />);
     expect(checkForUpdate).not.toHaveBeenCalled();

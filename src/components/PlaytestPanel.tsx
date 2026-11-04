@@ -164,6 +164,10 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       notify.error("Complete every playtest field before running it.");
       return;
     }
+    if (studioTarget?.sendBlock) {
+      notify.error(studioTarget.sendBlock);
+      return;
+    }
     posthog.capture(
       "playtest_started",
       analyticsProperties(
@@ -177,10 +181,6 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         }),
       ),
     );
-    if (studioTarget?.sendBlock) {
-      notify.error(studioTarget.sendBlock);
-      return;
-    }
     sendMessage.mutate(
       {
         text: formatPlaytestPrompt(plan),
