@@ -18,6 +18,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - A Studio with the same name as a chat's unpublished place is offered with one click rather than taken, since every new template is a Baseplate.
 - When several Studios are open and a chat hasn't used one, the agent asks which one before touching Studio.
 - Keyboard focus is easier to see across the app.
+- A reply can link to a file it made, and clicking shows you where it is.
+- Finishing or skipping Studio setup starts a new chat.
 
 ### Fixed
 
@@ -30,7 +32,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Refresh in the Studio picker now shows what it found, and the steps to connect Studio are right there when none are found. Three empty Refreshes bring them to the front.
 - The setup screen no longer cuts off its top in a short window.
 - The Explorer shows a short notice when Studio closes, has no place open, is loading or is starting or stopping a playtest, and picks up again on its own without being in front.
-- What you've typed in the message box survives Settings and the Studio setup screen.
+- What you've typed in the message box survives Settings, the Studio setup screen, switching chats and Reconnect, including references to objects.
+- A chat's Playtest closes when you switch chats, so its plan can't run in another one.
+- The Explorer keeps what's open, selected and searched when its panel closes, and remembers each place.
+- Reconnect restarts an engine that has stopped, rather than reloading into an error.
 
 ## [0.14.0] - 2026-11-04
 
