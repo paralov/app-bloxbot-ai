@@ -30,6 +30,7 @@ import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
 import { connectHint, isFreeTier, providerDisplayName } from "@/lib/providerAuth";
 import { checkModels, checkPreference, type ProviderCheckResult } from "@/lib/providerCheck";
 import { qk } from "@/lib/queryKeys";
+import type { SettingsRequest } from "@/lib/settingsRequest";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
@@ -81,10 +82,14 @@ type SettingsTab =
 
 interface SettingsProps {
   onClose: () => void;
+  request?: SettingsRequest | null;
 }
 
-function Settings({ onClose }: SettingsProps) {
+function Settings({ onClose, request = null }: SettingsProps) {
   const [tab, setTab] = useState<SettingsTab>("providers");
+  useEffect(() => {
+    if (request === "uploads") setTab("threeD");
+  }, [request]);
   const [appVersion, setAppVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -288,7 +293,7 @@ function Settings({ onClose }: SettingsProps) {
         {/* Content area */}
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-t-xl border-x border-t bg-background">
           {tab === "providers" && <ProvidersTab />}
-          {tab === "threeD" && <ThreeDToolsTab />}
+          {tab === "threeD" && <ThreeDToolsTab openUploads={request === "uploads"} />}
           {tab === "appearance" && <AppearanceTab />}
           {tab === "instructions" && <InstructionsTab />}
           {tab === "notifications" && <NotificationsTab />}

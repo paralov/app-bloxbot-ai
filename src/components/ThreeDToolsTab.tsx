@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useEffect, useRef, useState } from "react";
+import { RobloxUploadsCard } from "@/components/RobloxUploadsCard";
 import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { notify } from "@/lib/notifications";
@@ -191,19 +192,20 @@ function BlenderCard() {
   );
 }
 
-export function ThreeDToolsTab() {
+export function ThreeDToolsTab({ openUploads = false }: { openUploads?: boolean }) {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="text-lg font-medium text-foreground">3D tools</h4>
       <p className="mt-1 text-xs text-muted-foreground">
         Optional tools for making 3D models. BloxBot earns nothing from these.
       </p>
-      <div className="mt-6">
+      <div className="mt-6 space-y-3">
         <BlenderCard />
+        <RobloxUploadsCard startOpen={openUploads} />
       </div>
       <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-        You import what you make through Studio, on your own account. Roblox moderates every upload
-        and bans accounts for what breaks its rules, so check a model before you upload it.
+        Everything you add goes on your own Roblox account. Roblox moderates every upload and bans
+        accounts for what breaks its rules, so check a model before you upload it.
       </p>
     </div>
   );

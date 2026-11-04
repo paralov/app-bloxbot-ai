@@ -82,6 +82,50 @@ export async function discoverStudioTargets(
   return { targets: await listStudios(callTool), selectedKey: null };
 }
 
+/** The account signed in to this Studio, which is what decides which uploads it can load. */
+export async function readStudioAccount(callTool: CallStudioTool, studioId: string): Promise<string> {
+  const result = await callTool("execute_luau", {
+    studio_id: studioId,
+    datamodel_type: "Edit",
+    code: `return tostring(game:GetService("StudioService"):GetUserId())`,
+  });
+  const error = mcpError(result);
+  if (error) throw new Error(error);
+  const id = String(mcpData(result) ?? "").trim();
+  if (!/^[1-9]\d*$/.test(id)) throw new Error("Studio isn't signed in");
+  return id;
+}
+
+/** Puts an uploaded model in the place, and returns where it went. */
+export async function insertUploadedModel(
+  callTool: CallStudioTool,
+  studioId: string,
+  assetId: string,
+  name: string,
+): Promise<string> {
+  const assetName = name.replace(/[^\p{L}\p{N}_]+/gu, "");
+  const result = await callTool("insert_asset", {
+    studio_id: studioId,
+    assetId,
+    assetName: assetName || "Model",
+    assetType: "Model",
+  });
+  const error = mcpError(result);
+  if (error) throw new Error(error);
+  const inserted = mcpData(result)?.insertedInstances?.[0]?.fullPath;
+  if (typeof inserted !== "string") throw new Error("Studio returned an unreadable answer");
+  // insert_asset marks anything from Open Cloud as a package, which this isn't. A leftover link is harmless.
+  await callTool("execute_luau", {
+    studio_id: studioId,
+    datamodel_type: "Edit",
+    code: `for _, item in workspace:GetChildren() do
+  local link = item.Name == ${JSON.stringify(assetName || "Model")} and item:FindFirstChildOfClass("PackageLink")
+  if link then link:Destroy() end
+end`,
+  }).catch(() => {});
+  return inserted;
+}
+
 export async function selectStudioTarget(
   callTool: CallStudioTool,
   targetKey: string,

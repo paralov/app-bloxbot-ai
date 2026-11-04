@@ -51,6 +51,9 @@ export const AppConfigSchema = Schema.mutable(
     notificationKinds: Schema.NullOr(NotificationKindsSchema),
     notificationSound: Schema.Boolean,
     notificationsOffered: Schema.Boolean,
+    // The first model a reply showed, so the second can offer uploads, once.
+    firstModelShown: Schema.NullOr(Schema.String),
+    uploadsOffered: Schema.Boolean,
     // What the user wrote in Settings; null follows BloxBot's default as it changes.
     systemPrompt: Schema.NullOr(Schema.String),
     promptsSent: Schema.Number,
@@ -75,6 +78,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   notificationKinds: null,
   notificationSound: true,
   notificationsOffered: false,
+  firstModelShown: null,
+  uploadsOffered: false,
   systemPrompt: null,
   promptsSent: 0,
   starCalloutShown: false,
@@ -188,12 +193,73 @@ export interface DesktopApi {
   openBlender(): Promise<void>;
   removeBlenderTools(): Promise<void>;
   onBlenderSetupProgress(listener: (progress: BlenderSetupProgress) => void): () => void;
+  getRobloxUploadState(): Promise<RobloxUploadState>;
+  /** Asks Roblox what a key can do, and compares its owner with this Studio's account. Nothing is saved. */
+  checkRobloxKey(key: string, studioKey: string | null): Promise<RobloxKeyCheck>;
+  /** Checks the key again and keeps it, encrypted. Rejects if it can't upload. */
+  saveRobloxKey(key: string): Promise<void>;
+  forgetRobloxKey(): Promise<void>;
+  /** Null when the link isn't a model file BloxBot can read. */
+  readModelFile(url: string): Promise<ModelFileInfo | null>;
+  uploadModelToPlace(url: string, studioKey: string): Promise<ModelUploadResult>;
+  onModelUploadStep(listener: (url: string, step: ModelUploadStep) => void): () => void;
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
    * tells the main process the window is ready, which flushes errors buffered until then.
    */
   onMainError(listener: (report: MainErrorReport) => void): () => void;
 }
+
+export type RobloxUploadState =
+  | { state: "unavailable" }
+  | { state: "off" }
+  | { state: "on"; ownerId: string; ownerName: string | null };
+
+export type RobloxKeyCheck =
+  | { result: "not_a_key" }
+  | { result: "unreachable" }
+  | {
+      result: "checked";
+      ownerId: string;
+      ownerName: string | null;
+      active: boolean;
+      canUpload: boolean;
+      reachesGroups: boolean;
+      extraAccess: string[];
+      /** Who's signed in to Studio, or null when Studio isn't open to ask. */
+      studio: { id: string; name: string | null } | null;
+    };
+
+export interface ModelFileInfo {
+  name: string;
+  fileName: string;
+  path: string;
+  data: Uint8Array;
+  kind: "fbx" | "glb";
+  sizeBytes: number;
+  /** What already happened to exactly these bytes. */
+  sent: { assetId: string; moderation: "approved" | "rejected" | "checking" } | null;
+}
+
+export type ModelUploadStep = "uploading" | "checking" | "adding";
+
+export type ModelUploadFailure =
+  | "no_file"
+  | "no_key"
+  | "no_studio"
+  | "key_off"
+  | "key_rejected"
+  | "rate_limited"
+  | "file_rejected"
+  | "network";
+
+export type ModelUploadResult =
+  | { status: "added"; assetId: string; path: string }
+  | { status: "rejected"; assetId: string }
+  | { status: "checking"; assetId: string }
+  | { status: "not_added"; assetId: string }
+  | { status: "wrong_account"; keyOwner: string; studio: string }
+  | { status: "failed"; reason: ModelUploadFailure };
 
 export type BlenderSetupStep = "downloading" | "unpacking" | "connecting";
 

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import type {
   BlenderSetupProgress,
+  ModelUploadStep,
   AppConfig,
   DesktopApi,
   MainErrorReport,
@@ -34,6 +35,18 @@ const api: DesktopApi = {
   cancelBlenderTools: () => ipcRenderer.invoke(channels.cancelBlenderTools),
   openBlender: () => ipcRenderer.invoke(channels.openBlender),
   removeBlenderTools: () => ipcRenderer.invoke(channels.removeBlenderTools),
+  getRobloxUploadState: () => ipcRenderer.invoke(channels.getRobloxUploadState),
+  checkRobloxKey: (key, studioKey) => ipcRenderer.invoke(channels.checkRobloxKey, key, studioKey),
+  saveRobloxKey: (key) => ipcRenderer.invoke(channels.saveRobloxKey, key),
+  forgetRobloxKey: () => ipcRenderer.invoke(channels.forgetRobloxKey),
+  readModelFile: (url) => ipcRenderer.invoke(channels.readModelFile, url),
+  uploadModelToPlace: (url, studioKey) =>
+    ipcRenderer.invoke(channels.uploadModelToPlace, url, studioKey),
+  onModelUploadStep: (listener) => {
+    const handler = (_event: unknown, url: string, step: ModelUploadStep) => listener(url, step);
+    ipcRenderer.on(channels.modelUploadStep, handler);
+    return () => ipcRenderer.removeListener(channels.modelUploadStep, handler);
+  },
   onBlenderSetupProgress: (listener) => {
     const handler = (_event: unknown, progress: BlenderSetupProgress) => listener(progress);
     ipcRenderer.on(channels.blenderSetupProgress, handler);

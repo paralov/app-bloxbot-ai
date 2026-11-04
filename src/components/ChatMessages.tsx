@@ -27,10 +27,12 @@ import {
 } from "react";
 import Markdown, { type Components, defaultUrlTransform, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ModelCard } from "@/components/ModelCard";
 import { ReferenceChip } from "@/components/ReferenceChip";
 import type { HighlightLanguage } from "@/components/SyntaxHighlightedOutput";
 import { analyticsProperties } from "@/lib/analytics";
 import type { ExplorerReferenceKind } from "@/lib/explorer";
+import { modelLinksIn } from "@/lib/modelLinks";
 import type {
   Part,
   PermissionRequest,
@@ -1025,6 +1027,7 @@ const PermissionPrompt = memo(function PermissionPrompt({
   permission: PermissionRequest;
   onReply: (requestID: string, reply: "once" | "always" | "reject") => void;
 }) {
+  const uploadsImages = permission.permission.endsWith("upload_image");
   return (
     <div className="animate-fade-in-up my-2 rounded-lg border border-amber-200 bg-amber-50/30 px-3 py-3 dark:border-amber-900 dark:bg-amber-950/30">
       <div className="text-xs font-medium text-foreground">Permission Required</div>
@@ -1033,6 +1036,12 @@ const PermissionPrompt = memo(function PermissionPrompt({
           {permission.permission}
         </span>
       </div>
+      {uploadsImages ? (
+        <p className="mt-1 text-xs text-foreground">
+          This uploads images to your Roblox account, and Roblox holds you responsible for them.
+          Only allow it for images you've checked.
+        </p>
+      ) : null}
       {permission.patterns.length > 0 && (
         <div className="mt-1 space-y-0.5">
           {permission.patterns.map((p, i) => (
@@ -1050,13 +1059,15 @@ const PermissionPrompt = memo(function PermissionPrompt({
         >
           Allow Once
         </button>
-        <button
-          type="button"
-          onClick={() => onReply(permission.id, "always")}
-          className="rounded-md border px-3 py-1 text-xs text-foreground transition-colors hover:bg-accent"
-        >
-          Always Allow
-        </button>
+        {uploadsImages ? null : (
+          <button
+            type="button"
+            onClick={() => onReply(permission.id, "always")}
+            className="rounded-md border px-3 py-1 text-xs text-foreground transition-colors hover:bg-accent"
+          >
+            Always Allow
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onReply(permission.id, "reject")}
@@ -1145,6 +1156,11 @@ const MessageBubble = memo(function MessageBubble({
             {msg.parts.map((part) => (
               <PartRenderer key={part.id} part={part} />
             ))}
+            {msg.info.role === "assistant" && msg.info.time.completed
+              ? modelLinksIn(
+                  msg.parts.map((part) => (part.type === "text" ? part.text : "")).join("\n"),
+                ).map((url) => <ModelCard key={url} url={url} />)
+              : null}
             {"error" in msg.info &&
               msg.info.error &&
               msg.info.error.name !== "MessageAbortedError" && (

@@ -19,6 +19,7 @@ vi.mock("@/lib/desktop", () => ({
     cancelBlenderTools: mocks.cancel,
     openBlender: mocks.open,
     removeBlenderTools: mocks.remove,
+    getRobloxUploadState: async () => ({ state: "off" }),
     onBlenderSetupProgress: (listener: (progress: unknown) => void) => {
       mocks.listener = listener;
       return () => {};

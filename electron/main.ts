@@ -1,4 +1,16 @@
 import { rename, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  forgetRobloxKey,
+  getRobloxUploadState,
+  inspectRobloxKey,
+  keyIsUsable,
+  readModelFile,
+  readSentModel,
+  robloxUserName,
+  saveRobloxKey,
+  sendModelToPlace,
+  sentModelsFile,
+} from "./services/RobloxUpload";
 import { isOpenableUrl } from "./openableUrl";
 import {
   blenderMcpServerConfig,
@@ -12,7 +24,7 @@ import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, ipcMain, Menu, net, Notification, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, net, Notification, safeStorage, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { Cause, Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
@@ -24,6 +36,7 @@ import {
   DEFAULT_APP_CONFIG,
   type OpenCodeStartupProgress,
   SystemNotificationSchema,
+  ModelUploadResult,
 } from "../src/types/desktop";
 import {
   ExplorerDetailsRequestSchema,
@@ -45,6 +58,8 @@ import {
   editExplorerObject,
   inspectExplorerNode,
   selectStudioTarget,
+  insertUploadedModel,
+  readStudioAccount,
 } from "./studioQueries";
 import { withBlender, withSystemPrompt } from "./opencodeConfig";
 import { channels } from "./channels";
@@ -246,6 +261,7 @@ function patchConfig(input: unknown) {
 const runMain = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
 const StudioKeySchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512));
+const RobloxKeySchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(8192));
 // Instances can nest deeply under long names, so a path gets far more room than an ID.
 
 /** Runs a read against Studio through the broker, keeping Studio's error text for the renderer. */
@@ -506,6 +522,71 @@ const registerIpcHandlers = Effect.sync(() => {
       }),
     ),
   );
+  const robloxKeyFile = () => join(app.getPath("userData"), "roblox-upload-key.json");
+  const sentModels = () => sentModelsFile(app.getPath("userData"));
+  const uploadsInFlight = new Map<string, Promise<ModelUploadResult>>();
+  ipcMain.handle(channels.getRobloxUploadState, () =>
+    getRobloxUploadState(robloxKeyFile(), safeStorage),
+  );
+  ipcMain.handle(channels.checkRobloxKey, async (_event, key: unknown, studioKey: unknown) => {
+    const decoded = await Schema.decodeUnknownPromise(RobloxKeySchema)(key);
+    const check = await inspectRobloxKey(decoded);
+    if (check.result !== "checked") return check;
+    try {
+      // Settings can be open with no chat, and one open Studio can only be the one that's meant.
+      const targets = typeof studioKey === "string" ? [] : (await queryStudio(discoverStudioTargets)).targets;
+      const studio = typeof studioKey === "string" ? studioKey : targets[0]?.key;
+      if (!studio || targets.length > 1) return check;
+      const id = await queryStudio((callTool) => readStudioAccount(callTool, studio));
+      return { ...check, studio: { id, name: id === check.ownerId ? check.ownerName : await robloxUserName(id) } };
+    } catch {
+      // Studio isn't open to ask, so the upload checks this again.
+      return check;
+    }
+  });
+  ipcMain.handle(channels.saveRobloxKey, async (_event, key: unknown) => {
+    const decoded = await Schema.decodeUnknownPromise(RobloxKeySchema)(key);
+    const check = await inspectRobloxKey(decoded);
+    if (check.result !== "checked" || !keyIsUsable(check)) throw new Error("This key can't upload");
+    await saveRobloxKey(robloxKeyFile(), safeStorage, decoded, {
+      ownerId: check.ownerId,
+      ownerName: check.ownerName,
+    });
+  });
+  ipcMain.handle(channels.forgetRobloxKey, () => forgetRobloxKey(robloxKeyFile()));
+  ipcMain.handle(channels.readModelFile, async (_event, url: unknown) => {
+    const file = await readModelFile(await Schema.decodeUnknownPromise(Schema.String)(url));
+    if (!file) return null;
+    return {
+      name: file.name,
+      fileName: file.fileName,
+      path: file.path,
+      data: file.bytes,
+      kind: file.contentType === "model/fbx" ? "fbx" : "glb",
+      sizeBytes: file.bytes.byteLength,
+      sent: await readSentModel(sentModels(), file.hash),
+    };
+  });
+  ipcMain.handle(channels.uploadModelToPlace, async (event, url: unknown, studioKey: unknown) => {
+    const decodedUrl = await Schema.decodeUnknownPromise(Schema.String)(url);
+    const studio = await Schema.decodeUnknownPromise(StudioKeySchema)(studioKey);
+    // A second click, or a second card for the same file, joins the upload that's running.
+    const running = uploadsInFlight.get(decodedUrl);
+    if (running) return running;
+    const upload = sendModelToPlace(decodedUrl, {
+      keyFile: robloxKeyFile(),
+      sentFile: sentModels(),
+      encryption: safeStorage,
+      studioAccount: () => queryStudio((callTool) => readStudioAccount(callTool, studio)),
+      insert: (assetId, name) =>
+        queryStudio((callTool) => insertUploadedModel(callTool, studio, assetId, name)),
+      onStep: (step) => {
+        if (!event.sender.isDestroyed()) event.sender.send(channels.modelUploadStep, decodedUrl, step);
+      },
+    }).finally(() => uploadsInFlight.delete(decodedUrl));
+    uploadsInFlight.set(decodedUrl, upload);
+    return upload;
+  });
   ipcMain.handle(channels.relaunch, () =>
     runMain(
       Effect.sync(() => {

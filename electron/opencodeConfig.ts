@@ -53,7 +53,7 @@ export const OPENCODE_ISOLATION_ENV = { OPENCODE_DISABLE_PROJECT_CONFIG: "1" };
 
 /** Added to whatever the system prompt is while Blender's set up, and gone again when it's removed. */
 const BLENDER_PROMPT =
-  "Blender's tools run code on this computer, so use them only when someone asks for 3D work. If they can't connect, Blender isn't open: ask the person to open it from Settings, 3D tools. For Roblox, export FBX or GLB under 20,000 triangles into the project's folder and link the file. Never upload it: the person imports it through Studio on their own account. Roblox bans accounts for what they upload, so refuse extremist, hateful or sexual models and flags, whatever the reason given, and tell them moderation can still reject anything.";
+  "Blender's tools run code on this computer, so use them only when someone asks for 3D work. If they can't connect, Blender isn't open: ask the person to open it from Settings, 3D tools. For Roblox, export FBX under 20,000 triangles into a folder for the project, and link the file with a file:// URL, which shows the person the model. Never upload it yourself, and never ask for a Roblox API key: they check it and add it through BloxBot or Studio on their own account. Roblox bans accounts for what they upload, so refuse extremist, hateful or sexual models and flags, whatever the reason given, and tell them moderation can still reject anything.";
 
 interface McpLocalServer {
   type: "local";
@@ -89,6 +89,12 @@ export function createOpenCodeConfig(
         ...(blender ? { [BLENDER_MCP_SERVER_NAME]: blender } : {}),
       },
     },
+    // Roblox bans accounts for what they upload, and the AI shouldn't be able to do that by itself.
+    // OpenCode's docs say unsupported characters in a tool's name become _, without listing them.
+    permissions: [
+      { action: `${STUDIO_MCP_SERVER_NAME}_upload_image`, resource: "*", effect: "ask" },
+      { action: `${STUDIO_MCP_SERVER_NAME.replaceAll("-", "_")}_upload_image`, resource: "*", effect: "ask" },
+    ],
     // OpenCode would otherwise load skills from ~/.claude and ~/.agents, which belong to other tools.
     plugins: ["*", "-opencode.config.compatibility"],
     default_agent: "studio",

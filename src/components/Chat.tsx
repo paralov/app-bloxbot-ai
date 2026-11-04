@@ -21,6 +21,7 @@ import { useStudioConnection } from "@/hooks/useStudioConnection";
 import { analyticsProperties, POSTHOG_PROJECT_TOKEN } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { setChatOnScreen, setSessionOpener } from "@/lib/sessionNotifications";
+import { onSettingsRequest, type SettingsRequest } from "@/lib/settingsRequest";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -72,6 +73,7 @@ function Chat() {
     (usedStudio === true || studioTarget?.missing != null || studioTarget?.studioChosen === true)
   );
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsRequest, setSettingsRequest] = useState<SettingsRequest | null>(null);
   const [titlebarActions, setTitlebarActions] = useState<HTMLElement | null>(null);
   useEffect(() => setTitlebarActions(document.getElementById("titlebar-actions")), []);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
@@ -279,9 +281,19 @@ function Chat() {
     leaveSetup();
   }, [leaveSetup]);
   const handleOpenSettings = useCallback(() => {
+    setSettingsRequest(null);
     setShowSettings(true);
     leaveSetup();
   }, [leaveSetup]);
+  useEffect(
+    () =>
+      onSettingsRequest((request) => {
+        setSettingsRequest(request);
+        setShowSettings(true);
+        leaveSetup();
+      }),
+    [leaveSetup],
+  );
   // Someone who asked for the panel should land in it, not when it opens by itself.
   const explorerOpenedByHand = useRef(false);
   // Asked for again while it was still on its way out, it stays without ever having gone, so the
@@ -357,7 +369,7 @@ function Chat() {
     return (
       <div className="flex min-h-0 flex-1 bg-sidebar">
         <Suspense fallback={<LoadingScreen message="Loading settings..." />}>
-          <Settings onClose={handleSessionSelect} />
+          <Settings onClose={handleSessionSelect} request={settingsRequest} />
         </Suspense>
       </div>
     );

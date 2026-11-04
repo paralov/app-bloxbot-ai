@@ -13,6 +13,8 @@ export const qk = {
   config: ["config"] as const,
   instructions: ["instructions"] as const,
   studioConnection: ["studio-connection"] as const,
+  robloxUpload: ["robloxUpload"] as const,
+  modelFile: (url: string) => ["modelFile", url] as const,
   blenderTools: ["blender-tools"] as const,
   studioMcpStatus: ["studio-mcp-status"] as const,
 };

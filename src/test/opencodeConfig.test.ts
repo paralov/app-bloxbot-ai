@@ -92,3 +92,29 @@ describe("system prompt", () => {
     });
   });
 });
+
+describe("uploads the AI can't make by itself", () => {
+  it("asks before Studio's upload_image tool sends anything to Roblox, with or without Blender", () => {
+    for (const blender of [
+      null,
+      { type: "local" as const, command: ["blender-mcp"], environment: {} },
+    ]) {
+      const { permissions } = createOpenCodeConfig({ url: "http://127.0.0.1:1" }, null, blender);
+      expect(permissions).toEqual(
+        expect.arrayContaining([
+          { action: "roblox-studio_upload_image", resource: "*", effect: "ask" },
+          { action: "roblox_studio_upload_image", resource: "*", effect: "ask" },
+        ]),
+      );
+    }
+  });
+
+  it("tells the AI to use FBX and never to handle a key", () => {
+    const blender = { type: "local" as const, command: ["blender-mcp"], environment: {} };
+    const { system } = createOpenCodeConfig({ url: "http://127.0.0.1:1" }, null, blender).agents
+      .studio;
+    expect(system).toContain("export FBX");
+    expect(system).not.toContain("GLB");
+    expect(system).toContain("never ask for a Roblox API key");
+  });
+});
