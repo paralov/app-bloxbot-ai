@@ -170,8 +170,6 @@ export interface DesktopApi {
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;
-  /** The newest verified published BloxBot programs, or null to use the built-in ones. */
-  /** Called when newer published BloxBot programs arrive; returns an unsubscribe. */
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
    * tells the main process the window is ready, which flushes errors buffered until then.

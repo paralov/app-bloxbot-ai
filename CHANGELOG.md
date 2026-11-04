@@ -7,13 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-04
+
 ### Added
 
 - Connect Claude Agent to use your Claude plan through your own Claude Code login.
 - Objects a reply mentions in code formatting open in the Explorer when clicked.
 - The Explorer shows properties for services and Terrain, with rounded numbers and readable values.
 - Tools on your shell's PATH, like Claude Code, are now found when BloxBot is opened from the Finder.
-- BloxBot no longer picks up skills, instructions or config from `~/.claude`, `~/.agents` or `~/.opencode`, or from `AGENTS.md` and `opencode.json` files in folders above or inside `~/BloxBot`. Use the system prompt in Settings instead.
+- BloxBot no longer picks up skills, instructions or config from `~/.claude`, `~/.agents` or `~/.opencode`, or from `AGENTS.md` and `opencode.json` files in folders above or inside `~/BloxBot`. Use Settings → Instructions instead.
 - AI usage data no longer includes instruction files from outside BloxBot's folder, such as `~/.claude/CLAUDE.md`.
 - Providers show OpenCode's official logos, which work offline.
 - System notifications. While BloxBot isn't the app in front, it tells you when a chat finishes, runs into a problem, or is waiting for an answer or your approval, and when an update is ready or the connection is lost. Clicking one takes you to that chat. Turn them off in Settings → Notifications.
@@ -58,7 +60,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Token counts in the chat.
 - The free limit popup. The chat now explains the limit in place.
-- The agent picker. BloxBot now has one assistant, and you change how it behaves with the system prompt.
+- The agent picker. BloxBot now has one assistant, and you change how it behaves with Settings → Instructions.
 - Explorer no longer asks your model to write a program when its built-in one fails, so it can't use up your free messages. It keeps the last tree on screen and retries on its own.
 - The downloadable programs behind Explorer and Studio selection. These now ship with the app, so a change on Roblox's side needs an app update.
 
@@ -344,7 +346,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.7...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.7...v0.14.0
 [0.13.7]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.4...v0.13.5
