@@ -33,6 +33,16 @@ vi.mock("@/lib/desktop", () => ({
     syncExplorerTree: async (studioId: string) => {
       const { sortExplorerNodes } = await import("@/lib/explorer");
       const snapshot = await mocks.getSnapshot(studioId);
+      if (snapshot.waiting) {
+        return {
+          changed: false,
+          watching: false,
+          complete: false,
+          truncated: false,
+          slowestReadMs: 0,
+          waiting: snapshot.waiting,
+        };
+      }
       for (const listener of mocks.treeListeners) {
         listener({
           studioId,
@@ -167,6 +177,36 @@ describe("Explorer", () => {
     mocks.getSnapshot.mockResolvedValue(tree);
     await advance(10_000);
     expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
+  });
+
+  it("says calmly what Studio is doing instead of a failure or a skeleton", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce({ waiting: "no_place" });
+    mocks.getSnapshot.mockResolvedValue(tree);
+
+    const { container } = start();
+    await advance(0);
+    expect(screen.getByRole("status")).toHaveTextContent("No place open · Open one in Studio");
+    expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+
+    await advance(5_000);
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("keeps the tree on screen through a playtest starting or stopping", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce(tree);
+
+    start();
+    await advance(0);
+    mocks.getSnapshot.mockResolvedValueOnce({ waiting: "mode_changed" });
+    await advance(5_000);
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Studio changing modes");
+
+    mocks.getSnapshot.mockResolvedValue(tree);
+    await advance(5_000);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("opens the object a reply links to and shows readable properties", async () => {

@@ -567,6 +567,198 @@ describe("syncExplorerTree", () => {
     await expect(renderer(callTool).sync()).rejects.toThrow(/^Studio is busy$/);
   });
 
+  describe("when Studio's state gets in the way", () => {
+    const refuse = (text: string) => ({
+      isError: true,
+      content: [{ type: "text" as const, text }],
+    });
+    const NOT_CONNECTED =
+      "The requested `studio_id` is not connected — that Roblox Studio instance may have been closed or its place unloaded. Call `list_roblox_studios` for the current instances.";
+    const place = () => [
+      folder("Workspace", folder("Kid")),
+      folder("Lighting", folder("Kid")),
+      folder("ReplicatedStorage", folder("Kid")),
+      folder("StarterGui", folder("Kid")),
+      folder("ServerStorage", folder("Kid")),
+      folder("Teams", folder("Kid")),
+    ];
+    /** A Studio that only answers for its current mode, as the real one does. */
+    function studioIn(start: "Edit" | "Server") {
+      const modes = { current: start as "Edit" | "Server", switchAfter: Infinity, next: start };
+      const answer = fakeStudio({ version: null, place: place() }).getMockImplementation();
+      const callTool = vi.fn<CallStudioTool>(async (name, args) => {
+        if (name === "search_game_tree") {
+          if (modes.switchAfter-- <= 0) modes.current = modes.next as "Edit" | "Server";
+          if (args.datamodel_type !== modes.current) {
+            return refuse(
+              `${args.datamodel_type} datamodel is not available in ${modes.current === "Edit" ? "Edit" : "Play"} mode`,
+            );
+          }
+        }
+        return (answer as CallStudioTool)(name, args);
+      });
+      return { callTool, modes };
+    }
+
+    it("doesn't fail when a playtest stops during a walk, and the next sync reads Edit", async () => {
+      const { callTool, modes } = studioIn("Server");
+      const { sync, tree } = renderer(callTool);
+      // Edit is refused and Server answers for the root, then one service reads before it stops.
+      modes.next = "Edit";
+      modes.switchAfter = 3;
+
+      const { result } = await sync();
+      expect(result).toMatchObject({ waiting: "mode_changed", complete: false });
+      expect(tree().roots.map((node) => node.name)).toContain("Workspace");
+
+      callTool.mockClear();
+      const next = await sync();
+      expect(next.result.waiting).toBeUndefined();
+      expect(next.result.complete).toBe(true);
+      const reads = treeReads(callTool as never);
+      expect(reads[0]?.datamodel_type).toBe("Edit");
+      expect(reads.every((read) => read.datamodel_type === "Edit")).toBe(true);
+    });
+
+    it("doesn't fail when a playtest starts during a walk, and the next sync reads Server", async () => {
+      const { callTool, modes } = studioIn("Edit");
+      const { sync } = renderer(callTool);
+      modes.next = "Server";
+      modes.switchAfter = 2;
+
+      expect((await sync()).result.waiting).toBe("mode_changed");
+
+      callTool.mockClear();
+      const next = await sync();
+      expect(next.result).toMatchObject({ complete: true, watching: false });
+      expect(treeReads(callTool as never).at(-1)?.datamodel_type).toBe("Server");
+    });
+
+    it("stops asking once Studio has moved on, instead of being refused for the rest", async () => {
+      const { callTool, modes } = studioIn("Server");
+      modes.next = "Edit";
+      modes.switchAfter = 2;
+
+      await renderer(callTool).sync();
+
+      // Six services to read, but only the three already running when the first refusal came back.
+      const walked = treeReads(callTool as never).filter((read) => read.path);
+      expect(walked).toHaveLength(3);
+    });
+
+    it("waits when Studio can't reach any data model while a playtest changes", async () => {
+      const callTool = vi.fn<CallStudioTool>(async (name, args) => {
+        if (name === "inspect_instance") return { content: [{ type: "text", text: "{}" }] };
+        if (args.datamodel_type === "Edit")
+          return refuse("Edit datamodel is not available in Play mode");
+        return refuse(
+          `Network action GameTreeTool.explore sent to DMN_ID_PLAY${args.datamodel_type} failed - Target is not reachable`,
+        );
+      });
+      const { result } = await renderer(callTool).sync();
+      expect(result.waiting).toBe("mode_changed");
+    });
+
+    it("waits for a closed Studio, asking only once", async () => {
+      const callTool = vi.fn<CallStudioTool>(async (name) =>
+        name === "inspect_instance"
+          ? { content: [{ type: "text", text: "{}" }] }
+          : refuse(NOT_CONNECTED),
+      );
+      const { result } = await renderer(callTool).sync();
+      expect(result.waiting).toBe("studio_closed");
+      expect(treeReads(callTool as never)).toHaveLength(1);
+    });
+
+    it("treats there being no Studios at all as closed too", async () => {
+      const callTool = vi.fn<CallStudioTool>(async () =>
+        refuse("No Roblox Studio instances are connected. Ask the user to confirm."),
+      );
+      expect((await renderer(callTool).sync()).result.waiting).toBe("studio_closed");
+    });
+
+    it("notices Studio closing during a walk", async () => {
+      const answer = fakeStudio({ version: null, place: place() }).getMockImplementation();
+      const callTool = vi.fn<CallStudioTool>(async (name, args) =>
+        name === "search_game_tree" && args.path
+          ? refuse(NOT_CONNECTED)
+          : (answer as CallStudioTool)(name, args),
+      );
+      expect((await renderer(callTool).sync()).result.waiting).toBe("studio_closed");
+    });
+
+    it("waits for a place to be opened", async () => {
+      const callTool = vi.fn<CallStudioTool>(async (name, args) => {
+        if (name === "inspect_instance") return { content: [{ type: "text", text: "{}" }] };
+        return refuse(
+          args.datamodel_type === "Edit"
+            ? "Place is not open"
+            : `${args.datamodel_type} datamodel is not available in Edit mode`,
+        );
+      });
+      expect((await renderer(callTool).sync()).result.waiting).toBe("no_place");
+    });
+
+    it("waits for a place with no services yet, leaving what's on screen", async () => {
+      const studio: FakeStudio = { version: null, place: [folder("Workspace")] };
+      const { sync, tree } = renderer(fakeStudio(studio));
+      await sync();
+
+      studio.place = [];
+      const { result, updates } = await sync();
+      expect(result.waiting).toBe("place_loading");
+      expect(updates).toBe(0);
+      expect(tree().roots.map((node) => node.name)).toEqual(["Workspace"]);
+    });
+
+    it("reads again after waiting, even if nothing seems to have changed", async () => {
+      const studio: FakeStudio = { version: "1", place: [folder("Workspace", folder("Kid"))] };
+      const answer = fakeStudio(studio).getMockImplementation() as CallStudioTool;
+      let closed = false;
+      const callTool = vi.fn<CallStudioTool>(async (name, args) =>
+        closed && name === "search_game_tree" ? refuse(NOT_CONNECTED) : answer(name, args),
+      );
+      const { sync } = renderer(callTool);
+      await sync();
+      closed = true;
+      await sync();
+      closed = false;
+      callTool.mockClear();
+
+      await sync();
+      expect(treeReads(callTool as never).some((read) => read.path === "Workspace")).toBe(true);
+    });
+
+    it("still fails when a data model refuses for any other reason", async () => {
+      const callTool = vi.fn<CallStudioTool>(async (name, args) => {
+        if (name === "inspect_instance") return { content: [{ type: "text", text: "{}" }] };
+        return refuse(
+          args.datamodel_type === "Edit"
+            ? "Edit datamodel is not available in Play mode"
+            : "GameTreeTool:148: attempt to call missing method 'GetFullName' of string",
+        );
+      });
+      await expect(renderer(callTool).sync()).rejects.toThrow(/GetFullName/);
+    });
+
+    it("still fails when a read in the walk goes wrong", async () => {
+      const answer = fakeStudio({ version: null, place: place() }).getMockImplementation();
+      const callTool = vi.fn<CallStudioTool>(async (name, args) =>
+        name === "search_game_tree" && args.path
+          ? refuse("Studio is busy")
+          : (answer as CallStudioTool)(name, args),
+      );
+      await expect(renderer(callTool).sync()).rejects.toThrow("Studio is busy");
+    });
+
+    it("still fails when the MCP call itself does", async () => {
+      const callTool = vi.fn<CallStudioTool>(async () => {
+        throw new Error("Studio MCP call failed");
+      });
+      await expect(renderer(callTool).sync()).rejects.toThrow("Studio MCP call failed");
+    });
+  });
+
   it("says when Studio's answer can't be used", async () => {
     const callTool = vi.fn<CallStudioTool>(async () => ({
       content: [{ type: "text" as const, text: "No Studio connected" }],
