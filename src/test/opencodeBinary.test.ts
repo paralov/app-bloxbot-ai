@@ -889,10 +889,15 @@ describe("OpenCode downloads on a poor connection", () => {
 
   /** A body that sends one chunk each `intervalMs`, then ends. */
   function slowBody(chunks: readonly Uint8Array[], intervalMs: number) {
+    let cancelled = false;
     return new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
       start(controller) {
         const sendFrom = (index: number) => {
           setTimeout(() => {
+            if (cancelled) return;
             const chunk = chunks[index];
             if (chunk) controller.enqueue(chunk);
             if (index + 1 < chunks.length) sendFrom(index + 1);
@@ -1230,16 +1235,16 @@ describe("OpenCode downloads on a poor connection", () => {
           fetch: vi
             .fn()
             .mockResolvedValueOnce(Response.json(newerRelease))
-            .mockImplementationOnce(async () => new Response(slowBody(pieces, 50_000))),
+            .mockImplementationOnce(async () => new Response(slowBody(pieces, 20_000))),
           extractArchive: writeExecutable("opencode"),
           delays: { verifyMs: 0 },
         }),
       );
 
       expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
-      // Well short of the 500 seconds the whole file would take. This clock also runs during real
+      // Well short of the 200 seconds the whole file would take. This clock also runs during real
       // disk work, so it can read a little over the limit itself.
-      expect(elapsedMs).toBeLessThan(200_000);
+      expect(elapsedMs).toBeLessThan(120_000);
 
       const resume = vi
         .fn()

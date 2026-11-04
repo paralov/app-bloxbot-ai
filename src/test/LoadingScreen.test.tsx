@@ -137,6 +137,17 @@ describe("startup progress", () => {
     ).toContain("A company network or antivirus blocked the download");
   });
 
+  it("doesn't call an update a one-time setup", () => {
+    const presentation = getStartupPresentation("engine", {
+      phase: "downloading",
+      downloadedBytes: 1,
+      totalBytes: 2,
+      bytesPerSecond: 1,
+      updating: true,
+    });
+    expect(presentation.message).toBe("Downloading an update");
+  });
+
   it("explains a step that has gone quiet instead of looking frozen", () => {
     const downloading = {
       phase: "downloading",

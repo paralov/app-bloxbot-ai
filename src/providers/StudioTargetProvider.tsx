@@ -52,6 +52,8 @@ interface StudioTargetContextValue {
   twins: number;
   /** This chat's Studio was picked by its name alone, which is worth saying out loud. */
   rejoinedByName: boolean;
+  /** Someone looked at the name match and chose to stay on it. */
+  keepNameMatch(): void;
   /** Why a message can't go out yet: without a Studio to work in, the agent would pick one itself. */
   sendBlock: string | null;
   /** Resolves with how many Studios are listed afterwards. */
@@ -171,7 +173,16 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       }
       // A chat that took the Studio already in use is tied to it too, or it would follow to another
       // place if that one closed.
-      if (nextSelected && !remembered) await rememberTarget(nextSelected);
+      // And kept current, since a place can be renamed or published while it's open, and the next
+      // reopen has to recognize it from what's written down here.
+      if (
+        nextSelected &&
+        (nextSelected.key !== remembered?.key ||
+          nextSelected.label !== remembered?.label ||
+          nextSelected.placeId !== remembered?.placeId)
+      ) {
+        await rememberTarget(nextSelected);
+      }
       if (operation !== operationRef.current) return;
       // Only ever turned on here, since the next check finds this Studio under its own id.
       if (selectionMode === "session_name_match" && remembered) setRejoinedByName(true);
@@ -233,6 +244,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     discoveryRef.current = { session: activeSessionId, promise: discovery };
     return discovery;
   }, [activeSessionId, applyDiscovery]);
+
+  const keepNameMatch = useCallback(() => setRejoinedByName(false), []);
 
   const select = useCallback(
     async (target: StudioTarget) => {
@@ -327,15 +340,17 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const sendBlock =
     status === "loading"
       ? "Finding Studios."
-      : missing && twins > 1
-        ? `${twins} places named ${placeName(missing.label)} are open. Choose one.`
-        : missing
-          ? targets.length > 0
-            ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
-            : `${placeName(missing.label)} isn't open. Reopen it in Studio.`
-          : status === "ready" && !selected
-            ? "Choose a Studio first."
-            : null;
+      : missing && status === "error"
+        ? "Couldn't reach Studio."
+        : missing && twins > 1
+          ? `${twins} places named ${placeName(missing.label)} are open. Choose one.`
+          : missing
+            ? targets.length > 0
+              ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
+              : `${placeName(missing.label)} isn't open. Reopen it in Studio.`
+            : status === "ready" && !selected
+              ? "Choose a Studio first."
+              : null;
 
   // Quickly while someone is waiting on a Studio to appear, or on this chat's place to reopen. Slowly
   // otherwise, so a Studio closing is noticed without anyone having to open the Explorer.
@@ -364,6 +379,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       sendBlock,
       twins,
       rejoinedByName,
+      keepNameMatch,
       discover,
       select,
     }),
@@ -378,6 +394,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       sendBlock,
       twins,
       rejoinedByName,
+      keepNameMatch,
       discover,
       select,
     ],

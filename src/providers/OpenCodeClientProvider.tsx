@@ -86,8 +86,10 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
         : undefined;
     const percentage = fraction === undefined ? null : `${Math.round(fraction * 100)}%`;
     return {
-      message: "Downloading a one-time setup",
-      detail: "Future launches will use the saved copy",
+      message: progress.updating ? "Downloading an update" : "Downloading a one-time setup",
+      detail: progress.updating
+        ? "Your current version opens if this takes a while"
+        : "Future launches will use the saved copy",
       startup: {
         step: 1,
         label: "Preparing",

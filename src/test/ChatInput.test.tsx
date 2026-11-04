@@ -540,6 +540,22 @@ describe("ChatInput", () => {
     );
   });
 
+  it("brings a saved draft back when its chat is opened again", async () => {
+    savedDrafts.set("s2", { text: "Saved for later", attachments: [] });
+    const client = createClient();
+    const qc = createQueryClient();
+    const view = render(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    expect(textarea).not.toHaveTextContent("Saved for later");
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s2" />);
+    });
+
+    expect(textarea).toHaveTextContent("Saved for later");
+    expect(savedDrafts.has("s2")).toBe(false);
+  });
+
   it("does not send when session is busy", async () => {
     const client = createClient();
     const qc = createQueryClient();

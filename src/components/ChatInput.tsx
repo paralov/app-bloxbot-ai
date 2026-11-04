@@ -381,6 +381,12 @@ function ChatInput({
     setText("");
     setAttachments([]);
     promptEditorRef.current?.clear();
+    const draft = activeSessionId ? savedDrafts.get(activeSessionId) : undefined;
+    if (activeSessionId && draft) {
+      savedDrafts.delete(activeSessionId);
+      if (draft.text) promptEditorRef.current?.insertText(draft.text);
+      setAttachments(draft.attachments);
+    }
   }, [activeSessionId]);
 
   useEffect(() => {

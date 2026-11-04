@@ -88,6 +88,8 @@ export type OpenCodeStartupProgress =
       downloadedBytes: number;
       totalBytes: number | null;
       bytesPerSecond: number;
+      /** A working version is already here, and this only replaces it. */
+      updating?: boolean;
     }
   | { phase: "verifying" }
   | { phase: "installing" }

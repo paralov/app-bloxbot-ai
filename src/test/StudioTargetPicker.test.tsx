@@ -44,6 +44,7 @@ import StudioTargetPicker from "@/components/StudioTargetPicker";
 import {
   createStudioTargetPromptReference,
   StudioTargetProvider,
+  useStudioTargetOptional,
 } from "@/providers/StudioTargetProvider";
 
 const onOpenSetup = vi.fn();
@@ -515,6 +516,31 @@ describe("StudioTargetPicker", () => {
       await refresh();
       await refresh();
       expect(screen.queryByText(STUCK_HEADING)).toBeNull();
+    });
+
+    it("stops mentioning a name match once someone chooses to stay on it", async () => {
+      const old = { key: "old", label: "Lobby", detail: null };
+      loadConfig.mockResolvedValue({ studioTargetsBySession: { "chat-session": old } });
+      discoverStudioTargets.mockResolvedValue({ targets: [LOBBY], selectedKey: null });
+      selectStudioTarget.mockResolvedValue({ selected: LOBBY, verified: true });
+      let rejoined: boolean | undefined;
+      function Spy() {
+        rejoined = useStudioTargetOptional()?.rejoinedByName;
+        return null;
+      }
+      render(
+        <StudioTargetProvider>
+          <StudioTargetPicker onOpenSetup={onOpenSetup} />
+          <Spy />
+        </StudioTargetProvider>,
+      );
+      await flush();
+      expect(rejoined).toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: /Lobby/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Lobby/, pressed: true }));
+      await flush();
+      expect(rejoined).toBe(false);
     });
 
     it("says when this chat's place isn't one of the Studios listed", async () => {

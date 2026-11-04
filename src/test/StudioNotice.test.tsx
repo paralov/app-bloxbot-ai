@@ -100,6 +100,11 @@ describe("StudioNotice", () => {
     expect(onOpenPicker).toHaveBeenCalledOnce();
   });
 
+  it("says Studio couldn't be reached instead of naming a place as closed", () => {
+    show({ status: "error", missing: DUNGEON });
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't reach Studio.");
+  });
+
   it("asks for a choice when several Studios are open and this chat has none", () => {
     show({ targets: [LOBBY, DUNGEON] });
     expect(screen.getByRole("status")).toHaveTextContent("Several Studios are open.");

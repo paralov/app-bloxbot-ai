@@ -43,21 +43,23 @@ export default function StudioNotice({
     ? null
     : rejoinedByName && selected
       ? `Using ${placeName(selected.label)}, matched by name.`
-      : place && twins > 1
-        ? `${twins} places named ${place} are open.`
-        : place
-          ? canChoose
-            ? `${place} isn't open. Reopen it or`
-            : `${place} isn't open. Reopen it in Studio to keep going.`
-          : canChoose
-            ? "Several Studios are open."
-            : "No Studio connected.";
+      : status === "error"
+        ? "Couldn't reach Studio."
+        : place && twins > 1
+          ? `${twins} places named ${place} are open.`
+          : place
+            ? canChoose
+              ? `${place} isn't open. Reopen it or`
+              : `${place} isn't open. Reopen it in Studio to keep going.`
+            : canChoose
+              ? "Several Studios are open."
+              : "No Studio connected.";
 
   return (
     <>
       {/* Always in the page, so a screen reader announces it when the words arrive. */}
       <output className="sr-only">
-        {message && place && twins < 2 && canChoose
+        {message && place && twins < 2 && canChoose && status !== "error"
           ? `${place} isn't open. Reopen it or choose another.`
           : (message ?? returned)}
       </output>

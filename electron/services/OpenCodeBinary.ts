@@ -39,7 +39,7 @@ export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 /** How many tries in a row may get nothing more before a download counts as failed. */
 const DOWNLOAD_RESUMES = 3;
 /** How long a newer version may hold up a launch that already has a working one. */
-const UPDATE_DOWNLOAD_LIMIT_MS = 120_000;
+const UPDATE_DOWNLOAD_LIMIT_MS = 30_000;
 /** Long enough to outlast a dropped Wi-Fi connection before calling it failed. */
 const RESUME_DELAYS_MS = [5_000, 15_000, 30_000];
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
@@ -1021,7 +1021,7 @@ function publishWithRetry(
 function installRelease(
   context: InstallContext,
   release: CompatibleRelease,
-  timeLimitMs?: number,
+  updating = false,
 ): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
   const { platformDirectory, platform, arch, spec, downloadFetch, reportProgress } = context;
   return Effect.acquireUseRelease(
@@ -1059,8 +1059,13 @@ function installRelease(
               downloadFetch,
               signal,
               savedDownload,
-              timeLimitMs,
-              reportProgress,
+              updating ? UPDATE_DOWNLOAD_LIMIT_MS : undefined,
+              updating
+                ? (progress) =>
+                    reportProgress?.(
+                      progress.phase === "downloading" ? { ...progress, updating } : progress,
+                    )
+                : reportProgress,
             ),
         );
         if (!response.ok) {
@@ -1223,8 +1228,8 @@ export function ensureOpenCodeBinary(
       delays: { ...DEFAULT_DELAYS, ...options.delays },
       reportProgress: options.onStartupProgress,
     };
-    const install = (release: CompatibleRelease, timeLimitMs?: number) =>
-      installRelease(context, release, timeLimitMs).pipe(
+    const install = (release: CompatibleRelease, updating = false) =>
+      installRelease(context, release, updating).pipe(
         Effect.tap(() =>
           pruneCache(platformDirectory).pipe(
             Effect.catchAll((error) => Effect.logWarning(error.message, error.cause)),
@@ -1251,7 +1256,7 @@ export function ensureOpenCodeBinary(
                   // saved, so each launch gets further until the update is in.
                   findNewestCachedBinary(platformDirectory, platform, arch, spec).pipe(
                     Effect.flatMap((working) =>
-                      install(release, working ? UPDATE_DOWNLOAD_LIMIT_MS : undefined),
+                      install(release, working !== null),
                     ),
                   ),
             ),

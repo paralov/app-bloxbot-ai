@@ -431,6 +431,36 @@ describe("StudioTargetProvider", () => {
     }
   });
 
+  it("keeps what it knows about a place current, so a reopen is recognized", async () => {
+    const before = { key: "s1", label: "Baseplate", detail: null, placeId: null };
+    const published = { ...before, label: "Dungeon", placeId: "1" };
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: before } });
+    mocks.discover.mockResolvedValue({ targets: [published], selectedKey: "s1" });
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    await waitFor(() =>
+      expect(mocks.patchConfig).toHaveBeenCalledWith({
+        studioTargetsBySession: { chat: published },
+      }),
+    );
+  });
+
+  it("says it couldn't reach Studio rather than guessing a chat's place is closed", async () => {
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { chat: { key: "s1", label: "Dungeon", detail: null, placeId: "1" } },
+    });
+    mocks.discover.mockRejectedValue(new Error("offline"));
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("block: Couldn't reach Studio.")).toBeInTheDocument();
+  });
+
   it("doesn't offer another Studio when none is open", async () => {
     mocks.loadConfig.mockResolvedValue({
       studioTargetsBySession: { chat: { key: "s1", label: "Dungeon", detail: null, placeId: "1" } },
