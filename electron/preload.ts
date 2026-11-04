@@ -40,8 +40,8 @@ const api: DesktopApi = {
   saveRobloxKey: (key) => ipcRenderer.invoke(channels.saveRobloxKey, key),
   forgetRobloxKey: () => ipcRenderer.invoke(channels.forgetRobloxKey),
   readModelFile: (url) => ipcRenderer.invoke(channels.readModelFile, url),
-  uploadModelToPlace: (url, studioKey) =>
-    ipcRenderer.invoke(channels.uploadModelToPlace, url, studioKey),
+  uploadModelToPlace: (url, studioKey, hash) =>
+    ipcRenderer.invoke(channels.uploadModelToPlace, url, studioKey, hash),
   onModelUploadStep: (listener) => {
     const handler = (_event: unknown, url: string, step: ModelUploadStep) => listener(url, step);
     ipcRenderer.on(channels.modelUploadStep, handler);

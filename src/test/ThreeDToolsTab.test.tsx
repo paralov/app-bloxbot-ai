@@ -134,6 +134,16 @@ describe("ThreeDToolsTab", () => {
     expect(mocks.remove).toHaveBeenCalledOnce();
   });
 
+  it("reloads OpenCode and tries again when Windows holds the server's files", async () => {
+    mocks.getState.mockResolvedValue({ state: "ready", running: false });
+    mocks.remove.mockRejectedValueOnce(new Error("EBUSY")).mockResolvedValue(undefined);
+    start();
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledTimes(2));
+    expect(mocks.dispose).toHaveBeenCalled();
+  });
+
   it("doesn't offer it where it can't run", async () => {
     mocks.getState.mockResolvedValue({ state: "unsupported" });
     start();

@@ -91,6 +91,7 @@ interface DesktopEffects {
   readonly uploadModelToPlace: (
     url: string,
     studioKey: string,
+    hash: string,
   ) => Effect.Effect<ModelUploadResult, DesktopError>;
   readonly discoverStudioTargets: Effect.Effect<StudioTargetDiscovery, DesktopError>;
   readonly selectStudioTarget: (
@@ -263,8 +264,8 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     saveRobloxKey: (key) => invoke("Failed to save the key", () => api.saveRobloxKey(key)),
     forgetRobloxKey: invoke("Failed to forget the key", () => api.forgetRobloxKey()),
     readModelFile: (url) => invoke("Failed to read the model", () => api.readModelFile(url)),
-    uploadModelToPlace: (url, studioKey) =>
-      invoke("Failed to upload the model", () => api.uploadModelToPlace(url, studioKey)),
+    uploadModelToPlace: (url, studioKey, hash) =>
+      invoke("Failed to upload the model", () => api.uploadModelToPlace(url, studioKey, hash)),
     discoverStudioTargets: invoke("Failed to discover Studio targets", () =>
       api.discoverStudioTargets(),
     ).pipe(decodeBridgeValue("Studio target discovery is invalid", StudioTargetDiscoverySchema)),
@@ -323,8 +324,8 @@ export const desktop: DesktopApi = {
   saveRobloxKey: (key) => runPromise(desktopEffects.saveRobloxKey(key)),
   forgetRobloxKey: () => runPromise(desktopEffects.forgetRobloxKey),
   readModelFile: (url) => runPromise(desktopEffects.readModelFile(url)),
-  uploadModelToPlace: (url, studioKey) =>
-    runPromise(desktopEffects.uploadModelToPlace(url, studioKey)),
+  uploadModelToPlace: (url, studioKey, hash) =>
+    runPromise(desktopEffects.uploadModelToPlace(url, studioKey, hash)),
   onModelUploadStep: (listener) => window.bloxbot?.onModelUploadStep(listener) ?? (() => {}),
   onBlenderSetupProgress: (listener) =>
     window.bloxbot?.onBlenderSetupProgress(listener) ?? (() => {}),

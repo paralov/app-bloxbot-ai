@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -255,7 +255,11 @@ export async function uploadModel(
   file: ModelFile,
   ownerId: string,
   key: string,
-  options: { fetcher?: Fetcher; sleep?: (ms: number) => Promise<void> } = {},
+  options: {
+    fetcher?: Fetcher;
+    sleep?: (ms: number) => Promise<void>;
+    onAccepted?: (operationId: string) => Promise<void>;
+  } = {},
 ): Promise<{ assetId: string; moderation: Moderation }> {
   const { fetcher = fetch, sleep = wait } = options;
   const request = JSON.stringify({
@@ -275,20 +279,40 @@ export async function uploadModel(
     Buffer.from(`\r\n--${boundary}--\r\n`),
   ]);
 
-  let operation = await callRoblox(fetcher, "/assets/v1/assets", {
+  const operation = await callRoblox(fetcher, "/assets/v1/assets", {
     method: "POST",
     headers: { "x-api-key": key, "Content-Type": `multipart/form-data; boundary=${boundary}` },
     body,
   });
-  const operationId = operation.operationId ?? String(operation.path ?? "").split("/").at(-1);
-  for (let attempt = 0; !operation.done && attempt < POLL_TIMES; attempt++) {
-    await sleep(POLL_EVERY_MS);
+  // Roblox has it from here on, so a failure after this has to resume rather than send it again.
+  const operationId = operationIdOf(operation);
+  if (operationId) await options.onAccepted?.(operationId);
+  return finishUpload(operation, operationId, key, { fetcher, sleep });
+}
+
+const operationIdOf = (operation: any): string | undefined =>
+  operation.operationId ?? String(operation.path ?? "").split("/").at(-1) ?? undefined;
+
+/** Waits for an upload Roblox has taken, whether it was just sent or sent before a failure. */
+export async function finishUpload(
+  started: any,
+  operationId: string | undefined,
+  key: string,
+  options: { fetcher?: Fetcher; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<{ assetId: string; moderation: Moderation }> {
+  const { fetcher = fetch, sleep = wait } = options;
+  let operation = started;
+  for (let attempt = 0; !operation.done && operationId && attempt < POLL_TIMES; attempt++) {
+    if (attempt > 0 || started.path) await sleep(POLL_EVERY_MS);
     operation = await callRoblox(fetcher, `/assets/v1/operations/${encodeURIComponent(operationId)}`, {
       headers: { "x-api-key": key },
     });
   }
   if (operation.error) {
-    throw new RobloxUploadError("file_rejected", String(operation.error.message ?? "Roblox refused the file"));
+    throw new RobloxUploadError(
+      "file_rejected",
+      String(operation.error.message ?? "Roblox refused the file"),
+    );
   }
   if (!operation.done) throw new RobloxUploadError("network", "Roblox didn't finish in time");
   const assetId = operation.response?.assetId;
@@ -296,15 +320,21 @@ export async function uploadModel(
   const moderation = moderationOf(operation.response);
   return {
     assetId: String(assetId),
-    moderation: moderation === "checking" ? await checkModeration(String(assetId), key, { fetcher, sleep }) : moderation,
+    moderation:
+      moderation === "checking"
+        ? await checkModeration(String(assetId), key, { fetcher, sleep })
+        : moderation,
   };
 }
 
 // ── What's been sent ────────────────────────────────────────────────────
 
 export interface SentModel {
-  assetId: string;
+  /** Null while Roblox hasn't said what it made, which `operationId` can still ask. */
+  assetId: string | null;
   moderation: Moderation;
+  operationId?: string;
+  ownerId?: string;
 }
 
 /** Remembered by content, so the same bytes never go up twice, and a rejected model is never resent. */
@@ -318,13 +348,22 @@ export async function readSentModel(file: string, hash: string): Promise<SentMod
   }
 }
 
-export async function recordSentModel(file: string, hash: string, sent: SentModel): Promise<void> {
-  let all: Record<string, SentModel> = {};
-  try {
-    all = JSON.parse(await readFile(file, "utf8"));
-  } catch {}
-  await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, JSON.stringify({ ...all, [hash]: sent }));
+let sentModelWrites: Promise<unknown> = Promise.resolve();
+
+/** One at a time, because two uploads finishing together would each overwrite the other's record. */
+export function recordSentModel(file: string, hash: string, sent: SentModel): Promise<void> {
+  const write = async () => {
+    let all: Record<string, SentModel> = {};
+    try {
+      all = JSON.parse(await readFile(file, "utf8"));
+    } catch {}
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(`${file}.tmp`, JSON.stringify({ ...all, [hash]: sent }));
+    await rename(`${file}.tmp`, file);
+  };
+  const result = sentModelWrites.then(write, write);
+  sentModelWrites = result.catch(() => {});
+  return result;
 }
 
 // ── From the click to the place ─────────────────────────────────────────
@@ -333,6 +372,8 @@ export interface SendModelDeps {
   keyFile: string;
   sentFile: string;
   encryption: KeyEncryption;
+  /** The bytes the person looked at. Anything else in the file by now hasn't been checked. */
+  expectedHash: string;
   fetcher?: Fetcher;
   sleep?: (ms: number) => Promise<void>;
   /** The account signed in to this Studio. Throws when Studio can't answer. */
@@ -350,55 +391,94 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
   const { fetcher = fetch, sleep = wait, onStep } = deps;
   const file = await readModelFile(url);
   if (!file) return { status: "failed", reason: "no_file" };
+  if (file.hash !== deps.expectedHash) return { status: "failed", reason: "file_changed" };
+
+  const account = async () => {
+    try {
+      return await deps.studioAccount();
+    } catch {
+      return null;
+    }
+  };
+  const wrongAccount = async (ownerId: string, ownerName: string | null, studioId: string) => ({
+    status: "wrong_account" as const,
+    keyOwner: ownerName ?? (await robloxUserName(ownerId, fetcher)) ?? ownerId,
+    studio: (await robloxUserName(studioId, fetcher)) ?? studioId,
+  });
+  const addToPlace = async (assetId: string): Promise<ModelUploadResult> => {
+    onStep?.("adding");
+    try {
+      return { status: "added", assetId, path: await deps.insert(assetId, file.name) };
+    } catch {
+      return { status: "not_added", assetId };
+    }
+  };
+
+  let sent = await readSentModel(deps.sentFile, file.hash);
+  // What Roblox already decided needs no key, so these still work after uploads are turned off.
+  if (sent?.moderation === "rejected" && sent.assetId) {
+    return { status: "rejected", assetId: sent.assetId };
+  }
+  if (sent?.moderation === "approved" && sent.assetId) {
+    const studioId = await account();
+    if (!studioId) return { status: "failed", reason: "no_studio" };
+    if (sent.ownerId && sent.ownerId !== studioId) {
+      return wrongAccount(sent.ownerId, null, studioId);
+    }
+    return addToPlace(sent.assetId);
+  }
+
   const stored = await loadRobloxKey(deps.keyFile, deps.encryption);
   if (!stored) return { status: "failed", reason: "no_key" };
-
   const check = await inspectRobloxKey(stored.key, fetcher);
   if (check.result === "unreachable") return { status: "failed", reason: "network" };
   if (check.result !== "checked") return { status: "failed", reason: "key_rejected" };
   if (!check.active) return { status: "failed", reason: "key_off" };
   if (!check.canUpload) return { status: "failed", reason: "key_rejected" };
 
-  let studioId: string;
-  try {
-    studioId = await deps.studioAccount();
-  } catch {
-    return { status: "failed", reason: "no_studio" };
-  }
-  if (studioId !== check.ownerId) {
-    return {
-      status: "wrong_account",
-      keyOwner: check.ownerName ?? check.ownerId,
-      studio: (await robloxUserName(studioId, fetcher)) ?? studioId,
-    };
-  }
+  const studioId = await account();
+  if (!studioId) return { status: "failed", reason: "no_studio" };
+  if (studioId !== check.ownerId) return wrongAccount(check.ownerId, check.ownerName, studioId);
 
+  const ownerId = check.ownerId;
+  const checking = async (ms: number) => {
+    onStep?.("checking");
+    await sleep(ms);
+  };
   try {
-    let sent = await readSentModel(deps.sentFile, file.hash);
     if (!sent) {
       onStep?.("uploading");
-      sent = await uploadModel(file, check.ownerId, stored.key, {
+      const done = await uploadModel(file, ownerId, stored.key, {
         fetcher,
-        sleep: async (ms) => {
-          onStep?.("checking");
-          await sleep(ms);
-        },
+        sleep: checking,
+        onAccepted: (operationId) =>
+          recordSentModel(deps.sentFile, file.hash, {
+            assetId: null,
+            moderation: "checking",
+            operationId,
+            ownerId,
+          }),
       });
-      await recordSentModel(deps.sentFile, file.hash, sent);
-    } else if (sent.moderation === "checking") {
+      sent = { ...done, ownerId };
+    } else if (!sent.assetId && sent.operationId) {
       onStep?.("checking");
-      sent = { ...sent, moderation: await checkModeration(sent.assetId, stored.key, { fetcher, sleep }) };
-      await recordSentModel(deps.sentFile, file.hash, sent);
+      const done = await finishUpload({ done: false }, sent.operationId, stored.key, {
+        fetcher,
+        sleep: checking,
+      });
+      sent = { ...done, ownerId };
+    } else if (sent.assetId) {
+      onStep?.("checking");
+      sent = {
+        ...sent,
+        moderation: await checkModeration(sent.assetId, stored.key, { fetcher, sleep }),
+      };
     }
+    if (!sent?.assetId) return { status: "failed", reason: "network" };
+    await recordSentModel(deps.sentFile, file.hash, sent);
     if (sent.moderation === "rejected") return { status: "rejected", assetId: sent.assetId };
     if (sent.moderation === "checking") return { status: "checking", assetId: sent.assetId };
-
-    onStep?.("adding");
-    try {
-      return { status: "added", assetId: sent.assetId, path: await deps.insert(sent.assetId, file.name) };
-    } catch {
-      return { status: "not_added", assetId: sent.assetId };
-    }
+    return addToPlace(sent.assetId);
   } catch (error) {
     if (error instanceof RobloxUploadError) return { status: "failed", reason: error.reason };
     throw error;

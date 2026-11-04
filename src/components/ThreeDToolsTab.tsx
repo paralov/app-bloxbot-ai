@@ -134,7 +134,14 @@ function BlenderRow() {
   });
   const remove = useMutation<void, Error>({
     mutationFn: async () => {
-      await desktop.removeBlenderTools();
+      try {
+        await desktop.removeBlenderTools();
+      } catch {
+        // Windows won't delete Blender's server while OpenCode is still running it. Blender is out
+        // of the config by now, so reloading stops the server.
+        await client?.instance.dispose({}, { throwOnError: true });
+        await desktop.removeBlenderTools();
+      }
       await client?.instance.dispose({}, { throwOnError: true });
     },
     onSuccess: () => posthog.capture("blender_removed", analyticsProperties("three_d_tools")),

@@ -2,11 +2,13 @@ import { loadConfig, patchConfig } from "@/lib/config";
 import { notify } from "@/lib/notifications";
 import { requestSettings } from "@/lib/settingsRequest";
 
+let offers: Promise<void> = Promise.resolve();
+
 /**
  * Importing by hand works, so nobody needs a key to get started. Once someone has seen a second
  * model they know what the manual step costs, so this offers uploads then, and only ever once.
  */
-export async function offerUploadsOnce(modelUrl: string): Promise<void> {
+async function offerNow(modelUrl: string): Promise<void> {
   const { firstModelShown, uploadsOffered } = await loadConfig();
   if (uploadsOffered) return;
   if (!firstModelShown) {
@@ -25,4 +27,11 @@ export async function offerUploadsOnce(modelUrl: string): Promise<void> {
     cancel: { label: "Not now", onClick: () => {} },
   });
   await patchConfig({ uploadsOffered: true });
+}
+
+/** One at a time, because a reply with two models shows two cards at once. */
+export function offerUploadsOnce(modelUrl: string): Promise<void> {
+  const next = () => offerNow(modelUrl);
+  offers = offers.then(next, next);
+  return offers;
 }

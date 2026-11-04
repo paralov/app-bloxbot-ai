@@ -201,7 +201,8 @@ export interface DesktopApi {
   forgetRobloxKey(): Promise<void>;
   /** Null when the link isn't a model file BloxBot can read. */
   readModelFile(url: string): Promise<ModelFileInfo | null>;
-  uploadModelToPlace(url: string, studioKey: string): Promise<ModelUploadResult>;
+  /** `hash` is the file the person looked at, and nothing else gets sent. */
+  uploadModelToPlace(url: string, studioKey: string, hash: string): Promise<ModelUploadResult>;
   onModelUploadStep(listener: (url: string, step: ModelUploadStep) => void): () => void;
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
@@ -237,14 +238,16 @@ export interface ModelFileInfo {
   data: Uint8Array;
   kind: "fbx" | "glb";
   sizeBytes: number;
+  hash: string;
   /** What already happened to exactly these bytes. */
-  sent: { assetId: string; moderation: "approved" | "rejected" | "checking" } | null;
+  sent: { assetId: string | null; moderation: "approved" | "rejected" | "checking" } | null;
 }
 
 export type ModelUploadStep = "uploading" | "checking" | "adding";
 
 export type ModelUploadFailure =
   | "no_file"
+  | "file_changed"
   | "no_key"
   | "no_studio"
   | "key_off"

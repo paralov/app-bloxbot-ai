@@ -114,13 +114,18 @@ export async function insertUploadedModel(
   if (error) throw new Error(error);
   const inserted = mcpData(result)?.insertedInstances?.[0]?.fullPath;
   if (typeof inserted !== "string") throw new Error("Studio returned an unreadable answer");
-  // insert_asset marks anything from Open Cloud as a package, which this isn't. A leftover link is harmless.
+  // insert_asset marks anything from Open Cloud as a package, which this isn't. Only the newest match
+  // is the new model, since the place may have its own package with this name.
   await callTool("execute_luau", {
     studio_id: studioId,
     datamodel_type: "Edit",
-    code: `for _, item in workspace:GetChildren() do
-  local link = item.Name == ${JSON.stringify(assetName || "Model")} and item:FindFirstChildOfClass("PackageLink")
-  if link then link:Destroy() end
+    code: `local children = workspace:GetChildren()
+for index = #children, 1, -1 do
+  if children[index].Name == ${JSON.stringify(assetName || "Model")} then
+    local link = children[index]:FindFirstChildOfClass("PackageLink")
+    if link then link:Destroy() end
+    break
+  end
 end`,
   }).catch(() => {});
   return inserted;

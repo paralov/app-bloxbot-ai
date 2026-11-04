@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -16,6 +17,7 @@ import {
   moderationOf,
   readModelFile,
   readSentModel,
+  recordSentModel,
   saveRobloxKey,
   sendModelToPlace,
 } from "../../electron/services/RobloxUpload";
@@ -65,6 +67,7 @@ const deps = (fetcher: Fetcher, extra: Partial<Parameters<typeof sendModelToPlac
   keyFile,
   sentFile,
   encryption,
+  expectedHash: createHash("sha256").update("model bytes").digest("hex"),
   fetcher,
   sleep: async () => {},
   studioAccount: async () => OWNER,
@@ -424,6 +427,74 @@ describe("from the click to the place", () => {
     calls.length = 0;
     expect(await sendModelToPlace(modelUrl, deps(fetcher))).toMatchObject({ status: "added" });
     expect(calls.some((c) => c.includes("/assets/v1/assets"))).toBe(false);
+  });
+
+  it("sends nothing if the file changed after the preview", async () => {
+    const { fetcher, calls } = roblox();
+    await writeFile(new URL(modelUrl), "different bytes");
+    expect(await sendModelToPlace(modelUrl, deps(fetcher))).toEqual({
+      status: "failed",
+      reason: "file_changed",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("resumes instead of sending again when a check fails after Roblox took the file", async () => {
+    let online = false;
+    const { fetcher, calls } = roblox({
+      "/assets/v1/operations/": () =>
+        online
+          ? json({
+              done: true,
+              response: { assetId: "8", moderationResult: { moderationState: "Approved" } },
+            })
+          : json({}, 503),
+      "/assets/v1/assets": () => json({ path: "operations/abc", done: false }),
+    });
+    expect(await sendModelToPlace(modelUrl, deps(fetcher))).toEqual({
+      status: "failed",
+      reason: "network",
+    });
+    online = true;
+    calls.length = 0;
+    expect(await sendModelToPlace(modelUrl, deps(fetcher))).toMatchObject({
+      status: "added",
+      assetId: "8",
+    });
+    expect(calls.some((c) => c.startsWith("POST https://apis.roblox.com/assets"))).toBe(false);
+  });
+
+  it("keeps every record when uploads finish together", async () => {
+    await Promise.all(
+      ["a", "b", "c", "d", "e"].map((hash) =>
+        recordSentModel(sentFile, hash, { assetId: hash, moderation: "approved" }),
+      ),
+    );
+    for (const hash of ["a", "b", "c", "d", "e"]) {
+      expect((await readSentModel(sentFile, hash))?.assetId).toBe(hash);
+    }
+  });
+
+  it("adds an approved model after uploads are turned off, without touching Roblox", async () => {
+    const { fetcher, calls } = roblox();
+    await sendModelToPlace(modelUrl, deps(fetcher));
+    await forgetRobloxKey(keyFile);
+    calls.length = 0;
+    expect(await sendModelToPlace(modelUrl, deps(fetcher))).toMatchObject({
+      status: "added",
+      assetId: "555",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("won't add an approved model to a Studio on another account", async () => {
+    const { fetcher } = roblox();
+    await sendModelToPlace(modelUrl, deps(fetcher));
+    const insert = vi.fn(async () => "x");
+    expect(
+      await sendModelToPlace(modelUrl, deps(fetcher, { insert, studioAccount: async () => "2" })),
+    ).toMatchObject({ status: "wrong_account" });
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it("does nothing without a key or a file", async () => {

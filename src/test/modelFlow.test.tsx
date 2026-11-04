@@ -43,6 +43,7 @@ const file: ModelFileInfo = {
   kind: "fbx",
   sizeBytes: 180 * 1024,
   sent: null,
+  hash: "previewed-hash",
 };
 
 function wrap(children: ReactNode) {
@@ -106,7 +107,9 @@ describe("the upload click", () => {
     vi.spyOn(desktop, "uploadModelToPlace").mockResolvedValue(result);
     render(wrap(<ModelCard url={URL_A} />));
     fireEvent.click(await screen.findByRole("button", { name: "Upload to Roblox" }));
-    await waitFor(() => expect(desktop.uploadModelToPlace).toHaveBeenCalledWith(URL_A, "studio-1"));
+    await waitFor(() =>
+      expect(desktop.uploadModelToPlace).toHaveBeenCalledWith(URL_A, "studio-1", "previewed-hash"),
+    );
   };
 
   it("does nothing until it's pressed", async () => {
@@ -153,6 +156,15 @@ describe("the upload click", () => {
     expect(open).toHaveBeenCalledWith(
       expect.stringContaining("create.roblox.com/dashboard/credentials"),
     );
+  });
+
+  it("makes someone look at a file that changed, before it can go up", async () => {
+    setUp(ON);
+    await click({ status: "failed", reason: "file_changed" });
+    expect(await screen.findByText(/changed after this preview/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Check the new version" }));
+    expect(await screen.findByRole("button", { name: "Upload to Roblox" })).toBeTruthy();
   });
 
   it("lets someone decline, and change their mind", async () => {
@@ -212,6 +224,17 @@ describe("the offer", () => {
       uploadsOffered: true,
     } as never);
     await offerUploadsOnce("file:///c.fbx");
+    expect(notify.message).toHaveBeenCalledTimes(1);
+  });
+
+  it("still counts two models shown at the same moment", async () => {
+    let config = { firstModelShown: null as string | null, uploadsOffered: false };
+    vi.mocked(loadConfig).mockImplementation(async () => ({ ...config }) as never);
+    vi.mocked(patchConfig).mockImplementation(async (patch) => {
+      config = { ...config, ...(patch as Partial<typeof config>) };
+      return undefined as never;
+    });
+    await Promise.all([offerUploadsOnce("file:///a.fbx"), offerUploadsOnce("file:///b.fbx")]);
     expect(notify.message).toHaveBeenCalledTimes(1);
   });
 

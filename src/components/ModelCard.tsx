@@ -23,6 +23,8 @@ const STEP_TEXT: Record<ModelUploadStep, string> = {
 
 const FAILURES: Record<ModelUploadFailure, string> = {
   no_file: "The file has moved. Ask for it to be exported again.",
+  file_changed:
+    "The file changed after this preview, so nothing was uploaded. Check the new version first.",
   no_key: "Uploads are off. Turn them on in Settings, 3D tools.",
   no_studio: "Studio didn't answer. Open this place in Studio, then try again.",
   key_off:
@@ -105,7 +107,7 @@ export function ModelCard({ url }: { url: string }) {
   }, [shown, uploads?.state, url]);
 
   const upload = useMutation<ModelUploadResult, Error, string>({
-    mutationFn: (studio) => desktop.uploadModelToPlace(url, studio),
+    mutationFn: (studio) => desktop.uploadModelToPlace(url, studio, file?.hash ?? ""),
     onMutate: () => {
       setResult(null);
       setStep("uploading");
@@ -217,7 +219,13 @@ export function ModelCard({ url }: { url: string }) {
                 Open Settings
               </button>
             ) : null}
-            {result.reason !== "no_file" ? uploadButton("Try again") : null}
+            {result.reason === "file_changed" ? (
+              <button type="button" className={primaryClass} onClick={() => setResult(null)}>
+                Check the new version
+              </button>
+            ) : result.reason !== "no_file" ? (
+              uploadButton("Try again")
+            ) : null}
           </div>
         </>
       );

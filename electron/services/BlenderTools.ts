@@ -149,6 +149,7 @@ export interface BlenderToolsOptions {
     command: string,
     args: readonly string[],
     environment: NodeJS.ProcessEnv,
+    signal?: AbortSignal,
   ) => Promise<void>;
   freeBytes?: (path: string) => Promise<number>;
 }
@@ -386,8 +387,9 @@ async function defaultRunCommand(
   command: string,
   args: readonly string[],
   environment: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<void> {
-  await run(command, [...args], { env: environment, timeout: COMMAND_TIMEOUT_MS });
+  await run(command, [...args], { env: environment, timeout: COMMAND_TIMEOUT_MS, signal });
 }
 
 async function installEverything(options: BlenderToolsOptions): Promise<void> {
@@ -452,7 +454,20 @@ async function installEverything(options: BlenderToolsOptions): Promise<void> {
 
   if (options.signal?.aborted) throw new SetupCancelled();
   report("connecting");
-  const runCommand = options.runCommand ?? defaultRunCommand;
+  // Stop has to reach these too, or setup would carry on and finish after being stopped.
+  const runCommand = async (
+    command: string,
+    args: readonly string[],
+    environment: NodeJS.ProcessEnv,
+  ) => {
+    if (options.signal?.aborted) throw new SetupCancelled();
+    try {
+      await (options.runCommand ?? defaultRunCommand)(command, args, environment, options.signal);
+    } catch (error) {
+      if (options.signal?.aborted) throw new SetupCancelled();
+      throw error;
+    }
+  };
   await runCommand(
     uvExecutable,
     ["sync", "--frozen", "--no-dev", "--directory", serverHome, "--python", PYTHON_VERSION],
@@ -535,12 +550,20 @@ export async function getBlenderToolsState(
   return { state: "ready", running: await isBlenderListening() };
 }
 
-export function openBlender(root: string, platform: NodeJS.Platform = process.platform): void {
-  spawn(blenderExecutable(root, platform), ["--online-mode"], {
-    detached: true,
-    stdio: "ignore",
-    env: blenderEnvironment(root),
-  }).unref();
+/** Resolves once Blender has started. A failed spawn only reports as an event, which would crash the app unheard. */
+export function openBlender(root: string, platform: NodeJS.Platform = process.platform): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(blenderExecutable(root, platform), ["--online-mode"], {
+      detached: true,
+      stdio: "ignore",
+      env: blenderEnvironment(root),
+    });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
 }
 
 export function removeBlenderTools(root: string): Promise<void> {

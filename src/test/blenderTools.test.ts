@@ -11,6 +11,7 @@ import {
   getBlenderToolsState,
   installBlenderTools,
   isBlenderInstalled,
+  openBlender,
   removeBlenderTools,
 } from "../../electron/services/BlenderTools";
 
@@ -222,6 +223,33 @@ describe("Blender tools", () => {
       await expect(stat(join(root, "downloads"))).rejects.toThrow();
     });
 
+    it("stops partway through connecting, and doesn't finish", async () => {
+      const root = await directory();
+      const stop = new AbortController();
+      const seen: (AbortSignal | undefined)[] = [];
+      const result = await install(root, {
+        signal: stop.signal,
+        runCommand: async (
+          _command: string,
+          _args: readonly string[],
+          _env: NodeJS.ProcessEnv,
+          signal?: AbortSignal,
+        ) => {
+          seen.push(signal);
+          stop.abort();
+          throw new Error("killed");
+        },
+      });
+
+      expect(Either.isLeft(result)).toBe(true);
+      expect(seen).toEqual([stop.signal]);
+      await expect(isBlenderInstalled(root)).resolves.toBe(false);
+    });
+
+    it("reports a Blender that won't start, instead of crashing the app", async () => {
+      await expect(openBlender(await directory())).rejects.toThrow();
+    });
+
     it("keeps its settings away from someone's own Blender", async () => {
       const root = await directory();
       const environments: NodeJS.ProcessEnv[] = [];
@@ -283,9 +311,11 @@ describe("Blender tools", () => {
     const config = blenderMcpServerConfig("/tools", "darwin");
 
     expect(config.type).toBe("local");
-    expect(config.command).toEqual(["/tools/mcp-server-1.0.3/.venv/bin/blender-mcp"]);
+    expect(config.command).toEqual([
+      join("/tools", "mcp-server-1.0.3", ".venv", "bin", "blender-mcp"),
+    ]);
     expect(config.environment.BLENDER_MCP_PORT).toBe(String(BLENDER_MCP_PORT));
-    expect(config.environment.BLENDER_USER_RESOURCES).toBe("/tools/user");
+    expect(config.environment.BLENDER_USER_RESOURCES).toBe(join("/tools", "user"));
     expect(blenderMcpServerConfig("C:\\tools", "win32").command[0]).toContain("blender-mcp.exe");
   });
 });

@@ -501,7 +501,7 @@ const registerIpcHandlers = Effect.sync(() => {
   ipcMain.handle(channels.cancelBlenderTools, () => blenderSetup?.abort());
   ipcMain.handle(channels.openBlender, () =>
     runMain(
-      Effect.try({
+      Effect.tryPromise({
         try: () => openBlender(blenderToolsRoot()),
         catch: (cause) => new DesktopMainError({ message: "Couldn't open Blender", cause }),
       }),
@@ -564,12 +564,14 @@ const registerIpcHandlers = Effect.sync(() => {
       data: file.bytes,
       kind: file.contentType === "model/fbx" ? "fbx" : "glb",
       sizeBytes: file.bytes.byteLength,
+      hash: file.hash,
       sent: await readSentModel(sentModels(), file.hash),
     };
   });
-  ipcMain.handle(channels.uploadModelToPlace, async (event, url: unknown, studioKey: unknown) => {
+  ipcMain.handle(channels.uploadModelToPlace, async (event, url: unknown, studioKey: unknown, hash: unknown) => {
     const decodedUrl = await Schema.decodeUnknownPromise(Schema.String)(url);
     const studio = await Schema.decodeUnknownPromise(StudioKeySchema)(studioKey);
+    const expectedHash = await Schema.decodeUnknownPromise(Schema.String)(hash);
     // A second click, or a second card for the same file, joins the upload that's running.
     const running = uploadsInFlight.get(decodedUrl);
     if (running) return running;
@@ -577,6 +579,7 @@ const registerIpcHandlers = Effect.sync(() => {
       keyFile: robloxKeyFile(),
       sentFile: sentModels(),
       encryption: safeStorage,
+      expectedHash,
       studioAccount: () => queryStudio((callTool) => readStudioAccount(callTool, studio)),
       insert: (assetId, name) =>
         queryStudio((callTool) => insertUploadedModel(callTool, studio, assetId, name)),
