@@ -6,28 +6,28 @@ import openAssistantImage from "@/assets/studio-setup/open-assistant.jpg";
 import openPlaceImage from "@/assets/studio-setup/open-place.jpg";
 import type { StudioMcpProblem } from "@/hooks/useStudioConnection";
 
-const STEPS = [
+export const STUDIO_SETUP_STEPS = [
   {
     title: "Open a place",
-    description: "Open any place in Roblox Studio.",
+    description: "Open any place in Roblox Studio",
     image: openPlaceImage,
     alt: "The Baseplate template on the Roblox Studio home screen",
   },
   {
     title: "Assistant",
-    description: "Click Assistant in the top-right corner.",
+    description: "Click Assistant in the top-right corner",
     image: openAssistantImage,
     alt: "An open Roblox Studio place with the Assistant button in the top-right corner",
   },
   {
     title: "Manage MCP Servers",
-    description: "Open the ••• menu, then click Manage MCP Servers.",
+    description: "Open the ••• menu, then click Manage MCP Servers",
     image: findMcpImage,
     alt: "The Roblox Studio Assistant menu with Manage MCP Servers selected",
   },
   {
     title: "Enable Studio as MCP server",
-    description: "Turn on Enable Studio as MCP server.",
+    description: "Turn on Enable Studio as MCP server",
     image: flipSwitchImage,
     alt: "Roblox Studio Assistant Settings with Enable Studio as MCP server turned on",
   },
@@ -47,11 +47,20 @@ interface StudioSetupProps {
   problem?: StudioMcpProblem | null;
   onCheck: () => void;
   onContinue: () => void;
+  /** Offered when this was opened by choice, so there's a way back without connecting. */
+  onDismiss?: () => void;
 }
 
-function StudioSetup({ connected, checking, problem, onCheck, onContinue }: StudioSetupProps) {
+function StudioSetup({
+  connected,
+  checking,
+  problem,
+  onCheck,
+  onContinue,
+  onDismiss,
+}: StudioSetupProps) {
   const [stepIndex, setStepIndex] = useState(0);
-  const step = STEPS[stepIndex];
+  const step = STUDIO_SETUP_STEPS[stepIndex];
 
   if (connected) {
     return (
@@ -93,24 +102,33 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
       <section className="animate-fade-in-up w-full max-w-2xl" aria-labelledby="studio-setup-title">
         <header className="flex items-center gap-4">
           <BloxBotFace />
-          <div>
+          <div className="flex-1">
             <p className="text-xs font-medium text-muted-foreground">One tiny setup</p>
             <h1 id="studio-setup-title" className="text-lg font-medium">
               Let&apos;s connect Studio
             </h1>
           </div>
+          {onDismiss ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="h-9 shrink-0 rounded-lg border px-4 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              Back to chat
+            </button>
+          ) : null}
         </header>
 
         <div className="mt-4 overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-5 py-3">
             <div>
               <p className="text-xs font-medium text-muted-foreground">
-                Step {stepIndex + 1} of {STEPS.length}
+                Step {stepIndex + 1} of {STUDIO_SETUP_STEPS.length}
               </p>
               <h2 className="mt-0.5 text-base font-medium">{step.title}</h2>
             </div>
             <div className="flex gap-1.5" aria-hidden="true">
-              {STEPS.map((item, index) => (
+              {STUDIO_SETUP_STEPS.map((item, index) => (
                 <span
                   key={item.title}
                   className={`h-1.5 rounded-full transition-all ${
@@ -137,7 +155,7 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
                   Back
                 </button>
               )}
-              {stepIndex < STEPS.length - 1 ? (
+              {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
                 <button
                   type="button"
                   onClick={() => setStepIndex((current) => current + 1)}

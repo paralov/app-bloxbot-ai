@@ -27,10 +27,10 @@ interface StudioTargetContextValue {
   selected: StudioTarget | null;
   promptReference: string | null;
   status: StudioTargetStatus;
-  refreshing: boolean;
   selectingKey: string | null;
   error: string | null;
-  discover(): Promise<void>;
+  /** Resolves with how many Studios are listed afterwards. */
+  discover(): Promise<number>;
   select(target: StudioTarget): Promise<void>;
 }
 
@@ -57,12 +57,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const [targets, setTargets] = useState<readonly StudioTarget[]>([]);
   const [selected, setSelected] = useState<StudioTarget | null>(null);
   const [status, setStatus] = useState<StudioTargetStatus>("loading");
-  const [refreshing, setRefreshing] = useState(false);
   const [selectingKey, setSelectingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const operationRef = useRef(0);
   const targetsRef = useRef<readonly StudioTarget[]>([]);
-  const discoveryRef = useRef<Promise<void> | null>(null);
+  const discoveryRef = useRef<Promise<number> | null>(null);
   const targetsBySessionRef = useRef<Record<string, StudioTarget>>({});
   const configLoadedRef = useRef(false);
 
@@ -150,18 +149,15 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     [activeSessionId, rememberTarget],
   );
 
-  const discover = useCallback(
-    async (showLoading = true) => {
-      if (discoveryRef.current) return discoveryRef.current;
-      const discovery = (async () => {
-        const operation = ++operationRef.current;
-        if (showLoading && targetsRef.current.length === 0) setStatus("loading");
-        else setRefreshing(true);
-        setError(null);
-        try {
-          await applyDiscovery(operation);
-        } catch (discoveryError) {
-          if (operation !== operationRef.current) return;
+  const discover = useCallback(async () => {
+    if (discoveryRef.current) return discoveryRef.current;
+    const discovery = (async () => {
+      const operation = ++operationRef.current;
+      try {
+        await applyDiscovery(operation);
+        if (operation === operationRef.current) setError(null);
+      } catch (discoveryError) {
+        if (operation === operationRef.current) {
           setStatus(targetsRef.current.length > 0 ? "ready" : "error");
           setSelectingKey(null);
           console.error("[studio-target] discovery failed", discoveryError);
@@ -171,15 +167,14 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
             errorAnalyticsProperties("studio_target", "discovery", discoveryError),
           );
         }
-      })().finally(() => {
-        setRefreshing(false);
-        discoveryRef.current = null;
-      });
-      discoveryRef.current = discovery;
-      return discovery;
-    },
-    [applyDiscovery],
-  );
+      }
+      return targetsRef.current.length;
+    })().finally(() => {
+      discoveryRef.current = null;
+    });
+    discoveryRef.current = discovery;
+    return discovery;
+  }, [applyDiscovery]);
 
   const select = useCallback(
     async (target: StudioTarget) => {
@@ -248,14 +243,14 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         configLoadedRef.current = true;
       }
       setSelected(targetsBySessionRef.current[activeSessionId] ?? null);
-      await discover(false);
+      await discover();
     };
     void loadAndDiscover();
   }, [activeSessionId, client, discover]);
 
   useEffect(() => {
     if (!client || status !== "empty") return;
-    const timer = window.setInterval(() => void discover(false), 2_000);
+    const timer = window.setInterval(() => void discover(), 2_000);
     return () => window.clearInterval(timer);
   }, [client, discover, status]);
 
@@ -266,13 +261,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       selected,
       promptReference,
       status,
-      refreshing,
       selectingKey,
       error,
       discover,
       select,
     }),
-    [targets, selected, promptReference, status, refreshing, selectingKey, error, discover, select],
+    [targets, selected, promptReference, status, selectingKey, error, discover, select],
   );
   return <StudioTargetContext.Provider value={value}>{children}</StudioTargetContext.Provider>;
 }
