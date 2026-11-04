@@ -13,7 +13,7 @@ import ChatInput from "@/components/ChatInput";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { desktop } from "@/lib/desktop";
-import { type ExplorerTreeUpdate, OBJECT_DRAG_TYPE } from "@/lib/explorer";
+import { type ExplorerTreeUpdate, OBJECT_DRAG_NAME_TYPE, OBJECT_DRAG_TYPE } from "@/lib/explorer";
 import type { Session, SessionStatus } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import type { MessagesCache } from "@/lib/sseDispatch";
@@ -330,12 +330,20 @@ describe("ChatInput", () => {
       types: [OBJECT_DRAG_TYPE],
       files: [],
       dropEffect: "none",
-      getData: (type: string) => (type === OBJECT_DRAG_TYPE ? "game.Workspace.Model.Late" : ""),
+      getData: (type: string) =>
+        type === OBJECT_DRAG_TYPE
+          ? "game.Workspace.Model.La.te"
+          : type === OBJECT_DRAG_NAME_TYPE
+            ? "La.te"
+            : "",
     };
     fireEvent.dragEnter(composer, { dataTransfer });
     fireEvent.drop(composer, { dataTransfer });
 
-    expect(await screen.findByText("@Late")).toHaveAttribute("title", "game.Workspace.Model.Late");
+    expect(await screen.findByText("@La.te")).toHaveAttribute(
+      "title",
+      "game.Workspace.Model.La.te",
+    );
   });
 
   it("adds Explorer's Reference as the same chip and text as an @ mention", async () => {

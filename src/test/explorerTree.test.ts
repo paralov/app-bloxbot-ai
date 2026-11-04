@@ -246,6 +246,28 @@ describe("syncExplorerTree", () => {
     expect(tree().byId.size).toBe(1 + 3 + 3);
   });
 
+  it("keeps a child named like a path apart from the object at that path", async () => {
+    const { sync, tree } = renderer(
+      fakeStudio({
+        version: null,
+        place: [
+          folder(
+            "Workspace",
+            folder("A.B", folder("InDotted")),
+            folder("A", folder("B", folder("InNested"))),
+          ),
+        ],
+      }),
+    );
+    await sync();
+
+    const top = child(tree().roots, "Workspace").children;
+    expect(child(top, "A.B").children.map((node) => node.name)).toEqual(["InDotted"]);
+    expect(child(child(top, "A").children, "B").children.map((node) => node.name)).toEqual([
+      "InNested",
+    ]);
+  });
+
   it("reads through a name with a period in it, which a path can't reach", async () => {
     const callTool = fakeStudio({
       version: null,
@@ -550,6 +572,51 @@ describe("syncExplorerTree", () => {
       content: [{ type: "text" as const, text: "No Studio connected" }],
     }));
     await expect(renderer(callTool).sync()).rejects.toThrow("unreadable");
+  });
+
+  it("keeps warning that a tree is incomplete when nothing has changed", async () => {
+    const callTool = fakeStudio({
+      version: "1",
+      place: [folder("Workspace", folder("Big", ...many(5, (index) => folder(`K${index}`))))],
+    });
+    const original = callTool.getMockImplementation() as CallStudioTool;
+    callTool.mockImplementation(async (name, args) => {
+      const answer = await original(name, args);
+      if (name !== "search_game_tree" || args.path !== "Workspace") return answer;
+      const text = (answer.content?.[0] as { text: string }).text;
+      return {
+        content: [{ type: "text" as const, text: `Note: Output limited to 3 nodes\n\n${text}` }],
+      };
+    });
+    const { sync } = renderer(callTool);
+
+    expect((await sync()).result.truncated).toBe(true);
+    const again = await sync();
+    expect(again.result).toMatchObject({ changed: false, truncated: true });
+  });
+
+  it("cancels a read already under way when a newer one replaces it", async () => {
+    const started: AbortSignal[] = [];
+    const studio = fakeStudio({ version: null, place: [folder("Workspace", folder("Kid"))] });
+    const answer = studio.getMockImplementation() as CallStudioTool;
+    const callTool: CallStudioTool = async (name, args, options) => {
+      if (name !== "search_game_tree" || !args.path) return answer(name, args);
+      if (options?.signal) started.push(options.signal);
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new Error("cancelled")));
+      });
+    };
+    const controller = new AbortController();
+    const running = syncExplorerTree(callTool, "studio-1", {
+      fresh: true,
+      force: false,
+      signal: controller.signal,
+      onUpdate: () => {},
+    });
+    await vi.waitFor(() => expect(started).toHaveLength(1));
+    controller.abort();
+
+    await expect(running).resolves.toMatchObject({ complete: false });
   });
 
   it("stops when a newer read replaces it", async () => {

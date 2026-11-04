@@ -12,6 +12,7 @@ import type { StudioTarget, StudioTargetDiscovery, StudioTargetSelection } from 
 export type CallStudioTool = (
   name: string,
   args: Record<string, unknown>,
+  options?: { signal?: AbortSignal },
 ) => Promise<CallToolResult>;
 
 // Studio MCP can put a note such as "Note: Output limited to N nodes" before
@@ -332,6 +333,10 @@ async function readReflection(callTool: CallStudioTool, studioId: string): Promi
   const result: Reflection = { classes: {}, enums: {}, brickColors: [] };
   let start: number | false = 1;
   while (start !== false) {
+    // Each page is a script, and the user can undo something in Studio between them.
+    if (start !== 1 && (await readHistoryState(callTool, studioId)).redo === "can-redo") {
+      throw new Error("Studio has something to redo");
+    }
     let page: any = null;
     let lastError = "";
     // Like every script, this can't use "Edit" during a playtest.
@@ -702,7 +707,11 @@ export async function inspectExplorerNode(
         console.warn("[explorer] couldn't read class data", error);
         return NO_REFLECTION;
       });
-      return await readDetailsWithScript(callTool, studioId, classData, request);
+      // Class data can take a while, and the user can undo something in Studio meanwhile.
+      if ((await readHistoryState(callTool, studioId)).redo !== "can-redo") {
+        return await readDetailsWithScript(callTool, studioId, classData, request);
+      }
+      limited = "redo";
     } catch (error) {
       console.warn("[explorer] couldn't read an object with a script", error);
     }
@@ -906,11 +915,16 @@ ${KEEP_NAME_LUAU}`,
   // A duplicate needs its own name: the tree shows objects sharing a path as one row.
   duplicate: () => `${STRUCTURE_GUARD_LUAU}local copy = instance:Clone()
 if not copy then error("This object can't be duplicated") end
-local name = instance.Name .. "Copy"
+-- Roblox allows 100 characters, so a long name gives way to what makes this one different.
+local function withSuffix(suffix)
+  local stop = utf8.offset(instance.Name, 101 - #suffix)
+  return (stop and string.sub(instance.Name, 1, stop - 1) or instance.Name) .. suffix
+end
+local name = withSuffix("Copy")
 local number = 1
 while instance.Parent:FindFirstChild(name) do
   number += 1
-  name = instance.Name .. "Copy" .. number
+  name = withSuffix("Copy" .. number)
 end
 copy.Name = name
 copy.Parent = instance.Parent`,

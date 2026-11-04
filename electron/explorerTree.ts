@@ -53,6 +53,7 @@ interface TreeState {
   rootHash: string | null;
   treeVersion: string | null;
   complete: boolean;
+  truncated: boolean;
   readAt: number;
   plans: Map<string, Plan>;
 }
@@ -99,8 +100,9 @@ const parentPathOf = (path: string, name: string) =>
 async function readTree(
   callTool: CallStudioTool,
   args: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<{ read: Read } | { error: string }> {
-  const result = await callTool("search_game_tree", args);
+  const result = await callTool("search_game_tree", args, signal ? { signal } : undefined);
   const error = mcpError(result);
   if (error) return { error };
   const data = mcpData(result);
@@ -156,6 +158,18 @@ interface BuiltNode {
   children: BuiltNode[];
 }
 
+interface BuiltEntry {
+  node: BuiltNode;
+  rowPath: string;
+  parentName: string;
+  hidden: number;
+  rowIndex: number;
+}
+
+// Rows at one path can still be different objects: a child called "A.B", and a "B" inside a child
+// "A". A path can't tell them apart, but names and parents can.
+const rowKey = (path: string, name: string) => `${path}\0${name}`;
+
 /**
  * Turns one read's rows into the objects under where it started. Studio lists a level at a time, so
  * the children of objects sharing a path are in their order. Where the split between them falls
@@ -166,47 +180,61 @@ async function buildChildren(
   anchor: Anchor,
   countsAt: (level: number) => Promise<ReadonlyMap<string, readonly number[]>>,
 ) {
-  const byPath = new Map<string, { node: BuiltNode; hidden: number; rowIndex: number }[]>();
+  const byKey = new Map<string, BuiltEntry[]>();
+  const rowsAtPath = new Map<string, number>();
+  const keyAtPath = new Map<string, string>();
   for (const [rowIndex, row] of rows.entries()) {
     const path = rowPathOf(row);
     if (!path) continue;
+    const name = rowNameOf(row, path);
+    const key = rowKey(path, name);
     const entry = {
       rowIndex,
+      rowPath: path,
+      parentName: typeof row?.parentName === "string" ? row.parentName : "",
       hidden: hiddenChildrenOf(row),
       node: {
-        name: rowNameOf(row, path),
+        name,
         className: typeof row?.className === "string" ? row.className : "Instance",
         path: gamePath(path),
         hasChildren: false,
         children: [],
       },
     };
-    const entries = byPath.get(path);
+    const entries = byKey.get(key);
     if (entries) entries.push(entry);
-    else byPath.set(path, [entry]);
+    else byKey.set(key, [entry]);
+    rowsAtPath.set(path, (rowsAtPath.get(path) ?? 0) + 1);
+    if (!keyAtPath.has(path)) keyAtPath.set(path, key);
   }
 
-  const levels = new Map<string, number>([[anchor.path, 0]]);
-  const reachable = new Map<string, boolean>([[anchor.path, true]]);
-  const childPaths = new Map<string, string[]>();
-  for (const [path, entries] of byPath) {
-    if (path === anchor.path) continue;
-    const { name } = entries[0].node;
-    const parentPath = parentPathOf(path, name);
-    const siblings = childPaths.get(parentPath);
-    if (siblings) siblings.push(path);
-    else childPaths.set(parentPath, [path]);
+  const anchorKey = keyAtPath.get(anchor.path) ?? "";
+  const levels = new Map<string, number>([[anchorKey, 0]]);
+  const reachable = new Map<string, boolean>([[anchorKey, true]]);
+  const childKeys = new Map<string, string[]>();
+  for (const [key, entries] of byKey) {
+    if (key === anchorKey) continue;
+    const { node, rowPath, parentName } = entries[0];
+    const parentPath = parentPathOf(rowPath, node.name);
+    const named = rowKey(parentPath, parentName);
+    const parentKey = byKey.has(named) ? named : keyAtPath.get(parentPath);
+    if (!parentKey) continue;
+    const siblings = childKeys.get(parentKey);
+    if (siblings) siblings.push(key);
+    else childKeys.set(parentKey, [key]);
     // Parents come first, because of the order of the rows.
-    levels.set(path, (levels.get(parentPath) ?? 0) + 1);
+    levels.set(key, (levels.get(parentKey) ?? 0) + 1);
     // A path only reaches the first object with it, and a period in a name breaks it.
     reachable.set(
-      path,
-      (reachable.get(parentPath) ?? false) && entries.length === 1 && !name.includes("."),
+      key,
+      (reachable.get(parentKey) ?? false) &&
+        rowsAtPath.get(rowPath) === 1 &&
+        !node.name.includes("."),
     );
     if (entries.length > 1) {
-      entries.forEach(({ node }, occurrence) => {
-        node.occurrence = occurrence;
-        node.occurrences = entries.length;
+      entries.forEach((entry, occurrence) => {
+        entry.node.occurrence = occurrence;
+        entry.node.occurrences = entries.length;
       });
     }
   }
@@ -219,15 +247,15 @@ async function buildChildren(
     hasChildren: false,
     children: [],
   };
-  const link = async (parentPath: string, parents: readonly BuiltNode[]) => {
-    const paths = childPaths.get(parentPath) ?? [];
-    const rowsBelow = paths.flatMap((path) => byPath.get(path) ?? []);
+  const link = async (parentKey: string, parents: readonly BuiltNode[]) => {
+    const keys = childKeys.get(parentKey) ?? [];
+    const rowsBelow = keys.flatMap((key) => byKey.get(key) ?? []);
     if (rowsBelow.length === 0) return;
     if (parents.length === 1) {
       parents[0].children = rowsBelow.map(({ node }) => node);
     } else {
       hasTwins = true;
-      const counts = (await countsAt(levels.get(parentPath) ?? 0)).get(parentPath) ?? [];
+      const counts = (await countsAt(levels.get(parentKey) ?? 0)).get(parentKey) ?? [];
       const children = rowsBelow.sort((a, b) => a.rowIndex - b.rowIndex).map(({ node }) => node);
       let next = 0;
       parents.forEach((parent, index) => {
@@ -237,14 +265,14 @@ async function buildChildren(
         next += count;
       });
     }
-    for (const path of paths) {
+    for (const key of keys) {
       await link(
-        path,
-        (byPath.get(path) ?? []).map(({ node }) => node),
+        key,
+        (byKey.get(key) ?? []).map(({ node }) => node),
       );
     }
   };
-  await link(anchor.path, [top]);
+  await link(anchorKey, [top]);
 
   // Each id comes from its parent's, with a number for the ones after the first with a name.
   const identify = (nodes: readonly BuiltNode[], parentId: string) => {
@@ -270,13 +298,13 @@ async function buildChildren(
   // What this read stopped short of. Nothing can reach below an object that shares a path, so those
   // don't offer an arrow that would do nothing.
   const frontier: Anchor[] = [];
-  for (const [path, entries] of byPath) {
-    if (!reachable.get(path) || path === anchor.path) continue;
-    for (const { hidden, node } of entries) {
+  for (const [key, entries] of byKey) {
+    if (!reachable.get(key) || key === anchorKey) continue;
+    for (const { hidden, node, rowPath } of entries) {
       if (hidden <= 0 || node.children.length > 0 || !node.id) continue;
       node.hasChildren = true;
       node.pending = true;
-      frontier.push({ path, id: node.id });
+      frontier.push({ path: rowPath, id: node.id });
     }
   }
 
@@ -320,6 +348,7 @@ export async function syncExplorerTree(
           rootHash: null,
           treeVersion: null,
           complete: false,
+          truncated: false,
           readAt: 0,
           plans: new Map(),
         };
@@ -359,7 +388,13 @@ export async function syncExplorerTree(
     state.treeVersion === history.treeVersion &&
     state.rootHash === rootHash
   ) {
-    return { changed: false, watching, complete: true, truncated: false, slowestReadMs };
+    return {
+      changed: false,
+      watching,
+      complete: true,
+      truncated: state.truncated,
+      slowestReadMs,
+    };
   }
   if (state.model !== model) state.plans.clear();
 
@@ -403,7 +438,7 @@ export async function syncExplorerTree(
         path,
         max_depth: depth,
         head_limit: limit,
-      }),
+      }, signal),
     );
     if ("error" in answer) throw new Error(answer.error);
     return answer.read;
@@ -426,9 +461,10 @@ export async function syncExplorerTree(
             const found = new Map<string, number[]>();
             for (const row of edge.rows) {
               const path = rowPathOf(row);
-              const list = found.get(path);
+              const key = rowKey(path, rowNameOf(row, path));
+              const list = found.get(key);
               if (list) list.push(hiddenChildrenOf(row));
-              else found.set(path, [hiddenChildrenOf(row)]);
+              else found.set(key, [hiddenChildrenOf(row)]);
             }
             return found;
           });
@@ -516,8 +552,9 @@ export async function syncExplorerTree(
         visit(anchor)
           .catch((error) => {
             complete = false;
-            // Removed since its parent was read. The next sync sees the parent without it.
-            if (!(error instanceof ObjectGone)) firstError ??= error;
+            // Removed since its parent was read, the next sync sees the parent without it. And a read
+            // that was cancelled has been replaced by a newer one.
+            if (!(error instanceof ObjectGone) && !signal?.aborted) firstError ??= error;
           })
           .finally(() => {
             running -= 1;
@@ -537,6 +574,7 @@ export async function syncExplorerTree(
   state.rootHash = rootHash;
   state.treeVersion = history.treeVersion;
   state.complete = complete;
+  state.truncated = truncated;
   state.readAt = Date.now();
   if (firstError) throw firstError;
   return { changed, watching, complete, truncated, slowestReadMs };

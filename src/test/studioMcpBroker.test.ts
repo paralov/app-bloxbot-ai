@@ -309,7 +309,7 @@ describe("Studio MCP startup (#106)", () => {
     expect(connection.status()).toEqual({ state: "unavailable" });
     await connection.callTool("inspect_place", {});
 
-    expect(second.callTool).toHaveBeenCalledWith("inspect_place", {});
+    expect(second.callTool).toHaveBeenCalledWith("inspect_place", {}, undefined);
     expect(connection.status()).toEqual({ state: "connected" });
   });
 

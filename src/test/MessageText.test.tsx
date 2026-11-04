@@ -4,6 +4,20 @@ import { MessageText } from "@/components/ChatMessages";
 import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
 
 describe("references in a sent message", () => {
+  it("shows a chip for a tag whose name has a less-than sign in it", () => {
+    render(
+      <ExplorerReferenceProvider>
+        <MessageText
+          text={
+            'See <Instance reference="game.Workspace.Part" tag="a&lt;b">@Part.a&lt;b &amp; c</Instance>'
+          }
+        />
+      </ExplorerReferenceProvider>,
+    );
+
+    expect(screen.getByText("@Part.a<b & c")).toBeInTheDocument();
+  });
+
   it("tells objects, properties and attributes apart", () => {
     render(
       <ExplorerReferenceProvider>

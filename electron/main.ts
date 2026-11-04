@@ -230,7 +230,7 @@ const queryStudio = <A>(query: (callTool: CallStudioTool) => Promise<A>) =>
     Effect.gen(function* () {
       const broker = yield* StudioMcpBroker;
       return yield* Effect.tryPromise({
-        try: () => query((name, args) => Effect.runPromise(broker.callTool(name, args))),
+        try: () => query((name, args, options) => Effect.runPromise(broker.callTool(name, args, options))),
         catch: (cause) =>
           new DesktopMainError({
             message: cause instanceof Error ? cause.message : "Studio didn't answer",

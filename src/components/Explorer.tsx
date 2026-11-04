@@ -49,6 +49,7 @@ import {
   type ExplorerNode,
   explorerRows,
   nodeId,
+  OBJECT_DRAG_NAME_TYPE,
   OBJECT_DRAG_TYPE,
   renamedId,
   siblingPath,
@@ -130,6 +131,7 @@ const TreeRow = memo(function TreeRow({
       draggable={!isRenaming}
       onDragStart={(event) => {
         event.dataTransfer.setData(OBJECT_DRAG_TYPE, node.path);
+        event.dataTransfer.setData(OBJECT_DRAG_NAME_TYPE, node.name);
         event.dataTransfer.effectAllowed = "copy";
       }}
       onDragEnd={(event) => {

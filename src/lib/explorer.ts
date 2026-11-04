@@ -518,6 +518,7 @@ export interface ExplorerReference {
 
 /** What an object dragged out of Explorer carries: its path, which the message box looks up. */
 export const OBJECT_DRAG_TYPE = "application/x-bloxbot-object";
+export const OBJECT_DRAG_NAME_TYPE = "application/x-bloxbot-object-name";
 
 // Roblox's limit on Instance.Name.
 const ObjectNameSchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100));

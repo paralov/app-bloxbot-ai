@@ -50,6 +50,10 @@ import {
 
 type TokenKind = "object" | "command";
 
+function escapeTagBody(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+
 function escapeTagValue(value: string) {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
@@ -129,7 +133,7 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
       const field = this.__field
         ? ` ${this.__field.kind}="${escapeTagValue(this.__field.name)}"`
         : "";
-      return `<Instance reference="${escapeTagValue(this.__value)}"${field}>${this.__label}</Instance>`;
+      return `<Instance reference="${escapeTagValue(this.__value)}"${field}>${escapeTagBody(this.__label)}</Instance>`;
     }
     return this.__value;
   }

@@ -671,7 +671,10 @@ const markdownComponents: Components = {
 };
 
 function decodeReference(value: string) {
-  return value.replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&");
 }
 
 export function MessageText({ text }: { text: string }) {
@@ -689,7 +692,7 @@ export function MessageText({ text }: { text: string }) {
       type: "instance",
       value: decodeReference(match[1]),
       fieldKind: match[2] as ExplorerReferenceKind | undefined,
-      label: match[3],
+      label: decodeReference(match[3]),
     });
     cursor = index + match[0].length;
   }

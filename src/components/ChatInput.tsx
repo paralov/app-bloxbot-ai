@@ -22,7 +22,7 @@ import { useSessionGoal } from "@/hooks/useSessionGoal";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { useTodos } from "@/hooks/useTodos";
 import { analyticsProperties } from "@/lib/analytics";
-import { OBJECT_DRAG_TYPE } from "@/lib/explorer";
+import { OBJECT_DRAG_NAME_TYPE, OBJECT_DRAG_TYPE } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
@@ -474,7 +474,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
       // The panel can be ahead of this list while a big place loads, and the path is what counts.
       if (path)
         referenceObject(
-          objectIndex.get(path) ?? { name: path.slice(path.lastIndexOf(".") + 1), path },
+          objectIndex.get(path) ?? { name: e.dataTransfer.getData(OBJECT_DRAG_NAME_TYPE), path },
         );
       else if (e.dataTransfer.files.length > 0) addImageFiles(e.dataTransfer.files);
     },

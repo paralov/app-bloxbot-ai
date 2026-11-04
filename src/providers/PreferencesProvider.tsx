@@ -71,6 +71,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     sound: true,
   }));
   const notificationsRef = useRef(notifications);
+  const notificationSaveRef = useRef(0);
 
   const connectedProviders = useConnectedProviders();
 
@@ -81,9 +82,12 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const saveNotifications = useCallback(
     (next: NotificationPreferences) => {
       const previous = notificationsRef.current;
+      const save = ++notificationSaveRef.current;
       notificationsRef.current = next;
       applyNotifications(next);
       patchConfig({ notificationKinds: next.kinds, notificationSound: next.sound }).catch(() => {
+        // A newer choice has already saved everything, this one's change included.
+        if (save !== notificationSaveRef.current) return;
         notificationsRef.current = previous;
         applyNotifications(previous);
       });

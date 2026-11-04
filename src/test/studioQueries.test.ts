@@ -224,6 +224,30 @@ describe("Studio targets", () => {
         expect(details?.properties.map((f) => f.name)).toEqual(["Anchored", "Mass"]);
       });
 
+      it("stops reading class data if something becomes redoable partway", async () => {
+        resetStudioCaches();
+        let canRedo = false;
+        let pages = 0;
+        const callTool = vi.fn<CallStudioTool>(async (name, args) => {
+          if (name === "inspect_instance") {
+            return args.path === "CoreGui.BloxBotHistoryState"
+              ? json(historyState(canRedo))
+              : json(part);
+          }
+          if (!String(args.code).includes("GetClasses")) return json(scripted);
+          pages += 1;
+          // The user undoes something while the first page is being read.
+          canRedo = true;
+          return json({ ...REFLECTION, next: 100 });
+        });
+
+        const details = await inspectExplorerNode(callTool, "studio-1", request);
+
+        expect(pages).toBe(1);
+        expect(scripts(callTool)).toHaveLength(0);
+        expect(details?.limited).toBe("redo");
+      });
+
       it("offers the BrickColor palette for attributes too", async () => {
         const callTool = studio(
           part,
@@ -637,12 +661,23 @@ describe("Studio targets", () => {
       expect(source).toContain("local instance = matches[2]");
     });
 
+    it("keeps a duplicate's name within Roblox's limit", async () => {
+      const callTool = vi.fn<CallStudioTool>(async () => json({ name: "x" }));
+      await editExplorerObject(callTool, "studio-1", {
+        action: "duplicate",
+        path: "game.Workspace.Part",
+        className: "Part",
+      });
+      const code = String(callTool.mock.calls[0]?.[1].code);
+      expect(code).toContain("utf8.offset");
+    });
+
     it("gives a duplicate its own name, so it gets its own row", async () => {
       const callTool = answer("PartCopy");
       await expect(
         editExplorerObject(callTool, "studio-1", { ...target, action: "duplicate" }),
       ).resolves.toEqual({ name: "PartCopy" });
-      expect(code(callTool)).toContain('local name = instance.Name .. "Copy"');
+      expect(code(callTool)).toContain('local name = withSuffix("Copy")');
       expect(code(callTool)).toContain("copy.Name = name");
     });
 
