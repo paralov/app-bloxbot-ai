@@ -3,7 +3,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelCard } from "@/components/ModelCard";
-import { RobloxUploadsCard } from "@/components/RobloxUploadsCard";
+import { describePermission } from "@/components/PermissionPrompt";
+import { RobloxKeyWizard } from "@/components/RobloxKeyWizard";
+import { ThreeDToolsTab } from "@/components/ThreeDToolsTab";
 import { loadConfig, patchConfig } from "@/lib/config";
 import { desktop } from "@/lib/desktop";
 import { modelLinksIn } from "@/lib/modelLinks";
@@ -19,6 +21,9 @@ import type {
 
 vi.mock("@/components/ModelPreview", () => ({
   default: ({ name }: { name: string }) => <div>Preview of {name}</div>,
+}));
+vi.mock("@/providers/OpenCodeClientProvider", () => ({
+  useOpenCodeClient: () => ({ client: null }),
 }));
 vi.mock("@/lib/config", () => ({ loadConfig: vi.fn(), patchConfig: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({
@@ -238,6 +243,31 @@ describe("the offer", () => {
   });
 });
 
+const toPasteStep = async () => {
+  for (let step = 0; step < 6; step++) {
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+  }
+  return screen.findByLabelText("API key");
+};
+
+describe("the permission prompt", () => {
+  it("speaks plainly, whatever the tool", () => {
+    expect(describePermission("shell").title).toBe("Run this command?");
+    expect(describePermission("roblox-studio_start_stop_play").title).toBe(
+      "Let Roblox Studio start stop play?",
+    );
+    expect(describePermission("something_new").title).toBe("Allow something new?");
+  });
+
+  it("makes uploading images a decision every time", () => {
+    const upload = describePermission("roblox-studio_upload_image");
+    expect(upload.title).toBe("Upload images to your Roblox account?");
+    expect(upload.everyTime).toBe(true);
+    expect(describePermission("roblox_studio_upload_image").everyTime).toBe(true);
+    expect(describePermission("shell").everyTime).toBeUndefined();
+  });
+});
+
 describe("the key guide", () => {
   const checked: Extract<RobloxKeyCheck, { result: "checked" }> = {
     result: "checked",
@@ -249,49 +279,58 @@ describe("the key guide", () => {
     extraAccess: [],
     studio: { id: "1", name: "CipherBolt" },
   };
-  const openAndCheck = async (check: RobloxKeyCheck) => {
+  const openAndCheck = async (check: RobloxKeyCheck, onClose = () => {}) => {
     setUp({ state: "off" });
     vi.spyOn(desktop, "checkRobloxKey").mockResolvedValue(check);
-    render(wrap(<RobloxUploadsCard startOpen />));
-    fireEvent.change(await screen.findByLabelText("API key"), { target: { value: " the-key " } });
+    render(wrap(<RobloxKeyWizard onClose={onClose} />));
+    fireEvent.change(await toPasteStep(), { target: { value: " the-key " } });
     fireEvent.click(screen.getByRole("button", { name: "Check key" }));
     await waitFor(() => expect(desktop.checkRobloxKey).toHaveBeenCalledWith("the-key", "studio-1"));
   };
 
-  it("starts closed, as an opt-in", async () => {
+  it("starts as an opt-in, and opens from the page", async () => {
     setUp({ state: "off" });
-    render(wrap(<RobloxUploadsCard />));
-    expect(await screen.findByRole("button", { name: "Set up uploads" })).toBeTruthy();
+    vi.spyOn(desktop, "getBlenderToolsState").mockResolvedValue({ state: "not_installed" });
+    render(wrap(<ThreeDToolsTab />));
     expect(screen.queryByLabelText("API key")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Set up uploads" }));
+    expect(screen.getByRole("heading", { name: "Connect Roblox" })).toBeTruthy();
+    expect(screen.getByText("Step 1 of 7")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "3D tools" }));
+    expect(await screen.findByRole("button", { name: "Set up uploads" })).toBeTruthy();
   });
 
-  it("gives the exact values, and covers the traps on Roblox's page", async () => {
+  it("walks one step at a time, covers the traps on Roblox's page, and can go back", async () => {
     setUp({ state: "off" });
-    render(wrap(<RobloxUploadsCard startOpen />));
-    await screen.findByLabelText("API key");
-    for (const text of [
+    render(wrap(<RobloxKeyWizard onClose={() => {}} />));
+    const expected = [
+      /It says I don't have permission/,
+      /If the name's taken/,
       /not asset-permissions or legacy-assets/,
-      /You do not have permissions to generate/,
       /every group you're in/,
       /open it twice/,
+      /treat it like a password/,
       /never into a chat/,
-    ]) {
+    ];
+    for (const [index, text] of expected.entries()) {
+      expect(screen.getByText(`Step ${index + 1} of 7`)).toBeTruthy();
       expect(screen.getByText(text)).toBeTruthy();
+      if (index < 6) fireEvent.click(screen.getByRole("button", { name: "Next" }));
     }
-    expect(screen.getByText("Restrict by Creator")).toBeTruthy();
-    const key = screen.getByLabelText("API key") as HTMLInputElement;
-    expect(key.type).toBe("password");
+    expect((screen.getByLabelText("API key") as HTMLInputElement).type).toBe("password");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText("Step 6 of 7")).toBeTruthy();
+    expect(document.activeElement?.textContent).toBe("Save the key and copy it");
   });
 
-  it("turns on a good key, and clears it from the page", async () => {
-    await openAndCheck(checked);
+  it("turns on a good key, and leaves the guide", async () => {
+    const onClose = vi.fn();
+    await openAndCheck(checked, onClose);
     const save = vi.spyOn(desktop, "saveRobloxKey").mockResolvedValue();
     expect(await screen.findByText(/same account Studio is signed in to/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Turn on uploads" }));
     await waitFor(() => expect(save).toHaveBeenCalledWith("the-key"));
-    await waitFor(() =>
-      expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe(""),
-    );
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it("blocks a key on another account, with no way around it", async () => {
@@ -325,10 +364,11 @@ describe("the key guide", () => {
     expect(screen.getByRole("button", { name: "Use it anyway" })).toBeTruthy();
   });
 
-  it("asks for Studio when it can't compare accounts, without blocking", async () => {
+  it("asks for Studio when it can't compare accounts, and can check again", async () => {
     await openAndCheck({ ...checked, studio: null });
-    expect(await screen.findByText(/Open your place in Studio to check/)).toBeTruthy();
+    expect(await screen.findByText(/checks\s+again before each upload/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Turn on uploads" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
   });
 
   it("says when the key isn't one", async () => {
@@ -338,11 +378,11 @@ describe("the key guide", () => {
 
   it("shows who it's on, and forgets the key", async () => {
     setUp(ON);
+    vi.spyOn(desktop, "getBlenderToolsState").mockResolvedValue({ state: "not_installed" });
     const forget = vi.spyOn(desktop, "forgetRobloxKey").mockResolvedValue();
-    render(wrap(<RobloxUploadsCard />));
-    expect(await screen.findByText(/Models upload to CipherBolt/)).toBeTruthy();
+    render(wrap(<ThreeDToolsTab />));
+    expect(await screen.findByText(/Models go to CipherBolt/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Turn off and forget the key" }));
     await waitFor(() => expect(forget).toHaveBeenCalled());
-    expect(screen.getByText(/delete it on Roblox too/)).toBeTruthy();
   });
 });

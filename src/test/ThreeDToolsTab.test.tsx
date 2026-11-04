@@ -118,10 +118,10 @@ describe("ThreeDToolsTab", () => {
     mocks.getState.mockResolvedValue({ state: "ready", running: true });
     start();
 
-    expect(await screen.findByText("Open and connected.")).toBeVisible();
+    expect(await screen.findByText("Open")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Open Blender" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-    expect(screen.getByText("Close Blender to remove it.")).toBeVisible();
+    expect(screen.getByText(/Close Blender to remove it/)).toBeVisible();
   });
 
   it("removes it and has OpenCode forget it", async () => {

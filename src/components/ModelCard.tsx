@@ -34,9 +34,9 @@ const FAILURES: Record<ModelUploadFailure, string> = {
   network: "Couldn't reach Roblox. Check your connection, then try again.",
 };
 
-const buttonClass = "rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-muted";
+const buttonClass = "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-accent";
 const primaryClass =
-  "rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90";
+  "rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90";
 
 function HandSteps({ fileName }: { fileName: string }) {
   return (
@@ -57,7 +57,7 @@ function CopyPath({ path }: { path: string }) {
   return (
     <button
       type="button"
-      className="rounded border px-1.5 py-0.5 font-sans text-[11px] hover:bg-muted"
+      className="rounded border px-1.5 py-0.5 font-sans text-[11px] transition-colors hover:bg-accent"
       onClick={() => {
         navigator.clipboard
           ?.writeText(path)

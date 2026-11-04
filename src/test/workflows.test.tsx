@@ -265,7 +265,7 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
     expect(existsSync(join(workspace, "denied.txt"))).toBe(false);
 
     await send("Try again");
-    fireEvent.click(await screen.findByRole("button", { name: "Allow Once" }, { timeout: SLOW }));
+    fireEvent.click(await screen.findByRole("button", { name: "Allow once" }, { timeout: SLOW }));
     await screen.findByText("Done.", {}, { timeout: SLOW });
     await replyFinished();
     expect(existsSync(join(workspace, "allowed.txt"))).toBe(true);
