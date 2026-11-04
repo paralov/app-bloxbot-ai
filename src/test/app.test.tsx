@@ -18,6 +18,7 @@ import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
 import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
+import { StudioTargetProvider } from "@/providers/StudioTargetProvider";
 
 // Mock react-virtual so all items render in jsdom (no viewport measurement)
 vi.mock("@tanstack/react-virtual", () => ({
@@ -57,9 +58,11 @@ function makeSession(id: string, title: string, createdAt = Date.now()): Session
 function TestApp({
   client,
   queryClient,
+  withStudioTargets = false,
 }: {
   client: ReturnType<typeof createClient>;
   queryClient: QueryClient;
+  withStudioTargets?: boolean;
 }) {
   const activeSessionIdRef = useRef<string | null>(null);
 
@@ -78,7 +81,13 @@ function TestApp({
           <ActiveSessionProvider activeSessionIdRef={activeSessionIdRef}>
             <PreferencesProvider>
               <ExplorerReferenceProvider>
-                <ChatWithSonner />
+                {withStudioTargets ? (
+                  <StudioTargetProvider>
+                    <ChatWithSonner />
+                  </StudioTargetProvider>
+                ) : (
+                  <ChatWithSonner />
+                )}
               </ExplorerReferenceProvider>
             </PreferencesProvider>
           </ActiveSessionProvider>
@@ -362,6 +371,56 @@ describe("User journeys", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
 
     expect(await screen.findByRole("heading", { name: "Studio connected" })).toBeVisible();
+  });
+
+  it("walks through setup from the picker until a Studio appears, with a way back", async () => {
+    const discover = vi
+      .spyOn(desktop, "discoverStudioTargets")
+      .mockResolvedValue({ targets: [], selectedKey: null } as never);
+    const session = makeSession("s1", "My Session");
+    const never = new Promise<never>(() => {});
+    const client = createClient({
+      get: vi.fn().mockReturnValue(never),
+      messages: vi.fn().mockReturnValue(never),
+      todo: vi.fn().mockReturnValue(never),
+    });
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { sessions: [session] });
+
+    try {
+      render(<TestApp client={client} queryClient={queryClient} withStudioTargets />);
+      const openSetup = async () => {
+        fireEvent.click(await screen.findByRole("button", { name: /No Studios/ }));
+        fireEvent.click(await screen.findByRole("button", { name: "Show steps" }));
+        fireEvent.click(screen.getByRole("button", { name: "Walk me through it" }));
+      };
+
+      fireEvent.click(await screen.findByText("My Session"));
+      await openSetup();
+
+      // The helper is connected, but with no Studio listed setup isn't done.
+      expect(await screen.findByRole("heading", { name: "Let's connect Studio" })).toBeVisible();
+      expect(screen.queryByRole("heading", { name: "Studio connected" })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+      await openSetup();
+      expect(await screen.findByRole("heading", { name: "Let's connect Studio" })).toBeVisible();
+
+      discover.mockResolvedValue({
+        targets: [{ key: "studio-1", label: "My Place", detail: "Local place" }],
+        selectedKey: "studio-1",
+      } as never);
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+
+      expect(await screen.findByRole("heading", { name: "Studio connected" })).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Let's build" }));
+      expect(await screen.findByRole("button", { name: /My Place/ })).toBeVisible();
+    } finally {
+      discover.mockRestore();
+    }
   });
 
   it("switches to the latest session immediately without waiting for older requests", async () => {

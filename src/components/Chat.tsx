@@ -45,6 +45,8 @@ function Chat() {
   const [titlebarActions, setTitlebarActions] = useState<HTMLElement | null>(null);
   useEffect(() => setTitlebarActions(document.getElementById("titlebar-actions")), []);
   const [showStudioSetup, setShowStudioSetup] = useState(false);
+  // From the picker the helper is already connected, so setup is done only once a Studio shows up.
+  const [setupFromPicker, setSetupFromPicker] = useState(false);
   const [showPlaytest, setShowPlaytest] = useState(false);
   const desiredSidePanel = showPlaytest
     ? "playtest"
@@ -136,6 +138,14 @@ function Chat() {
   );
 
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
+  const handleOpenStudioSetup = useCallback(() => {
+    setSetupFromPicker(true);
+    setShowStudioSetup(true);
+  }, []);
+  const handleCloseStudioSetup = useCallback(() => {
+    setSetupFromPicker(false);
+    setShowStudioSetup(false);
+  }, []);
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
   const handleToggleExplorer = useCallback(() => {
@@ -224,11 +234,18 @@ function Chat() {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-t-xl border-x border-t bg-background">
         {showStudioSetup || studioConnection.state === "waiting" ? (
           <StudioSetup
-            connected={studioConnection.state === "connected"}
+            connected={
+              studioConnection.state === "connected" &&
+              (!setupFromPicker || studioTarget?.status === "ready")
+            }
             checking={studioConnection.checking}
             problem={studioConnection.problem}
-            onCheck={() => studioConnection.checkAgain()}
-            onContinue={() => setShowStudioSetup(false)}
+            onCheck={() => {
+              void studioConnection.checkAgain();
+              if (setupFromPicker) void studioTarget?.discover();
+            }}
+            onContinue={handleCloseStudioSetup}
+            onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
           />
         ) : studioConnection.state === "checking" ? (
           <LoadingScreen message="Finding Roblox Studio" animation="dots" />
@@ -269,7 +286,7 @@ function Chat() {
                 {activeSessionTitle || "Untitled"}
               </h3>
               <div className="flex max-w-[45%] shrink-0">
-                <StudioTargetPicker />
+                <StudioTargetPicker onOpenSetup={handleOpenStudioSetup} />
               </div>
             </div>
 

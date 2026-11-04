@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import StudioSetup from "@/components/StudioSetup";
@@ -33,5 +33,16 @@ describe("StudioSetup", () => {
       "Studio's MCP helper stopped right after it started.",
     );
     expect(screen.getByRole("status").textContent).not.toContain(";");
+  });
+
+  it("offers a way back only when one is given", () => {
+    const onDismiss = vi.fn();
+    const props = { connected: false, checking: false, onCheck: vi.fn(), onContinue: vi.fn() };
+    const { rerender } = render(<StudioSetup {...props} />);
+    expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
+
+    rerender(<StudioSetup {...props} onDismiss={onDismiss} />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
 });
