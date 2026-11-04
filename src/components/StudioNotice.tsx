@@ -18,12 +18,9 @@ export default function StudioNotice({
   const missing = studioTarget?.missing ?? null;
   const canChoose = (studioTarget?.targets.length ?? 0) > 0;
   const twins = studioTarget?.twins ?? 0;
-  const rejoinedByName = !!studioTarget?.rejoinedByName && selected !== null;
+  const nameMatch = studioTarget?.nameMatch ?? null;
   const hidden =
-    !studioTarget ||
-    status === "loading" ||
-    (selected !== null && !rejoinedByName) ||
-    !!studioTarget.selectingKey;
+    !studioTarget || status === "loading" || selected !== null || !!studioTarget.selectingKey;
 
   // The notice going away says nothing to a screen reader, so a return gets said out loud.
   const [returned, setReturned] = useState<string | null>(null);
@@ -41,12 +38,12 @@ export default function StudioNotice({
   const place = missing ? placeName(missing.label) : null;
   const message = hidden
     ? null
-    : rejoinedByName && selected
-      ? `Using ${placeName(selected.label)}, matched by name.`
-      : status === "error"
-        ? "Couldn't reach Studio."
-        : place && twins > 1
-          ? `${twins} places named ${place} are open.`
+    : status === "error"
+      ? "Couldn't reach Studio."
+      : place && twins > 1
+        ? `${twins} places named ${place} are open.`
+        : place && nameMatch
+          ? `Is the open ${place} this chat's place?`
           : place
             ? canChoose
               ? `${place} isn't open. Reopen it or`
@@ -59,7 +56,7 @@ export default function StudioNotice({
     <>
       {/* Always in the page, so a screen reader announces it when the words arrive. */}
       <output className="sr-only">
-        {message && place && twins < 2 && canChoose && status !== "error"
+        {message && place && twins === 0 && canChoose && status !== "error"
           ? `${place} isn't open. Reopen it or choose another.`
           : (message ?? returned)}
       </output>
@@ -71,6 +68,10 @@ export default function StudioNotice({
           <button
             type="button"
             onClick={() => {
+              if (nameMatch) {
+                void studioTarget?.select(nameMatch);
+                return;
+              }
               if (canChoose) {
                 onOpenPicker();
                 return;
@@ -83,11 +84,11 @@ export default function StudioNotice({
             }}
             className="shrink-0 text-foreground underline underline-offset-2 hover:opacity-80"
           >
-            {rejoinedByName
-              ? "Choose another"
+            {nameMatch
+              ? "Use it"
               : !canChoose
                 ? "Show me how"
-                : place && twins < 2
+                : place && twins === 0
                   ? "choose another"
                   : "Choose one"}
           </button>

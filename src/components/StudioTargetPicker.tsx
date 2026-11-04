@@ -231,7 +231,6 @@ export default function StudioTargetPicker({
                 disabled={selectingKey !== null}
                 onClick={() => {
                   if (selected?.key === target.key) {
-                    studioTarget.keepNameMatch();
                     setOpen(false);
                     return;
                   }

@@ -54,7 +54,9 @@ describe("StudioTargetProvider", () => {
 
   it("doesn't offer a remembered Studio id until discovery has found it", async () => {
     mocks.loadConfig.mockResolvedValue({
-      studioTargetsBySession: { chat: { key: "old-id", label: "Dungeon", detail: null } },
+      studioTargetsBySession: {
+        chat: { key: "old-id", label: "Dungeon", detail: null, placeId: "1" },
+      },
     });
     let finish: (value: unknown) => void = () => {};
     mocks.discover.mockReturnValue(
@@ -63,7 +65,7 @@ describe("StudioTargetProvider", () => {
       }),
     );
     mocks.select.mockResolvedValue({
-      selected: { key: "new-id", label: "Dungeon", detail: null },
+      selected: { key: "new-id", label: "Dungeon", detail: null, placeId: "1" },
       verified: true,
     });
     const keys: Array<string | null> = [];
@@ -74,7 +76,10 @@ describe("StudioTargetProvider", () => {
       </StudioTargetProvider>,
     );
     await waitFor(() => expect(mocks.discover).toHaveBeenCalled());
-    finish({ targets: [{ key: "new-id", label: "Dungeon", detail: null }], selectedKey: null });
+    finish({
+      targets: [{ key: "new-id", label: "Dungeon", detail: null, placeId: "1" }],
+      selectedKey: null,
+    });
 
     expect(await screen.findByText("selected: new-id")).toBeInTheDocument();
     expect(keys).not.toContain("old-id");
@@ -405,30 +410,37 @@ describe("StudioTargetProvider", () => {
     }
   });
 
-  it("keeps saying a Studio was matched by name after later checks", async () => {
-    vi.useFakeTimers();
-    try {
-      const old = { key: "old-id", label: "Baseplate", detail: null, placeId: null };
-      const reopened = { ...old, key: "new-id" };
-      mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: old } });
-      mocks.discover.mockResolvedValue({ targets: [reopened], selectedKey: null });
-      mocks.select.mockResolvedValue({ selected: reopened, verified: true });
-      function Rejoined() {
-        return <div>rejoined: {String(useStudioTargetOptional()?.rejoinedByName)}</div>;
-      }
-      render(
-        <StudioTargetProvider>
-          <Rejoined />
-        </StudioTargetProvider>,
-      );
-      await act(() => vi.advanceTimersByTimeAsync(0));
-      expect(screen.getByText("rejoined: true")).toBeInTheDocument();
-
-      await act(() => vi.advanceTimersByTimeAsync(25_000));
-      expect(screen.getByText("rejoined: true")).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
+  it("offers a same-named place instead of taking it, and blocks until it's chosen", async () => {
+    const old = { key: "old-id", label: "Baseplate", detail: null, placeId: null };
+    const open = { ...old, key: "new-id" };
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: old } });
+    mocks.discover.mockResolvedValue({ targets: [open], selectedKey: null });
+    let chooseMatch: () => void = () => {};
+    function Match() {
+      const studioTarget = useStudioTargetOptional();
+      chooseMatch = () => {
+        if (studioTarget?.nameMatch) void studioTarget.select(studioTarget.nameMatch);
+      };
+      return <div>match: {studioTarget?.nameMatch?.key ?? "none"}</div>;
     }
+    mocks.select.mockResolvedValue({ selected: open, verified: true });
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Match />
+      </StudioTargetProvider>,
+    );
+
+    expect(await screen.findByText("match: new-id")).toBeInTheDocument();
+    expect(screen.getByText("selected: none")).toBeInTheDocument();
+    expect(
+      screen.getByText("block: Is the open Baseplate this chat's place? Choose it to keep going."),
+    ).toBeInTheDocument();
+    expect(mocks.select).not.toHaveBeenCalled();
+
+    await act(async () => chooseMatch());
+    expect(await screen.findByText("selected: new-id")).toBeInTheDocument();
+    expect(screen.getByText("block: none")).toBeInTheDocument();
   });
 
   it("keeps what it knows about a place current, so a reopen is recognized", async () => {

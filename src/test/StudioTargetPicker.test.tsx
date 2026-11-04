@@ -44,7 +44,6 @@ import StudioTargetPicker from "@/components/StudioTargetPicker";
 import {
   createStudioTargetPromptReference,
   StudioTargetProvider,
-  useStudioTargetOptional,
 } from "@/providers/StudioTargetProvider";
 
 const onOpenSetup = vi.fn();
@@ -186,7 +185,7 @@ describe("StudioTargetPicker", () => {
     expect(screen.getByRole("button", { expanded: true })).toHaveTextContent("Lobby");
   });
 
-  it("restores a session target by place name when its Studio id changes", async () => {
+  it("asks rather than assuming a Studio with the same name is the same place", async () => {
     loadConfig.mockResolvedValue({
       studioTargetsBySession: {
         "chat-session": { key: "old-id", label: "Dungeon", detail: null },
@@ -197,22 +196,17 @@ describe("StudioTargetPicker", () => {
         { key: "new-id", label: "Dungeon", detail: null },
         { key: "lobby-id", label: "Lobby", detail: null },
       ],
-      selectedKey: "lobby-id",
-    });
-    selectStudioTarget.mockResolvedValue({
-      selected: { key: "new-id", label: "Dungeon", detail: "Active" },
-      verified: true,
+      selectedKey: null,
     });
 
     renderPicker();
 
-    expect(await screen.findByRole("button", { name: /Dungeon/ })).toBeVisible();
-    expect(selectStudioTarget).toHaveBeenCalledWith("new-id");
-    expect(patchConfig).toHaveBeenCalledWith({
-      studioTargetsBySession: {
-        "chat-session": { key: "new-id", label: "Dungeon", detail: "Active" },
-      },
-    });
+    fireEvent.click(await screen.findByRole("button", { name: /Choose Studio/ }));
+    expect(
+      screen.getByText("Is the open Dungeon this chat's place? Choose it to keep going."),
+    ).toBeVisible();
+    expect(selectStudioTarget).not.toHaveBeenCalled();
+    expect(patchConfig).not.toHaveBeenCalled();
   });
 
   it("restores by Place ID before an ambiguous place name", async () => {
@@ -516,31 +510,6 @@ describe("StudioTargetPicker", () => {
       await refresh();
       await refresh();
       expect(screen.queryByText(STUCK_HEADING)).toBeNull();
-    });
-
-    it("stops mentioning a name match once someone chooses to stay on it", async () => {
-      const old = { key: "old", label: "Lobby", detail: null };
-      loadConfig.mockResolvedValue({ studioTargetsBySession: { "chat-session": old } });
-      discoverStudioTargets.mockResolvedValue({ targets: [LOBBY], selectedKey: null });
-      selectStudioTarget.mockResolvedValue({ selected: LOBBY, verified: true });
-      let rejoined: boolean | undefined;
-      function Spy() {
-        rejoined = useStudioTargetOptional()?.rejoinedByName;
-        return null;
-      }
-      render(
-        <StudioTargetProvider>
-          <StudioTargetPicker onOpenSetup={onOpenSetup} />
-          <Spy />
-        </StudioTargetProvider>,
-      );
-      await flush();
-      expect(rejoined).toBe(true);
-
-      fireEvent.click(screen.getByRole("button", { name: /Lobby/ }));
-      fireEvent.click(screen.getByRole("button", { name: /Lobby/, pressed: true }));
-      await flush();
-      expect(rejoined).toBe(false);
     });
 
     it("says when this chat's place isn't one of the Studios listed", async () => {

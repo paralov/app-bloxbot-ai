@@ -50,10 +50,11 @@ interface StudioTargetContextValue {
   missing: StudioTarget | null;
   /** How many open Studios share the missing place's name, when that's why nothing was picked. */
   twins: number;
-  /** This chat's Studio was picked by its name alone, which is worth saying out loud. */
-  rejoinedByName: boolean;
-  /** Someone looked at the name match and chose to stay on it. */
-  keepNameMatch(): void;
+  /**
+   * The one open Studio with the missing place's name. A name isn't proof of the same place, as
+   * every new template is a "Baseplate", so this is offered rather than taken.
+   */
+  nameMatch: StudioTarget | null;
   /** Why a message can't go out yet: without a Studio to work in, the agent would pick one itself. */
   sendBlock: string | null;
   /** Resolves with how many Studios are listed afterwards. */
@@ -91,7 +92,6 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const discoveryRef = useRef<{ session: string | null; promise: Promise<number> } | null>(null);
   const selectingRef = useRef(false);
   const verifiedKeyRef = useRef<string | null>(null);
-  const [rejoinedByName, setRejoinedByName] = useState(false);
   // Only what discovery itself got wrong clears when discovery next works.
   const errorSourceRef = useRef<"discovery" | "select" | null>(null);
   const lastDiscoveryReportRef = useRef<string | null>(null);
@@ -118,21 +118,15 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       const placeMatches = remembered?.placeId
         ? result.targets.filter((target) => target.placeId === remembered.placeId)
         : [];
-      const labelMatches = remembered
-        ? result.targets.filter((target) => sameNamedPlace(target, remembered))
-        : [];
       let nextSelected = remembered
         ? (result.targets.find((target) => target.key === remembered.key) ??
           (placeMatches.length === 1 ? placeMatches[0] : undefined) ??
-          (labelMatches.length === 1 ? labelMatches[0] : undefined) ??
           null)
         : (result.targets.find((target) => target.key === result.selectedKey) ?? null);
       const selectionMode = nextSelected
         ? nextSelected.key === remembered?.key
           ? "session_id_match"
-          : remembered?.placeId && nextSelected.placeId === remembered.placeId
-            ? "place_id_match"
-            : "session_name_match"
+          : "place_id_match"
         : "automatic";
       // Once is enough for a Studio this run of the app has already checked: this runs every few
       // seconds, and repeating it would keep disabling the picker and rewriting the config.
@@ -184,8 +178,6 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         await rememberTarget(nextSelected);
       }
       if (operation !== operationRef.current) return;
-      // Only ever turned on here, since the next check finds this Studio under its own id.
-      if (selectionMode === "session_name_match" && remembered) setRejoinedByName(true);
       setSelected(nextSelected);
       setStatus(result.targets.length === 0 ? "empty" : "ready");
       // A selection this replaced was left mid-way, and nothing else will finish it.
@@ -245,13 +237,10 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     return discovery;
   }, [activeSessionId, applyDiscovery]);
 
-  const keepNameMatch = useCallback(() => setRejoinedByName(false), []);
-
   const select = useCallback(
     async (target: StudioTarget) => {
       const operation = ++operationRef.current;
       selectingRef.current = true;
-      setRejoinedByName(false);
       setSelectingKey(target.key);
       errorSourceRef.current = null;
       setError(null);
@@ -321,7 +310,6 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         targetsBySessionRef.current = config.studioTargetsBySession ?? {};
         configLoadedRef.current = true;
       }
-      setRejoinedByName(false);
       // A remembered id can belong to a Studio that has since closed, and discovery will tell.
       const remembered = targetsBySessionRef.current[activeSessionId];
       setSelected(
@@ -336,7 +324,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
 
   const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
   const missing = !selected && remembered ? remembered : null;
-  const twins = missing ? targets.filter((target) => sameNamedPlace(target, missing)).length : 0;
+  const sameName = missing ? targets.filter((target) => sameNamedPlace(target, missing)) : [];
+  const twins = sameName.length;
+  const nameMatch = twins === 1 ? (sameName[0] ?? null) : null;
   const sendBlock =
     status === "loading"
       ? "Finding Studios."
@@ -344,13 +334,15 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         ? "Couldn't reach Studio."
         : missing && twins > 1
           ? `${twins} places named ${placeName(missing.label)} are open. Choose one.`
-          : missing
-            ? targets.length > 0
-              ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
-              : `${placeName(missing.label)} isn't open. Reopen it in Studio.`
-            : status === "ready" && !selected
-              ? "Choose a Studio first."
-              : null;
+          : missing && nameMatch
+            ? `Is the open ${placeName(missing.label)} this chat's place? Choose it to keep going.`
+            : missing
+              ? targets.length > 0
+                ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
+                : `${placeName(missing.label)} isn't open. Reopen it in Studio.`
+              : status === "ready" && !selected
+                ? "Choose a Studio first."
+                : null;
 
   // Quickly while someone is waiting on a Studio to appear, or on this chat's place to reopen. Slowly
   // otherwise, so a Studio closing is noticed without anyone having to open the Explorer.
@@ -378,8 +370,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       missing,
       sendBlock,
       twins,
-      rejoinedByName,
-      keepNameMatch,
+      nameMatch,
       discover,
       select,
     }),
@@ -393,8 +384,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       missing,
       sendBlock,
       twins,
-      rejoinedByName,
-      keepNameMatch,
+      nameMatch,
       discover,
       select,
     ],

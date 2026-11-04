@@ -464,7 +464,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     : null;
   const placeClosed = !studioId && studioTarget?.missing && studioTarget.status !== "loading";
   const statusNotice = placeClosed
-    ? `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
+    ? studioTarget.status === "error"
+      ? "Couldn't reach Studio."
+      : `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
     : (waitingNotice ??
       (syncError
         ? "Explorer couldn’t load this place. If it keeps failing, restart Studio."

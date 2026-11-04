@@ -93,11 +93,16 @@ describe("StudioNotice", () => {
     expect(onOpenPicker).toHaveBeenCalledOnce();
   });
 
-  it("says when a Studio was picked by its name alone", () => {
-    show({ selected: DUNGEON, targets: [DUNGEON], rejoinedByName: true });
-    expect(screen.getByRole("status")).toHaveTextContent("Using Dungeon, matched by name.");
-    fireEvent.click(screen.getByRole("button", { name: "Choose another" }));
-    expect(onOpenPicker).toHaveBeenCalledOnce();
+  it("asks about a same-named place, and one click takes it", () => {
+    const select = vi.fn();
+    const twin = { ...DUNGEON, key: "other" };
+    show({ targets: [twin], missing: DUNGEON, twins: 1, nameMatch: twin, select });
+    expect(screen.getByRole("status")).toHaveTextContent("Is the open Dungeon this chat's place?");
+
+    fireEvent.click(screen.getByRole("button", { name: "Use it" }));
+
+    expect(select).toHaveBeenCalledWith(twin);
+    expect(onOpenPicker).not.toHaveBeenCalled();
   });
 
   it("says Studio couldn't be reached instead of naming a place as closed", () => {

@@ -278,6 +278,22 @@ describe("Explorer", () => {
     expect(screen.getByRole("searchbox", { name: "Search Explorer" })).toHaveFocus();
   });
 
+  it("says it couldn't reach Studio rather than calling a chat's place closed", async () => {
+    mocks.studioTarget.selected = null as never;
+    Object.assign(mocks.studioTarget, {
+      status: "error",
+      missing: { key: "gone", label: "Dungeon (placeId: 1)" },
+    });
+    try {
+      start();
+      await advance(0);
+      expect(screen.getByRole("status")).toHaveTextContent("Couldn't reach Studio.");
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+      Object.assign(mocks.studioTarget, { status: undefined, missing: undefined });
+    }
+  });
+
   it("announces that objects are loading", async () => {
     mocks.getSnapshot.mockReturnValue(new Promise(() => {}));
     start();
