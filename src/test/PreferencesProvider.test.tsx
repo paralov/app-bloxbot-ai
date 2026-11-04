@@ -36,12 +36,15 @@ describe("notification preferences", () => {
         }),
     );
     mocks.patchConfig.mockResolvedValue(undefined);
+    const client = new QueryClient();
     const wrapper = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <PreferencesProvider>{children}</PreferencesProvider>
       </QueryClientProvider>
     );
     const { result } = renderHook(() => usePreferences(), { wrapper });
+    // Choices are only meaningful once what was saved has loaded, which replaces the defaults.
+    await waitFor(() => expect(client.isFetching()).toBe(0));
     await waitFor(() => expect(mocks.loadConfig).toHaveBeenCalled());
     await act(async () => {});
 
@@ -54,12 +57,15 @@ describe("notification preferences", () => {
 
   it("puts a choice back when its own save fails", async () => {
     mocks.patchConfig.mockRejectedValue(new Error("disk busy"));
+    const client = new QueryClient();
     const wrapper = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <PreferencesProvider>{children}</PreferencesProvider>
       </QueryClientProvider>
     );
     const { result } = renderHook(() => usePreferences(), { wrapper });
+    // Choices are only meaningful once what was saved has loaded, which replaces the defaults.
+    await waitFor(() => expect(client.isFetching()).toBe(0));
     await waitFor(() => expect(mocks.loadConfig).toHaveBeenCalled());
     await act(async () => {});
 
