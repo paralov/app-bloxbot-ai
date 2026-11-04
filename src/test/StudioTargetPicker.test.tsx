@@ -421,7 +421,11 @@ describe("StudioTargetPicker", () => {
       await refresh();
       await refresh();
 
-      discoverStudioTargets.mockResolvedValue({ targets: [LOBBY], selectedKey: "one" });
+      // Two, so neither is taken on and the chat doesn't become tied to one.
+      discoverStudioTargets.mockResolvedValue({
+        targets: [LOBBY, { ...LOBBY, key: "two", label: "Dungeon" }],
+        selectedKey: null,
+      });
       await refresh();
 
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
@@ -487,6 +491,30 @@ describe("StudioTargetPicker", () => {
         "studio_target_guidance_followed",
         expect.objectContaining({ trigger: "repeated_refresh" }),
       ]);
+    });
+
+    it("gives one clear line, not first-time steps, when this chat's place is what's closed", async () => {
+      loadConfig.mockResolvedValue({
+        studioTargetsBySession: {
+          "chat-session": {
+            key: "gone",
+            label: "Dungeon (placeId: 1)",
+            detail: null,
+            placeId: "1",
+          },
+        },
+      });
+      discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
+      await openPicker(/No Studio/);
+
+      expect(screen.getByText("Dungeon isn't open. Reopen it in Studio.")).toBeVisible();
+      expect(screen.queryByText(STUDIO_SETUP_STEPS[0].description)).toBeNull();
+      expect(screen.getByRole("button", { name: "Show me how" })).toBeVisible();
+
+      await refresh();
+      await refresh();
+      await refresh();
+      expect(screen.queryByText(STUCK_HEADING)).toBeNull();
     });
 
     it("says when this chat's place isn't one of the Studios listed", async () => {

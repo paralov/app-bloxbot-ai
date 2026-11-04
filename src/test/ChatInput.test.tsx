@@ -27,7 +27,7 @@ import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
 const studio = vi.hoisted(() => ({
   selected: null as { key: string } | null,
-  missing: null as { key: string; label: string } | null,
+  sendBlock: null as string | null,
 }));
 vi.mock("@/providers/StudioTargetProvider", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/providers/StudioTargetProvider")>()),
@@ -494,7 +494,7 @@ describe("ChatInput", () => {
   });
 
   it("won't send while this chat's place is closed, keeping what was typed", async () => {
-    studio.missing = { key: "gone", label: "Dungeon" };
+    studio.sendBlock = "Dungeon isn't open. Reopen it or choose another.";
     try {
       const client = createClient();
       render(<TestChatInput client={client} queryClient={createQueryClient()} />);
@@ -503,7 +503,7 @@ describe("ChatInput", () => {
       await act(async () => {
         fireEvent.input(textarea, { target: { textContent: "Delete everything" } });
       });
-      expect(screen.getByTitle("Reopen this chat's place or choose another Studio")).toBeDisabled();
+      expect(screen.getByTitle("Dungeon isn't open. Reopen it or choose another.")).toBeDisabled();
 
       await act(async () => {
         fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
@@ -512,7 +512,7 @@ describe("ChatInput", () => {
       expect(client.session.promptAsync).not.toHaveBeenCalled();
       expect(textarea).toHaveTextContent("Delete everything");
     } finally {
-      studio.missing = null;
+      studio.sendBlock = null;
     }
   });
 

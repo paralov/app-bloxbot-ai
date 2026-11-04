@@ -22,6 +22,11 @@ import type { StudioTarget } from "@/types/studioTarget";
 
 export type StudioTargetStatus = "loading" | "ready" | "empty" | "error";
 
+/** Studio's window label ends with a place ID nobody needs to read. */
+export function placeName(label: string): string {
+  return label.replace(/\s*\(placeId:[^)]*\)$/, "");
+}
+
 interface StudioTargetContextValue {
   targets: readonly StudioTarget[];
   selected: StudioTarget | null;
@@ -31,6 +36,8 @@ interface StudioTargetContextValue {
   error: string | null;
   /** The place this chat was working in, when it isn't open any more. */
   missing: StudioTarget | null;
+  /** Why a message can't go out yet: without a Studio to work in, the agent would pick one itself. */
+  sendBlock: string | null;
   /** Resolves with how many Studios are listed afterwards. */
   discover(): Promise<number>;
   select(target: StudioTarget): Promise<void>;
@@ -63,7 +70,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const operationRef = useRef(0);
   const targetsRef = useRef<readonly StudioTarget[]>([]);
-  const discoveryRef = useRef<Promise<number> | null>(null);
+  const discoveryRef = useRef<{ session: string | null; promise: Promise<number> } | null>(null);
   const selectingRef = useRef(false);
   // Only what discovery itself got wrong clears when discovery next works.
   const errorSourceRef = useRef<"discovery" | "select" | null>(null);
@@ -171,7 +178,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   );
 
   const discover = useCallback(async () => {
-    if (discoveryRef.current) return discoveryRef.current;
+    // One that's running for another chat would apply that chat's place to this one.
+    if (discoveryRef.current?.session === activeSessionId) return discoveryRef.current.promise;
     const discovery = (async () => {
       const operation = ++operationRef.current;
       try {
@@ -184,22 +192,24 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         if (operation === operationRef.current) {
           setStatus(targetsRef.current.length > 0 ? "ready" : "error");
           setSelectingKey(null);
+          const alreadyReported = errorSourceRef.current === "discovery";
           errorSourceRef.current = "discovery";
           console.error("[studio-target] discovery failed", discoveryError);
           setError("Couldn't reach Roblox Studio. Refresh to try again.");
-          posthog.capture(
-            "studio_target_discovery_failed",
-            errorAnalyticsProperties("studio_target", "discovery", discoveryError),
-          );
+          if (!alreadyReported)
+            posthog.capture(
+              "studio_target_discovery_failed",
+              errorAnalyticsProperties("studio_target", "discovery", discoveryError),
+            );
         }
       }
       return targetsRef.current.length;
     })().finally(() => {
-      discoveryRef.current = null;
+      if (discoveryRef.current?.promise === discovery) discoveryRef.current = null;
     });
-    discoveryRef.current = discovery;
+    discoveryRef.current = { session: activeSessionId, promise: discovery };
     return discovery;
-  }, [applyDiscovery]);
+  }, [activeSessionId, applyDiscovery]);
 
   const select = useCallback(
     async (target: StudioTarget) => {
@@ -286,14 +296,21 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   }, [activeSessionId, client, discover]);
 
   const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
-  const missing =
-    (status === "ready" || status === "empty") && !selected && remembered ? remembered : null;
+  const missing = !selected && remembered ? remembered : null;
+  const sendBlock =
+    status === "loading"
+      ? "Finding Studios."
+      : missing
+        ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
+        : status === "ready" && !selected
+          ? "Choose a Studio first."
+          : null;
 
   // Quickly while someone is waiting on a Studio to appear, or on this chat's place to reopen. Slowly
   // otherwise, so a Studio closing is noticed without anyone having to open the Explorer.
   useEffect(() => {
-    if (!client || (status !== "empty" && status !== "ready")) return;
-    const waitingForStudio = status === "empty" || missing !== null;
+    if (!client || status === "loading") return;
+    const waitingForStudio = status !== "ready" || missing !== null;
     const timer = window.setInterval(
       () => {
         if (!selectingRef.current) void discover();
@@ -313,10 +330,22 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       selectingKey,
       error,
       missing,
+      sendBlock,
       discover,
       select,
     }),
-    [targets, selected, promptReference, status, selectingKey, error, missing, discover, select],
+    [
+      targets,
+      selected,
+      promptReference,
+      status,
+      selectingKey,
+      error,
+      missing,
+      sendBlock,
+      discover,
+      select,
+    ],
   );
   return <StudioTargetContext.Provider value={value}>{children}</StudioTargetContext.Provider>;
 }

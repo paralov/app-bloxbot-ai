@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { desktop } from "@/lib/desktop";
 import type { OpencodeClient } from "@/lib/opencode/client";
 import { qk } from "@/lib/queryKeys";
@@ -55,10 +56,21 @@ export function useStudioConnection() {
     retry: false,
   });
 
+  // The background checks every few seconds aren't news to anyone, and shouldn't move their focus.
+  const [checking, setChecking] = useState(false);
+  const checkAgain = async () => {
+    setChecking(true);
+    try {
+      await query.refetch();
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return {
     state: query.isPending ? ("checking" as const) : (query.data ?? "waiting"),
-    checking: query.isFetching,
-    checkAgain: query.refetch,
+    checking,
+    checkAgain,
     problem: waiting ? studioMcpProblem(studioMcp.data) : null,
   };
 }

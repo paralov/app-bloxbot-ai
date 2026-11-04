@@ -35,7 +35,10 @@ function Chat() {
   const { data: allSessions } = useSessions();
   const studioConnection = useStudioConnection();
   const studioTarget = useStudioTargetOptional();
-  const hasStudioTarget = studioTarget?.selected !== null && studioTarget?.status === "ready";
+  // A chat whose place closed keeps its Explorer, which says what happened and comes back with it.
+  const hasStudioTarget =
+    (studioTarget?.selected !== null && studioTarget?.status === "ready") ||
+    (!!studioTarget?.missing && studioTarget.status !== "loading");
 
   // Get active session title from the sessions list
   const activeSessionTitle = allSessions?.find((s) => s.id === activeSessionId)?.title ?? null;
@@ -252,6 +255,7 @@ function Chat() {
               if (placeMissing) setPickerRequest((request) => request + 1);
             }}
             onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
+            needsChoice={placeMissing}
           />
         ) : studioConnection.state === "checking" ? (
           <LoadingScreen message="Finding Roblox Studio" animation="dots" />

@@ -6,7 +6,7 @@ import { STUDIO_SETUP_STEPS } from "@/components/StudioSetup";
 import { MENU_LABEL, MENU_TRIGGER, MenuChevron, MenuContent, MenuItem } from "@/components/ui/menu";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { analyticsProperties } from "@/lib/analytics";
-import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
+import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 /** Three fruitless Refreshes inside 30 seconds means someone is stuck, not just checking. */
 const STUCK_REFRESHES = 3;
@@ -17,11 +17,6 @@ const MIN_REFRESH_MS = 600;
 function foundLabel(count: number): string {
   if (count === 0) return "No Studio found";
   return `${count} ${count === 1 ? "Studio" : "Studios"} found`;
-}
-
-/** Studio's window label ends with a place ID nobody needs to read. */
-export function placeName(label: string): string {
-  return label.replace(/\s*\(placeId:[^)]*\)$/, "");
 }
 
 function Spinner() {
@@ -96,7 +91,7 @@ export default function StudioTargetPicker({
     const now = Date.now();
     emptyRefreshes.current =
       found > 0 ? [] : [...emptyRefreshes.current, now].filter((at) => now - at < STUCK_WINDOW_MS);
-    if (emptyRefreshes.current.length >= STUCK_REFRESHES && !stuckRef.current) {
+    if (emptyRefreshes.current.length >= STUCK_REFRESHES && !stuckRef.current && !missing) {
       stuckRef.current = true;
       setStuck(true);
       posthog.capture(
@@ -105,6 +100,28 @@ export default function StudioTargetPicker({
       );
     }
   };
+
+  const showMeHow = (
+    <button
+      type="button"
+      onClick={() => {
+        posthog.capture(
+          "studio_target_guidance_followed",
+          analyticsProperties("studio_target", {
+            trigger: stuck ? "repeated_refresh" : "empty",
+            status,
+          }),
+        );
+        setOpen(false);
+        onOpenSetup();
+      }}
+      className={`mt-2 inline-flex h-7 items-center rounded-md px-3 text-xs font-medium transition-colors ${
+        stuck ? "bg-foreground text-background hover:opacity-90" : "border hover:bg-accent"
+      }`}
+    >
+      Show me how
+    </button>
+  );
 
   const connectSteps = (
     <div className="px-2 pb-2">
@@ -122,25 +139,7 @@ export default function StudioTargetPicker({
       <p className="pt-1.5 text-xs leading-relaxed text-muted-foreground">
         BloxBot connects on its own once Studio is ready.
       </p>
-      <button
-        type="button"
-        onClick={() => {
-          posthog.capture(
-            "studio_target_guidance_followed",
-            analyticsProperties("studio_target", {
-              trigger: stuck ? "repeated_refresh" : "empty",
-              status,
-            }),
-          );
-          setOpen(false);
-          onOpenSetup();
-        }}
-        className={`mt-2 inline-flex h-7 items-center rounded-md px-3 text-xs font-medium transition-colors ${
-          stuck ? "bg-foreground text-background hover:opacity-90" : "border hover:bg-accent"
-        }`}
-      >
-        Show me how
-      </button>
+      {showMeHow}
     </div>
   );
 
@@ -194,15 +193,15 @@ export default function StudioTargetPicker({
               <div key={item} className="h-8 animate-pulse rounded-md bg-muted" />
             ))}
           </output>
+        ) : status !== "ready" && missing ? (
+          <div className="px-2 pb-2">
+            <p className="text-xs leading-relaxed">
+              {placeName(missing.label)} isn't open. Reopen it in Studio.
+            </p>
+            {showMeHow}
+          </div>
         ) : status === "empty" ? (
-          <>
-            {missing ? (
-              <p className="px-2 pb-1.5 text-xs font-medium">
-                {placeName(missing.label)} isn't open. Reopen it in Studio.
-              </p>
-            ) : null}
-            {connectSteps}
-          </>
+          connectSteps
         ) : status === "error" ? (
           <>
             <div className="px-2 pb-1.5">

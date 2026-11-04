@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   loadConfig: vi.fn(),
   patchConfig: vi.fn(),
+  capture: vi.fn(),
   client: {},
   session: { id: "chat" },
 }));
@@ -25,7 +26,7 @@ vi.mock("@/providers/ActiveSessionProvider", () => ({
   useActiveSession: () => ({ activeSessionId: mocks.session.id }),
 }));
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
-  default: { capture: vi.fn(), register: vi.fn() },
+  default: { capture: mocks.capture, register: vi.fn() },
 }));
 
 import { StudioTargetProvider, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
@@ -40,6 +41,7 @@ function Seen({ keys }: { keys: Array<string | null> }) {
       <div>selected: {key ?? "none"}</div>
       <div>status: {studioTarget?.status}</div>
       <div>missing: {studioTarget?.missing?.label ?? "none"}</div>
+      <div>block: {studioTarget?.sendBlock ?? "none"}</div>
     </div>
   );
 }
@@ -236,6 +238,101 @@ describe("StudioTargetProvider", () => {
       await act(() => vi.advanceTimersByTimeAsync(10_000));
 
       expect(screen.getByText(/That Studio window is no longer available/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says what's holding a message back, and only then", async () => {
+    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+    const other = { key: "other", label: "Other", detail: null, placeId: "3" };
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+    let finish: (value: unknown) => void = () => {};
+    mocks.discover.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const { unmount } = render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("block: Finding Studios.")).toBeInTheDocument();
+
+    await act(async () => finish({ targets: [lobby, other], selectedKey: null }));
+    expect(await screen.findByText("block: Choose a Studio first.")).toBeInTheDocument();
+    unmount();
+
+    mocks.discover.mockResolvedValue({ targets: [], selectedKey: null });
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("status: empty")).toBeInTheDocument();
+    expect(screen.getByText("block: none")).toBeInTheDocument();
+  });
+
+  it("doesn't hand one chat's running check to the next chat", async () => {
+    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { chat: dungeon, next: lobby },
+    });
+    let finishFirst: (value: unknown) => void = () => {};
+    mocks.discover.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishFirst = resolve;
+      }),
+    );
+    mocks.discover.mockResolvedValue({ targets: [dungeon, lobby], selectedKey: "lobby" });
+    const tree = (
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>
+    );
+    const { rerender } = render(tree);
+    await waitFor(() => expect(mocks.discover).toHaveBeenCalledTimes(1));
+
+    mocks.session.id = "next";
+    try {
+      rerender(
+        <StudioTargetProvider>
+          <Seen keys={[]} />
+        </StudioTargetProvider>,
+      );
+      expect(await screen.findByText("selected: lobby")).toBeInTheDocument();
+      await act(async () => finishFirst({ targets: [dungeon, lobby], selectedKey: "s1" }));
+      expect(screen.getByText("selected: lobby")).toBeInTheDocument();
+    } finally {
+      mocks.session.id = "chat";
+    }
+  });
+
+  it("keeps looking after a failed check, reporting the failure once", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+      mocks.discover.mockRejectedValue(new Error("offline"));
+      render(
+        <StudioTargetProvider>
+          <Seen keys={[]} />
+        </StudioTargetProvider>,
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("status: error")).toBeInTheDocument();
+
+      await act(() => vi.advanceTimersByTimeAsync(6_000));
+      expect(
+        mocks.capture.mock.calls.filter(([name]) => name === "studio_target_discovery_failed"),
+      ).toHaveLength(1);
+
+      const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+      mocks.select.mockResolvedValue({ selected: lobby, verified: true });
+      mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(screen.getByText("selected: lobby")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

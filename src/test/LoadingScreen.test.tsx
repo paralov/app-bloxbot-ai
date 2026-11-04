@@ -41,11 +41,32 @@ describe("startup progress", () => {
     for (const failure of [
       "Failed to spawn OpenCode",
       "OpenCode exited during startup with code 1",
+      "OpenCode stopped unexpectedly with code 1",
     ]) {
-      expect(getStartupErrorPresentation(failure).detail).toContain(
-        "Allow BloxBot in your antivirus",
-      );
+      const presentation = getStartupErrorPresentation(failure, "C:\\BloxBot");
+      expect(presentation.message).toBe("BloxBot couldn't start");
+      expect(presentation.detailPath).toBe("C:\\BloxBot");
+      expect(presentation.helpLink?.label).toBe("How to add an exclusion");
     }
+  });
+
+  it("offers a way out once a step has gone quiet", () => {
+    const onRetry = vi.fn();
+    render(
+      <LoadingScreen
+        message="Starting your workspace"
+        startup={{ step: 1, label: "Preparing", progress: 1 }}
+        onRetry={onRetry}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("says out loud when it finds an update", async () => {
+    checkForUpdate.mockResolvedValue({ version: "9.9.9", body: null });
+    render(<LoadingScreen message="BloxBot couldn't start" error onRetry={() => {}} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("Update available: v9.9.9");
   });
 
   it("shows Try again was heard", () => {
@@ -88,7 +109,7 @@ describe("startup progress", () => {
     ]) {
       expect(getStartupErrorPresentation(failure)).toMatchObject({
         message: "BloxBot couldn't start",
-        detail: expect.stringContaining("Allow BloxBot in your antivirus or pause your VPN"),
+        detail: expect.stringContaining("Allow this folder in your antivirus or pause your VPN"),
       });
     }
   });
@@ -124,7 +145,7 @@ describe("startup progress", () => {
     expect(moving.startup.meta).toBe("50% 2.0 KB/s");
 
     const quiet = getStartupPresentation("engine", downloading, true);
-    expect(quiet.detail).toBe("Connection paused. Carries on when data arrives.");
+    expect(quiet.detail).toBe("Connection paused. Still trying.");
     expect(quiet.startup.meta).toBe("50%");
     // With no total to measure against there's no percentage, and the old speed is no use.
     expect(

@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ studioTarget: null as unknown, capture: vi.fn() }));
 
-vi.mock("@/providers/StudioTargetProvider", () => ({
+vi.mock("@/providers/StudioTargetProvider", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/providers/StudioTargetProvider")>()),
   useStudioTargetOptional: () => mocks.studioTarget,
 }));
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
@@ -56,7 +57,10 @@ describe("StudioNotice", () => {
 
   it("names the place this chat is missing, and leads to the picker when others are open", () => {
     show({ targets: [LOBBY], missing: DUNGEON });
-    expect(screen.getByRole("status")).toHaveTextContent("Dungeon isn't open");
+    // Said whole, not cut off where the button starts.
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Dungeon isn't open. Reopen it or choose another.",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "choose another" }));
     expect(onOpenPicker).toHaveBeenCalledOnce();

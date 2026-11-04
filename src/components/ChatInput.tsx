@@ -283,7 +283,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const studioTarget = useStudioTargetOptional();
   const studioTargetReference = studioTarget?.promptReference ?? null;
   const studioId = studioTarget?.selected?.key ?? null;
-  const placeMissing = studioTarget?.missing ?? null;
+  const sendBlock = studioTarget?.sendBlock ?? null;
   const goal = useSessionGoal();
   const todos = useTodos();
   const showTodos = isBusy && hasOpenTodos(todos);
@@ -526,8 +526,10 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   }, [allModels, connectedProviders, hiddenModels, modelSearch]);
 
   function handleSubmit() {
-    // Told to find a Studio, the agent could otherwise start changing the wrong place.
-    if (placeMissing) return;
+    if (sendBlock) {
+      notify.error(sendBlock);
+      return;
+    }
     const editorText = promptEditorRef.current?.getText() ?? text;
     const trimmed = editorText.trim();
     if (!trimmed && attachments.length === 0) return;
@@ -615,13 +617,17 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
             {goal ? (
               <GoalPill
                 goal={goal}
-                onCommand={(command) =>
-                  runCommand(`/goal ${command}`, {
+                onCommand={(command) => {
+                  if (sendBlock) {
+                    notify.error(sendBlock);
+                    return false;
+                  }
+                  return runCommand(`/goal ${command}`, {
                     system: studioTargetReference,
                     onFailed: (error) =>
                       notify.error("Command failed", { description: error.message }),
-                  })
-                }
+                  });
+                }}
               />
             ) : null}
             {showTodos ? <TodoPill todos={todos} /> : null}
@@ -827,9 +833,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
               text={text}
               hasAttachments={attachments.length > 0}
               isBusy={isBusy}
-              blockedReason={
-                placeMissing ? "Reopen this chat's place or choose another Studio" : null
-              }
+              blockedReason={sendBlock}
               onSend={handleSubmit}
             />
           </div>

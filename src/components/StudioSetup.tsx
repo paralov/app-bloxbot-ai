@@ -49,6 +49,8 @@ interface StudioSetupProps {
   onContinue: () => void;
   /** Offered when this was opened by choice, so there's a way back without connecting. */
   onDismiss?: () => void;
+  /** Connected, but this chat's own place isn't open, so it needs someone to pick one. */
+  needsChoice?: boolean;
 }
 
 function StudioSetup({
@@ -58,6 +60,7 @@ function StudioSetup({
   onCheck,
   onContinue,
   onDismiss,
+  needsChoice = false,
 }: StudioSetupProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const step = STUDIO_SETUP_STEPS[stepIndex];
@@ -101,7 +104,9 @@ function StudioSetup({
             <h1 className="text-lg font-medium">Studio connected</h1>
           </output>
           <p className="mt-2 text-sm text-muted-foreground">
-            BloxBot is in the driver&apos;s seat. You&apos;re ready to build.
+            {needsChoice
+              ? "Choose which place this chat should work in."
+              : "BloxBot is in the driver's seat. You're ready to build."}
           </p>
           <button
             ref={continueRef}
@@ -109,7 +114,7 @@ function StudioSetup({
             onClick={onContinue}
             className="mt-6 inline-flex h-10 items-center rounded-lg bg-foreground px-6 text-sm font-medium text-background transition-opacity hover:opacity-90"
           >
-            Let&apos;s build
+            {needsChoice ? "Choose a place" : "Let's build"}
           </button>
         </section>
       </div>
@@ -197,10 +202,12 @@ function StudioSetup({
               ) : (
                 <button
                   type="button"
-                  onClick={onCheck}
-                  disabled={checking}
+                  onClick={() => {
+                    if (!checking) onCheck();
+                  }}
+                  aria-disabled={checking}
                   aria-busy={checking}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90 aria-disabled:opacity-60"
                 >
                   {checking && (
                     <svg

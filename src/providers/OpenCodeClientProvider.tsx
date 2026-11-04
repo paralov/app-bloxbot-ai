@@ -47,6 +47,10 @@ export function getInstallFailureReason(technicalDetail: string): string | null 
 
 const DEFAULT_ENGINE_PROGRESS: OpenCodeStartupProgress = { phase: "checking" };
 const SLOW_STEP_MS = 20_000;
+const EXCLUSION_HELP = {
+  label: "How to add an exclusion",
+  href: "https://support.microsoft.com/en-us/windows/add-an-exclusion-to-windows-security-811816c0-4dfd-af4a-47e4-c301afe13b26",
+};
 const SERVER_WAIT_MS = 60_000;
 
 const STARTUP_COPY: Record<Exclude<StartupPhase, "engine">, StartupPresentation> = {
@@ -132,7 +136,7 @@ function slowPresentation(
   return {
     ...presentation,
     detail: downloading
-      ? "Connection paused. Carries on when data arrives."
+      ? "Connection paused. Still trying."
       : unpacking
         ? "Taking longer than usual. Security software can slow this."
         : "Taking longer than usual. Still trying.",
@@ -173,10 +177,7 @@ export function getStartupErrorPresentation(
       detail:
         "Windows security software blocked BloxBot's engine. Add this folder as an exclusion, then try again.",
       detailPath: installFolder ?? undefined,
-      helpLink: {
-        label: "How to add an exclusion",
-        href: "https://support.microsoft.com/en-us/windows/add-an-exclusion-to-windows-security-811816c0-4dfd-af4a-47e4-c301afe13b26",
-      },
+      helpLink: EXCLUSION_HELP,
       technicalDetail,
     };
   }
@@ -197,11 +198,16 @@ export function getStartupErrorPresentation(
     };
   }
 
-  if (normalized.includes("failed to spawn") || normalized.includes("exited during startup")) {
+  if (
+    normalized.includes("failed to spawn") ||
+    normalized.includes("exited during startup") ||
+    normalized.includes("stopped unexpectedly")
+  ) {
     return {
       message: "BloxBot couldn't start",
-      detail:
-        "Its local engine stopped right away. Allow BloxBot in your antivirus, then try again.",
+      detail: "Its local engine stopped. Allow this folder in your antivirus, then try again.",
+      detailPath: installFolder ?? undefined,
+      helpLink: EXCLUSION_HELP,
       technicalDetail,
     };
   }
@@ -213,7 +219,9 @@ export function getStartupErrorPresentation(
     return {
       message: "BloxBot couldn't start",
       detail:
-        "Its local engine didn't respond. Allow BloxBot in your antivirus or pause your VPN, then try again.",
+        "Its local engine didn't respond. Allow this folder in your antivirus or pause your VPN, then try again.",
+      detailPath: installFolder ?? undefined,
+      helpLink: EXCLUSION_HELP,
       technicalDetail,
     };
   }
@@ -500,7 +508,7 @@ export function OpenCodeClientProvider({
 
   // Shown on screen only, so antivirus exclusions can target it. Never sent to analytics.
   useEffect(() => {
-    if (!initError || getInstallFailureReason(initError) !== "blocked_by_security") return;
+    if (!initError) return;
     let cancelled = false;
     desktop
       .getOpenCodeInstallFolder()
@@ -541,7 +549,7 @@ export function OpenCodeClientProvider({
           technicalDetail={startupError?.technicalDetail}
           startup={startupError ? undefined : startup.startup}
           error={!!startupError}
-          onRetry={startupError ? () => desktop.relaunch() : undefined}
+          onRetry={startupError || slow ? () => desktop.relaunch() : undefined}
         />
       </OpenCodeClientContext.Provider>
     );

@@ -216,6 +216,15 @@ function LoadingScreen({
           </div>
         )}
 
+        {/* Always in the page, so a screen reader announces it when the words arrive. */}
+        <output className="sr-only">
+          {updateStatus === "available" && updateVersion
+            ? `Update available: v${updateVersion}`
+            : updateStatus === "up-to-date"
+              ? "Up to date"
+              : null}
+        </output>
+
         {/* Error state: help actions */}
         {error ? (
           <div className="mt-5 flex flex-col items-center gap-3">
@@ -374,7 +383,18 @@ function LoadingScreen({
             )}
           </div>
         ) : startup ? (
-          <StartupProgressGraphic startup={startup} />
+          <>
+            <StartupProgressGraphic startup={startup} />
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="mt-3 text-xs text-muted-foreground underline transition-colors hover:text-foreground"
+              >
+                Try again
+              </button>
+            )}
+          </>
         ) : animation ? (
           <StartupAnimationGraphic animation={animation} />
         ) : (

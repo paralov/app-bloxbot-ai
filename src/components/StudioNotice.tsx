@@ -1,9 +1,8 @@
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useEffect, useRef, useState } from "react";
 
-import { placeName } from "@/components/StudioTargetPicker";
 import { analyticsProperties } from "@/lib/analytics";
-import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
+import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 /** Says why this chat has no Studio to work in, right where someone is about to ask it for something. */
 export default function StudioNotice({
@@ -48,7 +47,11 @@ export default function StudioNotice({
   return (
     <>
       {/* Always in the page, so a screen reader announces it when the words arrive. */}
-      <output className="sr-only">{message ?? returned}</output>
+      <output className="sr-only">
+        {message && place && canChoose
+          ? `${place} isn't open. Reopen it or choose another.`
+          : (message ?? returned)}
+      </output>
       {message ? (
         <div className="flex shrink-0 items-center justify-center gap-1.5 px-4 pb-2 text-xs text-muted-foreground">
           <span aria-hidden="true" className="min-w-0 truncate">

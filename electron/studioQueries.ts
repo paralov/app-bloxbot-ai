@@ -55,7 +55,9 @@ function identifier(value: unknown): string | null {
 function toTarget(studio: any): StudioTarget | null {
   const key = identifier(studio?.studio_id ?? studio?.studioId ?? studio?.id);
   if (!key) return null;
-  const placeId = identifier(studio?.place_id ?? studio?.placeId);
+  // Studio can report 0 for a place that was never published, which says nothing about which one.
+  const reportedPlaceId = identifier(studio?.place_id ?? studio?.placeId);
+  const placeId = reportedPlaceId === "0" ? null : reportedPlaceId;
   const label = studio?.name ?? studio?.place_name ?? studio?.placeName;
   return {
     key,

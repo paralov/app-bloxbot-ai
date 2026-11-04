@@ -261,11 +261,11 @@ describe("useExplorerTreeSync", () => {
       expect(mocks.sync).toHaveBeenCalledTimes(2);
       await advance(5_000);
       expect(mocks.sync).toHaveBeenCalledTimes(3);
-      await advance(20_000);
+      await advance(10_000);
       expect(mocks.sync).toHaveBeenCalledTimes(4);
       await advance(10 * 60_000);
-      // Then every 30 seconds, because someone is usually waiting on the thing they just did.
-      expect(mocks.sync).toHaveBeenCalledTimes(24);
+      // Then every 10 seconds, because someone is usually waiting on the thing they just did.
+      expect(mocks.sync).toHaveBeenCalledTimes(64);
     });
 
     it("gives slow answers room, like any other read", async () => {

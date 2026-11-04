@@ -27,7 +27,7 @@ const MAX_UNCHANGED_SYNC_MS = 30_000;
 // doesn't retry every few seconds.
 const MAX_FAILURE_BACKOFF_MS = 5 * 60_000;
 // Studio's state changes when someone acts on it, and they're watching for the result.
-const MAX_WAITING_SYNC_MS = 30_000;
+const MAX_WAITING_SYNC_MS = 10_000;
 // Gives Studio time to itself when a place needs long reads, however often something changes.
 const SLOWEST_READ_PACING = 8;
 const UPDATE_BATCH_MS = 100;
@@ -160,9 +160,12 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
         failuresRef.current > 0
           ? Math.min(IDLE_SYNC_MS * 2 ** failuresRef.current, MAX_FAILURE_BACKOFF_MS)
           : waitRef.current
-            ? Math.min(
-                Math.max(IDLE_SYNC_MS * 2 ** Math.max(waitRef.current.reads - 1, 0), paced),
-                MAX_WAITING_SYNC_MS,
+            ? Math.max(
+                Math.min(
+                  IDLE_SYNC_MS * 2 ** Math.max(waitRef.current.reads - 1, 0),
+                  MAX_WAITING_SYNC_MS,
+                ),
+                paced,
               )
             : Math.max(steady, paced);
       // Replace any pending timer, so scheduling twice never runs two syncs.

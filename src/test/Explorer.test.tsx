@@ -70,6 +70,7 @@ vi.mock("@/providers/OpenCodeClientProvider", () => ({
   useOpenCodeClient: () => ({ client: mocks.client }),
 }));
 vi.mock("@/providers/StudioTargetProvider", () => ({
+  placeName: (label: string) => label.replace(/\s*\(placeId:[^)]*\)$/, ""),
   useStudioTargetOptional: () => mocks.studioTarget,
 }));
 // The real provider runs the sync. Only what Explorer asks of the rest of the app is replaced.
@@ -244,6 +245,32 @@ describe("Explorer", () => {
     expect(mocks.getSnapshot).toHaveBeenCalledOnce();
   });
 
+  it("says when this chat's place is closed, with nothing to retry", async () => {
+    mocks.studioTarget.selected = null as never;
+    Object.assign(mocks.studioTarget, {
+      status: "ready",
+      missing: { key: "gone", label: "Dungeon (placeId: 1)" },
+    });
+    try {
+      start();
+      await advance(0);
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Dungeon isn't open. Reopen it to see its objects.",
+      );
+      expect(screen.queryByRole("button", { name: "Check now" })).toBeNull();
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+      Object.assign(mocks.studioTarget, { status: undefined, missing: undefined });
+    }
+  });
+
+  it("announces that objects are loading", async () => {
+    mocks.getSnapshot.mockReturnValue(new Promise(() => {}));
+    start();
+    await advance(0);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading objects.");
+  });
+
   it("doesn't offer edits while the tree on screen can't be trusted", async () => {
     mocks.getSnapshot.mockResolvedValueOnce(tree);
     mocks.getSnapshot.mockResolvedValue({ waiting: "studio_closed" });
@@ -257,6 +284,7 @@ describe("Explorer", () => {
 
     expect(screen.getByRole("menuitem", { name: "Copy path" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
+    expect(mocks.getDetails).not.toHaveBeenCalled();
   });
 
   it("opens the object a reply links to and shows readable properties", async () => {

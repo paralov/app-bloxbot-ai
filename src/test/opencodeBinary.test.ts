@@ -1088,6 +1088,69 @@ describe("OpenCode downloads on a poor connection", () => {
       expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
     });
 
+    it("waits between tries, and counts only tries that got nothing more", async () => {
+      let attempt = 0;
+      const attemptsAt: number[] = [];
+      const pieces = 6;
+      const fetch = vi.fn(async (url: string) => {
+        if (url.includes("api.github.com")) return Response.json(releases);
+        attemptsAt.push(Date.now());
+        attempt += 1;
+        // Every try but the last gets a little further, more times than the limit would allow.
+        if (attempt < pieces) {
+          const piece = archive.subarray(attempt - 1, attempt);
+          let sent = false;
+          const stream = new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (sent) controller.error(new TypeError("connection reset"));
+              else controller.enqueue(piece);
+              sent = true;
+            },
+          });
+          return attempt === 1
+            ? new Response(stream)
+            : new Response(stream, {
+                status: 206,
+                headers: { "content-range": `bytes ${attempt - 1}-2047/2048` },
+              });
+        }
+        return new Response(archive.subarray(attempt - 1), {
+          status: 206,
+          headers: { "content-range": `bytes ${attempt - 1}-2047/2048` },
+        });
+      });
+
+      const { result } = await install(fetch);
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+      expect(attempt).toBe(pieces);
+      expect((attemptsAt[1] as number) - (attemptsAt[0] as number)).toBeGreaterThanOrEqual(1_000);
+    });
+
+    it("doesn't start over on the pinned file when the connection is what gave out", async () => {
+      const fetch = vi.fn(async (url: string) => {
+        if (url.includes("api.github.com")) return Response.json(releases);
+        return new Response(stalledBody(first));
+      });
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory: await makeTemporaryDirectory(),
+          platform: "darwin",
+          arch: "arm64",
+          fetch,
+          extractArchive: writeExecutable("opencode"),
+          pinnedRelease: pinnedFor("darwin-arm64", "pinned.zip", Buffer.from("other")),
+          delays: { verifyMs: 0 },
+        }),
+      );
+
+      expect(result).toMatchObject({
+        _tag: "Left",
+        left: { reason: "network", message: expect.stringContaining("stalled, no data") },
+      });
+      expect(fetch.mock.calls.some(([url]) => String(url).includes("pinned.zip"))).toBe(false);
+    });
+
     it("rejects a joined file that doesn't match its checksum", async () => {
       const fetch = vi.fn(async (url: string) =>
         url.includes("api.github.com")

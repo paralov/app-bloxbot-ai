@@ -71,4 +71,12 @@ describe("StudioSetup", () => {
     rerender(<StudioSetup connected checking={false} onCheck={vi.fn()} onContinue={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Let's build" })).toHaveFocus();
   });
+
+  it("doesn't call someone ready when this chat still needs a place chosen", () => {
+    render(
+      <StudioSetup connected needsChoice checking={false} onCheck={vi.fn()} onContinue={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Choose a place" })).toHaveFocus();
+    expect(screen.queryByText(/ready to build/)).toBeNull();
+  });
 });

@@ -58,7 +58,7 @@ import {
 } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
 import { useExplorerReference, useExplorerTree } from "@/providers/ExplorerReferenceProvider";
-import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
+import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ROW_HEIGHT = 28;
 
@@ -462,9 +462,13 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     ? ((waitingLong ? EXPLORER_LONG_WAIT_NOTICES[waiting] : undefined) ??
       EXPLORER_WAIT_NOTICES[waiting])
     : null;
-  const statusNotice =
-    waitingNotice ??
-    (syncError ? "Explorer couldn’t load this place. If it keeps failing, restart Studio." : null);
+  const placeClosed = !studioId && studioTarget?.missing && studioTarget.status !== "loading";
+  const statusNotice = placeClosed
+    ? `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
+    : (waitingNotice ??
+      (syncError
+        ? "Explorer couldn’t load this place. If it keeps failing, restart Studio."
+        : null));
   const checkNow = (
     <button
       type="button"
@@ -524,7 +528,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       ) : null}
 
       {/* Always in the page, so a screen reader announces it when the words arrive. */}
-      <output className="sr-only">{statusNotice}</output>
+      <output className="sr-only">{statusNotice ?? (tree ? null : "Loading objects.")}</output>
       {statusNotice ? (
         <div
           className={
@@ -536,7 +540,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           }
         >
           <span aria-hidden="true">{statusNotice}</span>
-          {checkNow}
+          {placeClosed ? null : checkNow}
         </div>
       ) : null}
 
@@ -596,7 +600,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         </div>
       </div>
 
-      {selected ? (
+      {selected && !waiting ? (
         <Inspector
           node={selected}
           studioId={studioId ?? null}
@@ -607,7 +611,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           onChange={(change, onDone) => void editObject(selected, change, onDone)}
           onRename={(name) => handleRenamed(selected, name)}
         />
-      ) : tree ? (
+      ) : tree && !waiting ? (
         <div className="shrink-0 border-t px-3 py-2 text-xs text-muted-foreground">
           Select an object to see its details, or drag it into your message.
         </div>

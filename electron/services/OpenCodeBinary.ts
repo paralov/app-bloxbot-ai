@@ -36,8 +36,9 @@ const LOOKUP_TIMEOUT_MS = 15_000;
  * than the old 120 second limit did.
  */
 export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
-/** How many times a download carries on from where it stopped before it counts as failed. */
+/** How many tries in a row may get nothing more before a download counts as failed. */
 const DOWNLOAD_RESUMES = 3;
+const RESUME_DELAY_MS = 1_000;
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024;
 const EXTRACT_ATTEMPTS = 3;
@@ -393,7 +394,10 @@ async function downloadWithResume(
   reportProgress?: StartupProgressReporter,
 ): Promise<{ archiveBuffer: Buffer | undefined; response: Response }> {
   let partial = await readSavedDownload(savedPath);
-  for (let resumes = 0; ; resumes += 1) {
+  // Any new data starts the count over, so only a connection that's really gone runs it out.
+  let resumes = 0;
+  let bytesAtLastFailure = partial.bytes;
+  for (;;) {
     const stall = watchForStall(DOWNLOAD_STALL_TIMEOUT_MS, () => partial.bytes);
     try {
       const downloadSignal = AbortSignal.any([signal, stall.signal]);
@@ -409,7 +413,8 @@ async function downloadWithResume(
       if (response.status === 416 && partial.bytes > 0) {
         await response.body?.cancel().catch(() => {});
         partial = emptyDownload();
-        if (resumes < DOWNLOAD_RESUMES) continue;
+        bytesAtLastFailure = 0;
+        if (resumes++ < DOWNLOAD_RESUMES) continue;
       }
       if (!response.ok) return { archiveBuffer: undefined, response };
       if (partial.bytes > 0 && resumedFrom(response) !== partial.bytes) {
@@ -417,7 +422,8 @@ async function downloadWithResume(
           // Bytes from somewhere else: nothing here can use them, so ask for the whole file.
           await response.body?.cancel().catch(() => {});
           partial = emptyDownload();
-          if (resumes < DOWNLOAD_RESUMES) continue;
+          bytesAtLastFailure = 0;
+          if (resumes++ < DOWNLOAD_RESUMES) continue;
           throw new Error("the server sent the wrong part of the file");
         }
         partial = emptyDownload();
@@ -427,6 +433,8 @@ async function downloadWithResume(
         response,
       };
     } catch (cause) {
+      if (partial.bytes > bytesAtLastFailure) resumes = 0;
+      bytesAtLastFailure = partial.bytes;
       if (signal.aborted || partial.bytes === 0 || resumes >= DOWNLOAD_RESUMES) {
         if (partial.bytes > 0) {
           await mkdir(dirname(savedPath), { recursive: true })
@@ -435,6 +443,19 @@ async function downloadWithResume(
         }
         throw cause;
       }
+      resumes += 1;
+      // A moment for a connection that just dropped, or every try would land in the same blip.
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, RESUME_DELAY_MS * 2 ** (resumes - 1));
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      });
     } finally {
       stall.stop();
     }
@@ -1187,6 +1208,17 @@ export function ensureOpenCodeBinary(
         updateError.cause,
       );
       return cached;
+    }
+
+    // The connection gave out partway, and the pinned file comes from the same place. Trying it
+    // would only start again from nothing.
+    if (updateError.message.startsWith("OpenCode download failed: ")) {
+      return yield* fail(
+        `Unable to download a verified OpenCode ${SUPPORTED_MAJOR}.${SUPPORTED_MINOR}.x release and no cached copy is available. ` +
+          `Release check: ${updateError.message} (reason: network)`,
+        updateError,
+        "network",
+      );
     }
 
     const pinned = pinnedCompatibleRelease(pinnedRelease, platform, arch, spec);
