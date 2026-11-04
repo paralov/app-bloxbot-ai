@@ -962,6 +962,160 @@ describe("OpenCode downloads on a poor connection", () => {
     expect(downloading.at(-1)?.bytesPerSecond).toBeGreaterThan(0);
   });
 
+  describe("when a connection drops partway", () => {
+    const first = Buffer.alloc(1024, 1);
+    const rest = Buffer.alloc(1024, 2);
+    const archive = Buffer.concat([first, rest]);
+    const digest = createHash("sha256").update(archive).digest("hex");
+    const releases = [release("v2.2.2", ASSET_NAME, `sha256:${digest}`)];
+
+    const install = async (fetch: ReturnType<typeof vi.fn>) =>
+      runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory: await makeTemporaryDirectory(),
+          platform: "darwin",
+          arch: "arm64",
+          fetch,
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }),
+      );
+    const rangeOf = (call: unknown[]) =>
+      (call[1] as RequestInit).headers as Record<string, string | undefined>;
+
+    it("carries on from where it stopped, and still checks the whole file", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(releases))
+        .mockResolvedValueOnce(new Response(stalledBody(first)))
+        .mockResolvedValueOnce(
+          new Response(rest, {
+            status: 206,
+            headers: { "content-range": `bytes ${first.byteLength}-2047/2048` },
+          }),
+        );
+
+      const { result } = await install(fetch);
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(rangeOf(fetch.mock.calls[1] as unknown[]).Range).toBeUndefined();
+      expect(rangeOf(fetch.mock.calls[2] as unknown[]).Range).toBe(`bytes=${first.byteLength}-`);
+    });
+
+    it("takes the whole file from a server that won't resume", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(releases))
+        .mockResolvedValueOnce(new Response(stalledBody(first)))
+        .mockResolvedValueOnce(new Response(archive));
+
+      const { result } = await install(fetch);
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+    });
+
+    it("asks for the whole file again when a server sends the wrong part", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(releases))
+        .mockResolvedValueOnce(new Response(stalledBody(first)))
+        .mockResolvedValueOnce(
+          new Response(rest, { status: 206, headers: { "content-range": "bytes 5-1028/2048" } }),
+        )
+        .mockResolvedValueOnce(new Response(archive));
+
+      const { result } = await install(fetch);
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+      expect(rangeOf(fetch.mock.calls[3] as unknown[]).Range).toBeUndefined();
+    });
+
+    it("carries on from what an earlier attempt saved, after every retry ran out", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const fail = vi.fn(async (url: string) => {
+        if (url.includes("api.github.com")) return Response.json(releases);
+        if (fail.mock.calls.length === 2) return new Response(stalledBody(first));
+        throw new TypeError("fetch failed");
+      });
+      const stalled = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: fail,
+          extractArchive: writeExecutable("opencode"),
+          pinnedRelease: pinnedFor("darwin-arm64", ASSET_NAME, Buffer.from("other")),
+          delays: { verifyMs: 0 },
+        }),
+      );
+      expect(stalled.result).toMatchObject({ _tag: "Left" });
+
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(releases))
+        .mockResolvedValueOnce(
+          new Response(rest, {
+            status: 206,
+            headers: { "content-range": `bytes ${first.byteLength}-2047/2048` },
+          }),
+        );
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch,
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }),
+      );
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+      expect(rangeOf(fetch.mock.calls[1] as unknown[]).Range).toBe(`bytes=${first.byteLength}-`);
+    });
+
+    it("starts over when what was saved is past the end of the file", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(releases))
+        .mockResolvedValueOnce(new Response(stalledBody(first)))
+        .mockResolvedValueOnce(new Response(null, { status: 416 }))
+        .mockResolvedValueOnce(new Response(archive));
+
+      const { result } = await install(fetch);
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+    });
+
+    it("rejects a joined file that doesn't match its checksum", async () => {
+      const fetch = vi.fn(async (url: string) =>
+        url.includes("api.github.com")
+          ? Response.json(releases)
+          : fetch.mock.calls.length === 2
+            ? new Response(stalledBody(first))
+            : new Response(Buffer.alloc(1024, 9), {
+                status: 206,
+                headers: { "content-range": `bytes ${first.byteLength}-2047/2048` },
+              }),
+      );
+
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory: await makeTemporaryDirectory(),
+          platform: "darwin",
+          arch: "arm64",
+          fetch,
+          extractArchive: writeExecutable("opencode"),
+          pinnedRelease: pinnedFor("darwin-arm64", ASSET_NAME, Buffer.from("other")),
+          delays: { verifyMs: 0 },
+        }),
+      );
+
+      expect(result).toMatchObject({ _tag: "Left" });
+    });
+  });
+
   it("aborts a download that stops sending data and says how far it got", async () => {
     const cacheDirectory = await makeTemporaryDirectory();
     const archive = Buffer.from("never finishes");

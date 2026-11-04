@@ -1,6 +1,11 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { type ExplorerTreeSync, useExplorerTreeSync } from "@/hooks/useExplorerTreeSync";
-import { type ExplorerNode, type ExplorerReference, indexExplorerObjects } from "@/lib/explorer";
+import {
+  type ExplorerNode,
+  type ExplorerReference,
+  type ExplorerWait,
+  indexExplorerObjects,
+} from "@/lib/explorer";
 
 interface ExplorerReferenceContextValue {
   pendingReference: ExplorerReference | null;
@@ -8,6 +13,8 @@ interface ExplorerReferenceContextValue {
   /** Nothing to offer yet, because the first read is running or failed. */
   objectsLoading: boolean;
   objectsFailed: boolean;
+  /** Why objects can't be read yet, when that's only Studio's state and clears up on its own. */
+  objectsWaiting: ExplorerWait | null;
   requestSync: ExplorerTreeSync["requestSync"];
   referenceObject: (reference: ExplorerReference) => void;
   consumeReference: () => void;
@@ -35,7 +42,8 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
   const [focusRequest, setFocusRequest] = useState<string | null>(null);
   const consumeFocus = useCallback(() => setFocusRequest(null), []);
   const objectsLoading = syncing && objects.length === 0;
-  const objectsFailed = (syncError !== null || waiting !== null) && objects.length === 0;
+  const objectsFailed = syncError !== null && objects.length === 0;
+  const objectsWaiting = objects.length === 0 ? waiting : null;
   const objectIndex = useMemo(() => indexExplorerObjects(objects), [objects]);
   const value = useMemo(
     () => ({
@@ -43,6 +51,7 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
       objects,
       objectsLoading,
       objectsFailed,
+      objectsWaiting,
       requestSync,
       referenceObject,
       consumeReference,
@@ -56,6 +65,7 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
       objects,
       objectsLoading,
       objectsFailed,
+      objectsWaiting,
       requestSync,
       referenceObject,
       consumeReference,

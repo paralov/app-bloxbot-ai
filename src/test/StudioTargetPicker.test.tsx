@@ -57,7 +57,7 @@ function renderPicker() {
 }
 
 const LOBBY = { key: "one", label: "Lobby", detail: null };
-const STUCK_HEADING = "Still no Studio · Follow these steps";
+const STUCK_HEADING = "Still no Studio. Follow these steps.";
 
 function guidanceEvents() {
   return capture.mock.calls.filter(([event]) =>
@@ -158,12 +158,9 @@ describe("StudioTargetPicker", () => {
   it("handles no Studios and discovery errors", async () => {
     discoverStudioTargets.mockResolvedValueOnce({ targets: [], selectedKey: null });
     renderPicker();
-    fireEvent.click(await screen.findByRole("button", { name: /No Studios/ }));
-    expect(
-      screen.getByText(
-        "Open a place in Studio and turn on its MCP server · BloxBot keeps checking",
-      ),
-    ).toBeVisible();
+    fireEvent.click(await screen.findByRole("button", { name: /No Studio/ }));
+    expect(screen.getByText(STUDIO_SETUP_STEPS[0].description)).toBeVisible();
+    expect(screen.getByText("BloxBot connects on its own once Studio is ready.")).toBeVisible();
 
     discoverStudioTargets.mockRejectedValueOnce(new Error("offline"));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -323,21 +320,25 @@ describe("StudioTargetPicker", () => {
 
       fireEvent.click(button);
       await flush(500);
-      expect(button).toBeDisabled();
+      // aria-disabled, not disabled, so someone using the keyboard stays on the button.
+      expect(button).toHaveAttribute("aria-disabled", "true");
       expect(button).toHaveAttribute("aria-busy", "true");
+      discoverStudioTargets.mockClear();
+      fireEvent.click(button);
+      expect(discoverStudioTargets).not.toHaveBeenCalled();
 
       await flush(100);
-      expect(button).toBeEnabled();
-      expect(screen.getByText("Checked · 1 Studio found")).toBeVisible();
+      expect(button).toHaveAttribute("aria-disabled", "false");
+      expect(screen.getByText("1 Studio found")).toBeVisible();
 
       fireEvent.click(button);
       await flush();
-      expect(screen.queryByText("Checked · 1 Studio found")).toBeNull();
+      expect(screen.queryByText("1 Studio found")).toBeNull();
     });
 
     it("isn't disturbed by the background check while the list is empty", async () => {
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
-      await openPicker(/No Studios/);
+      await openPicker(/No Studio/);
       const button = screen.getByRole("button", { name: "Refresh" });
 
       discoverStudioTargets.mockClear();
@@ -345,18 +346,18 @@ describe("StudioTargetPicker", () => {
       await flush(2_000);
 
       expect(discoverStudioTargets).toHaveBeenCalledTimes(1);
-      expect(button).toBeEnabled();
+      expect(button).toHaveAttribute("aria-disabled", "false");
       expect(button).toHaveAttribute("aria-busy", "false");
     });
 
-    it("opens the steps by itself on the third empty Refresh in 30 seconds", async () => {
+    it("leads with the steps on the third empty Refresh in 30 seconds", async () => {
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
-      await openPicker(/No Studios/);
+      await openPicker(/No Studio/);
 
       await refresh();
       await refresh();
       expect(screen.queryByText(STUCK_HEADING)).toBeNull();
-      expect(screen.getByText("Checked · No Studios found")).toBeVisible();
+      expect(screen.getByText("No Studio found")).toBeVisible();
       expect(guidanceEvents()).toEqual([]);
 
       await refresh();
@@ -386,9 +387,9 @@ describe("StudioTargetPicker", () => {
       expect(screen.getByText("Couldn't reach Roblox Studio. Refresh to try again.")).toBeVisible();
     });
 
-    it("doesn't open the steps for empty Refreshes spread past the window", async () => {
+    it("doesn't call someone stuck for empty Refreshes spread past the window", async () => {
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
-      await openPicker(/No Studios/);
+      await openPicker(/No Studio/);
 
       await refresh();
       await flush(20_000);
@@ -396,7 +397,7 @@ describe("StudioTargetPicker", () => {
       await flush(20_000);
       await refresh();
 
-      expect(screen.queryByRole("button", { name: "Hide steps" })).toBeNull();
+      expect(screen.queryByText(STUCK_HEADING)).toBeNull();
       expect(guidanceEvents()).toEqual([]);
     });
 
@@ -416,7 +417,7 @@ describe("StudioTargetPicker", () => {
 
     it("starts counting again after a Refresh finds a Studio", async () => {
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
-      await openPicker(/No Studios/);
+      await openPicker(/No Studio/);
       await refresh();
       await refresh();
 
@@ -435,7 +436,7 @@ describe("StudioTargetPicker", () => {
     it("clears the steps as soon as a Studio appears from the background check", async () => {
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
       selectStudioTarget.mockResolvedValue({ selected: LOBBY, verified: true });
-      await openPicker(/No Studios/);
+      await openPicker(/No Studio/);
       await refresh();
       await refresh();
       await refresh();
@@ -448,53 +449,107 @@ describe("StudioTargetPicker", () => {
       expect(screen.queryByText(STUDIO_SETUP_STEPS[3].description)).toBeNull();
       expect(screen.getByRole("button", { name: /Lobby/, pressed: true })).toBeVisible();
 
-      // Cleared for good, so losing that Studio later starts over instead of reopening them.
+      // Cleared for good, so losing that Studio later doesn't call someone stuck straight away.
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
       await refresh();
-      expect(screen.queryByText(STUDIO_SETUP_STEPS[3].description)).toBeNull();
+      expect(screen.queryByText(STUCK_HEADING)).toBeNull();
     });
 
-    it("shows every setup step on request and reports following them", async () => {
+    it("shows every setup step without being asked, and reports following them", async () => {
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
-      await openPicker(/No Studios/);
-      for (const step of STUDIO_SETUP_STEPS) {
-        expect(screen.queryByText(step.description)).toBeNull();
-      }
-
-      fireEvent.click(screen.getByRole("button", { name: "Show steps" }));
+      await openPicker(/No Studio/);
       for (const step of STUDIO_SETUP_STEPS) {
         expect(screen.getByText(step.description)).toBeVisible();
       }
       expect(screen.queryByText(STUCK_HEADING)).toBeNull();
 
-      fireEvent.click(screen.getByRole("button", { name: "Walk me through it" }));
+      fireEvent.click(screen.getByRole("button", { name: "Show me how" }));
 
       expect(onOpenSetup).toHaveBeenCalledOnce();
-      const properties = expect.objectContaining({
-        feature: "studio_target",
-        trigger: "manual",
-        status: "empty",
-      });
       expect(guidanceEvents()).toEqual([
-        ["studio_target_guidance_shown", properties],
-        ["studio_target_guidance_followed", properties],
+        [
+          "studio_target_guidance_followed",
+          expect.objectContaining({ feature: "studio_target", trigger: "empty", status: "empty" }),
+        ],
       ]);
     });
 
-    it("needs three more Refreshes after the steps are hidden", async () => {
+    it("says following came from being stuck once it has", async () => {
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
-      await openPicker(/No Studios/);
+      await openPicker(/No Studio/);
       await refresh();
       await refresh();
       await refresh();
 
-      fireEvent.click(screen.getByRole("button", { name: "Hide steps" }));
-      await refresh();
-      await refresh();
-      expect(screen.queryByText(STUDIO_SETUP_STEPS[0].description)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Show me how" }));
 
+      expect(guidanceEvents().at(-1)).toEqual([
+        "studio_target_guidance_followed",
+        expect.objectContaining({ trigger: "repeated_refresh" }),
+      ]);
+    });
+
+    it("says when this chat's place isn't one of the Studios listed", async () => {
+      loadConfig.mockResolvedValue({
+        studioTargetsBySession: {
+          "chat-session": {
+            key: "gone",
+            label: "Dungeon (placeId: 1)",
+            detail: null,
+            placeId: "1",
+          },
+        },
+      });
+      discoverStudioTargets.mockResolvedValue({
+        targets: [{ ...LOBBY, placeId: "2" }],
+        selectedKey: null,
+      });
+      await openPicker(/Choose Studio/);
+
+      expect(screen.getByText("Dungeon isn't open. Reopen it or choose another.")).toBeVisible();
+      expect(selectStudioTarget).not.toHaveBeenCalled();
+    });
+
+    it("forgets being stuck once the picker closes", async () => {
+      discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
+      await openPicker(/No Studio/);
       await refresh();
-      expect(screen.getByText(STUDIO_SETUP_STEPS[0].description)).toBeVisible();
+      await refresh();
+      await refresh();
+      expect(screen.getByText(STUCK_HEADING)).toBeVisible();
+
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: /No Studio/ }));
+      await flush();
+
+      expect(screen.queryByText(STUCK_HEADING)).toBeNull();
+    });
+
+    it("doesn't reopen by itself when it comes back on screen", async () => {
+      discoverStudioTargets.mockResolvedValue({ targets: [LOBBY], selectedKey: "one" });
+      render(
+        <StudioTargetProvider>
+          <StudioTargetPicker onOpenSetup={onOpenSetup} openRequest={3} />
+        </StudioTargetProvider>,
+      );
+      await flush();
+      expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+    });
+
+    it("opens when something else on screen asks", async () => {
+      discoverStudioTargets.mockResolvedValue({ targets: [LOBBY], selectedKey: "one" });
+      const { rerender } = renderPicker();
+      await flush();
+      expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+
+      rerender(
+        <StudioTargetProvider>
+          <StudioTargetPicker onOpenSetup={onOpenSetup} openRequest={1} />
+        </StudioTargetProvider>,
+      );
+      await flush();
+      expect(screen.getByRole("button", { name: "Refresh" })).toBeVisible();
     });
   });
 });

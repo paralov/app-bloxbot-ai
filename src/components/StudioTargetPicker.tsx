@@ -14,15 +14,13 @@ const STUCK_WINDOW_MS = 30_000;
 /** Studio answers in milliseconds, too fast to see, so Refresh stays busy at least this long. */
 const MIN_REFRESH_MS = 600;
 
-type GuidanceTrigger = "repeated_refresh" | "manual";
-
 function foundLabel(count: number): string {
-  if (count === 0) return "Checked · No Studios found";
-  return `Checked · ${count} ${count === 1 ? "Studio" : "Studios"} found`;
+  if (count === 0) return "No Studio found";
+  return `${count} ${count === 1 ? "Studio" : "Studios"} found`;
 }
 
 /** Studio's window label ends with a place ID nobody needs to read. */
-function placeName(label: string): string {
+export function placeName(label: string): string {
   return label.replace(/\s*\(placeId:[^)]*\)$/, "");
 }
 
@@ -32,17 +30,33 @@ function Spinner() {
   );
 }
 
-export default function StudioTargetPicker({ onOpenSetup }: { onOpenSetup: () => void }) {
+export default function StudioTargetPicker({
+  onOpenSetup,
+  openRequest = 0,
+}: {
+  onOpenSetup: () => void;
+  /** Counts up when something else on screen wants this open. */
+  openRequest?: number;
+}) {
   const studioTarget = useStudioTargetOptional();
   const [open, setOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [checked, setChecked] = useState(false);
-  const [guidance, setGuidance] = useState<GuidanceTrigger | null>(null);
+  const [stuck, setStuck] = useState(false);
   const closeAfterSelecting = useRef(false);
   const emptyRefreshes = useRef<number[]>([]);
+  const stuckRef = useRef(false);
   const selectingKey = studioTarget?.selectingKey ?? null;
   const selectError = studioTarget?.error ?? null;
   const hasTargets = (studioTarget?.targets.length ?? 0) > 0;
+
+  // Compared with the last one seen, since this comes back with the same count after a remount.
+  const seenOpenRequest = useRef(openRequest);
+  useEffect(() => {
+    if (openRequest === seenOpenRequest.current) return;
+    seenOpenRequest.current = openRequest;
+    setOpen(true);
+  }, [openRequest]);
 
   useEffect(() => {
     if (!closeAfterSelecting.current || selectingKey !== null) return;
@@ -55,26 +69,22 @@ export default function StudioTargetPicker({ onOpenSetup }: { onOpenSetup: () =>
   useEffect(() => {
     if (!hasTargets) return;
     emptyRefreshes.current = [];
-    setGuidance(null);
+    stuckRef.current = false;
+    setStuck(false);
   }, [hasTargets]);
 
   if (!studioTarget) return null;
-  const { targets, selected, status, error, discover, select } = studioTarget;
+  const { targets, selected, status, error, missing, discover, select } = studioTarget;
+  const busy = status === "loading" || refreshing || selectingKey !== null;
 
   const buttonLabel =
     status === "loading"
       ? "Finding Studios…"
-      : (selected?.label ?? (status === "empty" ? "No Studios" : "Choose Studio"));
-
-  const showGuidance = (trigger: GuidanceTrigger) => {
-    setGuidance(trigger);
-    posthog.capture(
-      "studio_target_guidance_shown",
-      analyticsProperties("studio_target", { trigger, status }),
-    );
-  };
+      : (selected?.label ?? (status === "empty" ? "No Studio" : "Choose Studio"));
 
   const refresh = async () => {
+    // Refresh keeps keyboard focus while it's busy, so it can't use the disabled attribute.
+    if (busy) return;
     setRefreshing(true);
     setChecked(false);
     const [found] = await Promise.all([
@@ -86,55 +96,52 @@ export default function StudioTargetPicker({ onOpenSetup }: { onOpenSetup: () =>
     const now = Date.now();
     emptyRefreshes.current =
       found > 0 ? [] : [...emptyRefreshes.current, now].filter((at) => now - at < STUCK_WINDOW_MS);
-    if (emptyRefreshes.current.length >= STUCK_REFRESHES && !guidance) {
-      showGuidance("repeated_refresh");
+    if (emptyRefreshes.current.length >= STUCK_REFRESHES && !stuckRef.current) {
+      stuckRef.current = true;
+      setStuck(true);
+      posthog.capture(
+        "studio_target_guidance_shown",
+        analyticsProperties("studio_target", { trigger: "repeated_refresh", status }),
+      );
     }
   };
 
-  const connectHelp = (
-    <>
+  const connectSteps = (
+    <div className="px-2 pb-2">
+      {/* Always in the page, so a screen reader announces it when the words arrive. */}
+      <output className="block">
+        {stuck ? (
+          <p className="pb-1.5 text-xs font-medium">Still no Studio. Follow these steps.</p>
+        ) : null}
+      </output>
+      <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+        {STUDIO_SETUP_STEPS.map((step) => (
+          <li key={step.title}>{step.description}</li>
+        ))}
+      </ol>
+      <p className="pt-1.5 text-xs leading-relaxed text-muted-foreground">
+        BloxBot connects on its own once Studio is ready.
+      </p>
       <button
         type="button"
-        aria-expanded={guidance !== null}
         onClick={() => {
-          if (guidance) {
-            emptyRefreshes.current = [];
-            setGuidance(null);
-          } else {
-            showGuidance("manual");
-          }
+          posthog.capture(
+            "studio_target_guidance_followed",
+            analyticsProperties("studio_target", {
+              trigger: stuck ? "repeated_refresh" : "empty",
+              status,
+            }),
+          );
+          setOpen(false);
+          onOpenSetup();
         }}
-        className="mx-2 mb-2 block text-xs text-foreground underline underline-offset-2 hover:opacity-80"
+        className={`mt-2 inline-flex h-7 items-center rounded-md px-3 text-xs font-medium transition-colors ${
+          stuck ? "bg-foreground text-background hover:opacity-90" : "border hover:bg-accent"
+        }`}
       >
-        {guidance ? "Hide steps" : "Show steps"}
+        Show me how
       </button>
-      {guidance ? (
-        <div className="px-2 pb-2">
-          {guidance === "repeated_refresh" ? (
-            <p className="pb-1.5 text-xs font-medium">Still no Studio · Follow these steps</p>
-          ) : null}
-          <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
-            {STUDIO_SETUP_STEPS.map((step) => (
-              <li key={step.title}>{step.description}</li>
-            ))}
-          </ol>
-          <button
-            type="button"
-            onClick={() => {
-              posthog.capture(
-                "studio_target_guidance_followed",
-                analyticsProperties("studio_target", { trigger: guidance, status }),
-              );
-              setOpen(false);
-              onOpenSetup();
-            }}
-            className="mt-2 inline-flex h-7 items-center rounded-md bg-foreground px-3 text-xs font-medium text-background transition-opacity hover:opacity-90"
-          >
-            Walk me through it
-          </button>
-        </div>
-      ) : null}
-    </>
+    </div>
   );
 
   return (
@@ -148,6 +155,10 @@ export default function StudioTargetPicker({ onOpenSetup }: { onOpenSetup: () =>
           );
         } else {
           setChecked(false);
+          // Closing it counts as moving on, so a later Refresh isn't called stuck straight away.
+          emptyRefreshes.current = [];
+          stuckRef.current = false;
+          setStuck(false);
         }
         setOpen(next);
       }}
@@ -169,9 +180,9 @@ export default function StudioTargetPicker({ onOpenSetup }: { onOpenSetup: () =>
           <button
             type="button"
             onClick={() => void refresh()}
-            disabled={status === "loading" || refreshing || selectingKey !== null}
+            aria-disabled={busy}
             aria-busy={refreshing}
-            className="mr-1 inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+            className="mr-1 inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
           >
             {refreshing ? <Spinner /> : null}
             Refresh
@@ -185,10 +196,12 @@ export default function StudioTargetPicker({ onOpenSetup }: { onOpenSetup: () =>
           </output>
         ) : status === "empty" ? (
           <>
-            <p className="px-2 pb-1.5 text-xs leading-relaxed text-muted-foreground">
-              Open a place in Studio and turn on its MCP server · BloxBot keeps checking
-            </p>
-            {connectHelp}
+            {missing ? (
+              <p className="px-2 pb-1.5 text-xs font-medium">
+                {placeName(missing.label)} isn't open. Reopen it in Studio.
+              </p>
+            ) : null}
+            {connectSteps}
           </>
         ) : status === "error" ? (
           <>
@@ -201,10 +214,15 @@ export default function StudioTargetPicker({ onOpenSetup }: { onOpenSetup: () =>
                 {error ?? "The Studio integration could not be initialized."}
               </p>
             </div>
-            {connectHelp}
+            {connectSteps}
           </>
         ) : (
           <div className="max-h-72 overflow-y-auto">
+            {missing ? (
+              <p className="px-2 pb-1.5 text-xs leading-relaxed text-muted-foreground">
+                {placeName(missing.label)} isn't open. Reopen it or choose another.
+              </p>
+            ) : null}
             {targets.map((target) => (
               <MenuItem
                 key={target.key}

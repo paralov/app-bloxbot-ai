@@ -22,7 +22,7 @@ import { useSessionGoal } from "@/hooks/useSessionGoal";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { useTodos } from "@/hooks/useTodos";
 import { analyticsProperties } from "@/lib/analytics";
-import { OBJECT_DRAG_NAME_TYPE, OBJECT_DRAG_TYPE } from "@/lib/explorer";
+import { EXPLORER_WAIT_NOTICES, OBJECT_DRAG_NAME_TYPE, OBJECT_DRAG_TYPE } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
@@ -184,11 +184,14 @@ const SendButton = memo(function SendButton({
   text,
   hasAttachments,
   isBusy,
+  blockedReason,
   onSend,
 }: {
   text: string;
   hasAttachments: boolean;
   isBusy: boolean;
+  /** Why sending is off, shown on the button. */
+  blockedReason?: string | null;
   onSend: () => void;
 }) {
   const abort = useAbort();
@@ -220,9 +223,9 @@ const SendButton = memo(function SendButton({
         <button
           type="button"
           onClick={onSend}
-          disabled={(!text.trim() && !hasAttachments) || !canSend}
+          disabled={(!text.trim() && !hasAttachments) || !canSend || !!blockedReason}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-30"
-          title="Send"
+          title={blockedReason ?? "Send"}
         >
           <svg
             width="12"
@@ -268,6 +271,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
     objectIndex,
     objectsLoading,
     objectsFailed,
+    objectsWaiting,
     requestSync,
   } = useExplorerReference();
   const allModels = useAllModels();
@@ -279,6 +283,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const studioTarget = useStudioTargetOptional();
   const studioTargetReference = studioTarget?.promptReference ?? null;
   const studioId = studioTarget?.selected?.key ?? null;
+  const placeMissing = studioTarget?.missing ?? null;
   const goal = useSessionGoal();
   const todos = useTodos();
   const showTodos = isBusy && hasOpenTodos(todos);
@@ -521,6 +526,8 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   }, [allModels, connectedProviders, hiddenModels, modelSearch]);
 
   function handleSubmit() {
+    // Told to find a Studio, the agent could otherwise start changing the wrong place.
+    if (placeMissing) return;
     const editorText = promptEditorRef.current?.getText() ?? text;
     const trimmed = editorText.trim();
     if (!trimmed && attachments.length === 0) return;
@@ -691,9 +698,11 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
               objectsUnavailable={
                 !studioId
                   ? "Open a place in Studio to reference its objects."
-                  : objectsFailed
-                    ? "Couldn't read this place in Studio. Type @ again to retry."
-                    : null
+                  : objectsWaiting
+                    ? EXPLORER_WAIT_NOTICES[objectsWaiting]
+                    : objectsFailed
+                      ? "Couldn't read this place in Studio. Type @ again to retry."
+                      : null
               }
               onObjectsWanted={requestSync}
               onChange={setText}
@@ -818,6 +827,9 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
               text={text}
               hasAttachments={attachments.length > 0}
               isBusy={isBusy}
+              blockedReason={
+                placeMissing ? "Reopen this chat's place or choose another Studio" : null
+              }
               onSend={handleSubmit}
             />
           </div>

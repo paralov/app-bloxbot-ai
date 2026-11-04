@@ -390,9 +390,9 @@ describe("User journeys", () => {
     try {
       render(<TestApp client={client} queryClient={queryClient} withStudioTargets />);
       const openSetup = async () => {
-        fireEvent.click(await screen.findByRole("button", { name: /No Studios/ }));
-        fireEvent.click(await screen.findByRole("button", { name: "Show steps" }));
-        fireEvent.click(screen.getByRole("button", { name: "Walk me through it" }));
+        fireEvent.click(await screen.findByRole("button", { name: /No Studio/ }));
+        // The picker and the notice over the message box both offer it.
+        fireEvent.click(screen.getAllByRole("button", { name: "Show me how" })[0] as HTMLElement);
       };
 
       fireEvent.click(await screen.findByText("My Session"));
@@ -857,7 +857,9 @@ describe("User journeys", () => {
         activeRef,
       );
     });
-    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryAllByRole("status").every((status) => !status.textContent)).toBe(true),
+    );
     expect(screen.getByRole("link", { name: "See OpenCode Go" })).toHaveAttribute(
       "href",
       "https://opencode.ai/go",

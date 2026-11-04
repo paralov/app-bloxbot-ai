@@ -9,6 +9,7 @@ import ChatSidebar from "@/components/ChatSidebar";
 import Explorer from "@/components/Explorer";
 import LoadingScreen from "@/components/LoadingScreen";
 import PlaytestPanel from "@/components/PlaytestPanel";
+import StudioNotice from "@/components/StudioNotice";
 import StudioSetup from "@/components/StudioSetup";
 import StudioTargetPicker from "@/components/StudioTargetPicker";
 import { MENU_TRIGGER } from "@/components/ui/menu";
@@ -47,6 +48,7 @@ function Chat() {
   const [showStudioSetup, setShowStudioSetup] = useState(false);
   // From the picker the helper is already connected, so setup is done only once a Studio shows up.
   const [setupFromPicker, setSetupFromPicker] = useState(false);
+  const [pickerRequest, setPickerRequest] = useState(0);
   const [showPlaytest, setShowPlaytest] = useState(false);
   const desiredSidePanel = showPlaytest
     ? "playtest"
@@ -146,6 +148,7 @@ function Chat() {
     setSetupFromPicker(false);
     setShowStudioSetup(false);
   }, []);
+  const placeMissing = studioTarget?.missing != null;
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
   const handleToggleExplorer = useCallback(() => {
@@ -244,7 +247,10 @@ function Chat() {
               void studioConnection.checkAgain();
               if (setupFromPicker) void studioTarget?.discover();
             }}
-            onContinue={handleCloseStudioSetup}
+            onContinue={() => {
+              handleCloseStudioSetup();
+              if (placeMissing) setPickerRequest((request) => request + 1);
+            }}
             onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
           />
         ) : studioConnection.state === "checking" ? (
@@ -286,11 +292,18 @@ function Chat() {
                 {activeSessionTitle || "Untitled"}
               </h3>
               <div className="flex max-w-[45%] shrink-0">
-                <StudioTargetPicker onOpenSetup={handleOpenStudioSetup} />
+                <StudioTargetPicker
+                  onOpenSetup={handleOpenStudioSetup}
+                  openRequest={pickerRequest}
+                />
               </div>
             </div>
 
             <ChatMessages />
+            <StudioNotice
+              onOpenSetup={handleOpenStudioSetup}
+              onOpenPicker={() => setPickerRequest((request) => request + 1)}
+            />
             <ChatInput onOpenSettings={handleOpenSettings} />
           </>
         )}

@@ -32,6 +32,7 @@ interface StartupPresentation {
 }
 
 interface StartupErrorPresentation {
+  helpLink?: { label: string; href: string };
   message: string;
   detail: string;
   /** A folder the person needs, such as one to exclude from antivirus scans. */
@@ -45,6 +46,8 @@ export function getInstallFailureReason(technicalDetail: string): string | null 
 }
 
 const DEFAULT_ENGINE_PROGRESS: OpenCodeStartupProgress = { phase: "checking" };
+const SLOW_STEP_MS = 20_000;
+const SERVER_WAIT_MS = 60_000;
 
 const STARTUP_COPY: Record<Exclude<StartupPhase, "engine">, StartupPresentation> = {
   connection: {
@@ -116,11 +119,44 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
   };
 }
 
+/** Replaces the usual reassurance when a step has gone quiet, so it doesn't look frozen. */
+function slowPresentation(
+  presentation: StartupPresentation,
+  phase: StartupPhase,
+  engineProgress: OpenCodeStartupProgress,
+): StartupPresentation {
+  const downloading = phase === "engine" && engineProgress.phase === "downloading";
+  const unpacking =
+    phase === "engine" &&
+    (engineProgress.phase === "installing" || engineProgress.phase === "verifying");
+  return {
+    ...presentation,
+    detail: downloading
+      ? "Connection paused. Carries on when data arrives."
+      : unpacking
+        ? "Taking longer than usual. Security software can slow this."
+        : "Taking longer than usual. Still trying.",
+    // The last speed is out of date by now, but how far it got still holds.
+    startup: downloading
+      ? {
+          ...presentation.startup,
+          meta:
+            presentation.startup.progress === undefined
+              ? undefined
+              : `${Math.round(presentation.startup.progress * 100)}%`,
+        }
+      : presentation.startup,
+  };
+}
+
 export function getStartupPresentation(
   phase: StartupPhase,
   engineProgress: OpenCodeStartupProgress = DEFAULT_ENGINE_PROGRESS,
+  slow = false,
 ): StartupPresentation {
-  return phase === "engine" ? getEnginePresentation(engineProgress) : STARTUP_COPY[phase];
+  const presentation =
+    phase === "engine" ? getEnginePresentation(engineProgress) : STARTUP_COPY[phase];
+  return slow ? slowPresentation(presentation, phase, engineProgress) : presentation;
 }
 
 export function getStartupErrorPresentation(
@@ -135,8 +171,12 @@ export function getStartupErrorPresentation(
     return {
       message: "Setup couldn't finish",
       detail:
-        "Windows security software blocked OpenCode, the engine BloxBot runs on. Allow BloxBot in your antivirus, or add its folder as an exclusion, then retry.",
+        "Windows security software blocked BloxBot's engine. Add this folder as an exclusion, then try again.",
       detailPath: installFolder ?? undefined,
+      helpLink: {
+        label: "How to add an exclusion",
+        href: "https://support.microsoft.com/en-us/windows/add-an-exclusion-to-windows-security-811816c0-4dfd-af4a-47e4-c301afe13b26",
+      },
       technicalDetail,
     };
   }
@@ -144,7 +184,7 @@ export function getStartupErrorPresentation(
   if (reason === "disk_full") {
     return {
       message: "Setup couldn't finish",
-      detail: "Your drive is nearly full. Free up at least 500 MB, then retry.",
+      detail: "Your drive is nearly full. Free up at least 500 MB, then try again.",
       technicalDetail,
     };
   }
@@ -152,8 +192,45 @@ export function getStartupErrorPresentation(
   if (reason === "other") {
     return {
       message: "Setup couldn't finish",
+      detail: "BloxBot couldn't set up its engine. Try again, or report this if it keeps failing.",
+      technicalDetail,
+    };
+  }
+
+  if (normalized.includes("failed to spawn") || normalized.includes("exited during startup")) {
+    return {
+      message: "BloxBot couldn't start",
       detail:
-        "BloxBot couldn't set up OpenCode, the engine it runs on. Restart setup, and if it keeps failing, copy the technical details and send them to us.",
+        "Its local engine stopped right away. Allow BloxBot in your antivirus, then try again.",
+      technicalDetail,
+    };
+  }
+
+  if (
+    normalized.includes("did not open a listening port") ||
+    normalized.includes("did not become healthy")
+  ) {
+    return {
+      message: "BloxBot couldn't start",
+      detail:
+        "Its local engine didn't respond. Allow BloxBot in your antivirus or pause your VPN, then try again.",
+      technicalDetail,
+    };
+  }
+
+  if (normalized.includes("certificate")) {
+    return {
+      message: "Setup couldn't finish",
+      detail:
+        "A company network or antivirus blocked the download. Try another network, then try again.",
+      technicalDetail,
+    };
+  }
+
+  if (normalized.includes("stalled, no data")) {
+    return {
+      message: "Setup couldn't finish",
+      detail: "The download stopped getting data. Check your connection, then try again.",
       technicalDetail,
     };
   }
@@ -166,7 +243,7 @@ export function getStartupErrorPresentation(
     return {
       message: "Setup couldn't finish",
       detail:
-        "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then restart setup.",
+        "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then try again.",
       technicalDetail,
     };
   }
@@ -183,7 +260,7 @@ export function getStartupErrorPresentation(
   return {
     message: "Setup couldn't finish",
     detail:
-      "BloxBot hit a problem while preparing its local engine. Restart setup, or check for an app update if it happens again.",
+      "BloxBot hit a problem while preparing its engine. Try again, or report this if it keeps failing.",
     technicalDetail,
   };
 }
@@ -246,7 +323,13 @@ export function OpenCodeClientProvider({
 
     // Step 2: Poll the HTTP server until it responds.
     async function waitForServer(baseUrl: string, authorization: string): Promise<void> {
+      const deadline = Date.now() + SERVER_WAIT_MS;
       while (!cancelled) {
+        if (Date.now() > deadline) {
+          throw new Error(
+            `OpenCode did not become healthy within ${SERVER_WAIT_MS / 1000} seconds after it started`,
+          );
+        }
         try {
           const res = await fetch(`${baseUrl}/session`, {
             headers: { Authorization: authorization },
@@ -430,13 +513,23 @@ export function OpenCodeClientProvider({
     };
   }, [initError]);
 
+  // Any news restarts the clock, so this only shows once a step has actually gone quiet.
+  const [slow, setSlow] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: watches for startup news, not its contents
+  useEffect(() => {
+    setSlow(false);
+    if (ready || initError) return;
+    const timer = window.setTimeout(() => setSlow(true), SLOW_STEP_MS);
+    return () => window.clearTimeout(timer);
+  }, [startupPhase, engineProgress, ready, initError]);
+
   const value = useMemo<OpenCodeClientContextValue>(
     () => ({ client, status, port, ready, initError }),
     [client, status, port, ready, initError],
   );
 
   if (!ready) {
-    const startup = getStartupPresentation(startupPhase, engineProgress);
+    const startup = getStartupPresentation(startupPhase, engineProgress, slow);
     const startupError = initError ? getStartupErrorPresentation(initError, installFolder) : null;
     return (
       <OpenCodeClientContext.Provider value={value}>
@@ -444,6 +537,7 @@ export function OpenCodeClientProvider({
           message={startupError?.message ?? startup.message}
           detail={startupError?.detail ?? startup.detail}
           detailPath={startupError?.detailPath}
+          helpLink={startupError?.helpLink}
           technicalDetail={startupError?.technicalDetail}
           startup={startupError ? undefined : startup.startup}
           error={!!startupError}

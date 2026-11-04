@@ -26,6 +26,8 @@ const MAX_UNCHANGED_SYNC_MS = 30_000;
 // After failures, wait longer each time up to this, so a broken Studio setup
 // doesn't retry every few seconds.
 const MAX_FAILURE_BACKOFF_MS = 5 * 60_000;
+// Studio's state changes when someone acts on it, and they're watching for the result.
+const MAX_WAITING_SYNC_MS = 30_000;
 // Gives Studio time to itself when a place needs long reads, however often something changes.
 const SLOWEST_READ_PACING = 8;
 const UPDATE_BATCH_MS = 100;
@@ -160,13 +162,15 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
           : waitRef.current
             ? Math.min(
                 Math.max(IDLE_SYNC_MS * 2 ** Math.max(waitRef.current.reads - 1, 0), paced),
-                MAX_FAILURE_BACKOFF_MS,
+                MAX_WAITING_SYNC_MS,
               )
             : Math.max(steady, paced);
       // Replace any pending timer, so scheduling twice never runs two syncs.
       if (timer !== undefined) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        if (document.visibilityState === "hidden" || !document.hasFocus()) scheduleNext();
+        // Someone told to open a place is looking at Studio, so a wait keeps checking without focus.
+        const away = document.visibilityState === "hidden" || !document.hasFocus();
+        if (away && !waitRef.current) scheduleNext();
         else void sync({ force: false });
       }, delay);
     }
@@ -183,7 +187,6 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
       syncingRef.current = true;
       const movedOn = () => studioRef.current !== studioId;
       setSyncing(true);
-      setSyncError(null);
       const syncStartedAt = performance.now();
       const isFirstSync = !telemetryRef.current.firstSyncReported;
       if (isFirstSync && !waitRef.current) {
@@ -216,6 +219,7 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
           }
           waitRef.current.reads += 1;
           failuresRef.current = 0;
+          setSyncError(null);
           setWaiting(result.waiting);
           // Only a fresh list of Studios can say whether this one came back under a new id.
           if (result.waiting === "studio_closed") void discoverRef.current?.();
@@ -242,6 +246,7 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
         unchangedRef.current = result.changed ? 0 : unchangedRef.current + 1;
         watchingRef.current = result.watching;
         failuresRef.current = 0;
+        setSyncError(null);
         setTruncated(result.truncated);
         if (objectsStaleRef.current) publishObjects();
         if (isFirstSync || telemetryRef.current.hadFailure) {

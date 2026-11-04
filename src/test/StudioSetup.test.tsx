@@ -16,7 +16,7 @@ describe("StudioSetup", () => {
     );
 
     expect(screen.getByRole("status")).toHaveTextContent(
-      "BloxBot can't find Roblox Studio's MCP helper. Install or update Roblox Studio, open it, turn on the MCP server in Assistant settings, then check again.",
+      "BloxBot can't find Studio's MCP helper. Install or update Roblox Studio, then follow the steps above.",
     );
     expect(screen.queryByText("Looking for Roblox Studio")).toBeNull();
 
@@ -30,7 +30,7 @@ describe("StudioSetup", () => {
       />,
     );
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Studio's MCP helper stopped right after it started.",
+      "Studio's MCP helper stopped. Open Roblox Studio so it can finish updating, or reinstall it if this keeps happening.",
     );
     expect(screen.getByRole("status").textContent).not.toContain(";");
   });
@@ -44,5 +44,31 @@ describe("StudioSetup", () => {
     rerender(<StudioSetup {...props} onDismiss={onDismiss} />);
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("can check again from any step, and keeps focus when Back goes away", () => {
+    const onCheck = vi.fn();
+    render(
+      <StudioSetup connected={false} checking={false} onCheck={onCheck} onContinue={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(onCheck).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    const back = screen.getByRole("button", { name: "Back" });
+    back.focus();
+    fireEvent.click(back);
+    expect(screen.getByRole("button", { name: "Next" })).toHaveFocus();
+  });
+
+  it("moves focus to what comes next when Studio connects", () => {
+    const { rerender } = render(
+      <StudioSetup connected={false} checking={false} onCheck={vi.fn()} onContinue={vi.fn()} />,
+    );
+    expect(screen.getByRole("heading", { name: "Let's connect Studio" })).toHaveFocus();
+
+    rerender(<StudioSetup connected checking={false} onCheck={vi.fn()} onContinue={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Let's build" })).toHaveFocus();
   });
 });

@@ -476,6 +476,8 @@ export async function syncExplorerTree(
   }
 
   const read = async (path: string, depth: number, limit: number): Promise<Read> => {
+    // Another read may have just been refused, and this one was picked for the same data model.
+    if (waiting) throw new StudioWaiting(waiting);
     const answer = await timed(() =>
       readTree(callTool, {
         studio_id: studioId,

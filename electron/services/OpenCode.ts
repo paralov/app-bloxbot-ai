@@ -423,7 +423,8 @@ export function explainNetstatMiss(
     );
     const rows = Option.getOrElse(connections, (): readonly NetworkConnection[] => []);
     const holders = rows.filter(
-      (row) => Number(row.localPort) === port && row.state === "LISTEN",
+      (row) =>
+        Number(row.localPort) === port && row.state === "LISTEN" && row.protocol.startsWith("tcp"),
     );
     if (holders.some((row) => row.pid === pid && row.localAddress === LOOPBACK)) return null;
 

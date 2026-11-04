@@ -1,14 +1,15 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { appLink } from "@/lib/appLink";
 import { desktop } from "@/lib/desktop";
 import type { UpdateInfo } from "@/types/desktop";
 
 interface LoadingScreenProps {
   message?: string;
   detail?: string;
-  /** A folder path shown under the detail, selectable so it can be copied. */
+  /** A folder path shown under the detail, with a button to copy it. */
   detailPath?: string;
+  /** Where to learn how to do what the detail asks. */
+  helpLink?: { label: string; href: string };
   /** Full diagnostic text, hidden behind a disclosure in the error state. */
   technicalDetail?: string;
   animation?: StartupAnimation;
@@ -43,6 +44,7 @@ function LoadingScreen({
   message = "Starting up...",
   detail,
   detailPath,
+  helpLink,
   technicalDetail,
   animation,
   startup,
@@ -53,6 +55,9 @@ function LoadingScreen({
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>("idle");
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [folderCopied, setFolderCopied] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const busyRestarting = retrying || restarting;
   const updateRef = useRef<UpdateInfo | null>(null);
 
   async function handleCheckForUpdates() {
@@ -71,6 +76,12 @@ function LoadingScreen({
       setUpdateStatus("error");
     }
   }
+
+  // Someone stuck here may already be one update away from the fix, so look without being asked.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once when the error appears
+  useEffect(() => {
+    if (error) void handleCheckForUpdates();
+  }, [error]);
 
   async function handleInstall() {
     const update = updateRef.current;
@@ -95,12 +106,8 @@ function LoadingScreen({
   }
 
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center overflow-y-auto px-6 py-10">
-      <div
-        className="animate-fade-in flex w-full max-w-sm flex-col items-center"
-        role={error ? "alert" : undefined}
-        aria-live={error ? "assertive" : undefined}
-      >
+    <div className="flex h-full w-full overflow-y-auto px-6 py-10">
+      <div className="animate-fade-in m-auto flex w-full max-w-sm flex-col items-center">
         {/* BloxBot face  - inline SVG so we can animate individual parts */}
         <svg
           width="80"
@@ -163,13 +170,19 @@ function LoadingScreen({
         </svg>
 
         {/* Status text */}
-        <h1 className="mt-5 text-base font-medium text-foreground">{message}</h1>
+        <div
+          className="flex flex-col items-center"
+          role={error ? "alert" : undefined}
+          aria-live={error ? undefined : "polite"}
+        >
+          <h1 className="mt-5 text-center text-base font-medium text-foreground">{message}</h1>
 
-        {detail && (
-          <p className="mt-2 max-w-sm text-center text-xs leading-relaxed text-muted-foreground">
-            {detail}
-          </p>
-        )}
+          {detail && (
+            <p className="mt-2 max-w-sm text-center text-xs leading-relaxed text-muted-foreground">
+              {detail}
+            </p>
+          )}
+        </div>
 
         {detailPath && (
           <code className="mt-2 max-w-sm select-all break-all rounded-md border bg-card px-2 py-1 text-center font-mono text-xs text-foreground">
@@ -177,18 +190,61 @@ function LoadingScreen({
           </code>
         )}
 
+        {(detailPath || helpLink) && (
+          <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+            {detailPath && (
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(detailPath).then(() => setFolderCopied(true));
+                }}
+                className="underline transition-colors hover:text-foreground"
+              >
+                {folderCopied ? "Copied" : "Copy folder"}
+              </button>
+            )}
+            {helpLink && (
+              <a
+                href={helpLink.href}
+                target="_blank"
+                rel="noreferrer"
+                className="underline transition-colors hover:text-foreground"
+              >
+                {helpLink.label}
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Error state: help actions */}
         {error ? (
           <div className="mt-5 flex flex-col items-center gap-3">
+            {updateStatus === "available" && updateVersion && (
+              <button
+                type="button"
+                onClick={handleInstall}
+                className="inline-flex h-9 items-center rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+              >
+                Install v{updateVersion} &amp; restart
+              </button>
+            )}
+
             {/* Retry button */}
             {onRetry && (
               <button
                 type="button"
-                onClick={onRetry}
-                disabled={retrying}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+                onClick={() => {
+                  setRestarting(true);
+                  onRetry();
+                }}
+                disabled={busyRestarting}
+                className={`inline-flex h-9 items-center gap-2 rounded-lg px-5 text-sm font-medium transition-opacity disabled:opacity-60 ${
+                  updateStatus === "available"
+                    ? "border text-foreground hover:bg-muted"
+                    : "bg-foreground text-background hover:opacity-90"
+                }`}
               >
-                {retrying ? (
+                {busyRestarting ? (
                   <>
                     <svg
                       className="h-3.5 w-3.5 animate-spin"
@@ -218,7 +274,7 @@ function LoadingScreen({
                       <path d="M3 22v-6h6" />
                       <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
                     </svg>
-                    Restart setup
+                    Try again
                   </>
                 )}
               </button>
@@ -255,16 +311,6 @@ function LoadingScreen({
                 <span className="text-emerald-600">Up to date</span>
               )}
 
-              {updateStatus === "available" && updateVersion && (
-                <button
-                  type="button"
-                  onClick={handleInstall}
-                  className="underline transition-colors hover:text-foreground"
-                >
-                  Install v{updateVersion} &amp; restart
-                </button>
-              )}
-
               {updateStatus === "downloading" && (
                 <span className="flex items-center gap-1.5">
                   <svg
@@ -290,15 +336,13 @@ function LoadingScreen({
                 </button>
               )}
 
-              <span className="text-muted-foreground/40">|</span>
-
               <a
-                href={appLink("https://bloxbot.ai", "loading")}
+                href="https://github.com/paralov/app-bloxbot-ai/issues"
                 target="_blank"
                 rel="noreferrer"
                 className="underline transition-colors hover:text-foreground"
               >
-                Get help
+                Report a problem
               </a>
             </div>
 
@@ -309,7 +353,7 @@ function LoadingScreen({
                 </summary>
                 <div className="border-t px-3 py-3">
                   <p className="leading-relaxed">
-                    Share these details if support asks for them. They may include local file paths.
+                    Add these to your report. They may include local file paths.
                   </p>
                   <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs leading-relaxed text-foreground/70">
                     {technicalDetail}

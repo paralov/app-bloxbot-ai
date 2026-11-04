@@ -156,6 +156,19 @@ export const ExplorerWaitSchema = Schema.Literal(
 
 export type ExplorerWait = typeof ExplorerWaitSchema.Type;
 
+export const EXPLORER_WAIT_NOTICES: Record<ExplorerWait, string> = {
+  studio_closed: "Studio closed. Reopen it to continue.",
+  no_place: "No place open. Open one in Studio.",
+  mode_changed: "Playtest starting or stopping. Back in a moment.",
+  place_loading: "Place still loading. Back in a moment.",
+};
+
+/** For when "back in a moment" has stopped being true. */
+export const EXPLORER_LONG_WAIT_NOTICES: Partial<Record<ExplorerWait, string>> = {
+  mode_changed: "Can't read Studio during this playtest. Stop it to see objects.",
+  place_loading: "This place is slow to load. Still trying.",
+};
+
 export const ExplorerSyncResultSchema = Schema.Struct({
   changed: Schema.Boolean,
   /** Studio says when the tree changes, so there's no need to read it until it does. */

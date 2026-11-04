@@ -245,7 +245,7 @@ describe("useExplorerTreeSync", () => {
       expect(mocks.discover).not.toHaveBeenCalled();
     });
 
-    it("backs off while waiting, so a Studio left closed costs no more than a failing one", async () => {
+    it("backs off while waiting, but not so far that opening a place goes unnoticed", async () => {
       vi.useFakeTimers();
       mocks.sync.mockResolvedValue(waiting("no_place"));
       started();
@@ -264,8 +264,8 @@ describe("useExplorerTreeSync", () => {
       await advance(20_000);
       expect(mocks.sync).toHaveBeenCalledTimes(4);
       await advance(10 * 60_000);
-      // 40s, 80s, 160s, then every 5 minutes.
-      expect(mocks.sync.mock.calls.length).toBeLessThanOrEqual(9);
+      // Then every 30 seconds, because someone is usually waiting on the thing they just did.
+      expect(mocks.sync).toHaveBeenCalledTimes(24);
     });
 
     it("gives slow answers room, like any other read", async () => {

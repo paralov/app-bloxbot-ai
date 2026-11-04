@@ -143,11 +143,11 @@ describe("Explorer", () => {
 
     start();
     await advance(0);
-    expect(screen.getByText(/Trying again shortly/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/If it keeps failing, restart Studio/);
 
     await advance(10_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("treats an empty first tree as not ready yet", async () => {
@@ -156,7 +156,7 @@ describe("Explorer", () => {
 
     start();
     await advance(0);
-    expect(screen.getByText(/Trying again shortly/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/If it keeps failing, restart Studio/);
 
     await advance(10_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
@@ -172,11 +172,11 @@ describe("Explorer", () => {
     mocks.getSnapshot.mockRejectedValueOnce(new Error("Studio went away"));
     await advance(5_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByText(/Trying again shortly/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/If it keeps failing, restart Studio/);
 
     mocks.getSnapshot.mockResolvedValue(tree);
     await advance(10_000);
-    expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("says calmly what Studio is doing instead of a failure or a skeleton", async () => {
@@ -185,13 +185,12 @@ describe("Explorer", () => {
 
     const { container } = start();
     await advance(0);
-    expect(screen.getByRole("status")).toHaveTextContent("No place open · Open one in Studio");
-    expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("No place open. Open one in Studio.");
     expect(container.querySelector(".animate-pulse")).toBeNull();
 
     await advance(5_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("keeps the tree on screen through a playtest starting or stopping", async () => {
@@ -202,11 +201,62 @@ describe("Explorer", () => {
     mocks.getSnapshot.mockResolvedValueOnce({ waiting: "mode_changed" });
     await advance(5_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Studio changing modes");
+    expect(screen.getByRole("status")).toHaveTextContent("Playtest starting or stopping");
 
     mocks.getSnapshot.mockResolvedValue(tree);
     await advance(5_000);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("keeps Check now in place through a retry, and hides what can't be used without a tree", async () => {
+    mocks.getSnapshot.mockRejectedValue(new Error("Studio is busy"));
+
+    const { container } = start();
+    await advance(0);
+    const checkNow = screen.getByRole("button", { name: "Check now" });
+    expect(screen.queryByRole("searchbox", { name: "Search Explorer" })).toBeNull();
+    expect(screen.queryByText(/Select an object/)).toBeNull();
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+
+    fireEvent.click(checkNow);
+    expect(checkNow).toBeInTheDocument();
+    await advance(0);
+    expect(screen.getByRole("button", { name: "Check now" })).toBe(checkNow);
+  });
+
+  it("stops promising a moment once a wait has gone on, and can check on request", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce(tree);
+    mocks.getSnapshot.mockResolvedValue({ waiting: "mode_changed" });
+
+    start();
+    await advance(0);
+    await advance(5_000);
+    expect(screen.getByRole("status")).toHaveTextContent("Back in a moment");
+
+    await advance(30_000);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Can't read Studio during this playtest. Stop it to see objects.",
+    );
+
+    mocks.getSnapshot.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
+    await advance(0);
+    expect(mocks.getSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it("doesn't offer edits while the tree on screen can't be trusted", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce(tree);
+    mocks.getSnapshot.mockResolvedValue({ waiting: "studio_closed" });
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+
+    start();
+    await advance(0);
+    await advance(5_000);
+    fireEvent.contextMenu(screen.getByText("Workspace"));
+    await advance(0);
+
+    expect(screen.getByRole("menuitem", { name: "Copy path" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
   });
 
   it("opens the object a reply links to and shows readable properties", async () => {

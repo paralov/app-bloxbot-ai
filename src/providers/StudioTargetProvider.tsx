@@ -29,6 +29,8 @@ interface StudioTargetContextValue {
   status: StudioTargetStatus;
   selectingKey: string | null;
   error: string | null;
+  /** The place this chat was working in, when it isn't open any more. */
+  missing: StudioTarget | null;
   /** Resolves with how many Studios are listed afterwards. */
   discover(): Promise<number>;
   select(target: StudioTarget): Promise<void>;
@@ -62,6 +64,10 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const operationRef = useRef(0);
   const targetsRef = useRef<readonly StudioTarget[]>([]);
   const discoveryRef = useRef<Promise<number> | null>(null);
+  const selectingRef = useRef(false);
+  // Only what discovery itself got wrong clears when discovery next works.
+  const errorSourceRef = useRef<"discovery" | "select" | null>(null);
+  const lastDiscoveryReportRef = useRef<string | null>(null);
   const targetsBySessionRef = useRef<Record<string, StudioTarget>>({});
   const configLoadedRef = useRef(false);
 
@@ -85,9 +91,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       const placeMatches = remembered?.placeId
         ? result.targets.filter((target) => target.placeId === remembered.placeId)
         : [];
+      // Two places can share a name, so a different Place ID always rules a name match out.
       const labelMatches = remembered
         ? result.targets.filter(
-            (target) => target.label.trim().toLowerCase() === remembered.label.trim().toLowerCase(),
+            (target) =>
+              target.label.trim().toLowerCase() === remembered.label.trim().toLowerCase() &&
+              (!remembered.placeId || !target.placeId || target.placeId === remembered.placeId),
           )
         : [];
       let nextSelected = remembered
@@ -132,8 +141,18 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         );
         setSelectingKey(null);
       }
+      // A chat that took the Studio already in use is tied to it too, or it would follow to another
+      // place if that one closed.
+      if (nextSelected && !remembered) await rememberTarget(nextSelected);
+      if (operation !== operationRef.current) return;
       setSelected(nextSelected);
       setStatus(result.targets.length === 0 ? "empty" : "ready");
+      // A selection this replaced was left mid-way, and nothing else will finish it.
+      if (!selectingRef.current) setSelectingKey(null);
+      // This runs every few seconds, so only a change is worth reporting.
+      const discoveryReport = `${result.targets.length}:${nextSelected?.key ?? ""}`;
+      if (discoveryReport === lastDiscoveryReportRef.current) return;
+      lastDiscoveryReportRef.current = discoveryReport;
       posthog.capture(
         "studio_target_discovery_succeeded",
         analyticsProperties("studio_target", {
@@ -157,11 +176,15 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       const operation = ++operationRef.current;
       try {
         await applyDiscovery(operation);
-        if (operation === operationRef.current) setError(null);
+        if (operation === operationRef.current && errorSourceRef.current === "discovery") {
+          errorSourceRef.current = null;
+          setError(null);
+        }
       } catch (discoveryError) {
         if (operation === operationRef.current) {
           setStatus(targetsRef.current.length > 0 ? "ready" : "error");
           setSelectingKey(null);
+          errorSourceRef.current = "discovery";
           console.error("[studio-target] discovery failed", discoveryError);
           setError("Couldn't reach Roblox Studio. Refresh to try again.");
           posthog.capture(
@@ -181,7 +204,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const select = useCallback(
     async (target: StudioTarget) => {
       const operation = ++operationRef.current;
+      selectingRef.current = true;
       setSelectingKey(target.key);
+      errorSourceRef.current = null;
       setError(null);
       posthog.capture(
         "studio_target_selected",
@@ -205,6 +230,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         );
       } catch (error) {
         if (operation !== operationRef.current) return;
+        errorSourceRef.current = "select";
         setError("That Studio window is no longer available. Refresh and choose another.");
         posthog.capture(
           "studio_target_verification_failed",
@@ -213,7 +239,10 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           }),
         );
       } finally {
-        if (operation === operationRef.current) setSelectingKey(null);
+        if (operation === operationRef.current) {
+          selectingRef.current = false;
+          setSelectingKey(null);
+        }
       }
     },
     [rememberTarget],
@@ -256,11 +285,23 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     void loadAndDiscover();
   }, [activeSessionId, client, discover]);
 
+  const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
+  const missing =
+    (status === "ready" || status === "empty") && !selected && remembered ? remembered : null;
+
+  // Quickly while someone is waiting on a Studio to appear, or on this chat's place to reopen. Slowly
+  // otherwise, so a Studio closing is noticed without anyone having to open the Explorer.
   useEffect(() => {
-    if (!client || status !== "empty") return;
-    const timer = window.setInterval(() => void discover(), 2_000);
+    if (!client || (status !== "empty" && status !== "ready")) return;
+    const waitingForStudio = status === "empty" || missing !== null;
+    const timer = window.setInterval(
+      () => {
+        if (!selectingRef.current) void discover();
+      },
+      waitingForStudio ? 2_000 : 10_000,
+    );
     return () => window.clearInterval(timer);
-  }, [client, discover, status]);
+  }, [client, discover, missing, status]);
 
   const promptReference = selected ? createStudioTargetPromptReference(selected) : null;
   const value = useMemo(
@@ -271,10 +312,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       status,
       selectingKey,
       error,
+      missing,
       discover,
       select,
     }),
-    [targets, selected, promptReference, status, selectingKey, error, discover, select],
+    [targets, selected, promptReference, status, selectingKey, error, missing, discover, select],
   );
   return <StudioTargetContext.Provider value={value}>{children}</StudioTargetContext.Provider>;
 }

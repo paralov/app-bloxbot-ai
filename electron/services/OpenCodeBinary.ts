@@ -12,7 +12,7 @@ import {
   statfs,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { Data, Effect, Either, Schema } from "effect";
 import extractZip from "extract-zip";
@@ -36,6 +36,8 @@ const LOOKUP_TIMEOUT_MS = 15_000;
  * than the old 120 second limit did.
  */
 export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
+/** How many times a download carries on from where it stopped before it counts as failed. */
+const DOWNLOAD_RESUMES = 3;
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024;
 const EXTRACT_ATTEMPTS = 3;
@@ -272,17 +274,15 @@ function contentLength(response: Response): number | null {
 class DownloadStalledError extends Error {}
 
 /** Aborts its signal when `touch` hasn't been called for `timeoutMs`. Call `stop` when finished. */
-function watchForStall(timeoutMs: number) {
+function watchForStall(timeoutMs: number, receivedBytes: () => number) {
   const controller = new AbortController();
-  let receivedBytes = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const stop = () => clearTimeout(timer);
-  const touch = (bytes = 0) => {
-    receivedBytes += bytes;
+  const touch = () => {
     stop();
     timer = setTimeout(() => {
-      const receivedMb = (receivedBytes / 1024 ** 2).toFixed(1);
+      const receivedMb = (receivedBytes() / 1024 ** 2).toFixed(1);
       controller.abort(
         new DownloadStalledError(
           `stalled, no data for ${timeoutMs / 1000} seconds (${receivedMb} MB received)`,
@@ -295,28 +295,35 @@ function watchForStall(timeoutMs: number) {
   return { signal: controller.signal, touch, stop };
 }
 
+/** What has arrived so far, kept across attempts so a dropped connection doesn't lose it. */
+interface PartialDownload {
+  chunks: Uint8Array[];
+  bytes: number;
+  totalBytes: number | null;
+}
+
 async function readDownload(
   response: Response,
+  partial: PartialDownload,
   signal: AbortSignal,
-  onData: (bytes: number) => void,
+  onData: () => void,
   reportProgress?: StartupProgressReporter,
 ): Promise<Buffer | undefined> {
   if (!response.body) return undefined;
 
-  const totalBytes = contentLength(response);
+  partial.totalBytes ??= response.status === 206 ? totalFromRange(response) : contentLength(response);
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
   const startedAt = Date.now();
-  let downloadedBytes = 0;
+  let bytesThisAttempt = 0;
   let lastReportAt = startedAt;
 
   const report = (now: number) => {
     const elapsedSeconds = Math.max((now - startedAt) / 1000, 0.001);
     reportProgress?.({
       phase: "downloading",
-      downloadedBytes,
-      totalBytes,
-      bytesPerSecond: Math.round(downloadedBytes / elapsedSeconds),
+      downloadedBytes: partial.bytes,
+      totalBytes: partial.totalBytes,
+      bytesPerSecond: Math.round(bytesThisAttempt / elapsedSeconds),
     });
   };
   const abortRead = () => void reader.cancel(signal.reason).catch(() => {});
@@ -330,9 +337,10 @@ async function readDownload(
       if (signal.aborted) throw signal.reason;
       if (done) break;
 
-      chunks.push(value);
-      downloadedBytes += value.byteLength;
-      if (value.byteLength > 0) onData(value.byteLength);
+      partial.chunks.push(value);
+      partial.bytes += value.byteLength;
+      bytesThisAttempt += value.byteLength;
+      if (value.byteLength > 0) onData();
       const now = Date.now();
       if (now - lastReportAt >= 100) {
         report(now);
@@ -340,10 +348,96 @@ async function readDownload(
       }
     }
     report(Date.now());
-    return Buffer.concat(chunks, downloadedBytes);
+    return Buffer.concat(partial.chunks, partial.bytes);
   } finally {
     signal.removeEventListener("abort", abortRead);
     reader.releaseLock();
+  }
+}
+
+/** How big the whole file is, by a 206 response's own account. */
+function totalFromRange(response: Response): number | null {
+  const match = /\/(\d+)$/.exec(response.headers.get("content-range") ?? "");
+  return match ? Number(match[1]) : null;
+}
+
+/** Where a 206 response says its bytes start. */
+function resumedFrom(response: Response): number | null {
+  const match = /^bytes (\d+)-/.exec(response.headers.get("content-range") ?? "");
+  return match ? Number(match[1]) : null;
+}
+
+const emptyDownload = (): PartialDownload => ({ chunks: [], bytes: 0, totalBytes: null });
+
+/** What an earlier attempt saved, which counts for nothing if it can't be read. */
+async function readSavedDownload(path: string): Promise<PartialDownload> {
+  try {
+    const saved = await readFile(path);
+    return { chunks: [saved], bytes: saved.byteLength, totalBytes: null };
+  } catch {
+    return emptyDownload();
+  }
+}
+
+/**
+ * Downloads a file, carrying on from where it stopped if the connection drops or stalls: on a slow
+ * connection, starting over can mean never finishing. What arrived is saved if the attempts run out,
+ * so trying again later carries on too. The caller's SHA-256 check covers the joined result, and a
+ * server that won't resume just sends the whole file again.
+ */
+async function downloadWithResume(
+  url: string,
+  fetchFn: Fetch,
+  signal: AbortSignal,
+  savedPath: string,
+  reportProgress?: StartupProgressReporter,
+): Promise<{ archiveBuffer: Buffer | undefined; response: Response }> {
+  let partial = await readSavedDownload(savedPath);
+  for (let resumes = 0; ; resumes += 1) {
+    const stall = watchForStall(DOWNLOAD_STALL_TIMEOUT_MS, () => partial.bytes);
+    try {
+      const downloadSignal = AbortSignal.any([signal, stall.signal]);
+      const response = await fetchFn(url, {
+        headers: {
+          "User-Agent": "BloxBot",
+          ...(partial.bytes > 0 ? { Range: `bytes=${partial.bytes}-` } : {}),
+        },
+        signal: downloadSignal,
+      });
+      stall.touch();
+      // What we asked for is past the end of the file, so what was saved isn't from this file.
+      if (response.status === 416 && partial.bytes > 0) {
+        await response.body?.cancel().catch(() => {});
+        partial = emptyDownload();
+        if (resumes < DOWNLOAD_RESUMES) continue;
+      }
+      if (!response.ok) return { archiveBuffer: undefined, response };
+      if (partial.bytes > 0 && resumedFrom(response) !== partial.bytes) {
+        if (response.status === 206) {
+          // Bytes from somewhere else: nothing here can use them, so ask for the whole file.
+          await response.body?.cancel().catch(() => {});
+          partial = emptyDownload();
+          if (resumes < DOWNLOAD_RESUMES) continue;
+          throw new Error("the server sent the wrong part of the file");
+        }
+        partial = emptyDownload();
+      }
+      return {
+        archiveBuffer: await readDownload(response, partial, downloadSignal, stall.touch, reportProgress),
+        response,
+      };
+    } catch (cause) {
+      if (signal.aborted || partial.bytes === 0 || resumes >= DOWNLOAD_RESUMES) {
+        if (partial.bytes > 0) {
+          await mkdir(dirname(savedPath), { recursive: true })
+            .then(() => writeFile(savedPath, Buffer.concat(partial.chunks, partial.bytes)))
+            .catch(() => {});
+        }
+        throw cause;
+      }
+    } finally {
+      stall.stop();
+    }
   }
 }
 
@@ -641,6 +735,7 @@ const defaultExtractArchive: ExtractArchive = async (archivePath, destination, f
 
 interface InstallContext {
   platformDirectory: string;
+  partialDirectory: string;
   platform: NodeJS.Platform;
   arch: string;
   spec: AssetSpec;
@@ -880,31 +975,25 @@ function installRelease(
     (temporaryDirectory) => {
       const archivePath = join(temporaryDirectory, spec.archiveName);
       const versionDirectory = join(platformDirectory, release.version.value);
+      // Named by its checksum, so it can only ever be picked up for this exact file.
+      const savedDownload = join(
+        context.partialDirectory,
+        `${spec.archiveName}.${release.archiveSha256}.partial`,
+      );
 
       return Effect.gen(function* () {
         yield* requireFreeSpace(context);
         const { archiveBuffer, response } = yield* tryNetwork(
           "OpenCode download failed",
           DOWNLOAD_STALL_TIMEOUT_MS,
-          async (signal) => {
-            const stall = watchForStall(DOWNLOAD_STALL_TIMEOUT_MS);
-            try {
-              const downloadSignal = AbortSignal.any([signal, stall.signal]);
-              const response = await downloadFetch(release.asset.browser_download_url, {
-                headers: { "User-Agent": "BloxBot" },
-                signal: downloadSignal,
-              });
-              stall.touch();
-              return {
-                archiveBuffer: response.ok
-                  ? await readDownload(response, downloadSignal, stall.touch, reportProgress)
-                  : undefined,
-                response,
-              };
-            } finally {
-              stall.stop();
-            }
-          },
+          (signal) =>
+            downloadWithResume(
+              release.asset.browser_download_url,
+              downloadFetch,
+              signal,
+              savedDownload,
+              reportProgress,
+            ),
         );
         if (!response.ok) {
           return yield* fail(
@@ -920,6 +1009,8 @@ function installRelease(
         const archive = Buffer.from(archiveBuffer);
         reportProgress?.({ phase: "verifying" });
         const archiveSha256 = createHash("sha256").update(archive).digest("hex");
+        // Either it's whole now or what was saved is bad, and it's no use for next time in both cases.
+        yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
         if (archiveSha256 !== release.archiveSha256) {
           return yield* fail(
             "The downloaded OpenCode archive failed SHA-256 verification",
@@ -1050,6 +1141,7 @@ export function ensureOpenCodeBinary(
 
     const context: InstallContext = {
       platformDirectory,
+      partialDirectory: join(options.cacheDirectory, "partial"),
       platform,
       arch,
       spec,

@@ -25,7 +25,10 @@ import {
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
-const studio = vi.hoisted(() => ({ selected: null as { key: string } | null }));
+const studio = vi.hoisted(() => ({
+  selected: null as { key: string } | null,
+  missing: null as { key: string; label: string } | null,
+}));
 vi.mock("@/providers/StudioTargetProvider", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/providers/StudioTargetProvider")>()),
   useStudioTargetOptional: () => studio,
@@ -488,6 +491,29 @@ describe("ChatInput", () => {
       expect(qc.getQueryData<Record<string, SessionStatus>>(qk.statuses)?.s1.type).toBe("idle");
     });
     expect(client.session.abort).toHaveBeenCalledWith({ sessionID: "s1" }, { throwOnError: true });
+  });
+
+  it("won't send while this chat's place is closed, keeping what was typed", async () => {
+    studio.missing = { key: "gone", label: "Dungeon" };
+    try {
+      const client = createClient();
+      render(<TestChatInput client={client} queryClient={createQueryClient()} />);
+      const textarea = await screen.findByRole("textbox", { name: "Message" });
+
+      await act(async () => {
+        fireEvent.input(textarea, { target: { textContent: "Delete everything" } });
+      });
+      expect(screen.getByTitle("Reopen this chat's place or choose another Studio")).toBeDisabled();
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+      });
+
+      expect(client.session.promptAsync).not.toHaveBeenCalled();
+      expect(textarea).toHaveTextContent("Delete everything");
+    } finally {
+      studio.missing = null;
+    }
   });
 
   it("does not send when session is busy", async () => {

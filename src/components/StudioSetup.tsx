@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import findMcpImage from "@/assets/studio-setup/find-mcp.jpg";
 import flipSwitchImage from "@/assets/studio-setup/flip-switch.jpg";
@@ -9,25 +9,25 @@ import type { StudioMcpProblem } from "@/hooks/useStudioConnection";
 export const STUDIO_SETUP_STEPS = [
   {
     title: "Open a place",
-    description: "Open any place in Roblox Studio",
+    description: "Open any place in Roblox Studio.",
     image: openPlaceImage,
     alt: "The Baseplate template on the Roblox Studio home screen",
   },
   {
     title: "Assistant",
-    description: "Click Assistant in the top-right corner",
+    description: "Click Assistant in the top-right corner.",
     image: openAssistantImage,
     alt: "An open Roblox Studio place with the Assistant button in the top-right corner",
   },
   {
     title: "Manage MCP Servers",
-    description: "Open the ••• menu, then click Manage MCP Servers",
+    description: "Open the ••• menu, then click Manage MCP Servers.",
     image: findMcpImage,
     alt: "The Roblox Studio Assistant menu with Manage MCP Servers selected",
   },
   {
     title: "Enable Studio as MCP server",
-    description: "Turn on Enable Studio as MCP server",
+    description: "Turn on Enable Studio as MCP server.",
     image: flipSwitchImage,
     alt: "Roblox Studio Assistant Settings with Enable Studio as MCP server turned on",
   },
@@ -35,9 +35,9 @@ export const STUDIO_SETUP_STEPS = [
 
 const PROBLEM_COPY: Record<StudioMcpProblem, string> = {
   not_installed:
-    "BloxBot can't find Roblox Studio's MCP helper. Install or update Roblox Studio, open it, turn on the MCP server in Assistant settings, then check again.",
+    "BloxBot can't find Studio's MCP helper. Install or update Roblox Studio, then follow the steps above.",
   unavailable:
-    "Studio's MCP helper stopped right after it started. Open Roblox Studio so it can finish any update, then check again. If this keeps happening, reinstall Studio.",
+    "Studio's MCP helper stopped. Open Roblox Studio so it can finish updating, or reinstall it if this keeps happening.",
 };
 
 interface StudioSetupProps {
@@ -61,6 +61,22 @@ function StudioSetup({
 }: StudioSetupProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const step = STUDIO_SETUP_STEPS[stepIndex];
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  const continueRef = useRef<HTMLButtonElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
+
+  // A whole new screen, so keyboard and screen reader users start at its top.
+  useEffect(() => {
+    if (connected) continueRef.current?.focus();
+    else headingRef.current?.focus();
+  }, [connected]);
+
+  // Back goes away on the first step, and focus must not go with it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the step changes
+  useEffect(() => {
+    if (document.activeElement === document.body) nextRef.current?.focus();
+  }, [stepIndex]);
 
   if (connected) {
     return (
@@ -81,11 +97,14 @@ function StudioSetup({
               <path d="m5 12 4 4L19 6" />
             </svg>
           </div>
-          <h1 className="mt-5 text-lg font-medium">Studio connected</h1>
+          <output className="mt-5 block">
+            <h1 className="text-lg font-medium">Studio connected</h1>
+          </output>
           <p className="mt-2 text-sm text-muted-foreground">
             BloxBot is in the driver&apos;s seat. You&apos;re ready to build.
           </p>
           <button
+            ref={continueRef}
             type="button"
             onClick={onContinue}
             className="mt-6 inline-flex h-10 items-center rounded-lg bg-foreground px-6 text-sm font-medium text-background transition-opacity hover:opacity-90"
@@ -98,13 +117,24 @@ function StudioSetup({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-5">
-      <section className="animate-fade-in-up w-full max-w-2xl" aria-labelledby="studio-setup-title">
+    <div className="flex min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      {/* m-auto, because centering with flex would cut the top off in a short window. Width sets the
+          screenshot's height, so this keeps the whole step in view without scrolling. */}
+      <section
+        className="animate-fade-in-up m-auto w-full"
+        style={{ maxWidth: "max(24rem, min(42rem, calc((100vh - 21rem) * 16 / 9)))" }}
+        aria-labelledby="studio-setup-title"
+      >
         <header className="flex items-center gap-4">
           <BloxBotFace />
           <div className="flex-1">
             <p className="text-xs font-medium text-muted-foreground">One tiny setup</p>
-            <h1 id="studio-setup-title" className="text-lg font-medium">
+            <h1
+              ref={headingRef}
+              id="studio-setup-title"
+              tabIndex={-1}
+              className="text-lg font-medium outline-none"
+            >
               Let&apos;s connect Studio
             </h1>
           </div>
@@ -121,7 +151,7 @@ function StudioSetup({
 
         <div className="mt-4 overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-5 py-3">
-            <div>
+            <div aria-live="polite">
               <p className="text-xs font-medium text-muted-foreground">
                 Step {stepIndex + 1} of {STUDIO_SETUP_STEPS.length}
               </p>
@@ -157,6 +187,7 @@ function StudioSetup({
               )}
               {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
                 <button
+                  ref={nextRef}
                   type="button"
                   onClick={() => setStepIndex((current) => current + 1)}
                   className="h-9 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90"
@@ -209,6 +240,16 @@ function StudioSetup({
           <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
             Looking for Roblox Studio
+            {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
+              <button
+                type="button"
+                onClick={onCheck}
+                aria-busy={checking}
+                className="underline underline-offset-2 hover:text-foreground aria-busy:opacity-60"
+              >
+                Check again
+              </button>
+            ) : null}
           </div>
         )}
       </section>

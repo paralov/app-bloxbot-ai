@@ -1,10 +1,144 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { checkForUpdate, installUpdate } = vi.hoisted(() => ({
+  checkForUpdate: vi.fn(),
+  installUpdate: vi.fn(),
+}));
+
+vi.mock("@/lib/desktop", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/desktop")>()),
+  desktop: { checkForUpdate, installUpdate },
+}));
 
 import LoadingScreen from "@/components/LoadingScreen";
-import { getStartupErrorPresentation } from "@/providers/OpenCodeClientProvider";
+import {
+  getStartupErrorPresentation,
+  getStartupPresentation,
+} from "@/providers/OpenCodeClientProvider";
 
 describe("startup progress", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    checkForUpdate.mockResolvedValue(null);
+  });
+
+  it("offers an update straight away when one could get someone unstuck", async () => {
+    checkForUpdate.mockResolvedValue({ version: "9.9.9", body: null });
+
+    render(<LoadingScreen message="BloxBot couldn't start" error onRetry={() => {}} />);
+
+    const install = await screen.findByRole("button", { name: "Install v9.9.9 & restart" });
+    expect(install).toBeVisible();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Check for updates" })).not.toBeInTheDocument();
+
+    fireEvent.click(install);
+    expect(installUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("names what to do when the engine stops right away", () => {
+    for (const failure of [
+      "Failed to spawn OpenCode",
+      "OpenCode exited during startup with code 1",
+    ]) {
+      expect(getStartupErrorPresentation(failure).detail).toContain(
+        "Allow BloxBot in your antivirus",
+      );
+    }
+  });
+
+  it("shows Try again was heard", () => {
+    const onRetry = vi.fn();
+    render(<LoadingScreen message="BloxBot couldn't start" error onRetry={onRetry} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Restarting..." })).toBeDisabled();
+  });
+
+  it("gives the folder to exclude a copy button and a how-to", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const presentation = getStartupErrorPresentation(
+      "Install failed (reason: blocked_by_security)",
+      "C:\\BloxBot",
+    );
+    render(<LoadingScreen {...presentation} error onRetry={() => {}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy folder" }));
+    expect(writeText).toHaveBeenCalledWith("C:\\BloxBot");
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "How to add an exclusion" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("support.microsoft.com"),
+    );
+  });
+
+  it("doesn't look for updates while everything is fine", () => {
+    render(<LoadingScreen message="Starting up..." />);
+    expect(checkForUpdate).not.toHaveBeenCalled();
+  });
+
+  it("points at what to do when the engine starts but can't be reached", () => {
+    for (const failure of [
+      "OpenCode did not open a listening port within 60 seconds. No port in its output",
+      "OpenCode did not become healthy on port 51078 within 60 seconds. Last check: ECONNREFUSED",
+    ]) {
+      expect(getStartupErrorPresentation(failure)).toMatchObject({
+        message: "BloxBot couldn't start",
+        detail: expect.stringContaining("Allow BloxBot in your antivirus or pause your VPN"),
+      });
+    }
+  });
+
+  it("tells a stalled download apart from a blocked one", () => {
+    const failure = (reason: string) =>
+      `Unable to download a verified OpenCode 2.2.x release and no cached copy is available. Release check: ${reason}`;
+
+    expect(
+      getStartupErrorPresentation(
+        failure("OpenCode download failed: stalled, no data for 60 seconds (12.0 MB received)"),
+      ).detail,
+    ).toBe("The download stopped getting data. Check your connection, then try again.");
+    expect(
+      getStartupErrorPresentation(
+        failure(
+          "GitHub release lookup failed: fetch failed (unable to verify the first certificate)",
+        ),
+      ).detail,
+    ).toContain("A company network or antivirus blocked the download");
+  });
+
+  it("explains a step that has gone quiet instead of looking frozen", () => {
+    const downloading = {
+      phase: "downloading",
+      downloadedBytes: 512,
+      totalBytes: 1024,
+      bytesPerSecond: 2048,
+    } as const;
+
+    const moving = getStartupPresentation("engine", downloading);
+    expect(moving.detail).toBe("Future launches will use the saved copy");
+    expect(moving.startup.meta).toBe("50% 2.0 KB/s");
+
+    const quiet = getStartupPresentation("engine", downloading, true);
+    expect(quiet.detail).toBe("Connection paused. Carries on when data arrives.");
+    expect(quiet.startup.meta).toBe("50%");
+    // With no total to measure against there's no percentage, and the old speed is no use.
+    expect(
+      getStartupPresentation("engine", { ...downloading, totalBytes: null }, true).startup.meta,
+    ).toBeUndefined();
+
+    expect(getStartupPresentation("engine", { phase: "installing" }, true).detail).toContain(
+      "Security software",
+    );
+    expect(getStartupPresentation("engine", { phase: "starting" }, true).detail).toBe(
+      "Taking longer than usual. Still trying.",
+    );
+  });
+
   it("turns a verbose download failure into calm, actionable copy", () => {
     const technicalDetail =
       "Unable to download a verified OpenCode 1.x.x release and no cached copy is available: GitHub release lookup failed with HTTP 403 at file:///C:/Users/example/main.js";
@@ -23,10 +157,10 @@ describe("startup progress", () => {
     expect(screen.getByRole("heading", { name: "Setup couldn't finish" })).toBeVisible();
     expect(
       screen.getByText(
-        "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then restart setup.",
+        "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then try again.",
       ),
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: "Restart setup" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
 
     const disclosure = screen.getByText("Technical details");
     expect(screen.getByText(technicalDetail)).not.toBeVisible();
@@ -49,7 +183,7 @@ describe("startup progress", () => {
     expect(screen.getByRole("heading", { name: "Setup couldn't finish" })).toBeVisible();
     expect(
       screen.getByText(
-        "Windows security software blocked OpenCode, the engine BloxBot runs on. Allow BloxBot in your antivirus, or add its folder as an exclusion, then retry.",
+        "Windows security software blocked BloxBot's engine. Add this folder as an exclusion, then try again.",
       ),
     ).toBeVisible();
     expect(screen.getByText(folder)).toBeVisible();
@@ -64,7 +198,7 @@ describe("startup progress", () => {
     render(<LoadingScreen {...presentation} error onRetry={() => {}} />);
 
     expect(
-      screen.getByText("Your drive is nearly full. Free up at least 500 MB, then retry."),
+      screen.getByText("Your drive is nearly full. Free up at least 500 MB, then try again."),
     ).toBeVisible();
     expect(screen.queryByText("C:\\ignored")).not.toBeInTheDocument();
     expect(screen.getByText(technicalDetail)).toBeInTheDocument();
@@ -74,7 +208,7 @@ describe("startup progress", () => {
     expect(getStartupErrorPresentation(installFailure("network"))).toMatchObject({
       message: "Setup couldn't finish",
       detail:
-        "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then restart setup.",
+        "BloxBot couldn't download its setup files. Check your internet connection, VPN, or firewall, then try again.",
     });
   });
 
@@ -86,7 +220,7 @@ describe("startup progress", () => {
 
     expect(
       screen.getByText(
-        "BloxBot couldn't set up OpenCode, the engine it runs on. Restart setup, and if it keeps failing, copy the technical details and send them to us.",
+        "BloxBot couldn't set up its engine. Try again, or report this if it keeps failing.",
       ),
     ).toBeVisible();
     expect(screen.queryByText(/internet connection/)).not.toBeInTheDocument();

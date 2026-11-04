@@ -45,9 +45,10 @@ import {
 import { desktop } from "@/lib/desktop";
 import {
   canEditObject,
+  EXPLORER_LONG_WAIT_NOTICES,
+  EXPLORER_WAIT_NOTICES,
   type ExplorerEdit,
   type ExplorerNode,
-  type ExplorerWait,
   explorerRows,
   nodeId,
   OBJECT_DRAG_NAME_TYPE,
@@ -61,12 +62,7 @@ import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ROW_HEIGHT = 28;
 
-const WAITING_NOTICES: Record<ExplorerWait, string> = {
-  studio_closed: "Studio closed · Reconnects when it's back",
-  no_place: "No place open · Open one in Studio",
-  mode_changed: "Studio changing modes · Back in a moment",
-  place_loading: "Place still loading · Back in a moment",
-};
+const LONG_WAIT_MS = 30_000;
 
 interface ExplorerProps {
   collapsed: boolean;
@@ -257,6 +253,13 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const { tree, truncated, syncing, syncError, waiting, setDemand, requestSync } =
     useExplorerTree();
   const treeRef = useRef<HTMLDivElement>(null);
+  const [waitingLong, setWaitingLong] = useState(false);
+  useEffect(() => {
+    setWaitingLong(false);
+    if (!waiting) return;
+    const timer = window.setTimeout(() => setWaitingLong(true), LONG_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [waiting]);
   // An object each time, so a second click on the same link still scrolls to it.
   const [scrollTarget, setScrollTarget] = useState<{ id: string } | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -455,6 +458,26 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     });
   };
 
+  const waitingNotice = waiting
+    ? ((waitingLong ? EXPLORER_LONG_WAIT_NOTICES[waiting] : undefined) ??
+      EXPLORER_WAIT_NOTICES[waiting])
+    : null;
+  const statusNotice =
+    waitingNotice ??
+    (syncError ? "Explorer couldn’t load this place. If it keeps failing, restart Studio." : null);
+  const checkNow = (
+    <button
+      type="button"
+      onClick={() => {
+        if (!syncing) requestSync();
+      }}
+      aria-busy={syncing}
+      className="shrink-0 underline underline-offset-2 hover:text-foreground aria-busy:opacity-60"
+    >
+      {syncing ? "Checking…" : "Check now"}
+    </button>
+  );
+
   if (collapsed) {
     return (
       <aside className="flex w-10 shrink-0 flex-col items-center border-l bg-sidebar py-2">
@@ -484,30 +507,37 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         </button>
       </header>
 
-      <div className="px-3 pb-2 pt-1">
-        <div className="flex h-8 items-center gap-2 rounded-md border bg-transparent px-2 text-muted-foreground focus-within:border-ring focus-within:text-foreground">
-          <Search aria-hidden="true" size={12} />
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search instances"
-            aria-label="Search Explorer"
-            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </div>
-      </div>
-
-      {syncError ? (
-        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-          Explorer couldn’t load this Studio place. Trying again shortly.
+      {tree || !statusNotice ? (
+        <div className="px-3 pb-2 pt-1">
+          <div className="flex h-8 items-center gap-2 rounded-md border bg-transparent px-2 text-muted-foreground focus-within:border-ring focus-within:text-foreground">
+            <Search aria-hidden="true" size={12} />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search instances"
+              aria-label="Search Explorer"
+              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </div>
         </div>
       ) : null}
 
-      {waiting ? (
-        <output className="block shrink-0 border-b px-4 py-2 text-xs text-muted-foreground">
-          {WAITING_NOTICES[waiting]}
-        </output>
+      {/* Always in the page, so a screen reader announces it when the words arrive. */}
+      <output className="sr-only">{statusNotice}</output>
+      {statusNotice ? (
+        <div
+          className={
+            !tree
+              ? "flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-xs leading-relaxed text-muted-foreground"
+              : syncError
+                ? "flex shrink-0 items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
+                : "flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 text-xs text-muted-foreground"
+          }
+        >
+          <span aria-hidden="true">{statusNotice}</span>
+          {checkNow}
+        </div>
       ) : null}
 
       {truncated ? (
@@ -518,11 +548,13 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       <div
         ref={treeRef}
-        className="min-h-0 flex-1 overflow-y-auto py-1"
+        className={`min-h-0 flex-1 overflow-y-auto py-1 ${
+          statusNotice && !tree ? "hidden" : waiting ? "opacity-60" : ""
+        }`}
         role="tree"
         aria-label="Instance hierarchy"
       >
-        {!tree && !waiting && (syncing || !syncError) ? <ExplorerLoading /> : null}
+        {!tree && !statusNotice ? <ExplorerLoading /> : null}
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((item) => {
             const row = rows[item.index];
@@ -575,11 +607,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           onChange={(change, onDone) => void editObject(selected, change, onDone)}
           onRename={(name) => handleRenamed(selected, name)}
         />
-      ) : (
+      ) : tree ? (
         <div className="shrink-0 border-t px-3 py-2 text-xs text-muted-foreground">
           Select an object to see its details, or drag it into your message.
         </div>
-      )}
+      ) : null}
 
       {menu ? (
         <ContextMenu
@@ -605,7 +637,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           >
             Copy path
           </ContextMenuItem>
-          {canEditObject(menu.node) ? (
+          {canEditObject(menu.node) && !waiting ? (
             <>
               <div className="my-1 h-px bg-border" />
               <ContextMenuItem
