@@ -538,6 +538,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     if (statusNotice) {
       hadNotice.current = true;
       setRecovered(false);
+      setEditNote(null);
     } else if (hadNotice.current && tree) {
       hadNotice.current = false;
       setRecovered(true);

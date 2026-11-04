@@ -9,6 +9,7 @@ import {
   rename as realRename,
   stat as realStat,
   rm,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,7 +20,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DOWNLOAD_STALL_TIMEOUT_MS,
   describeCause,
+  distrustOpenCodeVersion,
   ensureOpenCodeBinary,
+  findOpenCodeFallback,
   type GitHubRelease,
   MIN_FREE_BYTES,
   type OpenCodeBinaryOptions,
@@ -1272,6 +1275,117 @@ describe("OpenCode downloads on a poor connection", () => {
         }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
       );
       expect(next.version).toBe("2.2.2");
+    });
+
+    const installVersion = async (cacheDirectory: string, version: string) => {
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: vi
+            .fn()
+            .mockResolvedValueOnce(
+              Response.json([release(`v${version}`, ASSET_NAME, `sha256:${digest}`)]),
+            )
+            .mockResolvedValueOnce(new Response(archive)),
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }),
+      );
+      expect(result).toMatchObject({ _tag: "Right" });
+      vi.useRealTimers();
+    };
+    const launch = (cacheDirectory: string, fetch: unknown) =>
+      Effect.runPromise(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: fetch as never,
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+      );
+
+    /** Has a working 2.2.1, then lets 2.2.2 arrive in the background as a real install would. */
+    const installTwoVersions = async (cacheDirectory: string) => {
+      await installVersion(cacheDirectory, "2.2.1");
+      await launch(
+        cacheDirectory,
+        vi
+          .fn()
+          .mockResolvedValueOnce(Response.json([release("v2.2.2", ASSET_NAME, `sha256:${digest}`)]))
+          .mockResolvedValueOnce(new Response(archive)),
+      );
+      await vi.waitFor(async () => {
+        expect(await readdir(join(cacheDirectory, "darwin-arm64"))).toContain("2.2.2");
+      });
+    };
+
+    it("offers an older copy when one won't run, and doesn't go back to it", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      await installTwoVersions(cacheDirectory);
+      const offline = vi.fn().mockRejectedValue(new TypeError("offline"));
+      const options = { cacheDirectory, platform: "darwin" as const, arch: "arm64" };
+      expect((await launch(cacheDirectory, offline)).version).toBe("2.2.2");
+
+      const fallback = await Effect.runPromise(findOpenCodeFallback(options, "2.2.2"));
+      expect(fallback?.version).toBe("2.2.1");
+
+      await Effect.runPromise(distrustOpenCodeVersion(options, "2.2.2"));
+      expect((await launch(cacheDirectory, offline)).version).toBe("2.2.1");
+    });
+
+    it("has nothing to offer when no other copy exists", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      await installVersion(cacheDirectory, "2.2.1");
+      const options = { cacheDirectory, platform: "darwin" as const, arch: "arm64" };
+      await expect(Effect.runPromise(findOpenCodeFallback(options, "2.2.1"))).resolves.toBeNull();
+    });
+
+    it("goes back from a release GitHub has withdrawn", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      await installTwoVersions(cacheDirectory);
+
+      // GitHub's newest is now the older one, so 2.2.2 was pulled.
+      await launch(
+        cacheDirectory,
+        vi
+          .fn()
+          .mockResolvedValue(Response.json([release("v2.2.1", ASSET_NAME, `sha256:${digest}`)])),
+      );
+      await vi.waitFor(async () => {
+        const notes = await readFile(
+          join(cacheDirectory, "darwin-arm64", "cache-notes.json"),
+          "utf8",
+        );
+        expect(notes).toContain("2.2.1");
+      });
+
+      const next = await launch(
+        cacheDirectory,
+        vi.fn().mockRejectedValue(new TypeError("offline")),
+      );
+      expect(next.version).toBe("2.2.1");
+    });
+
+    it("sweeps up what a quit left behind, but not an install still running", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      await installVersion(cacheDirectory, "2.2.1");
+      const platformDirectory = join(cacheDirectory, "darwin-arm64");
+      const abandoned = join(platformDirectory, ".download-old");
+      const recent = join(platformDirectory, ".download-new");
+      await mkdir(abandoned);
+      await mkdir(recent);
+      const longAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      await utimes(abandoned, longAgo, longAgo);
+
+      await launch(cacheDirectory, vi.fn().mockRejectedValue(new TypeError("offline")));
+
+      const left = await readdir(platformDirectory);
+      expect(left).not.toContain(".download-old");
+      expect(left).toContain(".download-new");
     });
 
     it("clears out what was saved for an older release", async () => {

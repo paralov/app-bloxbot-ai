@@ -138,6 +138,16 @@ export function useMessage(messageId: string): MessageWithParts | undefined {
  * Whether the active chat has any text a playtest plan can be built from.
  * Undefined until its messages load.
  */
+/** Looking at what's open isn't working in any of it, however it's called. */
+export function worksInStudio(tool: string, input?: Record<string, unknown>): boolean {
+  if (tool.endsWith("list_roblox_studios") || !isStudioTool(tool, input)) return false;
+  if (tool !== "execute" || typeof input?.code !== "string") return true;
+  return (
+    input.code.replace(/roblox[-_]studio\W+list_roblox_studios/g, "").match(/roblox[-_]studio/) !==
+    null
+  );
+}
+
 /** Whether this chat is under way, and whether the agent has used Studio in it. */
 export function useChatStudioUse(): { started: boolean; usedStudio: boolean } | null {
   const { activeSessionId } = useActiveSession();
@@ -159,9 +169,7 @@ export function useChatStudioUse(): { started: boolean; usedStudio: boolean } | 
             d.messagesById[id]?.parts.some(
               (part) =>
                 part.type === "tool" &&
-                // Looking at what's open isn't working in any of it.
-                !part.tool.endsWith("list_roblox_studios") &&
-                isStudioTool(part.tool, part.state.input as Record<string, unknown> | undefined),
+                worksInStudio(part.tool, part.state.input as Record<string, unknown> | undefined),
             ),
           ),
         }),

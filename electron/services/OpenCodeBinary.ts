@@ -39,6 +39,7 @@ export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 /** How many tries in a row may get nothing more before a download counts as failed. */
 const DOWNLOAD_RESUMES = 3;
 const SAVE_DOWNLOAD_EVERY_BYTES = 16 * 1024 ** 2;
+const ABANDONED_INSTALL_AGE_MS = 60 * 60 * 1000;
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024;
 const EXTRACT_ATTEMPTS = 3;
@@ -766,13 +767,65 @@ function readValidCachedBinary(
   }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
+const CACHE_NOTES_FILE = "cache-notes.json";
+
+/** What's learned about versions between launches. None of it is needed to work, just to choose well. */
+interface CacheNotes {
+  /** Passed its checks but wouldn't run here, while an older one did. */
+  distrusted: string[];
+  /** The newest release GitHub still offers, since one that's been withdrawn shouldn't keep running. */
+  latest?: string;
+}
+
+async function readCacheNotes(platformDirectory: string): Promise<CacheNotes> {
+  try {
+    const notes = JSON.parse(await readFile(join(platformDirectory, CACHE_NOTES_FILE), "utf8"));
+    return {
+      distrusted: Array.isArray(notes.distrusted) ? notes.distrusted : [],
+      latest: typeof notes.latest === "string" ? notes.latest : undefined,
+    };
+  } catch {
+    return { distrusted: [] };
+  }
+}
+
+async function updateCacheNotes(
+  platformDirectory: string,
+  change: (notes: CacheNotes) => CacheNotes,
+): Promise<void> {
+  const notes = change(await readCacheNotes(platformDirectory));
+  await writeFile(join(platformDirectory, CACHE_NOTES_FILE), JSON.stringify(notes)).catch(() => {});
+}
+
+/** Quitting during a background install leaves its folder behind. An hour is well past any in use. */
+async function sweepAbandonedInstalls(platformDirectory: string): Promise<void> {
+  const names = await readdir(platformDirectory).catch(() => [] as string[]);
+  await Promise.all(
+    names
+      .filter((name) => name.startsWith(".download-"))
+      .map(async (name) => {
+        const path = join(platformDirectory, name);
+        const { mtimeMs } = await stat(path);
+        if (Date.now() - mtimeMs > ABANDONED_INSTALL_AGE_MS) {
+          await rm(path, { recursive: true, force: true });
+        }
+      })
+      .map((sweep) => sweep.catch(() => {})),
+  );
+}
+
 function findNewestCachedBinary(
   platformDirectory: string,
   platform: NodeJS.Platform,
   arch: string,
   spec: AssetSpec,
+  avoid: readonly string[] = [],
 ): Effect.Effect<OpenCodeBinary | null, never> {
   return Effect.gen(function* () {
+    const notes = yield* Effect.promise(() => readCacheNotes(platformDirectory));
+    const latest = notes.latest ? parseVersion(notes.latest) : null;
+    const usable = (version: Version) =>
+      !avoid.includes(version.value) && !notes.distrusted.includes(version.value);
     const entries = yield* tryPromise("Failed to inspect the OpenCode cache", () =>
       readdir(platformDirectory, { withFileTypes: true }),
     );
@@ -782,7 +835,13 @@ function findNewestCachedBinary(
       .filter((version): version is Version => version !== null)
       .sort((left, right) => compareVersions(right, left));
 
-    for (const version of versions) {
+    // Withdrawn ones go last, not away: an old copy still beats nothing at all.
+    const stillOffered = (version: Version) => !latest || compareVersions(version, latest) <= 0;
+    const inOrder = [
+      ...versions.filter((version) => usable(version) && stillOffered(version)),
+      ...versions.filter((version) => usable(version) && !stillOffered(version)),
+    ];
+    for (const version of inOrder) {
       const cached = yield* readValidCachedBinary(
         join(platformDirectory, version.value),
         platform,
@@ -1177,7 +1236,7 @@ function installRelease(
   );
 }
 
-function pruneCache(platformDirectory: string, keep = 2) {
+function pruneCache(platformDirectory: string, inUse?: string, keep = 2) {
   return Effect.gen(function* () {
     const entries = yield* tryPromise("Failed to inspect the OpenCode cache", () =>
       readdir(platformDirectory, { withFileTypes: true }),
@@ -1189,7 +1248,7 @@ function pruneCache(platformDirectory: string, keep = 2) {
       .sort((left, right) => compareVersions(right, left));
 
     yield* Effect.all(
-      versions.slice(keep).map((version) =>
+      versions.slice(keep).filter((version) => version.value !== inUse).map((version) =>
         tryPromise(`Failed to prune cached OpenCode v${version.value}`, () =>
           rm(join(platformDirectory, version.value), { recursive: true, force: true }),
         ),
@@ -1212,6 +1271,45 @@ function combinedFailureReason(
   if (reasons.includes("disk_full")) return "disk_full";
   if (reasons.includes("blocked_by_security")) return "blocked_by_security";
   return pinnedError.reason ?? updateError.reason ?? "other";
+}
+
+/**
+ * Another copy to try when this one passed its checks but wouldn't run. With none, there's nothing
+ * more to try here, and the failure stands.
+ */
+export function findOpenCodeFallback(
+  options: Pick<OpenCodeBinaryOptions, "cacheDirectory" | "platform" | "arch">,
+  failedVersion: string,
+): Effect.Effect<OpenCodeBinary | null> {
+  const platform = options.platform ?? process.platform;
+  const arch = options.arch ?? process.arch;
+  return getOpenCodeAssetSpec(platform, arch).pipe(
+    Effect.flatMap((spec) =>
+      findNewestCachedBinary(
+        join(options.cacheDirectory, `${platform}-${arch}`),
+        platform,
+        arch,
+        spec,
+        [failedVersion],
+      ),
+    ),
+    Effect.catchAll(() => Effect.succeed(null)),
+  );
+}
+
+/** Stops choosing a version that wouldn't run here when an older one did. */
+export function distrustOpenCodeVersion(
+  options: Pick<OpenCodeBinaryOptions, "cacheDirectory" | "platform" | "arch">,
+  version: string,
+): Effect.Effect<void> {
+  const platform = options.platform ?? process.platform;
+  const arch = options.arch ?? process.arch;
+  return Effect.promise(() =>
+    updateCacheNotes(join(options.cacheDirectory, `${platform}-${arch}`), (notes) => ({
+      ...notes,
+      distrusted: [...new Set([...notes.distrusted, version])],
+    })),
+  );
 }
 
 export function ensureOpenCodeBinary(
@@ -1256,9 +1354,25 @@ export function ensureOpenCodeBinary(
 
     // With a working copy nobody should wait on anything. A newer one comes down in the background,
     // saying nothing to the startup screen, and is used from the next launch.
+    yield* Effect.promise(() => sweepAbandonedInstalls(platformDirectory));
+    const notes = yield* Effect.promise(() => readCacheNotes(platformDirectory));
     const working = yield* findNewestCachedBinary(platformDirectory, platform, arch, spec);
     if (working) {
       yield* findCompatibleRelease(fetchFn, spec.archiveName).pipe(
+        Effect.tap((release) =>
+          Effect.promise(() =>
+            updateCacheNotes(platformDirectory, (notes) => ({
+              ...notes,
+              latest: release.version.value,
+            })),
+          ),
+        ),
+        Effect.filterOrFail(
+          // Not again if this one has already refused to run here.
+          (release) => !notes.distrusted.includes(release.version.value),
+          () =>
+            new OpenCodeBinaryError({ message: "The newest release doesn't run on this computer" }),
+        ),
         Effect.flatMap((release) =>
           readValidCachedBinary(
             join(platformDirectory, release.version.value),
@@ -1271,7 +1385,7 @@ export function ensureOpenCodeBinary(
               cached
                 ? Effect.void
                 : installRelease({ ...context, reportProgress: undefined }, release).pipe(
-                    Effect.andThen(pruneCache(platformDirectory)),
+                    Effect.andThen(pruneCache(platformDirectory, working.version)),
                   ),
             ),
           ),

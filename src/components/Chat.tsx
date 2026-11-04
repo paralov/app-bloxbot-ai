@@ -58,11 +58,15 @@ function Chat() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Null until someone says. It opens by itself once a chat is about Studio, not just for one being
   // open, since it takes a lot of room from a chat about a website.
-  const [explorerChoice, setExplorerChoice] = useState<boolean | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each chat decides for itself
-  useEffect(() => {
-    setExplorerChoice(null);
-  }, [activeSessionId]);
+  const [explorerChoices, setExplorerChoices] = useState<Record<string, boolean>>({});
+  const explorerChoice = activeSessionId ? (explorerChoices[activeSessionId] ?? null) : null;
+  const setExplorerChoice = useCallback(
+    (open: boolean) => {
+      if (!activeSessionId) return;
+      setExplorerChoices((choices) => ({ ...choices, [activeSessionId]: open }));
+    },
+    [activeSessionId],
+  );
   const explorerCollapsed = !(
     explorerChoice ??
     (usedStudio === true || studioTarget?.missing != null || studioTarget?.studioChosen === true)
@@ -255,13 +259,13 @@ function Chat() {
     }
 
     setExplorerChoice(explorerCollapsed);
-  }, [showPlaytest, explorerCollapsed]);
+  }, [showPlaytest, explorerCollapsed, setExplorerChoice]);
   const handleOpenPlaytest = useCallback(() => {
     if (!hasStudioTarget) return;
     posthog.capture("playtest_opened", analyticsProperties("playtest"));
     setExplorerChoice(false);
     setShowPlaytest(true);
-  }, [hasStudioTarget]);
+  }, [hasStudioTarget, setExplorerChoice]);
   const handleClosePlaytest = useCallback(() => {
     posthog.capture("playtest_closed", analyticsProperties("playtest"));
     setShowPlaytest(false);
@@ -273,7 +277,7 @@ function Chat() {
     if (!focusRequest) return;
     setShowPlaytest(false);
     setExplorerChoice(true);
-  }, [focusRequest]);
+  }, [focusRequest, setExplorerChoice]);
 
   // Settings brings its own sidebar, so the chat list steps aside for it.
   if (showSettings && !showStudioSetup && !needsSetup && !connectionPending) {
@@ -335,7 +339,7 @@ function Chat() {
           <StudioSetup
             connected={
               studioConnection.state === "connected" &&
-              (!setupFromPicker || studioTarget?.status === "ready")
+              (!studioTarget || studioTarget.status === "ready")
             }
             checking={studioConnection.checking}
             problem={studioConnection.problem}

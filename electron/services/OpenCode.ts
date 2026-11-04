@@ -9,7 +9,12 @@ import { networkConnections, type Systeminformation } from "systeminformation";
 import type { OpenCodeInfo, OpenCodeStartupProgress } from "../../src/types/desktop";
 import { createOpenCodeConfig, OPENCODE_ISOLATION_ENV } from "../opencodeConfig";
 import { loadShellPath } from "../shellEnv";
-import { ensureOpenCodeBinary, type OpenCodeBinaryOptions } from "./OpenCodeBinary";
+import {
+  distrustOpenCodeVersion,
+  ensureOpenCodeBinary,
+  findOpenCodeFallback,
+  type OpenCodeBinaryOptions,
+} from "./OpenCodeBinary";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 
 const LOOPBACK = "127.0.0.1";
@@ -143,6 +148,7 @@ interface OpenCodeResource extends OpenCodeProcess {
 }
 
 interface PreparedOpenCode {
+  version: string;
   authorization: string;
   executable: string;
   password: string;
@@ -555,6 +561,7 @@ function prepareOpenCode(
       authorization,
       executable,
       password,
+      version,
       workspace: options.workspace,
       xdgCache,
       xdgConfig,
@@ -643,7 +650,30 @@ export function makeOpenCodeLayer(options: OpenCodeOptions) {
       // operation is masked, and its finalizer is registered before any waiting begins.
       const prepared = yield* prepareOpenCode(options);
       const process = yield* Effect.acquireRelease(spawnOpenCode(prepared), stopOpenCode);
-      const resource = yield* awaitOpenCode(process);
+      // A copy can pass every check and still not run. An older one is worth one more try, and if
+      // that runs, the newer one isn't chosen again.
+      const resource = yield* awaitOpenCode(process).pipe(
+        Effect.catchAll((failure) =>
+          Effect.gen(function* () {
+            const fallback = yield* findOpenCodeFallback(
+              { cacheDirectory: options.binaryCacheDirectory },
+              prepared.version,
+            );
+            if (!fallback) return yield* Effect.fail(failure);
+            yield* stopOpenCode(process);
+            const second = yield* Effect.acquireRelease(
+              spawnOpenCode({ ...prepared, executable: fallback.executable }),
+              stopOpenCode,
+            );
+            const started = yield* awaitOpenCode(second).pipe(Effect.mapError(() => failure));
+            yield* distrustOpenCodeVersion(
+              { cacheDirectory: options.binaryCacheDirectory },
+              prepared.version,
+            );
+            return started;
+          }),
+        ),
+      );
       const { pid } = resource.child;
       const { onNetstatMiss } = options;
       if (onNetstatMiss && pid !== undefined && globalThis.process.platform === "win32") {
