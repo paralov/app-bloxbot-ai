@@ -45,8 +45,6 @@ export const ExplorerNodeSchema = Schema.Struct({
   /** Its children come in their own update, so anything already there stays until then. */
   pending: Schema.optional(Schema.Boolean),
   children: Schema.Array(Schema.suspend((): Schema.Schema<ExplorerNode> => ExplorerNodeSchema)),
-  // The identifier lets the recursive schema be written out as JSON Schema
-  // (for `pnpm bloxbot-programs brief`).
 }).annotations({ identifier: "ExplorerNode" });
 
 export interface ExplorerNode {

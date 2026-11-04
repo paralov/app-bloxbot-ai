@@ -7,9 +7,11 @@ AI-assisted Roblox development. BloxBot is a free, open-source desktop app that 
 ## What it does
 
 - Chat with AI models (Claude, GPT, Gemini, and more) that can read and modify your Roblox Studio project in real time
-- Create scripts, build UI, manipulate the explorer hierarchy, edit properties  - all through natural language
+- Create scripts, build UI, manipulate the explorer hierarchy, edit properties - all through natural language
+- Browse your place in a built-in Explorer, even with very large places, and edit properties, attributes and tags by hand. Drag any object into your message to talk about it
 - Uses Roblox Studio's [built-in MCP server](https://create.roblox.com/docs/studio/mcp), giving the AI structured access to Studio. No plugins to install
-- Bring your own API key from any supported provider, or connect via OAuth
+- Start with free models, bring your own API key from any supported provider, or connect via OAuth. You can also use your Claude plan through your own Claude Code login, at your own risk: BloxBot explains this before you connect
+- Get notified when a chat finishes or needs you, while you work in Studio
 
 ## How it works
 
@@ -35,8 +37,14 @@ Download the installer for your platform from the [releases page](https://github
 1. Install and open BloxBot
 2. Open Roblox Studio and open (or create) a place
 3. In Studio, open **Assistant** settings (three-dot menu) → **MCP Servers** → enable **Studio as MCP server**
-4. Connect an AI provider in BloxBot's Settings → Providers
+4. Use the free models, or connect an AI provider in BloxBot's Settings → Providers
 5. Start building
+
+### Customizing
+
+Tell BloxBot what to keep in mind in every chat in **Settings → Instructions**. They're saved as BloxBot's own `AGENTS.md`, in `~/BloxBot/.opencode/config/opencode/`.
+
+BloxBot keeps other setups out, so it doesn't load `~/.claude`, `~/.agents` or `~/.opencode`, or `AGENTS.md` and `opencode.json` files anywhere else.
 
 ### Platform notes
 
@@ -84,8 +92,11 @@ src/                    # React/TypeScript frontend
 electron/               # Electron main process and preload bridge
   icons/                #   Desktop installer icons
   main.ts               #   Secure window, IPC, updates, and lifecycle
+  explorerTree.ts       #   Reads Studio's tree in short pieces and sends what changed
+  studioQueries.ts      #   Studio targets, and reading and editing objects
   services/OpenCodeBinary.ts # Runtime download and verified per-user cache
   services/OpenCode.ts  #   Effect-scoped OpenCode process lifecycle
+  services/StudioMcpBroker.ts # Connection to Roblox Studio's MCP server
 ```
 
 ### Key commands
@@ -97,6 +108,12 @@ electron/               # Electron main process and preload bridge
 | `pnpm test` | Run all tests |
 | `pnpm typecheck` | Type-check app, Electron, and release scripts |
 | `pnpm lint` | Lint frontend code (Biome) |
+
+Some tests run a real OpenCode with a scripted model, so they need no model or free quota. They're skipped unless you point them at a binary:
+
+```sh
+OPENCODE_LIVE_BIN=/path/to/opencode pnpm vitest run src/test/workflows.test.tsx src/test/opencodeLive.test.ts
+```
 
 ## Tech stack
 
