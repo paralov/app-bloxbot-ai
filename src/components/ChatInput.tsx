@@ -272,7 +272,30 @@ interface Draft {
   editorState?: SerializedEditorState;
 }
 
-export const savedDrafts = new Map<string, Draft>();
+const RELOAD_DRAFTS_KEY = "bloxbot-reload-drafts";
+
+/** Reconnecting reloads the page, which shouldn't take what someone was writing with it. */
+export function takeReloadedDrafts(): [string, Draft][] {
+  try {
+    const stored = sessionStorage.getItem(RELOAD_DRAFTS_KEY);
+    sessionStorage.removeItem(RELOAD_DRAFTS_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+export const savedDrafts = new Map<string, Draft>(takeReloadedDrafts());
+
+window.addEventListener("pagehide", () => {
+  try {
+    if (savedDrafts.size > 0) {
+      sessionStorage.setItem(RELOAD_DRAFTS_KEY, JSON.stringify([...savedDrafts]));
+    }
+  } catch {
+    // Too big to keep, as with large images. The page is going either way.
+  }
+});
 
 function ChatInput({
   onOpenSettings,
@@ -395,6 +418,22 @@ function ChatInput({
         });
       }
     };
+  }, []);
+
+  // Before the page goes, so the message box's draft is saved with the others.
+  useEffect(() => {
+    const keepDraft = () => {
+      const { text: lastText, attachments: lastAttachments, sessionId } = draftRef.current;
+      if (sessionId && (lastText || lastAttachments.length > 0)) {
+        savedDrafts.set(sessionId, {
+          text: lastText,
+          attachments: lastAttachments,
+          editorState: editorStateRef.current,
+        });
+      }
+    };
+    window.addEventListener("beforeunload", keepDraft);
+    return () => window.removeEventListener("beforeunload", keepDraft);
   }, []);
 
   useEffect(() => {

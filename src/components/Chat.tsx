@@ -278,6 +278,15 @@ function Chat() {
     setShowSettings(true);
     leaveSetup();
   }, [leaveSetup]);
+  // Someone who asked for the panel should land in it, not when it opens by itself.
+  const explorerOpenedByHand = useRef(false);
+  useEffect(() => {
+    if (renderedSidePanel !== "explorer" || !explorerOpenedByHand.current) return;
+    explorerOpenedByHand.current = false;
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>('[aria-label="Search Explorer"]')?.focus(),
+    );
+  }, [renderedSidePanel]);
   const handleToggleExplorer = useCallback(() => {
     if (showPlaytest) {
       posthog.capture("playtest_closed", analyticsProperties("playtest"));
@@ -286,6 +295,7 @@ function Chat() {
       return;
     }
 
+    if (explorerCollapsed) explorerOpenedByHand.current = true;
     setExplorerChoice(explorerCollapsed);
   }, [showPlaytest, explorerCollapsed, setExplorerChoice]);
   const handleOpenPlaytest = useCallback(() => {
@@ -312,7 +322,7 @@ function Chat() {
     previousPanelRef.current = renderedSidePanel;
     if (hasStudioTarget) setPanelNote("");
     if (previous !== "explorer" || renderedSidePanel !== null) return;
-    if (!hasStudioTarget) setPanelNote("Explorer closed. No Studio is open.");
+    if (!hasStudioTarget) setPanelNote("Explorer closed.");
     if (document.activeElement === document.body) focusWhatsNext();
   }, [renderedSidePanel, hasStudioTarget, focusWhatsNext]);
 

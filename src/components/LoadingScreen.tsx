@@ -296,6 +296,7 @@ function LoadingScreen({
             {onRetry && (
               <button
                 ref={retryRef}
+                data-startup-retry="true"
                 type="button"
                 onClick={() => {
                   setRestarting(true);

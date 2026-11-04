@@ -118,7 +118,7 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
     return {
       message: "Finishing setup",
       detail: "Unpacking the local engine",
-      startup: { step: 1, label: "Preparing", progress: 1 },
+      startup: { step: 1, label: "Preparing" },
     };
   }
 
@@ -126,7 +126,7 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
     return {
       message: "Starting your workspace",
       detail: "Launching the local engine",
-      startup: { step: 1, label: "Preparing", progress: 1 },
+      startup: { step: 1, label: "Preparing" },
     };
   }
 
@@ -571,11 +571,14 @@ export function OpenCodeClientProvider({
     };
   }, [startupPhase, startupNews, ready, initError]);
 
-  // Stays once it's there: data arriving shouldn't pull it out from under someone's focus.
+  // Goes once things are moving again, unless that would pull it out from under someone's focus.
   const [retryOffered, setRetryOffered] = useState(false);
   const retryWorthOffering = engineProgress.phase === "downloading" ? slow : verySlow;
   useEffect(() => {
     if (retryWorthOffering) setRetryOffered(true);
+    else if (!(document.activeElement as HTMLElement | null)?.dataset.startupRetry) {
+      setRetryOffered(false);
+    }
   }, [retryWorthOffering]);
 
   const value = useMemo<OpenCodeClientContextValue>(

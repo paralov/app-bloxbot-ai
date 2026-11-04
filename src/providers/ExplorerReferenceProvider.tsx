@@ -102,7 +102,8 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
   // the panel may be closed when the Studio changes.
   const viewStudioRef = useRef(studioId);
   useEffect(() => {
-    if (viewStudioRef.current === studioId) return;
+    // A chat with no Studio passing through isn't a different place.
+    if (!studioId || viewStudioRef.current === studioId) return;
     viewStudioRef.current = studioId;
     setSelectedId(null);
     setSearch("");
