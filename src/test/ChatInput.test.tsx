@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ChatInput, { savedDrafts, takeReloadedDrafts } from "@/components/ChatInput";
+import ChatInput, { savedDrafts, takeKeptDrafts } from "@/components/ChatInput";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { desktop } from "@/lib/desktop";
@@ -579,7 +579,7 @@ describe("ChatInput", () => {
     expect(savedDrafts.has("s2")).toBe(false);
   });
 
-  it("keeps drafts through a reload", async () => {
+  it("keeps drafts through a reload or restart", async () => {
     const client = createClient();
     render(<TestChatInput client={client} queryClient={createQueryClient()} sessionId="s1" />);
     await screen.findByRole("textbox", { name: "Message" });
@@ -587,12 +587,11 @@ describe("ChatInput", () => {
     await screen.findByText("@Part");
 
     window.dispatchEvent(new Event("beforeunload"));
-    window.dispatchEvent(new Event("pagehide"));
 
-    const [[sessionId, draft]] = takeReloadedDrafts();
+    const [[sessionId, draft]] = takeKeptDrafts();
     expect(sessionId).toBe("s1");
     expect(draft.editorState).toBeDefined();
-    expect(takeReloadedDrafts()).toEqual([]);
+    expect(takeKeptDrafts()).toEqual([]);
   });
 
   it("keeps an object's chip in a draft across chats", async () => {

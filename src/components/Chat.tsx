@@ -291,6 +291,7 @@ function Chat() {
     if (showPlaytest) {
       posthog.capture("playtest_closed", analyticsProperties("playtest"));
       setShowPlaytest(false);
+      explorerOpenedByHand.current = true;
       setExplorerChoice(true);
       return;
     }
