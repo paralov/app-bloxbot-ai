@@ -94,7 +94,7 @@ describe("StudioNotice", () => {
   });
 
   it("asks about a same-named place, and one click takes it", () => {
-    const select = vi.fn();
+    const select = vi.fn().mockResolvedValue(undefined);
     const twin = { ...DUNGEON, key: "other" };
     show({ targets: [twin], missing: DUNGEON, twins: 1, nameMatch: twin, select });
     expect(screen.getByRole("status")).toHaveTextContent("Is the open Dungeon this chat's place?");
@@ -103,6 +103,9 @@ describe("StudioNotice", () => {
 
     expect(select).toHaveBeenCalledWith(twin);
     expect(onOpenPicker).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose another" }));
+    expect(onOpenPicker).toHaveBeenCalledOnce();
   });
 
   it("says Studio couldn't be reached instead of naming a place as closed", () => {

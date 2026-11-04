@@ -69,7 +69,10 @@ export default function StudioNotice({
             type="button"
             onClick={() => {
               if (nameMatch) {
-                void studioTarget?.select(nameMatch);
+                // This button goes away with the question, so focus moves to what comes next.
+                void studioTarget?.select(nameMatch).then(() => {
+                  document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
+                });
                 return;
               }
               if (canChoose) {
@@ -92,6 +95,15 @@ export default function StudioNotice({
                   ? "choose another"
                   : "Choose one"}
           </button>
+          {nameMatch ? (
+            <button
+              type="button"
+              onClick={onOpenPicker}
+              className="shrink-0 text-foreground underline underline-offset-2 hover:opacity-80"
+            >
+              Choose another
+            </button>
+          ) : null}
         </div>
       ) : null}
     </>

@@ -466,7 +466,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const statusNotice = placeClosed
     ? studioTarget.status === "error"
       ? "Couldn't reach Studio."
-      : `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
+      : studioTarget.nameMatch
+        ? "Choose this chat's place to see its objects."
+        : `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
     : (waitingNotice ??
       (syncError
         ? "Explorer couldn’t load this place. If it keeps failing, restart Studio."

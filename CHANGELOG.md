@@ -9,17 +9,23 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
-- A chat tied to a place no longer moves to the only other open Studio when its own closes. Choose one in the Studio picker.
+- A chat stays on its own place. If that place closes, BloxBot says so, holds messages that would set the agent to work, and picks the place back up when it reopens. Commands like `/new` and `/model` still run.
+- A Studio with the same name as a chat's unpublished place is offered with one click rather than taken, since every new template is a Baseplate.
+- When several Studios are open, a new chat asks you to choose one before sending.
+- Keyboard focus is easier to see across the app.
 
 ### Fixed
 
 - Windows: BloxBot now reads OpenCode's port from its output, for machines stuck at startup on "OpenCode did not open a listening port".
-- Slow connections can finish downloading OpenCode. A download now stops only after 60 seconds with no data, not after 2 minutes in total.
+- Slow connections can finish downloading OpenCode. A download now stops only after 60 seconds with no data, and carries on from where it stopped, even after a restart.
+- A newer version holds up a launch for at most 30 seconds when a working one is already installed.
 - Downloads refused over an unknown certificate, as behind some company networks and antivirus software, retry with your system's certificates. The file must still match the same checksum.
-- Installing OpenCode waits longer for antivirus software to release a new file, and uses a copy another open BloxBot just installed.
-- Refresh in the Studio picker now shows what it found. After three empty Refreshes it opens the steps to connect Studio, and the steps are also one click away whenever none are found.
-- The Explorer shows a short notice when Studio closes, has no place open, is loading or is starting or stopping a playtest, and picks up again on its own.
-- A Studio that has closed is no longer read before BloxBot has checked it's still there, and closing one now looks for it again.
+- Installing OpenCode waits longer for antivirus software to release a new file, and doesn't download again after antivirus blocks unpacking.
+- Startup failures say what to try next and show the folder to allow in antivirus software. BloxBot also looks for an update by itself, and a step that has gone quiet says so and offers Try again.
+- Refresh in the Studio picker now shows what it found, and the steps to connect Studio are right there when none are found. Three empty Refreshes bring them to the front.
+- The setup screen no longer cuts off its top in a short window.
+- The Explorer shows a short notice when Studio closes, has no place open, is loading or is starting or stopping a playtest, and picks up again on its own without being in front.
+- What you've typed in the message box survives Settings and the Studio setup screen.
 
 ## [0.14.0] - 2026-11-04
 
