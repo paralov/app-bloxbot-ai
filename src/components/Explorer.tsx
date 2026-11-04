@@ -469,9 +469,32 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       (syncError
         ? "Explorer couldn’t load this place. If it keeps failing, restart Studio."
         : null));
+  // Coming back from a notice is news too, and whatever had focus in it has gone.
+  const [recovered, setRecovered] = useState(false);
+  const hadNotice = useRef(false);
+  const checkNowFocused = useRef(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (statusNotice) {
+      hadNotice.current = true;
+      setRecovered(false);
+    } else if (hadNotice.current && tree) {
+      hadNotice.current = false;
+      setRecovered(true);
+      if (checkNowFocused.current) searchRef.current?.focus();
+      checkNowFocused.current = false;
+    }
+  }, [statusNotice, tree]);
+
   const checkNow = (
     <button
       type="button"
+      onFocus={() => {
+        checkNowFocused.current = true;
+      }}
+      onBlur={() => {
+        checkNowFocused.current = false;
+      }}
       onClick={() => {
         if (!syncing) requestSync();
       }}
@@ -517,6 +540,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
             <Search aria-hidden="true" size={12} />
             <input
               type="search"
+              ref={searchRef}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search instances"
@@ -528,7 +552,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       ) : null}
 
       {/* Always in the page, so a screen reader announces it when the words arrive. */}
-      <output className="sr-only">{statusNotice ?? (tree ? null : "Loading objects.")}</output>
+      <output className="sr-only">
+        {statusNotice ?? (tree ? (recovered ? "Explorer is back." : null) : "Loading objects.")}
+      </output>
       {statusNotice ? (
         <div
           className={

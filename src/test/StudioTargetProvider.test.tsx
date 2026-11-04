@@ -127,6 +127,48 @@ describe("StudioTargetProvider", () => {
     expect(mocks.select).not.toHaveBeenCalled();
   });
 
+  it("doesn't rejoin an unpublished place from a published one, or the reverse", async () => {
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: {
+        chat: { key: "old-id", label: "Baseplate", detail: null, placeId: "1" },
+      },
+    });
+    mocks.discover.mockResolvedValue({
+      targets: [{ key: "other-id", label: "Baseplate", detail: null, placeId: null }],
+      selectedKey: null,
+    });
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("status: ready")).toBeInTheDocument();
+    expect(screen.getByText("selected: none")).toBeInTheDocument();
+    expect(mocks.select).not.toHaveBeenCalled();
+  });
+
+  it("asks which one when two open places share the chat's place's name", async () => {
+    const twin = { label: "Baseplate", detail: null, placeId: null };
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { chat: { ...twin, key: "old-id" } },
+    });
+    mocks.discover.mockResolvedValue({
+      targets: [
+        { ...twin, key: "one" },
+        { ...twin, key: "two" },
+      ],
+      selectedKey: null,
+    });
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    expect(
+      await screen.findByText("block: 2 places named Baseplate are open. Choose one."),
+    ).toBeInTheDocument();
+  });
+
   it("ties a chat to the Studio it took, so it won't follow to another place", async () => {
     const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
     mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });

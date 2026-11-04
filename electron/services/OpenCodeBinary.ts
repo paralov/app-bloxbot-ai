@@ -38,7 +38,8 @@ const LOOKUP_TIMEOUT_MS = 15_000;
 export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 /** How many tries in a row may get nothing more before a download counts as failed. */
 const DOWNLOAD_RESUMES = 3;
-const RESUME_DELAY_MS = 1_000;
+/** Long enough to outlast a dropped Wi-Fi connection before calling it failed. */
+const RESUME_DELAYS_MS = [5_000, 15_000, 30_000];
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024;
 const EXTRACT_ATTEMPTS = 3;
@@ -368,6 +369,13 @@ function resumedFrom(response: Response): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/** Worth doing but never worth failing over, since all it saves is downloading again. */
+async function saveDownload(path: string, data: Buffer): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+    .then(() => writeFile(path, data))
+    .catch(() => {});
+}
+
 const emptyDownload = (): PartialDownload => ({ chunks: [], bytes: 0, totalBytes: null });
 
 /** What an earlier attempt saved, which counts for nothing if it can't be read. */
@@ -437,16 +445,14 @@ async function downloadWithResume(
       bytesAtLastFailure = partial.bytes;
       if (signal.aborted || partial.bytes === 0 || resumes >= DOWNLOAD_RESUMES) {
         if (partial.bytes > 0) {
-          await mkdir(dirname(savedPath), { recursive: true })
-            .then(() => writeFile(savedPath, Buffer.concat(partial.chunks, partial.bytes)))
-            .catch(() => {});
+          await saveDownload(savedPath, Buffer.concat(partial.chunks, partial.bytes));
         }
         throw cause;
       }
       resumes += 1;
       // A moment for a connection that just dropped, or every try would land in the same blip.
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, RESUME_DELAY_MS * 2 ** (resumes - 1));
+        const timer = setTimeout(resolve, RESUME_DELAYS_MS[resumes - 1] ?? 0);
         signal.addEventListener(
           "abort",
           () => {
@@ -1004,7 +1010,17 @@ function installRelease(
 
       return Effect.gen(function* () {
         yield* requireFreeSpace(context);
-        const { archiveBuffer, response } = yield* tryNetwork(
+        // Setup can stop after the download, as when antivirus blocks unpacking. A complete, verified
+        // copy from then means trying again doesn't have to fetch it.
+        const savedArchive = yield* Effect.promise(() => readFile(savedDownload).catch(() => null));
+        const alreadyVerified =
+          savedArchive &&
+          createHash("sha256").update(savedArchive).digest("hex") === release.archiveSha256
+            ? savedArchive
+            : null;
+        const { archiveBuffer, response } = alreadyVerified
+          ? { archiveBuffer: alreadyVerified, response: new Response() }
+          : yield* tryNetwork(
           "OpenCode download failed",
           DOWNLOAD_STALL_TIMEOUT_MS,
           (signal) =>
@@ -1030,20 +1046,20 @@ function installRelease(
         const archive = Buffer.from(archiveBuffer);
         reportProgress?.({ phase: "verifying" });
         const archiveSha256 = createHash("sha256").update(archive).digest("hex");
-        // Either it's whole now or what was saved is bad, and it's no use for next time in both cases.
-        yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
         if (archiveSha256 !== release.archiveSha256) {
+          yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
           return yield* fail(
             "The downloaded OpenCode archive failed SHA-256 verification",
             undefined,
             "network",
           );
         }
+        if (!alreadyVerified) yield* Effect.promise(() => saveDownload(savedDownload, archive));
 
         // Node filesystem and archive APIs do not accept AbortSignal. Mask this
         // publish phase so interruption cannot race cleanup against in-flight writes.
         reportProgress?.({ phase: "installing" });
-        return yield* Effect.uninterruptible(
+        const installed = yield* Effect.uninterruptible(
           Effect.gen(function* () {
             yield* tryPromise("Failed to write the OpenCode archive", () =>
               writeFile(archivePath, archive),
@@ -1097,6 +1113,8 @@ function installRelease(
             };
           }),
         );
+        yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
+        return installed;
       });
     },
     (temporaryDirectory) =>
@@ -1210,14 +1228,16 @@ export function ensureOpenCodeBinary(
       return cached;
     }
 
-    // The connection gave out partway, and the pinned file comes from the same place. Trying it
-    // would only start again from nothing.
-    if (updateError.message.startsWith("OpenCode download failed: ")) {
+    // The connection gave out partway, or security software blocked it. The pinned file comes from
+    // the same place and would be blocked the same way, so trying it only starts again from nothing.
+    const blocked = updateError.reason === "blocked_by_security";
+    if (blocked || updateError.message.startsWith("OpenCode download failed: ")) {
+      const reason = blocked ? "blocked_by_security" : "network";
       return yield* fail(
         `Unable to download a verified OpenCode ${SUPPORTED_MAJOR}.${SUPPORTED_MINOR}.x release and no cached copy is available. ` +
-          `Release check: ${updateError.message} (reason: network)`,
+          `Release check: ${updateError.message} (reason: ${reason})`,
         updateError,
-        "network",
+        reason,
       );
     }
 

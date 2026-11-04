@@ -1124,7 +1124,7 @@ describe("OpenCode downloads on a poor connection", () => {
 
       expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
       expect(attempt).toBe(pieces);
-      expect((attemptsAt[1] as number) - (attemptsAt[0] as number)).toBeGreaterThanOrEqual(1_000);
+      expect((attemptsAt[1] as number) - (attemptsAt[0] as number)).toBeGreaterThanOrEqual(5_000);
     });
 
     it("doesn't start over on the pinned file when the connection is what gave out", async () => {
@@ -1149,6 +1149,53 @@ describe("OpenCode downloads on a poor connection", () => {
         left: { reason: "network", message: expect.stringContaining("stalled, no data") },
       });
       expect(fetch.mock.calls.some(([url]) => String(url).includes("pinned.zip"))).toBe(false);
+    });
+
+    it("doesn't fetch again after unpacking was blocked, and doesn't try the pinned file", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const blocked = Object.assign(new Error("Operation did not complete: virus detected"), {
+        code: "EPERM",
+      });
+      const options = {
+        cacheDirectory,
+        platform: "win32" as const,
+        arch: "x64",
+        delays: { verifyMs: 0, extractRetryMs: [] },
+      };
+      const asset = "opencode-windows-x64.zip";
+      const windowsArchive = [release("v2.2.2", asset, `sha256:${digest}`)];
+      const windowsFetch = vi.fn(async (url: string) =>
+        url.includes("api.github.com") ? Response.json(windowsArchive) : new Response(archive),
+      );
+
+      const firstTry = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          ...options,
+          fetch: windowsFetch,
+          extractArchive: vi.fn().mockRejectedValue(blocked),
+          pinnedRelease: pinnedFor("win32-x64", asset, Buffer.from("other")),
+        }),
+      );
+      expect(firstTry.result).toMatchObject({
+        _tag: "Left",
+        left: { reason: "blocked_by_security" },
+      });
+      expect(
+        windowsFetch.mock.calls.filter(([url]) => !String(url).includes("api.github")).length,
+      ).toBe(1);
+
+      windowsFetch.mockClear();
+      const secondTry = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          ...options,
+          fetch: windowsFetch,
+          extractArchive: writeExecutable("opencode.exe"),
+        }),
+      );
+      expect(secondTry.result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+      expect(
+        windowsFetch.mock.calls.filter(([url]) => !String(url).includes("api.github")).length,
+      ).toBe(0);
     });
 
     it("rejects a joined file that doesn't match its checksum", async () => {

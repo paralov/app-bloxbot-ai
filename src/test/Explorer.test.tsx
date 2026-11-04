@@ -148,7 +148,7 @@ describe("Explorer", () => {
 
     await advance(10_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
   });
 
   it("treats an empty first tree as not ready yet", async () => {
@@ -177,7 +177,7 @@ describe("Explorer", () => {
 
     mocks.getSnapshot.mockResolvedValue(tree);
     await advance(10_000);
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
   });
 
   it("says calmly what Studio is doing instead of a failure or a skeleton", async () => {
@@ -191,7 +191,7 @@ describe("Explorer", () => {
 
     await advance(5_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
   });
 
   it("keeps the tree on screen through a playtest starting or stopping", async () => {
@@ -206,7 +206,7 @@ describe("Explorer", () => {
 
     mocks.getSnapshot.mockResolvedValue(tree);
     await advance(5_000);
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
   });
 
   it("keeps Check now in place through a retry, and hides what can't be used without a tree", async () => {
@@ -262,6 +262,20 @@ describe("Explorer", () => {
       mocks.studioTarget.selected = { key: "studio-1" };
       Object.assign(mocks.studioTarget, { status: undefined, missing: undefined });
     }
+  });
+
+  it("says when it's back, and moves focus off a Check now that has gone", async () => {
+    mocks.getSnapshot.mockRejectedValueOnce(new Error("Studio is busy"));
+    mocks.getSnapshot.mockResolvedValue(tree);
+    start();
+    await advance(0);
+    const checkNow = screen.getByRole("button", { name: "Check now" });
+    checkNow.focus();
+    fireEvent.click(checkNow);
+    await advance(0);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
+    expect(screen.getByRole("searchbox", { name: "Search Explorer" })).toHaveFocus();
   });
 
   it("announces that objects are loading", async () => {

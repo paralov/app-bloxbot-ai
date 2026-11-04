@@ -65,6 +65,15 @@ function StudioSetup({
   const [stepIndex, setStepIndex] = useState(0);
   const step = STUDIO_SETUP_STEPS[stepIndex];
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const [notFound, setNotFound] = useState(false);
+  const wasChecking = useRef(false);
+
+  // A check that finds nothing looks like nothing happened unless something says so.
+  useEffect(() => {
+    if (checking) setNotFound(false);
+    else if (wasChecking.current && !connected) setNotFound(true);
+    wasChecking.current = checking;
+  }, [checking, connected]);
 
   const continueRef = useRef<HTMLButtonElement>(null);
   const nextRef = useRef<HTMLButtonElement>(null);
@@ -246,7 +255,10 @@ function StudioSetup({
         ) : (
           <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
-            Looking for Roblox Studio
+            {notFound ? null : "Looking for Roblox Studio"}
+            <output>
+              {notFound ? "Not found yet. Check these steps, then restart Studio." : null}
+            </output>
             {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
               <button
                 type="button"

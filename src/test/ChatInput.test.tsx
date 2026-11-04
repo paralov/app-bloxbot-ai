@@ -511,6 +511,12 @@ describe("ChatInput", () => {
 
       expect(client.session.promptAsync).not.toHaveBeenCalled();
       expect(textarea).toHaveTextContent("Delete everything");
+
+      // Commands that don't set the agent to work still run.
+      await act(async () => {
+        fireEvent.input(textarea, { target: { textContent: "/connect" } });
+      });
+      expect(screen.getByTitle("Send")).toBeEnabled();
     } finally {
       studio.sendBlock = null;
     }

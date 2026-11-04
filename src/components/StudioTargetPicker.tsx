@@ -219,7 +219,7 @@ export default function StudioTargetPicker({
           <div className="max-h-72 overflow-y-auto">
             {missing ? (
               <p className="px-2 pb-1.5 text-xs leading-relaxed text-muted-foreground">
-                {placeName(missing.label)} isn't open. Reopen it or choose another.
+                {studioTarget.sendBlock}
               </p>
             ) : null}
             {targets.map((target) => (

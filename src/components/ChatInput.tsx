@@ -24,6 +24,7 @@ import { useTodos } from "@/hooks/useTodos";
 import { analyticsProperties } from "@/lib/analytics";
 import { EXPLORER_WAIT_NOTICES, OBJECT_DRAG_NAME_TYPE, OBJECT_DRAG_TYPE } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
+import { needsStudio } from "@/lib/promptSuggestions";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
@@ -526,13 +527,13 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   }, [allModels, connectedProviders, hiddenModels, modelSearch]);
 
   function handleSubmit() {
-    if (sendBlock) {
-      notify.error(sendBlock);
-      return;
-    }
     const editorText = promptEditorRef.current?.getText() ?? text;
     const trimmed = editorText.trim();
     if (!trimmed && attachments.length === 0) return;
+    if (sendBlock && needsStudio(trimmed)) {
+      notify.error(sendBlock);
+      return;
+    }
     const submittedText = editorText;
     const submittedAttachments = attachments;
     const images =
@@ -618,7 +619,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
               <GoalPill
                 goal={goal}
                 onCommand={(command) => {
-                  if (sendBlock) {
+                  if (sendBlock && needsStudio(`/goal ${command}`)) {
                     notify.error(sendBlock);
                     return false;
                   }
@@ -833,7 +834,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
               text={text}
               hasAttachments={attachments.length > 0}
               isBusy={isBusy}
-              blockedReason={sendBlock}
+              blockedReason={sendBlock && needsStudio(text.trim()) ? sendBlock : null}
               onSend={handleSubmit}
             />
           </div>

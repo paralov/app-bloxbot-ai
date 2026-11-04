@@ -47,10 +47,15 @@ export function getInstallFailureReason(technicalDetail: string): string | null 
 
 const DEFAULT_ENGINE_PROGRESS: OpenCodeStartupProgress = { phase: "checking" };
 const SLOW_STEP_MS = 20_000;
-const EXCLUSION_HELP = {
-  label: "How to add an exclusion",
-  href: "https://support.microsoft.com/en-us/windows/add-an-exclusion-to-windows-security-811816c0-4dfd-af4a-47e4-c301afe13b26",
-};
+/** Microsoft's steps, which are no use anywhere but Windows. */
+function exclusionHelp() {
+  return navigator.userAgent.includes("Windows")
+    ? {
+        label: "How to add an exclusion",
+        href: "https://support.microsoft.com/en-us/windows/add-an-exclusion-to-windows-security-811816c0-4dfd-af4a-47e4-c301afe13b26",
+      }
+    : undefined;
+}
 const SERVER_WAIT_MS = 60_000;
 
 const STARTUP_COPY: Record<Exclude<StartupPhase, "engine">, StartupPresentation> = {
@@ -175,9 +180,9 @@ export function getStartupErrorPresentation(
     return {
       message: "Setup couldn't finish",
       detail:
-        "Windows security software blocked BloxBot's engine. Add this folder as an exclusion, then try again.",
+        "Security software blocked BloxBot's engine. Add this folder as an exclusion, then try again.",
       detailPath: installFolder ?? undefined,
-      helpLink: EXCLUSION_HELP,
+      helpLink: exclusionHelp(),
       technicalDetail,
     };
   }
@@ -205,9 +210,10 @@ export function getStartupErrorPresentation(
   ) {
     return {
       message: "BloxBot couldn't start",
-      detail: "Its local engine stopped. Allow this folder in your antivirus, then try again.",
+      detail:
+        "Its local engine stopped. Try again. If it keeps stopping, allow this folder in your antivirus.",
       detailPath: installFolder ?? undefined,
-      helpLink: EXCLUSION_HELP,
+      helpLink: exclusionHelp(),
       technicalDetail,
     };
   }
@@ -221,7 +227,7 @@ export function getStartupErrorPresentation(
       detail:
         "Its local engine didn't respond. Allow this folder in your antivirus or pause your VPN, then try again.",
       detailPath: installFolder ?? undefined,
-      helpLink: EXCLUSION_HELP,
+      helpLink: exclusionHelp(),
       technicalDetail,
     };
   }

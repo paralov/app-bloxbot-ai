@@ -27,6 +27,18 @@ export function placeName(label: string): string {
   return label.replace(/\s*\(placeId:[^)]*\)$/, "");
 }
 
+/**
+ * Whether a Studio could be the place a chat remembers by name. Different Place IDs rule that out,
+ * and so does only one of them being published: those can't be the same place.
+ */
+function sameNamedPlace(target: StudioTarget, remembered: StudioTarget): boolean {
+  const placeId = (id: string | null | undefined) => (id && id !== "0" ? id : null);
+  return (
+    target.label.trim().toLowerCase() === remembered.label.trim().toLowerCase() &&
+    placeId(target.placeId) === placeId(remembered.placeId)
+  );
+}
+
 interface StudioTargetContextValue {
   targets: readonly StudioTarget[];
   selected: StudioTarget | null;
@@ -36,6 +48,10 @@ interface StudioTargetContextValue {
   error: string | null;
   /** The place this chat was working in, when it isn't open any more. */
   missing: StudioTarget | null;
+  /** How many open Studios share the missing place's name, when that's why nothing was picked. */
+  twins: number;
+  /** This chat's Studio was picked by its name alone, which is worth saying out loud. */
+  rejoinedByName: boolean;
   /** Why a message can't go out yet: without a Studio to work in, the agent would pick one itself. */
   sendBlock: string | null;
   /** Resolves with how many Studios are listed afterwards. */
@@ -72,6 +88,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const targetsRef = useRef<readonly StudioTarget[]>([]);
   const discoveryRef = useRef<{ session: string | null; promise: Promise<number> } | null>(null);
   const selectingRef = useRef(false);
+  const [rejoinedByName, setRejoinedByName] = useState(false);
   // Only what discovery itself got wrong clears when discovery next works.
   const errorSourceRef = useRef<"discovery" | "select" | null>(null);
   const lastDiscoveryReportRef = useRef<string | null>(null);
@@ -98,13 +115,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       const placeMatches = remembered?.placeId
         ? result.targets.filter((target) => target.placeId === remembered.placeId)
         : [];
-      // Two places can share a name, so a different Place ID always rules a name match out.
       const labelMatches = remembered
-        ? result.targets.filter(
-            (target) =>
-              target.label.trim().toLowerCase() === remembered.label.trim().toLowerCase() &&
-              (!remembered.placeId || !target.placeId || target.placeId === remembered.placeId),
-          )
+        ? result.targets.filter((target) => sameNamedPlace(target, remembered))
         : [];
       let nextSelected = remembered
         ? (result.targets.find((target) => target.key === remembered.key) ??
@@ -151,6 +163,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       // A chat that took the Studio already in use is tied to it too, or it would follow to another
       // place if that one closed.
       if (nextSelected && !remembered) await rememberTarget(nextSelected);
+      setRejoinedByName(selectionMode === "session_name_match");
       if (operation !== operationRef.current) return;
       setSelected(nextSelected);
       setStatus(result.targets.length === 0 ? "empty" : "ready");
@@ -215,6 +228,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     async (target: StudioTarget) => {
       const operation = ++operationRef.current;
       selectingRef.current = true;
+      setRejoinedByName(false);
       setSelectingKey(target.key);
       errorSourceRef.current = null;
       setError(null);
@@ -297,14 +311,17 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
 
   const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
   const missing = !selected && remembered ? remembered : null;
+  const twins = missing ? targets.filter((target) => sameNamedPlace(target, missing)).length : 0;
   const sendBlock =
     status === "loading"
       ? "Finding Studios."
-      : missing
-        ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
-        : status === "ready" && !selected
-          ? "Choose a Studio first."
-          : null;
+      : missing && twins > 1
+        ? `${twins} places named ${placeName(missing.label)} are open. Choose one.`
+        : missing
+          ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
+          : status === "ready" && !selected
+            ? "Choose a Studio first."
+            : null;
 
   // Quickly while someone is waiting on a Studio to appear, or on this chat's place to reopen. Slowly
   // otherwise, so a Studio closing is noticed without anyone having to open the Explorer.
@@ -331,6 +348,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       error,
       missing,
       sendBlock,
+      twins,
+      rejoinedByName,
       discover,
       select,
     }),
@@ -343,6 +362,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       error,
       missing,
       sendBlock,
+      twins,
+      rejoinedByName,
       discover,
       select,
     ],

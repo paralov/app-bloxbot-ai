@@ -86,6 +86,20 @@ describe("StudioNotice", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Dungeon is connected.");
   });
 
+  it("says when two open places share this chat's place's name", () => {
+    show({ targets: [DUNGEON, { ...DUNGEON, key: "other" }], missing: DUNGEON, twins: 2 });
+    expect(screen.getByRole("status")).toHaveTextContent("2 places named Dungeon are open.");
+    fireEvent.click(screen.getByRole("button", { name: "Choose one" }));
+    expect(onOpenPicker).toHaveBeenCalledOnce();
+  });
+
+  it("says when a Studio was picked by its name alone", () => {
+    show({ selected: DUNGEON, targets: [DUNGEON], rejoinedByName: true });
+    expect(screen.getByRole("status")).toHaveTextContent("Using Dungeon, matched by name.");
+    fireEvent.click(screen.getByRole("button", { name: "Choose another" }));
+    expect(onOpenPicker).toHaveBeenCalledOnce();
+  });
+
   it("asks for a choice when several Studios are open and this chat has none", () => {
     show({ targets: [LOBBY, DUNGEON] });
     expect(screen.getByRole("status")).toHaveTextContent("Several Studios are open.");

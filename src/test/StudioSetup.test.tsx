@@ -79,4 +79,16 @@ describe("StudioSetup", () => {
     expect(screen.getByRole("button", { name: "Choose a place" })).toHaveFocus();
     expect(screen.queryByText(/ready to build/)).toBeNull();
   });
+
+  it("says so when a check finds nothing", () => {
+    const props = { connected: false, onCheck: vi.fn(), onContinue: vi.fn() };
+    const { rerender } = render(<StudioSetup {...props} checking={false} />);
+    expect(screen.queryByText(/Not found yet/)).toBeNull();
+
+    rerender(<StudioSetup {...props} checking />);
+    rerender(<StudioSetup {...props} checking={false} />);
+    expect(
+      screen.getByText("Not found yet. Check these steps, then restart Studio."),
+    ).toBeVisible();
+  });
 });

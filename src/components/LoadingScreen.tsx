@@ -317,7 +317,7 @@ function LoadingScreen({
               )}
 
               {updateStatus === "up-to-date" && (
-                <span className="text-emerald-600">Up to date</span>
+                <span className="text-emerald-700 dark:text-emerald-400">Up to date</span>
               )}
 
               {updateStatus === "downloading" && (
@@ -388,10 +388,14 @@ function LoadingScreen({
             {onRetry && (
               <button
                 type="button"
-                onClick={onRetry}
-                className="mt-3 text-xs text-muted-foreground underline transition-colors hover:text-foreground"
+                onClick={() => {
+                  setRestarting(true);
+                  onRetry();
+                }}
+                disabled={busyRestarting}
+                className="mt-3 text-xs text-muted-foreground underline transition-colors hover:text-foreground disabled:no-underline"
               >
-                Try again
+                {busyRestarting ? "Restarting..." : "Try again"}
               </button>
             )}
           </>

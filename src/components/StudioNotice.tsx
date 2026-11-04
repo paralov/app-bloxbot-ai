@@ -17,8 +17,13 @@ export default function StudioNotice({
   const selected = studioTarget?.selected ?? null;
   const missing = studioTarget?.missing ?? null;
   const canChoose = (studioTarget?.targets.length ?? 0) > 0;
+  const twins = studioTarget?.twins ?? 0;
+  const rejoinedByName = !!studioTarget?.rejoinedByName && selected !== null;
   const hidden =
-    !studioTarget || status === "loading" || selected !== null || !!studioTarget.selectingKey;
+    !studioTarget ||
+    status === "loading" ||
+    (selected !== null && !rejoinedByName) ||
+    !!studioTarget.selectingKey;
 
   // The notice going away says nothing to a screen reader, so a return gets said out loud.
   const [returned, setReturned] = useState<string | null>(null);
@@ -36,19 +41,23 @@ export default function StudioNotice({
   const place = missing ? placeName(missing.label) : null;
   const message = hidden
     ? null
-    : place
-      ? canChoose
-        ? `${place} isn't open. Reopen it or`
-        : `${place} isn't open. Reopen it in Studio to keep going.`
-      : canChoose
-        ? "Several Studios are open."
-        : "No Studio connected.";
+    : rejoinedByName && selected
+      ? `Using ${placeName(selected.label)}, matched by name.`
+      : place && twins > 1
+        ? `${twins} places named ${place} are open.`
+        : place
+          ? canChoose
+            ? `${place} isn't open. Reopen it or`
+            : `${place} isn't open. Reopen it in Studio to keep going.`
+          : canChoose
+            ? "Several Studios are open."
+            : "No Studio connected.";
 
   return (
     <>
       {/* Always in the page, so a screen reader announces it when the words arrive. */}
       <output className="sr-only">
-        {message && place && canChoose
+        {message && place && twins < 2 && canChoose
           ? `${place} isn't open. Reopen it or choose another.`
           : (message ?? returned)}
       </output>
@@ -72,7 +81,13 @@ export default function StudioNotice({
             }}
             className="shrink-0 text-foreground underline underline-offset-2 hover:opacity-80"
           >
-            {canChoose ? (place ? "choose another" : "Choose one") : "Show me how"}
+            {rejoinedByName
+              ? "Choose another"
+              : !canChoose
+                ? "Show me how"
+                : place && twins < 2
+                  ? "choose another"
+                  : "Choose one"}
           </button>
         </div>
       ) : null}

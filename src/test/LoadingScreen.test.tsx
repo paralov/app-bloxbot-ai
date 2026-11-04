@@ -46,7 +46,6 @@ describe("startup progress", () => {
       const presentation = getStartupErrorPresentation(failure, "C:\\BloxBot");
       expect(presentation.message).toBe("BloxBot couldn't start");
       expect(presentation.detailPath).toBe("C:\\BloxBot");
-      expect(presentation.helpLink?.label).toBe("How to add an exclusion");
     }
   });
 
@@ -61,6 +60,7 @@ describe("startup progress", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Restarting..." })).toBeDisabled();
   });
 
   it("says out loud when it finds an update", async () => {
@@ -79,7 +79,8 @@ describe("startup progress", () => {
     expect(screen.getByRole("button", { name: "Restarting..." })).toBeDisabled();
   });
 
-  it("gives the folder to exclude a copy button and a how-to", async () => {
+  it("gives the folder to exclude a copy button, and a how-to on Windows", async () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0)");
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     const presentation = getStartupErrorPresentation(
@@ -95,6 +96,10 @@ describe("startup progress", () => {
       "href",
       expect.stringContaining("support.microsoft.com"),
     );
+    vi.restoreAllMocks();
+    expect(
+      getStartupErrorPresentation("Install failed (reason: blocked_by_security)").helpLink,
+    ).toBeUndefined();
   });
 
   it("doesn't look for updates while everything is fine", () => {
@@ -204,7 +209,7 @@ describe("startup progress", () => {
     expect(screen.getByRole("heading", { name: "Setup couldn't finish" })).toBeVisible();
     expect(
       screen.getByText(
-        "Windows security software blocked BloxBot's engine. Add this folder as an exclusion, then try again.",
+        "Security software blocked BloxBot's engine. Add this folder as an exclusion, then try again.",
       ),
     ).toBeVisible();
     expect(screen.getByText(folder)).toBeVisible();
