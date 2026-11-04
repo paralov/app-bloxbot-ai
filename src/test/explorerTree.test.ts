@@ -225,6 +225,27 @@ describe("syncExplorerTree", () => {
     ]);
   });
 
+  it("keeps ids apart when an object's real name looks like a numbered one", async () => {
+    const { sync, tree } = renderer(
+      fakeStudio({
+        version: null,
+        place: [
+          folder(
+            "Workspace",
+            folder("Foo", folder("First")),
+            folder("Foo", folder("Second")),
+            folder("Foo#1", folder("Third")),
+          ),
+        ],
+      }),
+    );
+    await sync();
+
+    const siblings = child(tree().roots, "Workspace").children;
+    expect(new Set(siblings.map((node) => node.id)).size).toBe(3);
+    expect(tree().byId.size).toBe(1 + 3 + 3);
+  });
+
   it("reads through a name with a period in it, which a path can't reach", async () => {
     const callTool = fakeStudio({
       version: null,

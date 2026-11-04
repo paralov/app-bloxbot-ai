@@ -789,7 +789,7 @@ function ThemePreview({ swatch }: { swatch: Theme }) {
 // ═══════════════════════════════════════════════════════════════════════
 
 function InstructionsTab() {
-  const { data: saved } = useQuery<string>({
+  const { data: saved, isError: unreadable } = useQuery<string>({
     queryKey: qk.instructions,
     queryFn: () => desktop.readInstructions(),
   });
@@ -802,7 +802,8 @@ function InstructionsTab() {
   const save = () => {
     saveInstructions.mutate(text, {
       onSuccess: () => {
-        setDraft(null);
+        // Anything typed while this was saving stays, still to be saved.
+        setDraft((current) => (current === text ? null : current));
         notify.success("Instructions saved");
       },
       onError: (error) => {
@@ -821,6 +822,7 @@ function InstructionsTab() {
       <textarea
         aria-label="Instructions"
         value={text}
+        disabled={unreadable}
         onChange={(event) => setDraft(event.target.value)}
         rows={10}
         placeholder="Keep scripts in ServerScriptService. Explain changes simply."
@@ -828,7 +830,12 @@ function InstructionsTab() {
       />
 
       <div className="mt-3 flex items-center justify-end gap-3">
-        {chatRunning && (
+        {unreadable && (
+          <span className="text-xs text-muted-foreground">
+            Couldn't read your saved instructions.
+          </span>
+        )}
+        {chatRunning && !unreadable && (
           <span className="text-xs text-muted-foreground">
             Saving waits for your chats to finish.
           </span>
@@ -836,7 +843,11 @@ function InstructionsTab() {
         <button
           type="button"
           disabled={
-            chatRunning || saveInstructions.isPending || draft === null || draft === (saved ?? "")
+            unreadable ||
+            chatRunning ||
+            saveInstructions.isPending ||
+            draft === null ||
+            draft === (saved ?? "")
           }
           onClick={save}
           className="h-8 rounded-lg bg-foreground px-3 text-xs text-background transition-opacity disabled:opacity-30"
@@ -862,7 +873,8 @@ function SystemPromptSection({ chatRunning }: { chatRunning: boolean }) {
   const save = (systemPrompt: string | null) => {
     saveSystemPrompt.mutate(systemPrompt, {
       onSuccess: () => {
-        setDraft(null);
+        // A reset applies to everything. Anything typed while a save ran stays, still to be saved.
+        setDraft((current) => (systemPrompt === null || current === systemPrompt ? null : current));
         notify.success(systemPrompt === null ? "System prompt reset" : "System prompt saved");
       },
       onError: (error) => {

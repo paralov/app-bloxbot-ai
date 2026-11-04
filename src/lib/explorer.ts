@@ -207,7 +207,8 @@ export function applyExplorerUpdates(
     if (parent) Object.assign(parent, { children: next, pending: false });
     else roots = next;
   }
-  return { placeName, roots, byId };
+  // A new list even when only something deep changed, because the rows on screen are built from it.
+  return { placeName, roots: [...roots], byId };
 }
 
 export interface ExplorerRow {

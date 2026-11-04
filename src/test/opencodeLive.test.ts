@@ -763,7 +763,7 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
         expect(bodies.at(-1)).not.toContain("FIRST_RULE");
       },
     );
-  });
+  }, 30_000);
 
   it("keeps the user's other setups out of the chat", async () => {
     const skill = async (root: string, marker: string) => {

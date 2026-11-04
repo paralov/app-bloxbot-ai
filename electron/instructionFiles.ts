@@ -49,7 +49,11 @@ export async function findInstructionFiles(options: {
 
 /** What the user wrote in Settings, which is the file OpenCode loads. */
 export async function readInstructions(globalConfigDirectory: string): Promise<string> {
-  return readFile(join(globalConfigDirectory, "AGENTS.md"), "utf8").catch(() => "");
+  return readFile(join(globalConfigDirectory, "AGENTS.md"), "utf8").catch((error) => {
+    // Anything else must not look empty, or saving would replace what's there.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw error;
+  });
 }
 
 export async function saveInstructions(globalConfigDirectory: string, text: string): Promise<void> {

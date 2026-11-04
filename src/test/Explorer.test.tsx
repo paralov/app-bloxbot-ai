@@ -251,6 +251,27 @@ describe("Explorer", () => {
     expect(screen.queryByRole("treeitem", { selected: true })).not.toBeInTheDocument();
   });
 
+  it("shows what arrives for an object inside the tree, without any other change", async () => {
+    mocks.getSnapshot.mockResolvedValue({
+      ...tree,
+      roots: [{ ...tree.roots[0], hasChildren: true, pending: true }],
+    });
+    start();
+    await advance(0);
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
+
+    const kid = { ...tree.roots[0], name: "Kid", path: "game.Workspace.Kid" };
+    act(() => {
+      for (const listener of mocks.treeListeners) {
+        listener({ studioId: "studio-1", parentId: "game.Workspace", children: [kid] });
+      }
+    });
+    await advance(200);
+
+    expect(screen.getByText("Kid")).toBeInTheDocument();
+    expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
+  });
+
   it("keeps waiting for a read when a later one has nothing to say", async () => {
     let answerRead: (details: unknown) => void = () => {};
     mocks.getSnapshot.mockResolvedValue(tree);

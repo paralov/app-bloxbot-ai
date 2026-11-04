@@ -40,6 +40,13 @@ describe("instruction files", () => {
 });
 
 describe("saved instructions", () => {
+  it("says when the file can't be read, rather than showing it as empty", async () => {
+    root = await mkdtemp(join(tmpdir(), "bloxbot-instructions-"));
+    // A folder where the file should be fails to read with something other than "not found".
+    await mkdir(join(root, "AGENTS.md"));
+    await expect(readInstructions(root)).rejects.toThrow();
+  });
+
   it("creates the folder, reads back what was saved, and removes the file when emptied", async () => {
     const root = await mkdtemp(join(tmpdir(), "bloxbot-instructions-"));
     const folder = join(root, "config", "opencode");

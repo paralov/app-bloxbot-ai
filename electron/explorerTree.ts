@@ -249,10 +249,18 @@ async function buildChildren(
   // Each id comes from its parent's, with a number for the ones after the first with a name.
   const identify = (nodes: readonly BuiltNode[], parentId: string) => {
     const used = new Map<string, number>();
+    const taken = new Set<string>();
     for (const node of nodes) {
-      const index = used.get(node.name) ?? 0;
+      let index = used.get(node.name) ?? 0;
+      let id = `${parentId}${node.name}${index > 0 ? `#${index}` : ""}`;
+      // A real name can look like a numbered one, as with "Foo#1" beside two called "Foo".
+      while (taken.has(id)) {
+        index += 1;
+        id = `${parentId}${node.name}#${index}`;
+      }
       used.set(node.name, index + 1);
-      node.id = `${parentId}${node.name}${index > 0 ? `#${index}` : ""}`;
+      taken.add(id);
+      node.id = id;
       node.hasChildren = node.children.length > 0;
       identify(node.children, `${node.id}.`);
     }
