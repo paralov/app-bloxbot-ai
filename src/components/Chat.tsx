@@ -247,10 +247,12 @@ function Chat() {
   }, [showStudioSetup]);
   // Connected isn't the end of it if this chat still has to be told which Studio to use.
   const needsStudioChoice =
-    studioTarget?.missing != null ||
-    studioTarget?.withoutStudio === true ||
-    studioTarget?.unknownPlace === true ||
-    (!studioTarget?.selected && (studioTarget?.targets.length ?? 0) > 1);
+    // The picker lives in a chat, so with none open there's nothing to choose in yet.
+    !!activeSessionId &&
+    (studioTarget?.missing != null ||
+      studioTarget?.withoutStudio === true ||
+      studioTarget?.unknownPlace === true ||
+      (!studioTarget?.selected && (studioTarget?.targets.length ?? 0) > 1));
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
   const handleToggleExplorer = useCallback(() => {

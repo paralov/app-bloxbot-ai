@@ -58,7 +58,11 @@ import {
   siblingPath,
 } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
-import { useExplorerReference, useExplorerTree } from "@/providers/ExplorerReferenceProvider";
+import {
+  useExplorerReference,
+  useExplorerTree,
+  useExplorerView,
+} from "@/providers/ExplorerReferenceProvider";
 import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ROW_HEIGHT = 28;
@@ -282,14 +286,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, [waiting]);
   // An object each time, so a second click on the same link still scrolls to it.
   const [scrollTarget, setScrollTarget] = useState<{ id: string } | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const { expanded, setExpanded, selectedId, setSelectedId, search, setSearch, firstShowing } =
+    useExplorerView();
   const [menu, setMenu] = useState<{ node: ExplorerNode; x: number; y: number } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExplorerNode | null>(null);
   const studioId = studioTarget?.selected?.key;
-  const openedStudioRef = useRef<string | undefined>(undefined);
   const latestTreeRef = useRef(tree);
   latestTreeRef.current = tree;
 
@@ -308,21 +310,26 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
   // A place opens with its services showing, once.
   useEffect(() => {
-    if (!tree?.roots.length || openedStudioRef.current === studioId) return;
-    openedStudioRef.current = studioId;
+    if (!tree?.roots.length || !firstShowing(studioId)) return;
     setExpanded(new Set(tree.roots.map(nodeId)));
-  }, [tree, studioId]);
+  }, [tree, studioId, firstShowing, setExpanded]);
 
-  const selectNode = useCallback((node: ExplorerNode) => setSelectedId(nodeId(node)), []);
+  const selectNode = useCallback(
+    (node: ExplorerNode) => setSelectedId(nodeId(node)),
+    [setSelectedId],
+  );
 
-  const toggleNode = useCallback((path: string) => {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
+  const toggleNode = useCallback(
+    (path: string) => {
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+        return next;
+      });
+    },
+    [setExpanded],
+  );
 
   useEffect(() => {
     // A reply can link to an object before this panel's next sync has it, so the request waits.
@@ -334,15 +341,13 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     setSelectedId(ids[ids.length - 1]);
     setScrollTarget({ id: ids[ids.length - 1] });
     setExpanded((current) => new Set([...current, ...ids.slice(0, -1)]));
-  }, [focusRequest, tree, consumeFocus]);
+  }, [focusRequest, tree, consumeFocus, setSearch, setSelectedId, setExpanded]);
 
   // Rows are named by path, so in another place this would silently be a different object.
   const selectionStudioRef = useRef(studioId);
   useEffect(() => {
     if (selectionStudioRef.current === studioId) return;
     selectionStudioRef.current = studioId;
-    setSearch("");
-    setSelectedId(null);
     setFocusedId(null);
     setRenamingId(null);
     setMenu(null);
@@ -410,18 +415,24 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     [captureReference],
   );
 
-  const openMenu = useCallback((event: MouseEvent, node: ExplorerNode) => {
-    event.preventDefault();
-    setSelectedId(nodeId(node));
-    setMenu({ node, ...menuPosition(event) });
-    posthog.capture("object_menu_opened", analyticsProperties("explorer"));
-  }, []);
+  const openMenu = useCallback(
+    (event: MouseEvent, node: ExplorerNode) => {
+      event.preventDefault();
+      setSelectedId(nodeId(node));
+      setMenu({ node, ...menuPosition(event) });
+      posthog.capture("object_menu_opened", analyticsProperties("explorer"));
+    },
+    [setSelectedId],
+  );
 
-  const openMenuAt = useCallback((x: number, y: number, node: ExplorerNode) => {
-    setSelectedId(nodeId(node));
-    setMenu({ node, ...menuPosition({ clientX: x, clientY: y }) });
-    posthog.capture("object_menu_opened", analyticsProperties("explorer"));
-  }, []);
+  const openMenuAt = useCallback(
+    (x: number, y: number, node: ExplorerNode) => {
+      setSelectedId(nodeId(node));
+      setMenu({ node, ...menuPosition({ clientX: x, clientY: y }) });
+      posthog.capture("object_menu_opened", analyticsProperties("explorer"));
+    },
+    [setSelectedId],
+  );
 
   const copyPath = async (node: ExplorerNode) => {
     try {
@@ -499,8 +510,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         pendingFocusRef.current = to;
       });
     },
-    [editObject],
+    [editObject, setExpanded, setSelectedId],
   );
+
+  // Stable, because the dialog's focus handling starts over whenever this changes.
+  const cancelDelete = useCallback(() => setDeleteTarget(null), []);
 
   const handleDelete = (node: ExplorerNode) => {
     setDeleteTarget(null);
@@ -918,7 +932,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       {deleteTarget ? (
         <DeleteObjectDialog
           node={deleteTarget}
-          onCancel={() => setDeleteTarget(null)}
+          onCancel={cancelDelete}
           onConfirm={() => handleDelete(deleteTarget)}
         />
       ) : null}

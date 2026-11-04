@@ -367,6 +367,48 @@ describe("Explorer", () => {
     expect(screen.getByRole("status")).toHaveTextContent("No matches.");
   });
 
+  it("keeps what was open and searched when the panel closes and comes back", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    const panel = (open: boolean) => (
+      <ExplorerReferenceProvider>
+        {open ? <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} /> : null}
+      </ExplorerReferenceProvider>
+    );
+    const { rerender } = render(panel(true));
+    await advance(0);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search Explorer" }), {
+      target: { value: "Work" },
+    });
+
+    rerender(panel(false));
+    await advance(0);
+    rerender(panel(true));
+    await advance(0);
+
+    expect(screen.getByRole("searchbox", { name: "Search Explorer" })).toHaveValue("Work");
+  });
+
+  it("keeps focus inside the delete dialog while the tree keeps updating", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    const part = { ...tree.roots[0], name: "Part", className: "Part", path: "game.Workspace.Part" };
+    mocks.getSnapshot.mockResolvedValue({
+      ...tree,
+      roots: [{ ...tree.roots[0], hasChildren: true, children: [part] }],
+    });
+    start();
+    await advance(0);
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "Part" }), { key: "Delete" });
+    const dialog = screen.getByRole("alertdialog");
+    const confirm = screen.getByRole("button", { name: "Delete" });
+    confirm.focus();
+
+    await advance(10_000);
+
+    expect(dialog).toBeInTheDocument();
+    expect(confirm).toHaveFocus();
+  });
+
   it("announces that objects are loading", async () => {
     mocks.getSnapshot.mockReturnValueOnce(new Promise(() => {}));
     start();

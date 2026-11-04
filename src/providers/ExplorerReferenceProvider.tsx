@@ -1,4 +1,15 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import {
+  createContext,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { type ExplorerTreeSync, useExplorerTreeSync } from "@/hooks/useExplorerTreeSync";
 import {
   type ExplorerNode,
@@ -6,6 +17,7 @@ import {
   type ExplorerWait,
   indexExplorerObjects,
 } from "@/lib/explorer";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 interface ExplorerReferenceContextValue {
   pendingReference: ExplorerReference | null;
@@ -25,6 +37,20 @@ interface ExplorerReferenceContextValue {
   consumeFocus: () => void;
 }
 
+/** What someone has opened and searched for, which outlives the panel being closed. */
+export interface ExplorerView {
+  expanded: Set<string>;
+  setExpanded: Dispatch<SetStateAction<Set<string>>>;
+  selectedId: string | null;
+  setSelectedId: Dispatch<SetStateAction<string | null>>;
+  search: string;
+  setSearch: Dispatch<SetStateAction<string>>;
+  /** Whether this is the first look at a place, when its services open out. */
+  firstShowing: (studioId: string | undefined) => boolean;
+}
+
+const ExplorerViewContext = createContext<ExplorerView | null>(null);
+
 const ExplorerReferenceContext = createContext<ExplorerReferenceContextValue | null>(null);
 // Its own context because it changes many times a second while a big place loads, which only the
 // Explorer panel needs to hear about.
@@ -32,6 +58,37 @@ const ExplorerTreeContext = createContext<ExplorerTreeSync | null>(null);
 
 export function ExplorerReferenceProvider({ children }: { children: ReactNode }) {
   const sync = useExplorerTreeSync();
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const shownStudioRef = useRef<string | undefined>(undefined);
+  const firstShowing = useCallback((studioId: string | undefined) => {
+    if (shownStudioRef.current === studioId) return false;
+    shownStudioRef.current = studioId;
+    return true;
+  }, []);
+  const view = useMemo(
+    () => ({
+      expanded,
+      setExpanded,
+      selectedId,
+      setSelectedId,
+      search,
+      setSearch,
+      firstShowing,
+    }),
+    [expanded, selectedId, search, firstShowing],
+  );
+  // Rows are named by path, so in another place this would silently be a different object. Here, as
+  // the panel may be closed when the Studio changes.
+  const studioId = useStudioTargetOptional()?.selected?.key;
+  const viewStudioRef = useRef(studioId);
+  useEffect(() => {
+    if (viewStudioRef.current === studioId) return;
+    viewStudioRef.current = studioId;
+    setSelectedId(null);
+    setSearch("");
+  }, [studioId]);
   const { objects, syncing, syncError, waiting, requestSync } = sync;
   const [pendingReference, setPendingReference] = useState<ExplorerReference | null>(null);
   const referenceObject = useCallback(
@@ -77,9 +134,11 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
 
   return (
     <ExplorerTreeContext.Provider value={sync}>
-      <ExplorerReferenceContext.Provider value={value}>
-        {children}
-      </ExplorerReferenceContext.Provider>
+      <ExplorerViewContext.Provider value={view}>
+        <ExplorerReferenceContext.Provider value={value}>
+          {children}
+        </ExplorerReferenceContext.Provider>
+      </ExplorerViewContext.Provider>
     </ExplorerTreeContext.Provider>
   );
 }
@@ -87,6 +146,12 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
 export function useExplorerReference() {
   const value = useContext(ExplorerReferenceContext);
   if (!value) throw new Error("useExplorerReference must be used inside ExplorerReferenceProvider");
+  return value;
+}
+
+export function useExplorerView() {
+  const value = useContext(ExplorerViewContext);
+  if (!value) throw new Error("useExplorerView must be used inside ExplorerReferenceProvider");
   return value;
 }
 

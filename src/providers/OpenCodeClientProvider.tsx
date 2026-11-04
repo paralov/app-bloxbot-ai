@@ -554,7 +554,9 @@ export function OpenCodeClientProvider({
     const timer = window.setTimeout(() => setSlow(true), SLOW_STEP_MS);
     const later = window.setTimeout(
       () => setVerySlow(true),
-      engineProgress.phase === "starting" ? TRY_AGAIN_WHILE_STARTING_MS : TRY_AGAIN_AFTER_MS,
+      startupPhase === "engine" && engineProgress.phase === "starting"
+        ? TRY_AGAIN_WHILE_STARTING_MS
+        : TRY_AGAIN_AFTER_MS,
     );
     return () => {
       window.clearTimeout(timer);
