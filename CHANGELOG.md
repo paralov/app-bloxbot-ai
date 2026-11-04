@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Set up Blender from Settings, 3D tools, with one click. It's free and stays in BloxBot's own folder, away from any Blender you already use, and the agent can then make 3D models in it. You import what it makes through Studio yourself.
+
 ### Removed
 
 - Intel Macs are no longer supported, and BloxBot for Mac now requires Apple Silicon. Intel Macs stay on v0.14.0.

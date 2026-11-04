@@ -4,6 +4,7 @@ import { DEFAULT_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import {
   createOpenCodeConfig,
   studioMcpCommand,
+  withBlender,
   withSystemPrompt,
 } from "../../electron/opencodeConfig";
 
@@ -52,5 +53,42 @@ describe("system prompt", () => {
 
     const reset = JSON.parse(withSystemPrompt(JSON.stringify(custom), null));
     expect(reset.agents.studio.system).toBe(DEFAULT_SYSTEM_PROMPT);
+  });
+
+  describe("Blender", () => {
+    const server = { type: "local" as const, command: ["/blender-mcp"], environment: { A: "1" } };
+
+    it("isn't there until it's set up", () => {
+      const config = createOpenCodeConfig(broker);
+      expect(Object.keys(config.mcp.servers)).not.toContain("blender");
+      expect(config.agents.studio.system).toBe(DEFAULT_SYSTEM_PROMPT);
+    });
+
+    it("adds the server and what the agent has to know, whatever the system prompt is", () => {
+      const config = createOpenCodeConfig(broker, "Be brief.", server);
+      expect(config.mcp.servers).toHaveProperty("blender", server);
+      expect(config.agents.studio.system).toMatch(/^Be brief\./);
+      expect(config.agents.studio.system).toMatch(/Never upload it/);
+      expect(config.agents.studio.system).toMatch(/refuse extremist/);
+    });
+
+    it("applies being set up and removed to a config already written", () => {
+      const written = JSON.stringify(createOpenCodeConfig(broker, "Be brief."));
+
+      const added = JSON.parse(withBlender(written, server, "Be brief."));
+      expect(added.mcp.servers.blender).toEqual(server);
+      expect(added.agents.studio.system).toMatch(/Never upload it/);
+
+      const removed = JSON.parse(withBlender(JSON.stringify(added), null, "Be brief."));
+      expect(removed.mcp.servers).not.toHaveProperty("blender");
+      expect(removed.agents.studio.system).toBe("Be brief.");
+    });
+
+    it("keeps what the agent has to know when the system prompt changes", () => {
+      const written = JSON.stringify(createOpenCodeConfig(broker, null, server));
+      const changed = JSON.parse(withSystemPrompt(written, "Be brief."));
+      expect(changed.agents.studio.system).toMatch(/^Be brief\./);
+      expect(changed.agents.studio.system).toMatch(/Never upload it/);
+    });
   });
 });

@@ -7,6 +7,7 @@ import { Context, Data, Duration, Effect, Layer, Option } from "effect";
 import { networkConnections, type Systeminformation } from "systeminformation";
 
 import type { OpenCodeInfo, OpenCodeStartupProgress } from "../../src/types/desktop";
+import type { blenderMcpServerConfig } from "./BlenderTools";
 import { createOpenCodeConfig, OPENCODE_ISOLATION_ENV } from "../opencodeConfig";
 import { loadShellPath } from "../shellEnv";
 import {
@@ -161,6 +162,7 @@ interface PreparedOpenCode {
 
 export interface OpenCodeOptions {
   loadSystemPrompt?: () => Effect.Effect<string | null>;
+  loadBlenderServer?: () => Effect.Effect<ReturnType<typeof blenderMcpServerConfig> | null>;
   binaryCacheDirectory: string;
   fetchWithSystemCertificates?: OpenCodeBinaryOptions["fetchWithSystemCertificates"];
   workspace: string;
@@ -551,7 +553,8 @@ function prepareOpenCode(
       { concurrency: "unbounded", discard: true },
     );
     const systemPrompt = options.loadSystemPrompt ? yield* options.loadSystemPrompt() : null;
-    const config = createOpenCodeConfig(broker.info, systemPrompt);
+    const blender = options.loadBlenderServer ? yield* options.loadBlenderServer() : null;
+    const config = createOpenCodeConfig(broker.info, systemPrompt, blender);
     yield* fileOperation("Failed to write the OpenCode configuration", () =>
       writeFile(
         join(configDirectory, "opencode.json"),

@@ -181,9 +181,32 @@ export interface DesktopApi {
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;
+  getBlenderToolsState(): Promise<BlenderToolsState>;
+  /** Resolves once setup has finished, and rejects if it can't, with a BlenderFailureReason in its message. */
+  installBlenderTools(): Promise<void>;
+  cancelBlenderTools(): Promise<void>;
+  openBlender(): Promise<void>;
+  removeBlenderTools(): Promise<void>;
+  onBlenderSetupProgress(listener: (progress: BlenderSetupProgress) => void): () => void;
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
    * tells the main process the window is ready, which flushes errors buffered until then.
    */
   onMainError(listener: (report: MainErrorReport) => void): () => void;
 }
+
+export type BlenderSetupStep = "downloading" | "unpacking" | "connecting";
+
+export interface BlenderSetupProgress {
+  step: BlenderSetupStep;
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
+export type BlenderFailureReason = "disk_full" | "network" | "blocked" | "corrupt" | "other";
+
+export type BlenderToolsState =
+  | { state: "unsupported" }
+  | { state: "not_installed" }
+  | { state: "installing"; progress: BlenderSetupProgress | null }
+  | { state: "ready"; running: boolean };

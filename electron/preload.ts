@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import type {
+  BlenderSetupProgress,
   AppConfig,
   DesktopApi,
   MainErrorReport,
@@ -28,6 +29,16 @@ const api: DesktopApi = {
   checkForUpdate: () => ipcRenderer.invoke(channels.checkForUpdate),
   installUpdate: () => ipcRenderer.invoke(channels.installUpdate),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
+  getBlenderToolsState: () => ipcRenderer.invoke(channels.getBlenderToolsState),
+  installBlenderTools: () => ipcRenderer.invoke(channels.installBlenderTools),
+  cancelBlenderTools: () => ipcRenderer.invoke(channels.cancelBlenderTools),
+  openBlender: () => ipcRenderer.invoke(channels.openBlender),
+  removeBlenderTools: () => ipcRenderer.invoke(channels.removeBlenderTools),
+  onBlenderSetupProgress: (listener) => {
+    const handler = (_event: unknown, progress: BlenderSetupProgress) => listener(progress);
+    ipcRenderer.on(channels.blenderSetupProgress, handler);
+    return () => ipcRenderer.removeListener(channels.blenderSetupProgress, handler);
+  },
   showSystemNotification: (notification) =>
     ipcRenderer.invoke(channels.showSystemNotification, notification),
   openNotificationSettings: () => ipcRenderer.invoke(channels.openNotificationSettings),

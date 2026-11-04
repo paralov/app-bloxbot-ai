@@ -1,5 +1,13 @@
 import { rename, readFile, rm, writeFile } from "node:fs/promises";
 import { isOpenableUrl } from "./openableUrl";
+import {
+  blenderMcpServerConfig,
+  getBlenderToolsState,
+  installBlenderTools,
+  isBlenderInstalled,
+  openBlender,
+  removeBlenderTools,
+} from "./services/BlenderTools";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +17,7 @@ import { autoUpdater } from "electron-updater";
 import { Cause, Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
 import {
+  BlenderSetupProgress,
   type AppConfig,
   AppConfigPatchSchema,
   AppConfigSchema,
@@ -37,7 +46,7 @@ import {
   inspectExplorerNode,
   selectStudioTarget,
 } from "./studioQueries";
-import { withSystemPrompt } from "./opencodeConfig";
+import { withBlender, withSystemPrompt } from "./opencodeConfig";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 import { createSystemNotifier, notificationSettingsUrl } from "./systemNotifications";
@@ -114,6 +123,7 @@ const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
 }).pipe(Layer.tapErrorCause(reportLayerFailure("studio_mcp_broker_start")));
 
 const openCodeBinaryDirectory = join(app.getPath("userData"), "opencode");
+const blenderToolsRoot = () => join(app.getPath("userData"), "blender-tools");
 
 const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
@@ -126,6 +136,10 @@ const openCodeRuntime = ManagedRuntime.make(
         loadConfig.pipe(
           Effect.map((config) => config.systemPrompt),
           Effect.catchAll(() => Effect.succeed(null)),
+        ),
+      loadBlenderServer: () =>
+        Effect.promise(async () =>
+          (await isBlenderInstalled(blenderToolsRoot())) ? blenderMcpServerConfig(blenderToolsRoot()) : null,
         ),
       onStartupProgress: (progress: OpenCodeStartupProgress) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -408,6 +422,87 @@ const registerIpcHandlers = Effect.sync(() => {
             new DesktopMainError({ message: "Failed to download the update", cause }),
         });
         yield* Effect.sync(() => autoUpdater.quitAndInstall());
+      }),
+    ),
+  );
+  // Kept here rather than on the page, since leaving Settings shouldn't stop or lose a setup.
+  let blenderSetup: AbortController | null = null;
+  let blenderProgress: BlenderSetupProgress | null = null;
+  const applyBlenderToConfig = (blender: ReturnType<typeof blenderMcpServerConfig> | null) =>
+    Effect.gen(function* () {
+      const { systemPrompt } = yield* loadConfig;
+      yield* Effect.tryPromise({
+        try: async () => {
+          const configFile = join(openCodeConfigDirectory(), "opencode.json");
+          await writeFile(
+            configFile,
+            withBlender(await readFile(configFile, "utf8"), blender, systemPrompt),
+          );
+        },
+        catch: (cause) =>
+          new DesktopMainError({ message: "Failed to apply Blender's settings", cause }),
+      });
+    });
+  ipcMain.handle(channels.getBlenderToolsState, () =>
+    blenderSetup
+      ? { state: "installing", progress: blenderProgress }
+      : getBlenderToolsState(blenderToolsRoot()),
+  );
+  ipcMain.handle(channels.installBlenderTools, (event) => {
+    if (blenderSetup) return undefined;
+    const setup = new AbortController();
+    blenderSetup = setup;
+    blenderProgress = null;
+    return runMain(
+      installBlenderTools({
+        root: blenderToolsRoot(),
+        fetch: (url, init) => net.fetch(url, init),
+        signal: setup.signal,
+        onProgress: (progress) => {
+          blenderProgress = progress;
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(channels.blenderSetupProgress, progress);
+          }
+        },
+      }).pipe(
+        // The page reads the reason from the message, as errors lose everything else crossing over.
+        Effect.mapError(
+          (error) =>
+            new DesktopMainError({
+              message: `${error.message} (reason: ${error.reason})`,
+              cause: error.cause,
+            }),
+        ),
+        Effect.andThen(applyBlenderToConfig(blenderMcpServerConfig(blenderToolsRoot()))),
+        Effect.ensuring(
+          Effect.sync(() => {
+            blenderSetup = null;
+          }),
+        ),
+      ),
+    );
+  });
+  ipcMain.handle(channels.cancelBlenderTools, () => blenderSetup?.abort());
+  ipcMain.handle(channels.openBlender, () =>
+    runMain(
+      Effect.try({
+        try: () => openBlender(blenderToolsRoot()),
+        catch: (cause) => new DesktopMainError({ message: "Couldn't open Blender", cause }),
+      }),
+    ),
+  );
+  ipcMain.handle(channels.removeBlenderTools, () =>
+    runMain(
+      Effect.gen(function* () {
+        const state = yield* Effect.promise(() => getBlenderToolsState(blenderToolsRoot()));
+        if (state.state === "ready" && state.running) {
+          return yield* Effect.fail(new DesktopMainError({ message: "Close Blender first" }));
+        }
+        yield* applyBlenderToConfig(null);
+        yield* Effect.tryPromise({
+          try: () => removeBlenderTools(blenderToolsRoot()),
+          catch: (cause) => new DesktopMainError({ message: "Couldn't remove Blender", cause }),
+        });
       }),
     ),
   );

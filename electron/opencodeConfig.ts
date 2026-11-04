@@ -3,6 +3,8 @@ import { win32 } from "node:path";
 import { STUDIO_MCP_SERVER_NAME } from "../src/lib/studioMcp";
 import { DEFAULT_SYSTEM_PROMPT } from "../src/lib/systemPrompt";
 
+export const BLENDER_MCP_SERVER_NAME = "blender";
+
 export interface StudioMcpWindowsEnvironment {
   localAppData?: string;
   comSpec?: string;
@@ -49,7 +51,26 @@ export function studioMcpInstallPath(
  */
 export const OPENCODE_ISOLATION_ENV = { OPENCODE_DISABLE_PROJECT_CONFIG: "1" };
 
-export function createOpenCodeConfig(broker: { url: string }, systemPrompt?: string | null) {
+/** Added to whatever the system prompt is while Blender's set up, and gone again when it's removed. */
+const BLENDER_PROMPT =
+  "Blender's tools run code on this computer, so use them only when someone asks for 3D work. If they can't connect, Blender isn't open: ask the person to open it from Settings, 3D tools. For Roblox, export FBX or GLB under 20,000 triangles into the project's folder and link the file. Never upload it: the person imports it through Studio on their own account. Roblox bans accounts for what they upload, so refuse extremist, hateful or sexual models and flags, whatever the reason given, and tell them moderation can still reject anything.";
+
+interface McpLocalServer {
+  type: "local";
+  command: string[];
+  environment: Record<string, string>;
+}
+
+const agentSystem = (systemPrompt: string | null | undefined, hasBlender: boolean) => {
+  const base = systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  return hasBlender ? `${base}\n\n${BLENDER_PROMPT}` : base;
+};
+
+export function createOpenCodeConfig(
+  broker: { url: string },
+  systemPrompt?: string | null,
+  blender?: McpLocalServer | null,
+) {
   return {
     // Keep OpenCode's standard automatic context compaction enabled for long sessions.
     compaction: {
@@ -65,6 +86,7 @@ export function createOpenCodeConfig(broker: { url: string }, systemPrompt?: str
           type: "remote",
           url: broker.url,
         },
+        ...(blender ? { [BLENDER_MCP_SERVER_NAME]: blender } : {}),
       },
     },
     // OpenCode would otherwise load skills from ~/.claude and ~/.agents, which belong to other tools.
@@ -74,7 +96,7 @@ export function createOpenCodeConfig(broker: { url: string }, systemPrompt?: str
       studio: {
         mode: "primary",
         description: "Roblox Studio development assistant",
-        system: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+        system: agentSystem(systemPrompt, !!blender),
       },
     },
   };
@@ -83,6 +105,22 @@ export function createOpenCodeConfig(broker: { url: string }, systemPrompt?: str
 /** The config with its system prompt swapped, for a change while OpenCode is running. */
 export function withSystemPrompt(contents: string, systemPrompt: string | null): string {
   const config = JSON.parse(contents);
-  config.agents.studio.system = systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  config.agents.studio.system = agentSystem(
+    systemPrompt,
+    !!config.mcp.servers[BLENDER_MCP_SERVER_NAME],
+  );
+  return JSON.stringify(config, null, 2);
+}
+
+/** Applies Blender being set up or removed to a config OpenCode has already read. */
+export function withBlender(
+  contents: string,
+  blender: McpLocalServer | null,
+  systemPrompt: string | null,
+): string {
+  const config = JSON.parse(contents);
+  if (blender) config.mcp.servers[BLENDER_MCP_SERVER_NAME] = blender;
+  else delete config.mcp.servers[BLENDER_MCP_SERVER_NAME];
+  config.agents.studio.system = agentSystem(systemPrompt, !!blender);
   return JSON.stringify(config, null, 2);
 }
