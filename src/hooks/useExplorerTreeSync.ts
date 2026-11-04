@@ -12,6 +12,7 @@ import {
   type ExplorerNode,
   type ExplorerTree,
   type ExplorerTreeUpdate,
+  type ExplorerWait,
   emptyExplorerTree,
 } from "@/lib/explorer";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
@@ -37,6 +38,8 @@ export interface ExplorerTreeSync {
   readonly truncated: boolean;
   readonly syncing: boolean;
   readonly syncError: string | null;
+  /** Studio can't be read right now because of what it's doing, which isn't an error. */
+  readonly waiting: ExplorerWait | null;
   /** Whether the Explorer panel wants the tree kept up to date, and how lively the chat is. */
   readonly setDemand: (demand: { open: boolean; busy: boolean }) => void;
   /** Reads now. `force` also skips asking whether anything changed, after an edit of our own. */
@@ -46,17 +49,21 @@ export interface ExplorerTreeSync {
 /** The one thing that reads Studio's tree, shared by the Explorer panel and the message box. */
 export function useExplorerTreeSync(): ExplorerTreeSync {
   const { client } = useOpenCodeClient();
-  const studioId = useStudioTargetOptional()?.selected?.key ?? null;
+  const studioTarget = useStudioTargetOptional();
+  const studioId = studioTarget?.selected?.key ?? null;
   const [tree, setTree] = useState<ExplorerTree | null>(null);
   const [objects, setObjects] = useState<readonly ExplorerNode[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [waiting, setWaiting] = useState<ExplorerWait | null>(null);
   const [demand, setDemandState] = useState({ open: false, busy: false });
 
   const treeRef = useRef<ExplorerTree | null>(null);
   const studioRef = useRef(studioId);
   studioRef.current = studioId;
+  const discoverRef = useRef(studioTarget?.discover);
+  discoverRef.current = studioTarget?.discover;
   const queueRef = useRef<ExplorerTreeUpdate[]>([]);
   const batchTimerRef = useRef<number | undefined>(undefined);
   const objectsStaleRef = useRef(false);
@@ -72,6 +79,8 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
   const telemetryRef = useRef({ firstSyncReported: false, hadFailure: false });
   // Consecutive failed syncs, which set the retry backoff.
   const failuresRef = useRef(0);
+  // What Studio is doing, since when, and how many reads have found it still doing that.
+  const waitRef = useRef<{ reason: ExplorerWait; since: number; reads: number } | null>(null);
   const unchangedRef = useRef(0);
   const watchingRef = useRef(false);
   const slowestReadRef = useRef(0);
@@ -118,7 +127,9 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
     setObjects([]);
     setTruncated(false);
     setSyncError(null);
+    setWaiting(null);
     failuresRef.current = 0;
+    waitRef.current = null;
     unchangedRef.current = 0;
     watchingRef.current = false;
   }, [studioId]);
@@ -128,6 +139,7 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
   // biome-ignore lint/correctness/useExhaustiveDependencies: resets when Explorer opens
   useEffect(() => {
     failuresRef.current = 0;
+    if (waitRef.current) waitRef.current.reads = 0;
   }, [demand.open]);
 
   useEffect(() => {
@@ -141,10 +153,16 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
       const steady = watchingRef.current
         ? WATCHED_SYNC_MS
         : Math.min(baseDelay * 2 ** Math.min(unchangedRef.current, 3), MAX_UNCHANGED_SYNC_MS);
+      const paced = slowestReadRef.current * SLOWEST_READ_PACING;
       const delay =
         failuresRef.current > 0
           ? Math.min(IDLE_SYNC_MS * 2 ** failuresRef.current, MAX_FAILURE_BACKOFF_MS)
-          : Math.max(steady, slowestReadRef.current * SLOWEST_READ_PACING);
+          : waitRef.current
+            ? Math.min(
+                Math.max(IDLE_SYNC_MS * 2 ** Math.max(waitRef.current.reads - 1, 0), paced),
+                MAX_FAILURE_BACKOFF_MS,
+              )
+            : Math.max(steady, paced);
       // Replace any pending timer, so scheduling twice never runs two syncs.
       if (timer !== undefined) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
@@ -168,7 +186,7 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
       setSyncError(null);
       const syncStartedAt = performance.now();
       const isFirstSync = !telemetryRef.current.firstSyncReported;
-      if (isFirstSync) {
+      if (isFirstSync && !waitRef.current) {
         posthog.capture("sync_started", analyticsProperties("explorer", { source: "initial" }));
       }
 
@@ -179,13 +197,50 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
         });
         if (movedOn()) return;
         applyQueued();
+        slowestReadRef.current = result.slowestReadMs;
+        if (result.waiting) {
+          if (waitRef.current?.reason !== result.waiting) {
+            waitRef.current = { reason: result.waiting, since: Date.now(), reads: 0 };
+            posthog.capture(
+              "sync_waiting",
+              analyticsProperties("explorer", {
+                outcome: "waiting",
+                phase: "sync",
+                ...explorerAnalyticsProperties({
+                  duration_ms: Math.round(performance.now() - syncStartedAt),
+                  reason: result.waiting,
+                  source: treeRef.current?.roots.length ? "recovery" : "initial",
+                }),
+              }),
+            );
+          }
+          waitRef.current.reads += 1;
+          failuresRef.current = 0;
+          setWaiting(result.waiting);
+          // Only a fresh list of Studios can say whether this one came back under a new id.
+          if (result.waiting === "studio_closed") void discoverRef.current?.();
+          return;
+        }
         const current = treeRef.current;
         if (!current || current.roots.length === 0) {
           throw new Error("Studio has not returned an instance tree yet");
         }
+        if (waitRef.current) {
+          posthog.capture(
+            "sync_resumed",
+            analyticsProperties(
+              "explorer",
+              explorerAnalyticsProperties({
+                duration_ms: Date.now() - waitRef.current.since,
+                reason: waitRef.current.reason,
+              }),
+            ),
+          );
+          waitRef.current = null;
+          setWaiting(null);
+        }
         unchangedRef.current = result.changed ? 0 : unchangedRef.current + 1;
         watchingRef.current = result.watching;
-        slowestReadRef.current = result.slowestReadMs;
         failuresRef.current = 0;
         setTruncated(result.truncated);
         if (objectsStaleRef.current) publishObjects();
@@ -211,6 +266,8 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
         console.error("[explorer] sync failed", error);
         telemetryRef.current.hadFailure = true;
         failuresRef.current += 1;
+        waitRef.current = null;
+        setWaiting(null);
         // Report the first failure of a streak, not every retry.
         if (failuresRef.current === 1)
           posthog.capture(
@@ -248,16 +305,16 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
     scheduleRef.current = scheduleNext;
     const wanted = wantedRef.current;
     wantedRef.current = null;
-    // This effect also re-runs when the chat turns busy or idle; during a
-    // failure streak, wait for the backoff instead of retrying straight away.
+    // This effect also re-runs when the chat turns busy or idle; during a failure streak or while
+    // Studio is occupied, wait for the backoff instead of retrying straight away.
     if (wanted) void sync(wanted);
     else if (demand.open) {
-      if (failuresRef.current > 0) scheduleNext();
+      if (failuresRef.current > 0 || (waitRef.current?.reads ?? 0) > 0) scheduleNext();
       else void sync({ force: false });
     }
     const resume = () => {
       // While failing, wait for the backoff timer rather than retrying every time the window
-      // regains focus.
+      // regains focus. Waiting is different: coming back from Studio is when its state has changed.
       if (!demand.open || failuresRef.current > 0) return;
       if (document.visibilityState === "visible" && document.hasFocus()) {
         if (timer !== undefined) window.clearTimeout(timer);
@@ -288,5 +345,5 @@ export function useExplorerTreeSync(): ExplorerTreeSync {
     );
   }, []);
 
-  return { tree, objects, truncated, syncing, syncError, setDemand, requestSync };
+  return { tree, objects, truncated, syncing, syncError, waiting, setDemand, requestSync };
 }

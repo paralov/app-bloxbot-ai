@@ -25,7 +25,7 @@ const ExplorerTreeContext = createContext<ExplorerTreeSync | null>(null);
 
 export function ExplorerReferenceProvider({ children }: { children: ReactNode }) {
   const sync = useExplorerTreeSync();
-  const { objects, syncing, syncError, requestSync } = sync;
+  const { objects, syncing, syncError, waiting, requestSync } = sync;
   const [pendingReference, setPendingReference] = useState<ExplorerReference | null>(null);
   const referenceObject = useCallback(
     (reference: ExplorerReference) => setPendingReference(reference),
@@ -35,7 +35,7 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
   const [focusRequest, setFocusRequest] = useState<string | null>(null);
   const consumeFocus = useCallback(() => setFocusRequest(null), []);
   const objectsLoading = syncing && objects.length === 0;
-  const objectsFailed = syncError !== null && objects.length === 0;
+  const objectsFailed = (syncError !== null || waiting !== null) && objects.length === 0;
   const objectIndex = useMemo(() => indexExplorerObjects(objects), [objects]);
   const value = useMemo(
     () => ({

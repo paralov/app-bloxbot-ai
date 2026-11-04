@@ -242,7 +242,13 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         targetsBySessionRef.current = config.studioTargetsBySession ?? {};
         configLoadedRef.current = true;
       }
-      setSelected(targetsBySessionRef.current[activeSessionId] ?? null);
+      // A remembered id can belong to a Studio that has since closed, and discovery will tell.
+      const remembered = targetsBySessionRef.current[activeSessionId];
+      setSelected(
+        remembered && targetsRef.current.some((target) => target.key === remembered.key)
+          ? remembered
+          : null,
+      );
       await discover();
     };
     void loadAndDiscover();

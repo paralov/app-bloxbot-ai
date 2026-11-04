@@ -146,6 +146,16 @@ export const ExplorerSyncRequestSchema = Schema.Struct({
 
 export type ExplorerSyncRequest = typeof ExplorerSyncRequestSchema.Type;
 
+/** Studio's own state keeping the tree from being read, which clears up without anything failing. */
+export const ExplorerWaitSchema = Schema.Literal(
+  "studio_closed",
+  "no_place",
+  "mode_changed",
+  "place_loading",
+);
+
+export type ExplorerWait = typeof ExplorerWaitSchema.Type;
+
 export const ExplorerSyncResultSchema = Schema.Struct({
   changed: Schema.Boolean,
   /** Studio says when the tree changes, so there's no need to read it until it does. */
@@ -153,6 +163,7 @@ export const ExplorerSyncResultSchema = Schema.Struct({
   complete: Schema.Boolean,
   truncated: Schema.Boolean,
   slowestReadMs: Schema.Number,
+  waiting: Schema.optional(ExplorerWaitSchema),
 });
 
 export type ExplorerSyncResult = typeof ExplorerSyncResultSchema.Type;

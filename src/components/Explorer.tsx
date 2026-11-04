@@ -47,6 +47,7 @@ import {
   canEditObject,
   type ExplorerEdit,
   type ExplorerNode,
+  type ExplorerWait,
   explorerRows,
   nodeId,
   OBJECT_DRAG_NAME_TYPE,
@@ -59,6 +60,13 @@ import { useExplorerReference, useExplorerTree } from "@/providers/ExplorerRefer
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ROW_HEIGHT = 28;
+
+const WAITING_NOTICES: Record<ExplorerWait, string> = {
+  studio_closed: "Studio closed · Reconnects when it's back",
+  no_place: "No place open · Open one in Studio",
+  mode_changed: "Studio changing modes · Back in a moment",
+  place_loading: "Place still loading · Back in a moment",
+};
 
 interface ExplorerProps {
   collapsed: boolean;
@@ -246,7 +254,8 @@ function editErrorMessage(error: unknown): string {
 export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
   const studioTarget = useStudioTargetOptional();
   const { referenceObject, focusRequest, focusObject, consumeFocus } = useExplorerReference();
-  const { tree, truncated, syncing, syncError, setDemand, requestSync } = useExplorerTree();
+  const { tree, truncated, syncing, syncError, waiting, setDemand, requestSync } =
+    useExplorerTree();
   const treeRef = useRef<HTMLDivElement>(null);
   // An object each time, so a second click on the same link still scrolls to it.
   const [scrollTarget, setScrollTarget] = useState<{ id: string } | null>(null);
@@ -495,6 +504,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         </div>
       ) : null}
 
+      {waiting ? (
+        <output className="block shrink-0 border-b px-4 py-2 text-xs text-muted-foreground">
+          {WAITING_NOTICES[waiting]}
+        </output>
+      ) : null}
+
       {truncated ? (
         <div className="shrink-0 border-b px-4 py-2 text-xs text-muted-foreground">
           This place is too large to list in full, so some objects are missing here.
@@ -507,7 +522,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         role="tree"
         aria-label="Instance hierarchy"
       >
-        {!tree && (syncing || !syncError) ? <ExplorerLoading /> : null}
+        {!tree && !waiting && (syncing || !syncError) ? <ExplorerLoading /> : null}
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((item) => {
             const row = rows[item.index];

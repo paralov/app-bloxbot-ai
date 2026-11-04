@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 
-import { type ExplorerNode, type ExplorerSyncResult, sortExplorerNodes } from "../src/lib/explorer";
+import {
+  type ExplorerNode,
+  type ExplorerSyncResult,
+  type ExplorerWait,
+  sortExplorerNodes,
+} from "../src/lib/explorer";
 import {
   type CallStudioTool,
   mcpData,
@@ -67,6 +72,24 @@ export function resetExplorerTrees() {
 
 class ObjectGone extends Error {}
 
+/** Studio refused a read because of what it's doing, which stops the walk but isn't a failure. */
+class StudioWaiting extends Error {
+  constructor(readonly reason: ExplorerWait) {
+    super(reason);
+  }
+}
+
+/** What a refusal says about Studio's state. Null is anything else, which is a real failure. */
+function waitIn(error: string): ExplorerWait | null {
+  if (/studio_id\W* is not connected|No Roblox Studio instances are connected/i.test(error)) {
+    return "studio_closed";
+  }
+  if (/Place is not open/i.test(error)) return "no_place";
+  // A playtest starting or stopping: the data model is the wrong one, or isn't up yet.
+  if (/not available in \w+ mode|Target is not reachable/i.test(error)) return "mode_changed";
+  return null;
+}
+
 const hashOf = (text: string) => createHash("sha1").update(text).digest("base64");
 
 function rowsOf(data: unknown): readonly any[] | null {
@@ -126,7 +149,10 @@ async function readTree(
  * rejects it during a playtest, so this falls back to the server, then to the client when Studio
  * can't reach the server (Play Solo on recent Studio builds).
  */
-async function readRoot(callTool: CallStudioTool, studioId: string) {
+async function readRoot(
+  callTool: CallStudioTool,
+  studioId: string,
+): Promise<{ model: string; rows: readonly any[] } | { waiting: ExplorerWait }> {
   const errors: Array<[string, string]> = [];
   for (const model of ["Edit", "Server", "Client"]) {
     const answer = await readTree(callTool, {
@@ -136,8 +162,12 @@ async function readRoot(callTool: CallStudioTool, studioId: string) {
       head_limit: NO_LIMIT,
     });
     if ("read" in answer) return { model, rows: answer.read.rows };
+    // This is about which Studio, not which data model, so the others would say the same.
+    if (waitIn(answer.error) === "studio_closed") return { waiting: "studio_closed" };
     errors.push([model, answer.error]);
   }
+  const waits = errors.map(([, error]) => waitIn(error));
+  if (waits[0] && waits.every(Boolean)) return { waiting: waits[0] };
   // Attempts that only say a data model "is not available in … mode" add nothing.
   const [[, first] = ["", ""], ...rest] = errors;
   const details = rest
@@ -367,6 +397,18 @@ export async function syncExplorerTree(
     readHistoryState(callTool, studioId).catch(() => ({ treeVersion: null })),
     timed(() => readRoot(callTool, studioId)),
   ]);
+  const waitingFor = (reason: ExplorerWait): ExplorerSyncResult => {
+    state.complete = false;
+    return {
+      changed: false,
+      watching: false,
+      complete: false,
+      truncated: false,
+      slowestReadMs,
+      waiting: reason,
+    };
+  };
+  if ("waiting" in root) return waitingFor(root.waiting);
   const { model } = root;
   const services = root.rows.filter((row) => {
     const path = rowPathOf(row);
@@ -375,6 +417,8 @@ export async function syncExplorerTree(
   const placeName =
     root.rows.find((row) => row?.className === "DataModel" && typeof row?.name === "string")?.name ||
     "Roblox Studio";
+  // Every loaded place has these, so what's on screen stays until this one has them too.
+  if (services.length === 0) return waitingFor("place_loading");
   const rootHash = hashOf(JSON.stringify([placeName, services]));
   const watching = history.treeVersion !== null && model === "Edit";
 
@@ -403,6 +447,7 @@ export async function syncExplorerTree(
   let complete = true;
   let nodeCount = services.length;
   let firstError: unknown = null;
+  let waiting = null as ExplorerWait | null;
   const seen = new Set<string>();
   const queue: Anchor[] = [];
 
@@ -440,7 +485,10 @@ export async function syncExplorerTree(
         head_limit: limit,
       }, signal),
     );
-    if ("error" in answer) throw new Error(answer.error);
+    if ("error" in answer) {
+      const wait = waitIn(answer.error);
+      throw wait ? new StudioWaiting(wait) : new Error(answer.error);
+    }
     return answer.read;
   };
 
@@ -546,12 +594,17 @@ export async function syncExplorerTree(
     let next = 0;
     let running = 0;
     const drain = () => {
-      while (running < CONCURRENT_READS && next < queue.length && !signal?.aborted) {
+      // The data model was chosen before this walk, so once Studio moves on the rest would be refused.
+      while (running < CONCURRENT_READS && next < queue.length && !signal?.aborted && !waiting) {
         const anchor = queue[next++];
         running += 1;
         visit(anchor)
           .catch((error) => {
             complete = false;
+            if (error instanceof StudioWaiting) {
+              waiting ??= error.reason;
+              return;
+            }
             // Removed since its parent was read, the next sync sees the parent without it. And a read
             // that was cancelled has been replaced by a newer one.
             if (!(error instanceof ObjectGone) && !signal?.aborted) firstError ??= error;
@@ -576,6 +629,8 @@ export async function syncExplorerTree(
   state.complete = complete;
   state.truncated = truncated;
   state.readAt = Date.now();
+  // Reads that failed around a change of mode say nothing the next walk won't find out for itself.
+  if (waiting) return { changed, watching, complete, truncated, slowestReadMs, waiting };
   if (firstError) throw firstError;
   return { changed, watching, complete, truncated, slowestReadMs };
 }
