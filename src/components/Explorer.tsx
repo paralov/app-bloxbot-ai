@@ -62,7 +62,11 @@ import { useExplorerReference, useExplorerTree } from "@/providers/ExplorerRefer
 import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ROW_HEIGHT = 28;
-const ROW_FOCUS_DELAY_MS = 150;
+const EDIT_DONE: Record<string, string> = {
+  rename: "Renamed",
+  duplicate: "Duplicated",
+  delete: "Deleted",
+};
 
 const LONG_WAIT_MS = 30_000;
 
@@ -138,7 +142,7 @@ const TreeRow = memo(function TreeRow({
       data-path={node.path}
       data-id={id}
       aria-label={node.name}
-      aria-keyshortcuts="Shift+F10"
+      aria-keyshortcuts="Shift+F10 F2 Delete"
       tabIndex={isTabStop ? 0 : -1}
       draggable={!isRenaming}
       onDragStart={(event) => {
@@ -446,6 +450,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         const { name } = await desktop.editExplorerObject(studioId, request);
         posthog.capture("object_edited", analyticsProperties("explorer", { action: edit.action }));
         onDone(name);
+        setEditNote(`${EDIT_DONE[edit.action] ?? "Changed"} ${node.name}.`);
         requestSync({ force: true });
       } catch (error) {
         console.error(`[explorer] couldn't ${edit.action} an object`, error);
@@ -462,6 +467,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   );
 
   const focusRowRef = useRef<(id: string) => void>(() => {});
+  // Where focus goes once the next read has brought that row in.
+  const pendingFocusRef = useRef<string | null>(null);
+  const [editNote, setEditNote] = useState<string | null>(null);
   const handleRenamed = useCallback(
     (node: ExplorerNode, name: string | null) => {
       setRenamingId(null);
@@ -483,7 +491,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         setSelectedId((current) => current && movedPath(current, from, to));
         setExpanded((current) => new Set([...current].map((id) => movedPath(id, from, to))));
         // The row is about to come back under its new name, and focus has to come back with it.
-        window.setTimeout(() => focusRowRef.current(to), ROW_FOCUS_DELAY_MS);
+        pendingFocusRef.current = to;
       });
     },
     [editObject],
@@ -499,7 +507,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       setSelectedId((current) =>
         current === nodeId(node) || current?.startsWith(`${nodeId(node)}.`) ? null : current,
       );
-      if (nextFocus) window.setTimeout(() => focusRowRef.current(nextFocus), ROW_FOCUS_DELAY_MS);
+      if (nextFocus) pendingFocusRef.current = nextFocus;
     });
   };
 
@@ -551,6 +559,13 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         : null;
 
   focusRowRef.current = (id: string) => focusRow(id);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs as the rows it's waiting for arrive
+  useEffect(() => {
+    const id = pendingFocusRef.current;
+    if (!id || !rows.some((row) => !row.loading && nodeId(row.node) === id)) return;
+    pendingFocusRef.current = null;
+    focusRowRef.current(id);
+  }, [rows]);
   const focusRow = (id: string) => {
     setFocusedId(id);
     const index = rows.findIndex((row) => !row.loading && nodeId(row.node) === id);
@@ -580,6 +595,19 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     };
     const canExpand = row.node.hasChildren || row.node.children.length > 0;
     switch (event.key) {
+      case "F2":
+        if (canEditObject(row.node) && !waiting) {
+          event.preventDefault();
+          setRenamingId(id);
+        }
+        break;
+      case "Delete":
+      case "Backspace":
+        if (canEditObject(row.node) && !waiting) {
+          event.preventDefault();
+          setDeleteTarget(tree?.byId.get(id) ?? row.node);
+        }
+        break;
       case "ArrowDown":
         go(next);
         break;
@@ -685,11 +713,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         {statusNotice ??
           (noMatches
             ? "No matches."
-            : tree
-              ? recovered
-                ? "Explorer is back."
-                : null
-              : "Loading objects.")}
+            : (editNote ?? (tree ? (recovered ? "Explorer is back." : null) : "Loading objects.")))}
       </output>
       {statusNotice ? (
         <div

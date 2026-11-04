@@ -648,6 +648,18 @@ describe("Explorer", () => {
       await advance(0);
     };
 
+    it("renames and deletes from the keyboard where editing is allowed", async () => {
+      await startWithPart();
+      const row = screen.getByRole("treeitem", { name: "Part" });
+
+      fireEvent.keyDown(row, { key: "Delete" });
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      fireEvent.keyDown(screen.getByRole("treeitem", { name: "Part" }), { key: "F2" });
+      expect(screen.getByRole("textbox", { name: "Rename Part" })).toBeInTheDocument();
+    });
+
     it("lists the name and path as properties and keeps attributes on their own tab", async () => {
       await startWithPart();
       fireEvent.click(row("Part"));

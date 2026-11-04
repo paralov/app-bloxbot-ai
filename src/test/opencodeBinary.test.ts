@@ -1212,10 +1212,10 @@ describe("OpenCode downloads on a poor connection", () => {
       ).toBe(0);
     });
 
-    it("won't hold a working copy back for long, and gets further next launch", async () => {
+    it("opens with a working copy straight away, and updates in the background", async () => {
       const cacheDirectory = await makeTemporaryDirectory();
       const older = [release("v2.2.1", ASSET_NAME, `sha256:${digest}`)];
-      const firstInstall = await runInVirtualTime(
+      const first = await runInVirtualTime(
         ensureOpenCodeBinary({
           cacheDirectory,
           platform: "darwin",
@@ -1228,66 +1228,50 @@ describe("OpenCode downloads on a poor connection", () => {
           delays: { verifyMs: 0 },
         }),
       );
-      expect(firstInstall.result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
+      expect(first.result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
+      vi.useRealTimers();
 
-      const newer = Buffer.alloc(1024 * 10, 7);
+      const newer = Buffer.alloc(2048, 7);
       const newerDigest = createHash("sha256").update(newer).digest("hex");
-      const newerRelease = [release("v2.2.2", ASSET_NAME, `sha256:${newerDigest}`)];
-      const pieces = Array.from({ length: 10 }, (_, index) =>
-        newer.subarray(index * 1024, (index + 1) * 1024),
-      );
-      let abortedAfterMs: number | undefined;
-      const { result } = await runInVirtualTime(
-        ensureOpenCodeBinary({
-          cacheDirectory,
-          platform: "darwin",
-          arch: "arm64",
-          fetch: vi
-            .fn()
-            .mockResolvedValueOnce(Response.json(newerRelease))
-            .mockImplementationOnce(async (_url: string, init: RequestInit) => {
-              const fetchedAt = Date.now();
-              init.signal?.addEventListener("abort", () => {
-                abortedAfterMs = Date.now() - fetchedAt;
-              });
-              return new Response(slowBody(pieces, 5_000));
-            }),
-          extractArchive: writeExecutable("opencode"),
-          delays: { verifyMs: 0 },
-        }),
-      );
-
-      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
-      // Measured from the request itself, since the test's clock also runs during real disk work.
-      // The limit starts just before the request, so this can read a little under it too.
-      expect(abortedAfterMs).toBeGreaterThan(5_000);
-      expect(abortedAfterMs).toBeLessThan(15_000);
-
-      const resume = vi
+      const progress: OpenCodeStartupProgress[] = [];
+      const fetch = vi
         .fn()
-        .mockResolvedValueOnce(Response.json(newerRelease))
-        .mockImplementationOnce(async (_url: string, init: RequestInit) => {
-          const from = Number(
-            /bytes=(\d+)-/.exec((init.headers as Record<string, string>).Range ?? "")?.[1],
-          );
-          return new Response(newer.subarray(from), {
-            status: 206,
-            headers: {
-              "content-range": `bytes ${from}-${newer.byteLength - 1}/${newer.byteLength}`,
-            },
-          });
-        });
-      const next = await runInVirtualTime(
+        .mockResolvedValueOnce(
+          Response.json([release("v2.2.2", ASSET_NAME, `sha256:${newerDigest}`)]),
+        )
+        .mockResolvedValueOnce(new Response(newer));
+
+      const running = await Effect.runPromise(
         ensureOpenCodeBinary({
           cacheDirectory,
           platform: "darwin",
           arch: "arm64",
-          fetch: resume,
+          fetch,
+          extractArchive: writeExecutable("opencode"),
+          onStartupProgress: (update) => progress.push(update),
+          delays: { verifyMs: 0 },
+        }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+      );
+
+      expect(running.version).toBe("2.2.1");
+      // Nothing about the background work reaches the startup screen.
+      await vi.waitFor(async () => {
+        const versions = await readdir(join(cacheDirectory, "darwin-arm64"));
+        expect(versions).toContain("2.2.2");
+      });
+      expect(progress.filter((update) => update.phase === "downloading")).toEqual([]);
+
+      const next = await Effect.runPromise(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: vi.fn().mockRejectedValue(new TypeError("offline")),
           extractArchive: writeExecutable("opencode"),
           delays: { verifyMs: 0 },
-        }),
+        }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
       );
-      expect(next.result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+      expect(next.version).toBe("2.2.2");
     });
 
     it("clears out what was saved for an older release", async () => {

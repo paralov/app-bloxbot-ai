@@ -38,8 +38,7 @@ const LOOKUP_TIMEOUT_MS = 15_000;
 export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 /** How many tries in a row may get nothing more before a download counts as failed. */
 const DOWNLOAD_RESUMES = 3;
-/** How long a newer version may hold up a launch that already has a working one. */
-const UPDATE_DOWNLOAD_LIMIT_MS = 10_000;
+const SAVE_DOWNLOAD_EVERY_BYTES = 16 * 1024 ** 2;
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024;
 const EXTRACT_ATTEMPTS = 3;
@@ -325,6 +324,7 @@ async function readDownload(
   partial: PartialDownload,
   signal: AbortSignal,
   onData: () => void,
+  savedPath: string,
   reportProgress?: StartupProgressReporter,
 ): Promise<Buffer | undefined> {
   if (!response.body) return undefined;
@@ -333,6 +333,7 @@ async function readDownload(
   const reader = response.body.getReader();
   const startedAt = Date.now();
   let bytesThisAttempt = 0;
+  let savedBytes = partial.bytes;
   let lastReportAt = startedAt;
 
   const report = (now: number) => {
@@ -359,6 +360,11 @@ async function readDownload(
       partial.bytes += value.byteLength;
       bytesThisAttempt += value.byteLength;
       if (value.byteLength > 0) onData();
+      // Kept as it arrives, since closing the app gives nothing a chance to save it on the way out.
+      if (partial.bytes - savedBytes >= SAVE_DOWNLOAD_EVERY_BYTES) {
+        await saveDownload(savedPath, Buffer.concat(partial.chunks, partial.bytes));
+        savedBytes = partial.bytes;
+      }
       const now = Date.now();
       if (now - lastReportAt >= 100) {
         report(now);
@@ -423,34 +429,6 @@ async function readSavedDownload(path: string): Promise<PartialDownload> {
 async function downloadWithResume(
   url: string,
   fetchFn: Fetch,
-  outerSignal: AbortSignal,
-  savedPath: string,
-  timeLimitMs: number | undefined,
-  resumeDelaysMs: readonly number[],
-  reportProgress?: StartupProgressReporter,
-): Promise<{ archiveBuffer: Buffer | undefined; response: Response }> {
-  const limit = new AbortController();
-  const limitTimer =
-    timeLimitMs === undefined
-      ? undefined
-      : setTimeout(
-          () =>
-            limit.abort(
-              new DownloadStalledError(`not finished after ${timeLimitMs / 1000} seconds`),
-            ),
-          timeLimitMs,
-        );
-  const signal = AbortSignal.any([outerSignal, limit.signal]);
-  try {
-    return await downloadUntilDone(url, fetchFn, signal, savedPath, resumeDelaysMs, reportProgress);
-  } finally {
-    clearTimeout(limitTimer);
-  }
-}
-
-async function downloadUntilDone(
-  url: string,
-  fetchFn: Fetch,
   signal: AbortSignal,
   savedPath: string,
   resumeDelaysMs: readonly number[],
@@ -504,7 +482,14 @@ async function downloadUntilDone(
         partial = emptyDownload();
       }
       return {
-        archiveBuffer: await readDownload(response, partial, downloadSignal, stall.touch, reportProgress),
+        archiveBuffer: await readDownload(
+          response,
+          partial,
+          downloadSignal,
+          stall.touch,
+          savedPath,
+          reportProgress,
+        ),
         response,
       };
     } catch (cause) {
@@ -1057,7 +1042,6 @@ function publishWithRetry(
 function installRelease(
   context: InstallContext,
   release: CompatibleRelease,
-  updating = false,
 ): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
   const { platformDirectory, platform, arch, spec, downloadFetch, reportProgress } = context;
   return Effect.acquireUseRelease(
@@ -1097,14 +1081,8 @@ function installRelease(
               downloadFetch,
               signal,
               savedDownload,
-              updating ? UPDATE_DOWNLOAD_LIMIT_MS : undefined,
               context.delays.resumeMs,
-              updating
-                ? (progress) =>
-                    reportProgress?.(
-                      progress.phase === "downloading" ? { ...progress, updating } : progress,
-                    )
-                : reportProgress,
+              reportProgress,
             ),
         );
         if (!response.ok) {
@@ -1267,8 +1245,8 @@ export function ensureOpenCodeBinary(
       delays: { ...DEFAULT_DELAYS, ...options.delays },
       reportProgress: options.onStartupProgress,
     };
-    const install = (release: CompatibleRelease, updating = false) =>
-      installRelease(context, release, updating).pipe(
+    const install = (release: CompatibleRelease) =>
+      installRelease(context, release).pipe(
         Effect.tap(() =>
           pruneCache(platformDirectory).pipe(
             Effect.catchAll((error) => Effect.logWarning(error.message, error.cause)),
@@ -1276,10 +1254,11 @@ export function ensureOpenCodeBinary(
         ),
       );
 
-    // Newer releases come from the API. When it fails (rate limit, timeout, DNS), a cached
-    // copy or the pinned release keeps BloxBot working.
-    const updated = yield* Effect.either(
-      findCompatibleRelease(fetchFn, spec.archiveName).pipe(
+    // With a working copy nobody should wait on anything. A newer one comes down in the background,
+    // saying nothing to the startup screen, and is used from the next launch.
+    const working = yield* findNewestCachedBinary(platformDirectory, platform, arch, spec);
+    if (working) {
+      yield* findCompatibleRelease(fetchFn, spec.archiveName).pipe(
         Effect.flatMap((release) =>
           readValidCachedBinary(
             join(platformDirectory, release.version.value),
@@ -1290,30 +1269,28 @@ export function ensureOpenCodeBinary(
           ).pipe(
             Effect.flatMap((cached) =>
               cached
-                ? Effect.succeed(cached)
-                : // A newer patch isn't worth holding a working copy back for long. What arrived is
-                  // saved, so each launch gets further until the update is in.
-                  findNewestCachedBinary(platformDirectory, platform, arch, spec).pipe(
-                    Effect.flatMap((working) =>
-                      install(release, working !== null),
-                    ),
+                ? Effect.void
+                : installRelease({ ...context, reportProgress: undefined }, release).pipe(
+                    Effect.andThen(pruneCache(platformDirectory)),
                   ),
             ),
           ),
         ),
-      ),
+        Effect.catchAll((error) =>
+          Effect.logWarning(`[opencode] Background update failed: ${error.message}`, error.cause),
+        ),
+        Effect.forkDaemon,
+      );
+      return working;
+    }
+
+    // Newer releases come from the API. When it fails (rate limit, timeout, DNS), the pinned release
+    // keeps BloxBot working.
+    const updated = yield* Effect.either(
+      findCompatibleRelease(fetchFn, spec.archiveName).pipe(Effect.flatMap(install)),
     );
     if (Either.isRight(updated)) return updated.right;
     const updateError = updated.left;
-
-    const cached = yield* findNewestCachedBinary(platformDirectory, platform, arch, spec);
-    if (cached) {
-      yield* Effect.logWarning(
-        `[opencode] Update check failed; using cached v${cached.version}: ${updateError.message}`,
-        updateError.cause,
-      );
-      return cached;
-    }
 
     // The connection gave out partway, or security software blocked it. The pinned file comes from
     // the same place and would be blocked the same way, so trying it only starts again from nothing.

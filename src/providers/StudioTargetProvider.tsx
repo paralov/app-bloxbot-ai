@@ -55,6 +55,7 @@ interface StudioTargetContextValue {
   reportStudioUse(use: { started: boolean; usedStudio: boolean }): void;
   /** This chat has used a Studio, but which one was never written down. */
   unknownPlace: boolean;
+  clearError(): void;
   /** A message is going out, so whichever Studio it's sent to is the one it would use. */
   noteRouted(): void;
   /** Someone picked a Studio for this chat by hand, so it's about Studio. */
@@ -389,6 +390,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     discoveryRef.current = null;
     selectedRef.current = null;
     setSelected(null);
+    selectingRef.current = false;
+    setSelectingKey(null);
     if (targetsBySessionRef.current[activeSessionId]) {
       const { [activeSessionId]: _forgotten, ...rest } = targetsBySessionRef.current;
       targetsBySessionRef.current = rest;
@@ -419,6 +422,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       chosenChatsRef.current = new Set(chosenChatsRef.current).add(to);
       void desktop.patchConfig({ chatsWithChosenPlace: [...chosenChatsRef.current] });
     }
+  }, []);
+
+  const clearError = useCallback(() => {
+    errorSourceRef.current = null;
+    setError(null);
   }, []);
 
   const noteRouted = useCallback(() => {
@@ -508,6 +516,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         configLoadedRef.current = true;
       }
       setWithoutStudio(chatsWithoutStudioRef.current.has(activeSessionId));
+      // A failed choice belongs to the chat it happened in.
+      if (errorSourceRef.current === "select") clearError();
       setUnknownPlace(unknownPlaceRef.current === activeSessionId);
       setStudioChosen(chosenChatsRef.current.has(activeSessionId));
       // A remembered id can belong to a Studio that has since closed, and discovery will tell.
@@ -521,7 +531,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       await discover();
     };
     void loadAndDiscover();
-  }, [activeSessionId, client, discover]);
+  }, [activeSessionId, clearError, client, discover]);
 
   const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
   const missing = !withoutStudio && !selected && remembered ? remembered : null;
@@ -594,6 +604,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       studioChosen,
       studioChoices,
       copyPlaceToChat,
+      clearError,
       twins,
       nameMatch,
       discover,
@@ -616,6 +627,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       studioChosen,
       studioChoices,
       copyPlaceToChat,
+      clearError,
       twins,
       nameMatch,
       discover,

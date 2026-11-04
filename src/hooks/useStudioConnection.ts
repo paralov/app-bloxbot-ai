@@ -8,7 +8,7 @@ import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import type { StudioMcpStatus } from "@/types/desktop";
 
 const STUDIO_MCP_NAME = STUDIO_MCP_SERVER_NAME;
-const CONNECT_WAIT_MS = 8_000;
+const CONNECT_WAIT_MS = 10_000;
 
 export type StudioConnectionState = "checking" | "connected" | "waiting";
 
@@ -19,23 +19,29 @@ export function studioMcpProblem(status: StudioMcpStatus | undefined): StudioMcp
   return status?.state === "not_installed" || status?.state === "unavailable" ? status.state : null;
 }
 
-export async function checkStudioConnection(
+async function attemptStudioConnection(
   client: Pick<OpencodeClient, "mcp">,
 ): Promise<Exclude<StudioConnectionState, "checking">> {
   try {
     const current = await client.mcp.status({});
     if (current.data?.[STUDIO_MCP_NAME]?.status === "connected") return "connected";
 
-    // It can hang, and the app waits on this to get past "Finding Roblox Studio".
-    await Promise.race([
-      client.mcp.connect({ name: STUDIO_MCP_NAME }).catch(() => undefined),
-      new Promise((resolve) => setTimeout(resolve, CONNECT_WAIT_MS)),
-    ]);
+    await client.mcp.connect({ name: STUDIO_MCP_NAME }).catch(() => undefined);
     const refreshed = await client.mcp.status({});
     return refreshed.data?.[STUDIO_MCP_NAME]?.status === "connected" ? "connected" : "waiting";
   } catch {
     return "waiting";
   }
+}
+
+/** Any of it can hang, and the app waits on this to get past "Finding Roblox Studio". */
+export function checkStudioConnection(
+  client: Pick<OpencodeClient, "mcp">,
+): Promise<Exclude<StudioConnectionState, "checking">> {
+  return Promise.race([
+    attemptStudioConnection(client),
+    new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), CONNECT_WAIT_MS)),
+  ]);
 }
 
 export function useStudioConnection() {

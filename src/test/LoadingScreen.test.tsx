@@ -194,32 +194,6 @@ describe("startup progress", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Couldn't install the update");
   });
 
-  it("doesn't call a stalled update a problem, since the current version just opens", () => {
-    const presentation = getStartupPresentation(
-      "engine",
-      {
-        phase: "downloading",
-        downloadedBytes: 1,
-        totalBytes: 2,
-        bytesPerSecond: 0,
-        updating: true,
-      },
-      true,
-    );
-    expect(presentation.detail).toBe("Your current version opens if this takes a while");
-  });
-
-  it("doesn't call an update a one-time setup", () => {
-    const presentation = getStartupPresentation("engine", {
-      phase: "downloading",
-      downloadedBytes: 1,
-      totalBytes: 2,
-      bytesPerSecond: 1,
-      updating: true,
-    });
-    expect(presentation.message).toBe("Downloading an update");
-  });
-
   it("explains a step that has gone quiet instead of looking frozen", () => {
     const downloading = {
       phase: "downloading",

@@ -88,10 +88,8 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
         : undefined;
     const percentage = fraction === undefined ? null : `${Math.round(fraction * 100)}%`;
     return {
-      message: progress.updating ? "Downloading an update" : "Downloading a one-time setup",
-      detail: progress.updating
-        ? "Your current version opens if this takes a while"
-        : "Future launches will use the saved copy",
+      message: "Downloading a one-time setup",
+      detail: "Future launches will use the saved copy",
       startup: {
         step: 1,
         label: "Preparing",
@@ -143,8 +141,6 @@ function slowPresentation(
   phase: StartupPhase,
   engineProgress: OpenCodeStartupProgress,
 ): StartupPresentation {
-  // An update just gives up after a while and the current version opens, so nothing is wrong.
-  if (engineProgress.phase === "downloading" && engineProgress.updating) return presentation;
   const downloading = phase === "engine" && engineProgress.phase === "downloading";
   const unpacking =
     phase === "engine" &&
@@ -561,6 +557,13 @@ export function OpenCodeClientProvider({
     };
   }, [startupPhase, startupNews, ready, initError]);
 
+  // Stays once it's there: data arriving shouldn't pull it out from under someone's focus.
+  const [retryOffered, setRetryOffered] = useState(false);
+  const retryWorthOffering = engineProgress.phase === "downloading" ? slow : verySlow;
+  useEffect(() => {
+    if (retryWorthOffering) setRetryOffered(true);
+  }, [retryWorthOffering]);
+
   const value = useMemo<OpenCodeClientContextValue>(
     () => ({ client, status, port, ready, initError }),
     [client, status, port, ready, initError],
@@ -579,12 +582,7 @@ export function OpenCodeClientProvider({
           technicalDetail={startupError?.technicalDetail}
           startup={startupError ? undefined : startup.startup}
           error={!!startupError}
-          onRetry={
-            startupError ||
-            (engineProgress.phase === "downloading" ? slow && !engineProgress.updating : verySlow)
-              ? () => desktop.relaunch()
-              : undefined
-          }
+          onRetry={startupError || retryOffered ? () => desktop.relaunch() : undefined}
         />
       </OpenCodeClientContext.Provider>
     );

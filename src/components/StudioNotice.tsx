@@ -51,6 +51,10 @@ export default function StudioNotice({
     } else if (selected && wasMissing.current) {
       wasMissing.current = false;
       setReturned(`${placeName(selected.label)} is connected.`);
+      // The notice went away with whatever had focus in it.
+      if (document.activeElement === document.body) {
+        document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
+      }
     }
   }, [missing, selected]);
 
@@ -114,7 +118,7 @@ export default function StudioNotice({
               Use it
             </button>
           ) : null}
-          {canChoose ? (
+          {nameMatch && openCount === 1 ? null : canChoose ? (
             <button type="button" onClick={onOpenPicker} className={LINK}>
               {nameMatch || (place && twins === 0) ? "Choose another" : "Choose one"}
             </button>

@@ -23,7 +23,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Windows: BloxBot now reads OpenCode's port from its output, for machines stuck at startup on "OpenCode did not open a listening port".
 - Slow connections can finish downloading OpenCode. A download now stops only after 60 seconds with no data, and carries on from where it stopped, even after a restart.
-- Downloading a newer version stops after 10 seconds when a working one is installed, and carries on next launch.
+- BloxBot opens straight away when a working engine is installed, and any newer version downloads in the background for next launch.
 - Downloads refused over an unknown certificate, as behind some company networks and antivirus software, retry with your system's certificates. The file must still match the same checksum.
 - Installing OpenCode waits longer for antivirus software to release a new file, and doesn't download again after antivirus blocks unpacking.
 - Startup failures say what to try next and show the folder to allow in antivirus software. BloxBot also looks for an update by itself, and a step that has gone quiet says so and offers Try again.

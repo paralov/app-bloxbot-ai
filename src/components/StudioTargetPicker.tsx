@@ -96,6 +96,7 @@ export default function StudioTargetPicker({
   const refresh = async () => {
     // Refresh keeps keyboard focus while it's busy, so it can't use the disabled attribute.
     if (busy) return;
+    studioTarget.clearError();
     setRefreshing(true);
     setChecked(false);
     const [found] = await Promise.all([

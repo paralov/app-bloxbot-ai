@@ -253,14 +253,14 @@ function LoadingScreen({
 
         {/* Always in the page, so a screen reader announces it when the words arrive. */}
         <output className="sr-only">
-          {updateStatus === "available" && updateVersion
-            ? `Update available: v${updateVersion}`
-            : updateStatus === "up-to-date"
-              ? "Up to date"
-              : copyStatus === "copied" || folderCopied === "copied"
-                ? "Copied"
-                : copyStatus === "error" || folderCopied === "error"
-                  ? "Couldn't copy"
+          {copyStatus === "copied" || folderCopied === "copied"
+            ? "Copied"
+            : copyStatus === "error" || folderCopied === "error"
+              ? "Couldn't copy"
+              : updateStatus === "available" && updateVersion
+                ? `Update available: v${updateVersion}`
+                : updateStatus === "up-to-date"
+                  ? "Up to date"
                   : updateStatus === "downloading"
                     ? "Installing the update"
                     : updateStatus === "install-error"

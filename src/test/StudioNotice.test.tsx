@@ -104,6 +104,13 @@ describe("StudioNotice", () => {
     expect(select).toHaveBeenCalledWith(twin);
     expect(onOpenPicker).not.toHaveBeenCalled();
 
+    // With nothing else open, there's no other to choose.
+    expect(screen.queryByRole("button", { name: "Choose another" })).toBeNull();
+  });
+
+  it("offers the others when more than the same-named place is open", () => {
+    const twin = { ...DUNGEON, key: "other" };
+    show({ targets: [twin, LOBBY], missing: DUNGEON, twins: 1, nameMatch: twin });
     fireEvent.click(screen.getByRole("button", { name: "Choose another" }));
     expect(onOpenPicker).toHaveBeenCalledOnce();
   });
