@@ -356,26 +356,22 @@ describe("User journeys", () => {
     client.mcp.connect = vi.fn().mockResolvedValue({});
     const queryClient = createQueryClient();
     seedReadyState(queryClient);
-    const patchConfig = vi.spyOn(desktop, "patchConfig").mockResolvedValue(undefined as never);
 
     try {
       const { unmount } = render(<TestApp client={client} queryClient={queryClient} />);
       fireEvent.click(await screen.findByRole("button", { name: "Skip for now" }));
 
-      expect(await screen.findByRole("button", { name: "New chat" })).toBeVisible();
-      expect(screen.queryByRole("heading", { name: "Let's connect Studio" })).toBeNull();
-      expect(patchConfig).toHaveBeenCalledWith({ studioSetupSkipped: true });
+      await waitFor(() =>
+        expect(screen.queryByRole("heading", { name: "Let's connect Studio" })).toBeNull(),
+      );
+      await expect(desktop.loadConfig()).resolves.toMatchObject({ studioSetupSkipped: true });
       unmount();
 
-      const loadConfig = vi
-        .spyOn(desktop, "loadConfig")
-        .mockResolvedValue({ studioSetupSkipped: true } as never);
       render(<TestApp client={client} queryClient={queryClient} />);
-      expect(await screen.findByRole("button", { name: "New chat" })).toBeVisible();
+      expect(await screen.findByText("What would you like to build?")).toBeVisible();
       expect(screen.queryByRole("heading", { name: "Let's connect Studio" })).toBeNull();
-      loadConfig.mockRestore();
     } finally {
-      patchConfig.mockRestore();
+      await desktop.patchConfig({ studioSetupSkipped: false });
     }
   });
 

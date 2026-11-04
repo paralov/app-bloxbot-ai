@@ -82,6 +82,7 @@ function Chat() {
   }, []);
   const handleSkipSetup = useCallback(() => {
     setSetupSkipped(true);
+    setShowStudioSetup(false);
     posthog.capture("studio_setup_skipped", analyticsProperties("studio_target"));
     void desktop.patchConfig({ studioSetupSkipped: true });
   }, []);
@@ -128,8 +129,8 @@ function Chat() {
   }, [selectSession]);
 
   useEffect(() => {
-    if (studioConnection.state === "waiting") setShowStudioSetup(true);
-  }, [studioConnection.state]);
+    if (needsSetup && !connectionPending) setShowStudioSetup(true);
+  }, [needsSetup, connectionPending]);
 
   useEffect(() => {
     if (
