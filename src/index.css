@@ -331,7 +331,10 @@
   .animate-disclosure-expand,
   .animate-disclosure-collapse,
   .animate-side-panel-in,
-  .animate-side-panel-out {
+  .animate-side-panel-out,
+  .bloxbot-face,
+  .bloxbot-face-think,
+  .bloxbot-eye {
     animation: none;
   }
 }

@@ -1,3 +1,4 @@
+import type { SerializedEditorState } from "lexical";
 import { Paperclip, Plus } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -265,7 +266,13 @@ function effortLabel(variant: string | null): string {
 }
 
 /** What was in the message box when something else took over the screen, by chat. */
-export const savedDrafts = new Map<string, { text: string; attachments: ImageAttachment[] }>();
+interface Draft {
+  text: string;
+  attachments: ImageAttachment[];
+  editorState?: SerializedEditorState;
+}
+
+export const savedDrafts = new Map<string, Draft>();
 
 function ChatInput({
   onOpenSettings,
@@ -357,6 +364,17 @@ function ChatInput({
   });
 
   // Setup and Settings replace the message box for a while, and what was typed should still be here.
+  // Plain text can't bring an object's chip back, so the editor's own state goes with a draft.
+  const editorStateRef = useRef<SerializedEditorState>();
+  const handleEditorChange = useCallback((nextText: string, state: SerializedEditorState) => {
+    setText(nextText);
+    editorStateRef.current = state;
+  }, []);
+  const restoreDraft = useCallback((draft: Draft) => {
+    if (draft.editorState) promptEditorRef.current?.restore(draft.editorState);
+    else if (draft.text) promptEditorRef.current?.insertText(draft.text);
+    setAttachments(draft.attachments);
+  }, []);
   const draftRef = useRef({ text, attachments, sessionId: activeSessionId });
   draftRef.current = { text, attachments, sessionId: activeSessionId };
   // biome-ignore lint/correctness/useExhaustiveDependencies: restores once, and saves on the way out
@@ -364,14 +382,17 @@ function ChatInput({
     const draft = activeSessionId ? savedDrafts.get(activeSessionId) : undefined;
     if (activeSessionId && draft) {
       savedDrafts.delete(activeSessionId);
-      if (draft.text) promptEditorRef.current?.insertText(draft.text);
-      setAttachments(draft.attachments);
+      restoreDraft(draft);
     }
     if (focusOnMount) requestAnimationFrame(() => promptEditorRef.current?.focus());
     return () => {
       const { text: lastText, attachments: lastAttachments, sessionId } = draftRef.current;
       if (sessionId && (lastText || lastAttachments.length > 0)) {
-        savedDrafts.set(sessionId, { text: lastText, attachments: lastAttachments });
+        savedDrafts.set(sessionId, {
+          text: lastText,
+          attachments: lastAttachments,
+          editorState: editorStateRef.current,
+        });
       }
     };
   }, []);
@@ -381,7 +402,11 @@ function ChatInput({
     const leaving = previousSessionRef.current;
     const { text: leftText, attachments: leftAttachments } = draftRef.current;
     if (leaving && (leftText || leftAttachments.length > 0)) {
-      savedDrafts.set(leaving, { text: leftText, attachments: leftAttachments });
+      savedDrafts.set(leaving, {
+        text: leftText,
+        attachments: leftAttachments,
+        editorState: editorStateRef.current,
+      });
     }
     previousSessionRef.current = activeSessionId;
     setText("");
@@ -390,10 +415,9 @@ function ChatInput({
     const draft = activeSessionId ? savedDrafts.get(activeSessionId) : undefined;
     if (activeSessionId && draft) {
       savedDrafts.delete(activeSessionId);
-      if (draft.text) promptEditorRef.current?.insertText(draft.text);
-      setAttachments(draft.attachments);
+      restoreDraft(draft);
     }
-  }, [activeSessionId]);
+  }, [activeSessionId, restoreDraft]);
 
   useEffect(() => {
     if (!pendingReference) return;
@@ -757,7 +781,8 @@ function ChatInput({
                       : null
               }
               onObjectsWanted={requestSync}
-              onChange={setText}
+              noStudio={!studioId}
+              onChange={handleEditorChange}
               onSubmit={handleSubmit}
               onPaste={(e) => {
                 const items = e.clipboardData.items;

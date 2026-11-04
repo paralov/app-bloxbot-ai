@@ -579,6 +579,19 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         : null;
 
   focusRowRef.current = (id: string) => focusRow(id);
+  // Coming back to the panel picks up at what was selected, not at the top.
+  const resumedRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, as the first rows arrive
+  useEffect(() => {
+    if (resumedRef.current || rows.length === 0) return;
+    resumedRef.current = true;
+    const index = selectedId
+      ? rows.findIndex((row) => !row.loading && nodeId(row.node) === selectedId)
+      : -1;
+    if (index < 0) return;
+    setFocusedId(selectedId);
+    virtualizer.scrollToIndex(index);
+  }, [rows]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs as the rows it's waiting for arrive
   useEffect(() => {
     const id = pendingFocusRef.current;

@@ -144,14 +144,16 @@ function slowPresentation(
   engineProgress: OpenCodeStartupProgress,
 ): StartupPresentation {
   const downloading = phase === "engine" && engineProgress.phase === "downloading";
-  const unpacking =
+  const scannable =
     phase === "engine" &&
-    (engineProgress.phase === "installing" || engineProgress.phase === "verifying");
+    (engineProgress.phase === "installing" ||
+      engineProgress.phase === "verifying" ||
+      engineProgress.phase === "starting");
   return {
     ...presentation,
     detail: downloading
       ? "Connection paused. Check your Wi-Fi or security software. BloxBot keeps trying."
-      : unpacking
+      : scannable
         ? "Taking longer than usual. Security software can slow this."
         : "Taking longer than usual. Still trying.",
     // The last speed is out of date by now, but how far it got still holds.

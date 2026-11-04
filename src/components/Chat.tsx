@@ -98,6 +98,11 @@ function Chat() {
   const [sidePanelExiting, setSidePanelExiting] = useState(false);
   const sidePanelTimerRef = useRef<number | null>(null);
 
+  // Finishing setup for the first time is a decision to start, so it shouldn't need a second click.
+  const { mutate: createChat } = createSession;
+  const startFirstChat = useCallback(() => {
+    if (!activeSessionId && allSessions?.length === 0) createChat();
+  }, [activeSessionId, allSessions, createChat]);
   // Studio isn't required: BloxBot is also fine for small websites and the like.
   const [setupSkipped, setSetupSkipped] = useState<boolean | null>(null);
   useEffect(() => {
@@ -109,10 +114,12 @@ function Chat() {
   const handleSkipSetup = useCallback(() => {
     setSetupSkipped(true);
     setShowStudioSetup(false);
+    setFocusComposer(true);
+    startFirstChat();
     focusWhatsNext();
     posthog.capture("studio_setup_skipped", analyticsProperties("studio_target"));
     void desktop.patchConfig({ studioSetupSkipped: true });
-  }, [focusWhatsNext]);
+  }, [focusWhatsNext, startFirstChat]);
   // Setup is for getting started. Once connected, Studio closing mustn't take over someone's chat.
   const everConnected = useRef(false);
   if (studioConnection.state === "connected") everConnected.current = true;
@@ -268,13 +275,30 @@ function Chat() {
   const handleOpenPlaytest = useCallback(() => {
     if (!hasStudioTarget) return;
     posthog.capture("playtest_opened", analyticsProperties("playtest"));
-    setExplorerChoice(false);
     setShowPlaytest(true);
-  }, [hasStudioTarget, setExplorerChoice]);
+  }, [hasStudioTarget]);
   const handleClosePlaytest = useCallback(() => {
     posthog.capture("playtest_closed", analyticsProperties("playtest"));
     setShowPlaytest(false);
   }, []);
+
+  // One chat's plan shouldn't run in another.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each chat starts without it
+  useEffect(() => {
+    setShowPlaytest(false);
+  }, [activeSessionId]);
+
+  // The place closing can take the Explorer away with focus inside it, and without a word.
+  const previousPanelRef = useRef(renderedSidePanel);
+  const [panelNote, setPanelNote] = useState("");
+  useEffect(() => {
+    const previous = previousPanelRef.current;
+    previousPanelRef.current = renderedSidePanel;
+    if (hasStudioTarget) setPanelNote("");
+    if (previous !== "explorer" || renderedSidePanel !== null) return;
+    if (!hasStudioTarget) setPanelNote("Explorer closed. No Studio is open.");
+    if (document.activeElement === document.body) focusWhatsNext();
+  }, [renderedSidePanel, hasStudioTarget, focusWhatsNext]);
 
   // A click on an object in a reply needs the Explorer to be showing.
   const { focusRequest } = useExplorerReference();
@@ -355,6 +379,7 @@ function Chat() {
             onContinue={() => {
               if (needsStudioChoice) openPickerAfterSetup.current = true;
               handleCloseStudioSetup();
+              startFirstChat();
             }}
             onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
             onSkip={setupFromPicker ? undefined : handleSkipSetup}
@@ -425,6 +450,7 @@ function Chat() {
           </div>
         )}
       </div>
+      <output className="sr-only">{panelNote}</output>
       {renderedSidePanel && activeSessionId && !showSettings && !showStudioSetup ? (
         <div
           className={`flex w-72 shrink-0 overflow-hidden ${sidePanelExiting ? "animate-side-panel-out" : "animate-side-panel-in"}`}

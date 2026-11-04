@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import type * as React from "react";
+import type { KeyboardEvent } from "react";
 
 import { PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -100,4 +101,22 @@ export function MenuSearch({
       ) : null}
     </div>
   );
+}
+
+/** Arrow keys, Home and End between a menu's items, wrapping at the ends. */
+export function moveMenuFocus(event: KeyboardEvent<HTMLElement>, items: readonly HTMLElement[]) {
+  const at = items.indexOf(document.activeElement as HTMLElement);
+  const to =
+    event.key === "ArrowDown"
+      ? items[(at + 1) % items.length]
+      : event.key === "ArrowUp"
+        ? items[(at - 1 + items.length) % items.length]
+        : event.key === "Home"
+          ? items[0]
+          : event.key === "End"
+            ? items[items.length - 1]
+            : undefined;
+  if (!to) return;
+  event.preventDefault();
+  to.focus();
 }

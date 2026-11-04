@@ -579,6 +579,26 @@ describe("ChatInput", () => {
     expect(savedDrafts.has("s2")).toBe(false);
   });
 
+  it("keeps an object's chip in a draft across chats", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    const view = render(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    fireEvent.click(screen.getByRole("button", { name: "Reference Part" }));
+    await screen.findByText("@Part");
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s2" />);
+    });
+    expect(textarea).not.toHaveTextContent("@Part");
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    });
+
+    expect(await screen.findByText("@Part")).toBeInTheDocument();
+    expect(textarea).not.toHaveTextContent("<Instance");
+  });
+
   it("does not send when session is busy", async () => {
     const client = createClient();
     const qc = createQueryClient();

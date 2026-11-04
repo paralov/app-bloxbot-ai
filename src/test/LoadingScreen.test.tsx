@@ -219,8 +219,8 @@ describe("startup progress", () => {
     expect(getStartupPresentation("engine", { phase: "installing" }, true).detail).toContain(
       "Security software",
     );
-    expect(getStartupPresentation("engine", { phase: "starting" }, true).detail).toBe(
-      "Taking longer than usual. Still trying.",
+    expect(getStartupPresentation("engine", { phase: "starting" }, true).detail).toContain(
+      "Security software",
     );
   });
 

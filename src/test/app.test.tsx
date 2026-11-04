@@ -365,6 +365,8 @@ describe("User journeys", () => {
         expect(screen.queryByRole("heading", { name: "Let's connect Studio" })).toBeNull(),
       );
       await expect(desktop.loadConfig()).resolves.toMatchObject({ studioSetupSkipped: true });
+      // Nobody has a chat yet, and they've just said they're ready to start.
+      expect(client.session.create).toHaveBeenCalledTimes(1);
       unmount();
 
       render(<TestApp client={client} queryClient={queryClient} />);

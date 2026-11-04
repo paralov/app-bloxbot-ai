@@ -388,6 +388,31 @@ describe("Explorer", () => {
     expect(screen.getByRole("searchbox", { name: "Search Explorer" })).toHaveValue("Work");
   });
 
+  it("picks up at the selected row when the panel comes back", async () => {
+    const part = { ...tree.roots[0], name: "Part", className: "Part", path: "game.Workspace.Part" };
+    mocks.getSnapshot.mockResolvedValue({
+      ...tree,
+      roots: [{ ...tree.roots[0], hasChildren: true, children: [part] }],
+    });
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    const panel = (open: boolean) => (
+      <ExplorerReferenceProvider>
+        {open ? <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} /> : null}
+      </ExplorerReferenceProvider>
+    );
+    const { rerender } = render(panel(true));
+    await advance(0);
+    fireEvent.click(screen.getByRole("treeitem", { name: "Part" }));
+
+    rerender(panel(false));
+    await advance(0);
+    rerender(panel(true));
+    await advance(0);
+
+    expect(screen.getByRole("treeitem", { name: "Part" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("treeitem", { name: "Workspace" })).toHaveAttribute("tabindex", "-1");
+  });
+
   it("keeps focus inside the delete dialog while the tree keeps updating", async () => {
     mocks.getSnapshot.mockResolvedValue(tree);
     mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });

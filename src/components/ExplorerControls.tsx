@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { MENU_ITEM, MENU_SURFACE } from "@/components/ui/menu";
+import { MENU_ITEM, MENU_SURFACE, moveMenuFocus } from "@/components/ui/menu";
 
 // Wide and tall enough to keep the menu on screen near the window's edge.
 const MENU_WIDTH = 176;
@@ -107,20 +107,7 @@ export function ContextMenu({
       return;
     }
     const items = [...(menuRef.current?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? [])];
-    const at = items.indexOf(document.activeElement as HTMLElement);
-    const to =
-      event.key === "ArrowDown"
-        ? items[(at + 1) % items.length]
-        : event.key === "ArrowUp"
-          ? items[(at - 1 + items.length) % items.length]
-          : event.key === "Home"
-            ? items[0]
-            : event.key === "End"
-              ? items[items.length - 1]
-              : undefined;
-    if (!to) return;
-    event.preventDefault();
-    to.focus();
+    moveMenuFocus(event, items);
   };
   useEffect(() => {
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {

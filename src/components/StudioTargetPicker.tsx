@@ -3,7 +3,14 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useEffect, useRef, useState } from "react";
 
 import { STUDIO_SETUP_STEPS } from "@/components/StudioSetup";
-import { MENU_LABEL, MENU_TRIGGER, MenuChevron, MenuContent, MenuItem } from "@/components/ui/menu";
+import {
+  MENU_LABEL,
+  MENU_TRIGGER,
+  MenuChevron,
+  MenuContent,
+  MenuItem,
+  moveMenuFocus,
+} from "@/components/ui/menu";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { analyticsProperties } from "@/lib/analytics";
 import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
@@ -196,7 +203,16 @@ export default function StudioTargetPicker({
           {status === "loading" ? <Spinner /> : <MenuChevron />}
         </button>
       </PopoverTrigger>
-      <MenuContent aria-label="Choose Roblox Studio" align="end" className="w-64">
+      <MenuContent
+        aria-label="Choose Roblox Studio"
+        align="end"
+        className="w-64"
+        onKeyDown={(event) =>
+          moveMenuFocus(event, [
+            ...event.currentTarget.querySelectorAll<HTMLElement>("button, a[href]"),
+          ])
+        }
+      >
         <div className="flex items-center justify-between gap-2">
           <output className={`${MENU_LABEL} min-w-0 truncate`}>
             {checked && !error ? foundLabel(targets.length) : "Roblox Studio"}

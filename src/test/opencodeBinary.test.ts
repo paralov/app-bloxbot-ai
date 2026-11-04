@@ -1388,6 +1388,27 @@ describe("OpenCode downloads on a poor connection", () => {
       expect(left).toContain(".download-new");
     });
 
+    it("keeps a saved download when falling back to the pinned release fails too", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const saved = join(cacheDirectory, "partial", `${ASSET_NAME}.newer.partial`);
+      await mkdir(join(cacheDirectory, "partial"), { recursive: true });
+      await writeFile(saved, "worth keeping");
+
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: vi.fn().mockRejectedValue(new TypeError("offline")),
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0, resumeMs: [0, 0, 0] },
+        }),
+      );
+
+      expect(result).toMatchObject({ _tag: "Left" });
+      await expect(readFile(saved, "utf8")).resolves.toBe("worth keeping");
+    });
+
     it("clears out what was saved for an older release", async () => {
       const cacheDirectory = await makeTemporaryDirectory();
       const stale = join(cacheDirectory, "partial", `${ASSET_NAME}.old.partial`);

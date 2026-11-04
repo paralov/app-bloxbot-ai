@@ -1119,8 +1119,6 @@ function installRelease(
 
       return Effect.gen(function* () {
         yield* requireFreeSpace(context);
-        // A newer release replaces anything saved for an older one.
-        yield* Effect.promise(() => removeOtherSavedDownloads(savedDownload, spec.archiveName));
         // Setup can stop after the download, as when antivirus blocks unpacking. A complete, verified
         // copy from then means trying again doesn't have to fetch it.
         const savedArchive = yield* Effect.promise(() => readFile(savedDownload).catch(() => null));
@@ -1226,6 +1224,11 @@ function installRelease(
           }),
         );
         yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
+        // Only now, since a failed lookup can land here on an older release while a newer one's
+        // download is still worth resuming.
+        yield* Effect.promise(() =>
+          removeOtherSavedDownloads(savedDownload, spec.archiveName),
+        );
         return installed;
       });
     },

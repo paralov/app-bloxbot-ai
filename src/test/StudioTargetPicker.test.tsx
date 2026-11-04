@@ -101,6 +101,26 @@ describe("StudioTargetPicker", () => {
     expect(JSON.stringify(capture.mock.calls)).not.toContain("Obby");
   });
 
+  it("moves between Studios with the arrow keys", async () => {
+    discoverStudioTargets.mockResolvedValue({
+      targets: [
+        { key: "one", label: "Lobby", detail: null },
+        { key: "two", label: "Dungeon", detail: null },
+      ],
+      selectedKey: "one",
+    });
+    renderPicker();
+    fireEvent.click(await screen.findByRole("button", { name: /Lobby/ }));
+    const dungeon = await screen.findByRole("button", { name: /Dungeon/ });
+    // The first match is the button that opened the menu.
+    const lobby = screen.getAllByRole("button", { name: /Lobby/ })[1];
+    lobby.focus();
+
+    fireEvent.keyDown(lobby, { key: "ArrowDown" });
+
+    expect(dungeon).toHaveFocus();
+  });
+
   it("builds explicit stateless routing guidance for chat", () => {
     const prompt = createStudioTargetPromptReference({
       key: "studio-123",
