@@ -13,7 +13,9 @@ mac:
   category: public.app-category.developer-tools
   icon: electron/icons/icon.icns
   hardenedRuntime: true
-  artifactName: BloxBot-${version}-mac.${ext}
+  # "arm64" in the name also keeps auto-update off Intel Macs, which skip files named that way
+  # and stay on the last build that runs on them.
+  artifactName: BloxBot-${version}-arm64-mac.${ext}
   target:
     - dmg
     - zip

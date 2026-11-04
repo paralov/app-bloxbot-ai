@@ -10,18 +10,23 @@ const LINK = "shrink-0 text-foreground underline underline-offset-2 hover:opacit
 export default function StudioNotice({
   onOpenSetup,
   onOpenPicker,
-  chatStarted = false,
+  quiet = false,
 }: {
   onOpenSetup: () => void;
   onOpenPicker: () => void;
-  /** A chat that's under way without a Studio is about something else, so this stays out of it. */
-  chatStarted?: boolean;
+  /**
+   * Under way without a Studio, or Studio was skipped: this chat is about something else, so this
+   * stays out of it unless there's a place at stake.
+   */
+  quiet?: boolean;
 }) {
   const studioTarget = useStudioTargetOptional();
   const status = studioTarget?.status ?? "loading";
   const selected = studioTarget?.selected ?? null;
   const missing = studioTarget?.missing ?? null;
-  const canChoose = (studioTarget?.targets.length ?? 0) > 0;
+  const openCount = studioTarget?.targets.length ?? 0;
+  const canChoose = openCount > 0;
+  const unknownPlace = studioTarget?.unknownPlace ?? false;
   const twins = studioTarget?.twins ?? 0;
   const nameMatch = studioTarget?.nameMatch ?? null;
   const hidden =
@@ -30,7 +35,9 @@ export default function StudioNotice({
     selected !== null ||
     studioTarget.withoutStudio ||
     !!studioTarget.selectingKey ||
-    (chatStarted && !canChoose && !missing);
+    (quiet && !missing && !unknownPlace) ||
+    // One Studio and no choice yet is the moment before it's picked up.
+    (openCount === 1 && !missing && !unknownPlace);
 
   // The notice going away says nothing to a screen reader, so a return gets said out loud.
   const [returned, setReturned] = useState<string | null>(null);
@@ -58,9 +65,13 @@ export default function StudioNotice({
             ? canChoose
               ? `${place} isn't open. Reopen it or choose another.`
               : `${place} isn't open. Reopen it to use Studio again.`
-            : canChoose
-              ? "Several Studios are open."
-              : "No Studio connected.";
+            : unknownPlace
+              ? canChoose
+                ? "Choose which Studio this chat worked in."
+                : "This chat worked in a Studio that isn't open."
+              : canChoose
+                ? "Several Studios are open."
+                : "No Studio connected.";
 
   const openSetup = () => {
     posthog.capture(
@@ -72,8 +83,8 @@ export default function StudioNotice({
   const useMatch = () => {
     if (!nameMatch) return;
     // This button goes away with the question, so focus moves to what comes next.
-    void studioTarget?.select(nameMatch).then(() => {
-      document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
+    void studioTarget?.select(nameMatch).then((worked) => {
+      if (worked) document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
     });
   };
   const workWithoutStudio = () => {
@@ -82,6 +93,7 @@ export default function StudioNotice({
       analyticsProperties("studio_target", { status, had_place: place !== null }),
     );
     studioTarget?.workWithoutStudio();
+    setReturned("Working without Studio.");
     document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
   };
 
@@ -111,6 +123,11 @@ export default function StudioNotice({
           <button type="button" onClick={workWithoutStudio} className={LINK}>
             Work without Studio
           </button>
+          {studioTarget?.error ? (
+            <p role="alert" className="w-full text-center text-destructive">
+              {studioTarget.error}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </>

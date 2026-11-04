@@ -38,16 +38,19 @@ function Chat() {
   const studioConnection = useStudioConnection();
   const studioTarget = useStudioTargetOptional();
   const studioUse = useChatStudioUse();
-  const tieToStudio = studioTarget?.tieToStudio;
-  const usingStudioKey = studioTarget?.selected?.key;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs again for each Studio it could tie to
+  const reportStudioUse = studioTarget?.reportStudioUse;
+  const studioStatus = studioTarget?.status;
+  const started = studioUse?.started;
+  const usedStudio = studioUse?.usedStudio;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the report waits for saved places, which the status follows
   useEffect(() => {
-    if (studioUse.usedStudio) tieToStudio?.();
-  }, [studioUse.usedStudio, tieToStudio, usingStudioKey]);
+    if (started === undefined || usedStudio === undefined) return;
+    reportStudioUse?.({ started, usedStudio });
+  }, [reportStudioUse, started, usedStudio, studioStatus]);
+  const hasSelectedStudio = studioTarget?.selected != null && studioTarget.status === "ready";
   // A chat whose place closed keeps its Explorer, which says what happened and comes back with it.
   const hasStudioTarget =
-    (studioTarget?.selected !== null && studioTarget?.status === "ready") ||
-    (!!studioTarget?.missing && studioTarget.status !== "loading");
+    hasSelectedStudio || (!!studioTarget?.missing && studioTarget.status !== "loading");
 
   // Get active session title from the sessions list
   const activeSessionTitle = allSessions?.find((s) => s.id === activeSessionId)?.title ?? null;
@@ -86,10 +89,14 @@ function Chat() {
     posthog.capture("studio_setup_skipped", analyticsProperties("studio_target"));
     void desktop.patchConfig({ studioSetupSkipped: true });
   }, []);
-  const needsSetup = studioConnection.state === "waiting" && setupSkipped !== true;
+  // Setup is for getting started. Once connected, Studio closing mustn't take over someone's chat.
+  const everConnected = useRef(false);
+  if (studioConnection.state === "connected") everConnected.current = true;
+  const needsSetup =
+    studioConnection.state === "waiting" && setupSkipped !== true && !everConnected.current;
   const connectionPending =
-    studioConnection.state === "checking" ||
-    (studioConnection.state === "waiting" && setupSkipped === null);
+    studioConnection.state !== "connected" &&
+    (setupSkipped === null || (studioConnection.state === "checking" && !setupSkipped));
 
   const appScreen =
     showStudioSetup || (needsSetup && !connectionPending)
@@ -247,20 +254,22 @@ function Chat() {
                 <Boxes aria-hidden="true" size={14} />
                 Explorer
               </button>
-              <button
-                type="button"
-                onClick={handleOpenPlaytest}
-                disabled={isBusy || !!studioTarget?.sendBlock}
-                className={`${MENU_TRIGGER} gap-1.5`}
-                aria-pressed={showPlaytest}
-                title={
-                  studioTarget?.sendBlock ??
-                  (isBusy ? "Wait for the agent to finish" : "Create a playtest plan")
-                }
-              >
-                <Play aria-hidden="true" size={14} fill="currentColor" />
-                Playtest
-              </button>
+              {hasSelectedStudio ? (
+                <button
+                  type="button"
+                  onClick={handleOpenPlaytest}
+                  disabled={isBusy || !!studioTarget?.sendBlock}
+                  className={`${MENU_TRIGGER} gap-1.5`}
+                  aria-pressed={showPlaytest}
+                  title={
+                    studioTarget?.sendBlock ??
+                    (isBusy ? "Wait for the agent to finish" : "Create a playtest plan")
+                  }
+                >
+                  <Play aria-hidden="true" size={14} fill="currentColor" />
+                  Playtest
+                </button>
+              ) : null}
             </>,
             titlebarActions,
           )
@@ -344,7 +353,7 @@ function Chat() {
 
             <ChatMessages />
             <StudioNotice
-              chatStarted={studioUse.started}
+              quiet={studioUse?.started === true || setupSkipped === true}
               onOpenSetup={handleOpenStudioSetup}
               onOpenPicker={() => setPickerRequest((request) => request + 1)}
             />

@@ -224,8 +224,9 @@ const SendButton = memo(function SendButton({
         <button
           type="button"
           onClick={onSend}
-          disabled={(!text.trim() && !hasAttachments) || !canSend || !!blockedReason}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-30"
+          disabled={(!text.trim() && !hasAttachments) || !canSend}
+          aria-disabled={!!blockedReason}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-30 aria-disabled:opacity-30"
           title={blockedReason ?? "Send"}
         >
           <svg

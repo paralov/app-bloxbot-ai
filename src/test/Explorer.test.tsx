@@ -294,8 +294,28 @@ describe("Explorer", () => {
     }
   });
 
+  it("moves through the tree with the arrow keys, with one Tab stop", async () => {
+    const lighting = {
+      ...tree.roots[0],
+      name: "Lighting",
+      className: "Lighting",
+      path: "game.Lighting",
+    };
+    mocks.getSnapshot.mockResolvedValue({ ...tree, roots: [lighting, ...tree.roots] });
+    start();
+    await advance(0);
+    const rows = screen.getAllByRole("treeitem");
+    expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
+    expect(rows[0]?.tabIndex).toBe(0);
+
+    rows[0]?.focus();
+    fireEvent.keyDown(rows[0] as HTMLElement, { key: "ArrowDown" });
+    await advance(50);
+    expect(document.activeElement).toBe(screen.getAllByRole("treeitem")[1]);
+  });
+
   it("announces that objects are loading", async () => {
-    mocks.getSnapshot.mockReturnValue(new Promise(() => {}));
+    mocks.getSnapshot.mockReturnValueOnce(new Promise(() => {}));
     start();
     await advance(0);
     expect(screen.getByRole("status")).toHaveTextContent("Loading objects.");

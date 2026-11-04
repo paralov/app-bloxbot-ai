@@ -6,7 +6,6 @@ import { PINNED_OPENCODE_RELEASE } from "../../electron/services/openCodePinnedR
 
 const SUPPORTED_PLATFORMS = [
   ["darwin", "arm64"],
-  ["darwin", "x64"],
   ["win32", "x64"],
   ["linux", "x64"],
 ] as const;

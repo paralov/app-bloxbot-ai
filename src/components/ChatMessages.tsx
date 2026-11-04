@@ -1256,7 +1256,7 @@ function ChatMessages() {
         <div className="animate-fade-in-up text-center">
           <h2 className="text-lg font-medium text-foreground">What would you like to build?</h2>
           <p className="mt-2 text-xs text-muted-foreground">
-            Ask me to create scripts, design game mechanics, or modify your Roblox Studio project.
+            Ask me to work on your Roblox game, build a small website, or anything else.
           </p>
         </div>
       </div>

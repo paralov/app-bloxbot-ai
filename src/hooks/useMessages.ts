@@ -12,7 +12,6 @@ import type { MessageWithParts } from "@/types";
 
 const NOOP_KEY = ["__noop__"] as const;
 const EMPTY_IDS: string[] = [];
-const NO_STUDIO_USE = { started: false, usedStudio: false };
 const EMPTY_CACHE: MessagesCache = { messageIds: [], messagesById: {} };
 
 export function mergeMessagesSnapshot(
@@ -140,7 +139,7 @@ export function useMessage(messageId: string): MessageWithParts | undefined {
  * Undefined until its messages load.
  */
 /** Whether this chat is under way, and whether the agent has used Studio in it. */
-export function useChatStudioUse(): { started: boolean; usedStudio: boolean } {
+export function useChatStudioUse(): { started: boolean; usedStudio: boolean } | null {
   const { activeSessionId } = useActiveSession();
   const { client, ready } = useOpenCodeClient();
   const queryClient = useQueryClient();
@@ -166,7 +165,7 @@ export function useChatStudioUse(): { started: boolean; usedStudio: boolean } {
         }),
         [],
       ),
-    }).data ?? NO_STUDIO_USE
+    }).data ?? null
   );
 }
 

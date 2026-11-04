@@ -209,6 +209,7 @@ describe("OpenCode binary releases", () => {
           arch: "x64",
           fetch,
           extractArchive: vi.fn(),
+          delays: { resumeMs: [] },
         }),
       ),
     );
@@ -875,6 +876,7 @@ describe("OpenCode installs that Windows blocks", () => {
           arch: "x64",
           fetch,
           fileSystem: { freeBytes: PLENTY_OF_SPACE },
+          delays: { resumeMs: [] },
         }),
       ),
     );
@@ -912,11 +914,17 @@ describe("OpenCode downloads on a poor connection", () => {
 
   /** A body that sends `chunk`, then a few empty chunks, and then nothing, without ever ending. */
   function stalledBody(chunk: Uint8Array) {
+    let cancelled = false;
     return new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
       start(controller) {
         controller.enqueue(chunk);
         for (const delayMs of [20_000, 40_000]) {
-          setTimeout(() => controller.enqueue(new Uint8Array(0)), delayMs);
+          setTimeout(() => {
+            if (!cancelled) controller.enqueue(new Uint8Array(0));
+          }, delayMs);
         }
       },
     });
@@ -1334,6 +1342,55 @@ describe("OpenCode downloads on a poor connection", () => {
     });
   });
 
+  it("tries again when a connection drops before the first byte", async () => {
+    const digest = createHash("sha256").update(Buffer.from("whole")).digest("hex");
+    const releases = [release("v2.2.2", ASSET_NAME, `sha256:${digest}`)];
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(releases))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(new Response("whole"));
+    const { result } = await runInVirtualTime(
+      ensureOpenCodeBinary({
+        cacheDirectory: await makeTemporaryDirectory(),
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive: writeExecutable("opencode"),
+        delays: { verifyMs: 0 },
+      }),
+    );
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+  });
+
+  it("keeps what arrived when the server errors on a resume, and carries on", async () => {
+    const whole = Buffer.alloc(2048, 3);
+    const digest = createHash("sha256").update(whole).digest("hex");
+    const releases = [release("v2.2.2", ASSET_NAME, `sha256:${digest}`)];
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(releases))
+      .mockResolvedValueOnce(new Response(stalledBody(whole.subarray(0, 1024))))
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(whole.subarray(1024), {
+          status: 206,
+          headers: { "content-range": "bytes 1024-2047/2048" },
+        }),
+      );
+    const { result } = await runInVirtualTime(
+      ensureOpenCodeBinary({
+        cacheDirectory: await makeTemporaryDirectory(),
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive: writeExecutable("opencode"),
+        delays: { verifyMs: 0 },
+      }),
+    );
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+  });
+
   it("aborts a download that stops sending data and says how far it got", async () => {
     const cacheDirectory = await makeTemporaryDirectory();
     const archive = Buffer.from("never finishes");
@@ -1425,7 +1482,7 @@ describe("OpenCode downloads refused over an unknown certificate issuer", () => 
           platform: "darwin",
           arch: "arm64",
           extractArchive: writeExecutable("opencode"),
-          delays: { verifyMs: 0 },
+          delays: { verifyMs: 0, resumeMs: [] },
           ...options,
         }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
       ),

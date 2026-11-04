@@ -174,7 +174,9 @@ describe("StudioTargetProvider", () => {
       </StudioTargetProvider>,
     );
     expect(
-      await screen.findByText("block: 2 places named Baseplate are open. Choose one."),
+      await screen.findByText(
+        "block: 2 places named Baseplate are open. Choose one, or work without Studio.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -186,9 +188,9 @@ describe("StudioTargetProvider", () => {
       mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
       mocks.discover.mockResolvedValue({ targets: [dungeon], selectedKey: null });
       mocks.select.mockResolvedValue({ selected: dungeon, verified: true });
-      let tie: () => void = () => {};
+      let report: (use: { started: boolean; usedStudio: boolean }) => void = () => {};
       function Tie() {
-        tie = useStudioTargetOptional()?.tieToStudio ?? tie;
+        report = useStudioTargetOptional()?.reportStudioUse ?? report;
         return null;
       }
       const tree = (
@@ -201,6 +203,7 @@ describe("StudioTargetProvider", () => {
       await act(() => vi.advanceTimersByTimeAsync(0));
       expect(screen.getByText("selected: s1")).toBeInTheDocument();
       expect(mocks.patchConfig).not.toHaveBeenCalled();
+      act(() => report({ started: true, usedStudio: false }));
 
       // Closing it costs nothing yet: this chat may be about something else entirely.
       mocks.discover.mockResolvedValue({ targets: [], selectedKey: null });
@@ -212,7 +215,7 @@ describe("StudioTargetProvider", () => {
       await act(() => vi.advanceTimersByTimeAsync(2_000));
       expect(screen.getByText("selected: s1")).toBeInTheDocument();
 
-      act(() => tie());
+      act(() => report({ started: true, usedStudio: true }));
       expect(mocks.patchConfig).toHaveBeenCalledWith({
         studioTargetsBySession: { chat: dungeon },
       });
@@ -252,6 +255,56 @@ describe("StudioTargetProvider", () => {
     }
   });
 
+  it("forgets a place an older version saved for a chat that never used Studio", async () => {
+    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: dungeon } });
+    mocks.discover.mockResolvedValue({ targets: [], selectedKey: null });
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("missing: Dungeon")).toBeInTheDocument();
+
+    await act(async () => context?.reportStudioUse({ started: true, usedStudio: false }));
+
+    expect(await screen.findByText("missing: none")).toBeInTheDocument();
+    expect(mocks.patchConfig).toHaveBeenCalledWith({ studioTargetsBySession: {} });
+  });
+
+  it("asks which Studio when a chat used one and it isn't written down", async () => {
+    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+    mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+    mocks.select.mockResolvedValue({ selected: lobby, verified: true });
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("selected: lobby")).toBeInTheDocument();
+
+    await act(async () => context?.reportStudioUse({ started: true, usedStudio: true }));
+
+    expect(screen.getByText("selected: none")).toBeInTheDocument();
+    expect(
+      screen.getByText("block: Choose which Studio this chat worked in, or work without Studio."),
+    ).toBeInTheDocument();
+    expect(mocks.patchConfig).not.toHaveBeenCalled();
+  });
+
   describe("working without Studio", () => {
     const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
     let context: ReturnType<typeof useStudioTargetOptional> = null;
@@ -275,7 +328,9 @@ describe("StudioTargetProvider", () => {
       renderIt();
       expect(await screen.findByText("missing: Dungeon")).toBeInTheDocument();
       expect(
-        screen.getByText("block: Dungeon isn't open. Reopen it or choose another."),
+        screen.getByText(
+          "block: Dungeon isn't open. Reopen it, choose another, or work without Studio.",
+        ),
       ).toBeInTheDocument();
 
       await act(async () => context?.workWithoutStudio());
@@ -466,7 +521,9 @@ describe("StudioTargetProvider", () => {
     expect(await screen.findByText("block: Finding Studios.")).toBeInTheDocument();
 
     await act(async () => finish({ targets: [lobby, other], selectedKey: null }));
-    expect(await screen.findByText("block: Choose a Studio first.")).toBeInTheDocument();
+    // Several open is only a question if Studio comes up, so the agent asks rather than the box.
+    expect(await screen.findByText("status: ready")).toBeInTheDocument();
+    expect(screen.getByText("block: none")).toBeInTheDocument();
     unmount();
 
     mocks.discover.mockResolvedValue({ targets: [], selectedKey: null });
@@ -592,7 +649,9 @@ describe("StudioTargetProvider", () => {
     expect(await screen.findByText("match: new-id")).toBeInTheDocument();
     expect(screen.getByText("selected: none")).toBeInTheDocument();
     expect(
-      screen.getByText("block: Is the open Baseplate this chat's place? Choose it to keep going."),
+      screen.getByText(
+        "block: Is the open Baseplate this chat's place? Choose it, or work without Studio.",
+      ),
     ).toBeInTheDocument();
     expect(mocks.select).not.toHaveBeenCalled();
 

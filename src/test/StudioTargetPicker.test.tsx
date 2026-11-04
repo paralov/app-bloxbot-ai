@@ -203,7 +203,7 @@ describe("StudioTargetPicker", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Choose Studio/ }));
     expect(
-      screen.getByText("Is the open Dungeon this chat's place? Choose it to keep going."),
+      screen.getByText("Is the open Dungeon this chat's place? Choose it, or work without Studio."),
     ).toBeVisible();
     expect(selectStudioTarget).not.toHaveBeenCalled();
     expect(patchConfig).not.toHaveBeenCalled();
@@ -373,7 +373,7 @@ describe("StudioTargetPicker", () => {
 
     it("counts failed Refreshes as nothing connected", async () => {
       discoverStudioTargets.mockRejectedValue(new Error("offline"));
-      await openPicker(/Choose Studio/);
+      await openPicker(/No Studio/);
       await refresh();
       await refresh();
       await refresh();
@@ -529,7 +529,9 @@ describe("StudioTargetPicker", () => {
       });
       await openPicker(/Choose Studio/);
 
-      expect(screen.getByText("Dungeon isn't open. Reopen it or choose another.")).toBeVisible();
+      expect(
+        screen.getByText("Dungeon isn't open. Reopen it, choose another, or work without Studio."),
+      ).toBeVisible();
       expect(selectStudioTarget).not.toHaveBeenCalled();
     });
 

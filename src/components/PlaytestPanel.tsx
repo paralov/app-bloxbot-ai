@@ -164,8 +164,8 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       notify.error("Complete every playtest field before running it.");
       return;
     }
-    if (studioTarget?.sendBlock) {
-      notify.error(studioTarget.sendBlock);
+    if (studioTarget && !studioTarget.selected) {
+      notify.error(studioTarget.sendBlock ?? "Choose a Studio first.");
       return;
     }
     posthog.capture(

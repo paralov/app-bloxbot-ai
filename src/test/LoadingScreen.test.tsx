@@ -63,6 +63,37 @@ describe("startup progress", () => {
     expect(screen.getByRole("button", { name: "Restarting..." })).toBeDisabled();
   });
 
+  it("fills in a report with what happened, for checking before sending", () => {
+    render(
+      <LoadingScreen
+        message="BloxBot couldn't start"
+        technicalDetail="OpenCode did not become healthy"
+        error
+        onRetry={() => {}}
+      />,
+    );
+    const href = screen.getByRole("link", { name: "Report a problem" }).getAttribute("href") ?? "";
+    expect(href).toContain("/issues/new");
+    expect(decodeURIComponent(href.replace(/\+/g, " "))).toContain(
+      "OpenCode did not become healthy",
+    );
+  });
+
+  it("says out loud when an update check fails, and how far a download has got", async () => {
+    checkForUpdate.mockRejectedValue(new Error("offline"));
+    const { unmount } = render(<LoadingScreen message="Couldn't start" error onRetry={() => {}} />);
+    await expect(screen.findByText("Couldn't check for updates")).resolves.toBeInTheDocument();
+    unmount();
+
+    render(
+      <LoadingScreen
+        message="Downloading"
+        startup={{ step: 1, label: "Preparing", progress: 0.6 }}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Downloaded 50%");
+  });
+
   it("says out loud when it finds an update", async () => {
     checkForUpdate.mockResolvedValue({ version: "9.9.9", body: null });
     render(<LoadingScreen message="BloxBot couldn't start" error onRetry={() => {}} />);
@@ -92,10 +123,9 @@ describe("startup progress", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy folder" }));
     expect(writeText).toHaveBeenCalledWith("C:\\BloxBot");
     expect(await screen.findByRole("button", { name: "Copied" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "How to add an exclusion" })).toHaveAttribute(
-      "href",
-      expect.stringContaining("support.microsoft.com"),
-    );
+    expect(
+      screen.getByRole("link", { name: "How to add an exclusion in Windows Security" }),
+    ).toHaveAttribute("href", expect.stringContaining("support.microsoft.com"));
     vi.restoreAllMocks();
     expect(
       getStartupErrorPresentation("Install failed (reason: blocked_by_security)").helpLink,
@@ -177,7 +207,7 @@ describe("startup progress", () => {
     expect(moving.startup.meta).toBe("50% 2.0 KB/s");
 
     const quiet = getStartupPresentation("engine", downloading, true);
-    expect(quiet.detail).toBe("Connection paused. Still trying.");
+    expect(quiet.detail).toBe("Connection paused. Check your Wi-Fi. BloxBot keeps trying.");
     expect(quiet.startup.meta).toBe("50%");
     // With no total to measure against there's no percentage, and the old speed is no use.
     expect(

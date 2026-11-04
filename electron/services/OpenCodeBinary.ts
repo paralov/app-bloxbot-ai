@@ -40,8 +40,6 @@ export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 const DOWNLOAD_RESUMES = 3;
 /** How long a newer version may hold up a launch that already has a working one. */
 const UPDATE_DOWNLOAD_LIMIT_MS = 30_000;
-/** Long enough to outlast a dropped Wi-Fi connection before calling it failed. */
-const RESUME_DELAYS_MS = [5_000, 15_000, 30_000];
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024;
 const EXTRACT_ATTEMPTS = 3;
@@ -162,6 +160,8 @@ export interface OpenCodeInstallDelays {
   verifyMs: number;
   /** Before each publish (rename) attempt after the first, which also sets how many there are. */
   renameRetryMs: readonly number[];
+  /** Before each try after a download drops, which sets how long a dropped connection can last. */
+  resumeMs: readonly number[];
 }
 
 const DEFAULT_DELAYS: OpenCodeInstallDelays = {
@@ -169,6 +169,8 @@ const DEFAULT_DELAYS: OpenCodeInstallDelays = {
   verifyMs: 500,
   // About 30 seconds. Scanning a new 180 MB executable can hold its folder far longer than a blip.
   renameRetryMs: [250, 500, 1_000, 2_000, 4_000, 8_000, 8_000, 8_000],
+  // Long enough to outlast a dropped Wi-Fi connection before calling it failed.
+  resumeMs: [5_000, 15_000, 30_000],
 };
 
 async function defaultFreeBytes(path: string): Promise<number | null> {
@@ -412,6 +414,7 @@ async function downloadWithResume(
   outerSignal: AbortSignal,
   savedPath: string,
   timeLimitMs: number | undefined,
+  resumeDelaysMs: readonly number[],
   reportProgress?: StartupProgressReporter,
 ): Promise<{ archiveBuffer: Buffer | undefined; response: Response }> {
   const limit = new AbortController();
@@ -427,7 +430,7 @@ async function downloadWithResume(
         );
   const signal = AbortSignal.any([outerSignal, limit.signal]);
   try {
-    return await downloadUntilDone(url, fetchFn, signal, savedPath, reportProgress);
+    return await downloadUntilDone(url, fetchFn, signal, savedPath, resumeDelaysMs, reportProgress);
   } finally {
     clearTimeout(limitTimer);
   }
@@ -438,6 +441,7 @@ async function downloadUntilDone(
   fetchFn: Fetch,
   signal: AbortSignal,
   savedPath: string,
+  resumeDelaysMs: readonly number[],
   reportProgress?: StartupProgressReporter,
 ): Promise<{ archiveBuffer: Buffer | undefined; response: Response }> {
   let partial = await readSavedDownload(savedPath);
@@ -446,6 +450,13 @@ async function downloadUntilDone(
   let bytesAtLastFailure = partial.bytes;
   for (;;) {
     const stall = watchForStall(DOWNLOAD_STALL_TIMEOUT_MS, () => partial.bytes);
+    // Said before the first byte, because that wait can be the long one.
+    reportProgress?.({
+      phase: "downloading",
+      downloadedBytes: partial.bytes,
+      totalBytes: partial.totalBytes,
+      bytesPerSecond: 0,
+    });
     try {
       const downloadSignal = AbortSignal.any([signal, stall.signal]);
       const response = await fetchFn(url, {
@@ -462,6 +473,11 @@ async function downloadUntilDone(
         partial = emptyDownload();
         bytesAtLastFailure = 0;
         if (resumes++ < DOWNLOAD_RESUMES) continue;
+      }
+      // With data in hand, a passing error shouldn't cost it, so this goes the way a drop does.
+      if (!response.ok && partial.bytes > 0) {
+        await response.body?.cancel().catch(() => {});
+        throw new Error(`the server answered ${response.status}`);
       }
       if (!response.ok) return { archiveBuffer: undefined, response };
       if (partial.bytes > 0 && resumedFrom(response) !== partial.bytes) {
@@ -482,7 +498,7 @@ async function downloadUntilDone(
     } catch (cause) {
       if (partial.bytes > bytesAtLastFailure) resumes = 0;
       bytesAtLastFailure = partial.bytes;
-      if (signal.aborted || partial.bytes === 0 || resumes >= DOWNLOAD_RESUMES) {
+      if (signal.aborted || hasUnknownIssuer(cause) || resumes >= DOWNLOAD_RESUMES) {
         if (partial.bytes > 0) {
           await saveDownload(savedPath, Buffer.concat(partial.chunks, partial.bytes));
         }
@@ -491,7 +507,7 @@ async function downloadUntilDone(
       resumes += 1;
       // A moment for a connection that just dropped, or every try would land in the same blip.
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, RESUME_DELAYS_MS[resumes - 1] ?? 0);
+        const timer = setTimeout(resolve, resumeDelaysMs[resumes - 1] ?? 0);
         signal.addEventListener(
           "abort",
           () => {
@@ -501,7 +517,9 @@ async function downloadUntilDone(
           { once: true },
         );
       }).catch(async (reason: unknown) => {
-        await saveDownload(savedPath, Buffer.concat(partial.chunks, partial.bytes));
+        if (partial.bytes > 0) {
+          await saveDownload(savedPath, Buffer.concat(partial.chunks, partial.bytes));
+        }
         throw reason;
       });
     } finally {
@@ -534,13 +552,6 @@ export function getOpenCodeAssetSpec(
   if (platform === "darwin" && arch === "arm64") {
     return Effect.succeed({
       archiveName: "opencode-darwin-arm64.zip",
-      executableName: "opencode",
-      format: "zip",
-    });
-  }
-  if (platform === "darwin" && arch === "x64") {
-    return Effect.succeed({
-      archiveName: "opencode-darwin-x64.zip",
       executableName: "opencode",
       format: "zip",
     });
@@ -1075,6 +1086,7 @@ function installRelease(
               signal,
               savedDownload,
               updating ? UPDATE_DOWNLOAD_LIMIT_MS : undefined,
+              context.delays.resumeMs,
               updating
                 ? (progress) =>
                     reportProgress?.(

@@ -19,7 +19,7 @@ Roblox Studio can work with AI tools, but getting there usually means setting up
 
 ## Get started
 
-1. [Download BloxBot](https://github.com/paralov/app-bloxbot-ai/releases/latest) for macOS, Windows or Debian/Ubuntu.
+1. [Download BloxBot](https://github.com/paralov/app-bloxbot-ai/releases/latest) for macOS (Apple Silicon), Windows or Debian/Ubuntu.
 2. Open a place in Roblox Studio.
 3. In Studio, open **Assistant** settings (three-dot menu) → **MCP Servers** and turn on **Studio as MCP server**.
 4. Open BloxBot and start building. Add your own models any time in Settings → Providers.

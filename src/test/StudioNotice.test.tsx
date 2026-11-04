@@ -121,7 +121,7 @@ describe("StudioNotice", () => {
       targets: [],
       missing: null,
     };
-    render(<StudioNotice onOpenSetup={onOpenSetup} onOpenPicker={onOpenPicker} chatStarted />);
+    render(<StudioNotice onOpenSetup={onOpenSetup} onOpenPicker={onOpenPicker} quiet />);
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
     expect(screen.queryByRole("button")).toBeNull();
   });
@@ -134,7 +134,7 @@ describe("StudioNotice", () => {
       targets: [],
       missing: DUNGEON,
     };
-    render(<StudioNotice onOpenSetup={onOpenSetup} onOpenPicker={onOpenPicker} chatStarted />);
+    render(<StudioNotice onOpenSetup={onOpenSetup} onOpenPicker={onOpenPicker} quiet />);
     expect(screen.getByRole("status")).toHaveTextContent(
       "Dungeon isn't open. Reopen it to use Studio again.",
     );
@@ -155,5 +155,17 @@ describe("StudioNotice", () => {
   it("asks for a choice when several Studios are open and this chat has none", () => {
     show({ targets: [LOBBY, DUNGEON] });
     expect(screen.getByRole("status")).toHaveTextContent("Several Studios are open.");
+  });
+
+  it("stays out of the moment before the only Studio is picked up", () => {
+    show({ targets: [LOBBY] });
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("asks which Studio when a chat has used one and it isn't written down", () => {
+    show({ targets: [LOBBY], unknownPlace: true });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Choose which Studio this chat worked in.",
+    );
   });
 });

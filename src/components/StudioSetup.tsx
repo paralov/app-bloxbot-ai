@@ -176,8 +176,11 @@ function StudioSetup({
 
         <div className="mt-4 overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-5 py-3">
-            <div aria-live="polite">
-              <p className="text-xs font-medium text-muted-foreground">
+            <div>
+              <output className="sr-only">
+                Step {stepIndex + 1} of {STUDIO_SETUP_STEPS.length}. {step.description}
+              </output>
+              <p aria-hidden="true" className="text-xs font-medium text-muted-foreground">
                 Step {stepIndex + 1} of {STUDIO_SETUP_STEPS.length}
               </p>
               <h2 className="mt-0.5 text-base font-medium">{step.title}</h2>
@@ -261,7 +264,22 @@ function StudioSetup({
         {problem ? (
           <output className="mx-auto mt-3 flex max-w-lg items-start justify-center gap-2 text-center text-xs leading-relaxed text-muted-foreground">
             <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
-            {PROBLEM_COPY[problem]}
+            <span>
+              {PROBLEM_COPY[problem]}
+              {problem === "not_installed" ? (
+                <>
+                  {" "}
+                  <a
+                    href="https://create.roblox.com/docs/studio/setup"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-foreground"
+                  >
+                    Get Roblox Studio
+                  </a>
+                </>
+              ) : null}
+            </span>
           </output>
         ) : (
           <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">

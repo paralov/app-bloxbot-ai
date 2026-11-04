@@ -496,7 +496,7 @@ describe("ChatInput", () => {
   });
 
   it("won't send while this chat's place is closed, keeping what was typed", async () => {
-    studio.sendBlock = "Dungeon isn't open. Reopen it or choose another.";
+    studio.sendBlock = "Dungeon isn't open. Reopen it, choose another, or work without Studio.";
     try {
       const client = createClient();
       render(<TestChatInput client={client} queryClient={createQueryClient()} />);
@@ -505,7 +505,9 @@ describe("ChatInput", () => {
       await act(async () => {
         fireEvent.input(textarea, { target: { textContent: "Delete everything" } });
       });
-      expect(screen.getByTitle("Dungeon isn't open. Reopen it or choose another.")).toBeDisabled();
+      expect(
+        screen.getByTitle("Dungeon isn't open. Reopen it, choose another, or work without Studio."),
+      ).toHaveAttribute("aria-disabled", "true");
 
       await act(async () => {
         fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });

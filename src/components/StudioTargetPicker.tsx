@@ -77,7 +77,11 @@ export default function StudioTargetPicker({
     status === "loading"
       ? "Finding Studios…"
       : (selected?.label ??
-        (withoutStudio ? "Not using Studio" : status === "empty" ? "No Studio" : "Choose Studio"));
+        (withoutStudio
+          ? "Not using Studio"
+          : status === "empty" || status === "error"
+            ? "No Studio"
+            : "Choose Studio"));
 
   const refresh = async () => {
     // Refresh keeps keyboard focus while it's busy, so it can't use the disabled attribute.
@@ -138,9 +142,11 @@ export default function StudioTargetPicker({
           <li key={step.title}>{step.description}</li>
         ))}
       </ol>
-      <p className="pt-1.5 text-xs leading-relaxed text-muted-foreground">
-        BloxBot connects on its own once Studio is ready.
-      </p>
+      {withoutStudio ? null : (
+        <p className="pt-1.5 text-xs leading-relaxed text-muted-foreground">
+          BloxBot connects on its own once Studio is ready.
+        </p>
+      )}
       {showMeHow}
     </div>
   );
@@ -150,6 +156,8 @@ export default function StudioTargetPicker({
       open={open}
       onOpenChange={(next) => {
         if (next) {
+          // Nothing checks in the background for a chat that isn't using Studio.
+          if (withoutStudio) void discover();
           posthog.capture(
             "studio_target_picker_opened",
             analyticsProperties("studio_target", { status }),
@@ -266,6 +274,22 @@ export default function StudioTargetPicker({
             {error}
           </p>
         ) : null}
+        {withoutStudio || status === "loading" ? null : (
+          <button
+            type="button"
+            onClick={() => {
+              posthog.capture(
+                "studio_target_work_without",
+                analyticsProperties("studio_target", { status, had_place: selected !== null }),
+              );
+              studioTarget.workWithoutStudio();
+              setOpen(false);
+            }}
+            className="mx-2 mb-1 mt-1 block text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Work without Studio
+          </button>
+        )}
       </MenuContent>
     </Popover>
   );

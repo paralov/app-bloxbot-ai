@@ -22,6 +22,7 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import {
   type MouseEvent,
   memo,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -79,6 +80,7 @@ interface TreeRowProps {
   isExpanded: boolean;
   isSelected: boolean;
   isRenaming: boolean;
+  isTabStop: boolean;
   onToggle: (path: string) => void;
   onSelect: (node: ExplorerNode) => void;
   onOpenMenu: (event: MouseEvent, node: ExplorerNode) => void;
@@ -116,6 +118,7 @@ const TreeRow = memo(function TreeRow({
   isExpanded,
   isSelected,
   isRenaming,
+  isTabStop,
   onToggle,
   onSelect,
   onOpenMenu,
@@ -131,7 +134,7 @@ const TreeRow = memo(function TreeRow({
       role="treeitem"
       data-path={node.path}
       data-id={id}
-      tabIndex={0}
+      tabIndex={isTabStop ? 0 : -1}
       draggable={!isRenaming}
       onDragStart={(event) => {
         event.dataTransfer.setData(OBJECT_DRAG_TYPE, node.path);
@@ -162,6 +165,7 @@ const TreeRow = memo(function TreeRow({
       <button
         type="button"
         aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`}
+        tabIndex={-1}
         disabled={!canExpand}
         onClick={(event) => {
           event.stopPropagation();
@@ -253,6 +257,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const { tree, truncated, syncing, syncError, waiting, setDemand, requestSync } =
     useExplorerTree();
   const treeRef = useRef<HTMLDivElement>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const [waitingLong, setWaitingLong] = useState(false);
   useEffect(() => {
     setWaitingLong(false);
@@ -467,7 +472,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     ? studioTarget.status === "error"
       ? "Couldn't reach Studio."
       : studioTarget.nameMatch
-        ? "Choose this chat's place to see its objects."
+        ? `Is the open ${placeName(studioTarget.nameMatch.label)} this chat's place?`
         : `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
     : (waitingNotice ??
       (syncError
@@ -489,6 +494,77 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       checkNowFocused.current = false;
     }
   }, [statusNotice, tree]);
+
+  const focusableRows = rows.filter((row) => !row.loading);
+  const tabStopId =
+    focusedId && focusableRows.some((row) => nodeId(row.node) === focusedId)
+      ? focusedId
+      : focusableRows[0]
+        ? nodeId(focusableRows[0].node)
+        : null;
+
+  const focusRow = (id: string) => {
+    setFocusedId(id);
+    const index = rows.findIndex((row) => !row.loading && nodeId(row.node) === id);
+    if (index >= 0) virtualizer.scrollToIndex(index);
+    requestAnimationFrame(() => {
+      const element = [
+        ...(treeRef.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? []),
+      ].find((item) => item.dataset.id === id);
+      element?.focus();
+    });
+  };
+
+  // One Tab stop for the whole tree and arrow keys inside it, as a tree is expected to work.
+  const moveThroughTree = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.tagName === "INPUT") return;
+    const id = target.closest<HTMLElement>("[role=treeitem]")?.dataset.id;
+    const index = focusableRows.findIndex((row) => nodeId(row.node) === id);
+    if (!id || index < 0) return;
+    const row = focusableRows[index];
+    if (!row) return;
+    const next = focusableRows[index + 1];
+    const previous = focusableRows[index - 1];
+    const go = (to: (typeof focusableRows)[number] | undefined) => {
+      event.preventDefault();
+      if (to) focusRow(nodeId(to.node));
+    };
+    const canExpand = row.node.hasChildren || row.node.children.length > 0;
+    switch (event.key) {
+      case "ArrowDown":
+        go(next);
+        break;
+      case "ArrowUp":
+        go(previous);
+        break;
+      case "Home":
+        go(focusableRows[0]);
+        break;
+      case "End":
+        go(focusableRows[focusableRows.length - 1]);
+        break;
+      case "ArrowRight":
+        if (canExpand && !visibleExpanded.has(id)) {
+          event.preventDefault();
+          toggleNode(id);
+        } else if (canExpand) go(next);
+        break;
+      case "ArrowLeft":
+        if (canExpand && visibleExpanded.has(id)) {
+          event.preventDefault();
+          toggleNode(id);
+        } else {
+          go(
+            focusableRows
+              .slice(0, index)
+              .reverse()
+              .find((item) => item.depth < row.depth),
+          );
+        }
+        break;
+    }
+  };
 
   const checkNow = (
     <button
@@ -570,7 +646,21 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           }
         >
           <span aria-hidden="true">{statusNotice}</span>
-          {placeClosed ? null : checkNow}
+          {placeClosed ? (
+            studioTarget.nameMatch ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (studioTarget.nameMatch) void studioTarget.select(studioTarget.nameMatch);
+                }}
+                className="shrink-0 underline underline-offset-2 hover:text-foreground"
+              >
+                Use it
+              </button>
+            ) : null
+          ) : (
+            checkNow
+          )}
         </div>
       ) : null}
 
@@ -587,6 +677,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }`}
         role="tree"
         aria-label="Instance hierarchy"
+        onKeyDown={moveThroughTree}
+        onFocus={(event) => {
+          const id = (event.target as HTMLElement).closest<HTMLElement>("[role=treeitem]")?.dataset
+            .id;
+          if (id) setFocusedId(id);
+        }}
       >
         {!tree && !statusNotice ? <ExplorerLoading /> : null}
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
@@ -619,6 +715,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
                 isExpanded={visibleExpanded.has(id)}
                 isSelected={selectedId === id}
                 isRenaming={renamingId === id}
+                isTabStop={tabStopId === id}
                 onToggle={toggleNode}
                 onSelect={selectNode}
                 onOpenMenu={openMenu}

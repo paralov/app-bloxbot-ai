@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import { desktop } from "@/lib/desktop";
+import { scrubErrorMessage } from "@/lib/errorReporting";
 import type { UpdateInfo } from "@/types/desktop";
+
+const REPORT_DETAIL_MAX_CHARS = 1500;
 
 interface LoadingScreenProps {
   message?: string;
@@ -31,6 +34,17 @@ export interface StartupProgress {
   meta?: string;
 }
 
+/** Opens a new issue with what happened filled in, to check before sending. */
+function reportLink(message: string, technicalDetail?: string): string {
+  const link = new URL("https://github.com/paralov/app-bloxbot-ai/issues/new");
+  link.searchParams.set("title", message);
+  if (technicalDetail) {
+    const detail = scrubErrorMessage(technicalDetail).slice(0, REPORT_DETAIL_MAX_CHARS);
+    link.searchParams.set("body", `What happened:\n\n\`\`\`\n${detail}\n\`\`\``);
+  }
+  return link.href;
+}
+
 type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up-to-date" | "error";
 
 /**
@@ -58,6 +72,10 @@ function LoadingScreen({
   const [folderCopied, setFolderCopied] = useState<"idle" | "copied" | "error">("idle");
   const [restarting, setRestarting] = useState(false);
   const busyRestarting = retrying || restarting;
+  // Each quarter is enough to follow along, and any more would talk over everything else.
+  const fraction = startup?.progress;
+  const quarter = fraction === undefined ? 0 : Math.floor(fraction * 4) * 25;
+  const downloadedBucket = quarter > 0 && quarter < 100 ? quarter : null;
   const updateRef = useRef<UpdateInfo | null>(null);
 
   async function handleCheckForUpdates() {
@@ -229,7 +247,11 @@ function LoadingScreen({
             ? `Update available: v${updateVersion}`
             : updateStatus === "up-to-date"
               ? "Up to date"
-              : null}
+              : updateStatus === "error"
+                ? "Couldn't check for updates"
+                : downloadedBucket
+                  ? `Downloaded ${downloadedBucket}%`
+                  : null}
         </output>
 
         {/* Error state: help actions */}
@@ -353,7 +375,7 @@ function LoadingScreen({
               )}
 
               <a
-                href="https://github.com/paralov/app-bloxbot-ai/issues"
+                href={reportLink(message, technicalDetail)}
                 target="_blank"
                 rel="noreferrer"
                 className="underline transition-colors hover:text-foreground"
@@ -369,7 +391,8 @@ function LoadingScreen({
                 </summary>
                 <div className="border-t px-3 py-3">
                   <p className="leading-relaxed">
-                    Add these to your report. They may include local file paths.
+                    Report a problem fills these in. They may include local file paths, so check
+                    before sending.
                   </p>
                   <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs leading-relaxed text-foreground/70">
                     {technicalDetail}

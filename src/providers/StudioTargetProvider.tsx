@@ -51,8 +51,10 @@ interface StudioTargetContextValue {
   /** Someone chose to use this chat for work that has nothing to do with Studio. */
   withoutStudio: boolean;
   workWithoutStudio(): void;
-  /** The agent has used this Studio, which is what ties a chat to a place. */
-  tieToStudio(): void;
+  /** What the chat's messages say about Studio, since using one is what ties a chat to a place. */
+  reportStudioUse(use: { started: boolean; usedStudio: boolean }): void;
+  /** This chat has used a Studio, but which one was never written down. */
+  unknownPlace: boolean;
   /** How many open Studios share the missing place's name, when that's why nothing was picked. */
   twins: number;
   /**
@@ -64,7 +66,8 @@ interface StudioTargetContextValue {
   sendBlock: string | null;
   /** Resolves with how many Studios are listed afterwards. */
   discover(): Promise<number>;
-  select(target: StudioTarget): Promise<void>;
+  /** Resolves with whether it worked. */
+  select(target: StudioTarget): Promise<boolean>;
 }
 
 const StudioTargetContext = createContext<StudioTargetContextValue | null>(null);
@@ -83,6 +86,12 @@ function discoveredPlaceIds(targets: readonly StudioTarget[]): string[] {
 /** For a chat with no Studio, so the agent doesn't go looking for one and change the wrong place. */
 export const NO_STUDIO_PROMPT_REFERENCE =
   "This chat isn't working in Roblox Studio. Do not use Roblox Studio tools unless the person asks you to connect one.";
+
+/** Several are open and nobody has said which, which is only a question if Studio comes up at all. */
+function createChooseStudioPromptReference(targets: readonly StudioTarget[]): string {
+  const names = JSON.stringify(targets.map((target) => placeName(target.label)));
+  return `Several Roblox Studio places are open: ${names}. Before using any Roblox Studio tool, ask which one this chat should work in. If the request has nothing to do with Roblox, ignore them.`;
+}
 
 export function createStudioTargetPromptReference(target: StudioTarget): string {
   return `Route every Roblox Studio MCP tool call for this request to studio_id ${JSON.stringify(target.key)}. The selected Studio is ${JSON.stringify(target.label)}${target.placeId ? ` with Place ID ${JSON.stringify(target.placeId)}` : ""}. Do not call set_active_studio; routing is stateless. Re-list Studios and stop if this studio_id is no longer connected.`;
@@ -105,6 +114,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   selectedRef.current = selected;
   const chatsWithoutStudioRef = useRef<ReadonlySet<string>>(new Set());
   const [withoutStudio, setWithoutStudio] = useState(false);
+  const studioUseRef = useRef<{ session: string; used: boolean } | null>(null);
+  const unknownPlaceRef = useRef<string | null>(null);
+  // Saved places live in a ref, so forgetting one needs a nudge to show.
+  const [, setForgotten] = useState(0);
+  const [unknownPlace, setUnknownPlace] = useState(false);
   const verifiedKeyRef = useRef<string | null>(null);
   // Only what discovery itself got wrong clears when discovery next works.
   const errorSourceRef = useRef<"discovery" | "select" | null>(null);
@@ -148,6 +162,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         return;
       }
       const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
+      const askWhich = activeSessionId !== null && unknownPlaceRef.current === activeSessionId;
       const placeMatches = remembered?.placeId
         ? result.targets.filter((target) => target.placeId === remembered.placeId)
         : [];
@@ -157,7 +172,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           null)
         : // Not tied to anything yet, so it stays with the Studio it has while that's still open.
           (result.targets.find(
-            (target) => target.key === (result.selectedKey ?? selectedRef.current?.key),
+            (target) =>
+              !askWhich && target.key === (result.selectedKey ?? selectedRef.current?.key),
           ) ?? null);
       const selectionMode = nextSelected
         ? nextSelected.key === remembered?.key
@@ -183,7 +199,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       // A chat tied to a place stays tied to it: the only other open Studio could be a place the
       // agent was never meant to change, so that needs someone to choose it. A chat that hasn't
       // used Studio can take it, and isn't tied until it does, since it may be about something else.
-      if (!nextSelected && !remembered && result.targets.length === 1) {
+      if (!nextSelected && !remembered && !askWhich && result.targets.length === 1) {
         const onlyTarget = result.targets[0];
         selectedRef.current = onlyTarget;
         setSelectingKey(onlyTarget.key);
@@ -291,9 +307,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       try {
         const result = await desktop.selectStudioTarget(target.key);
         if (!result.verified) throw new Error("Target verification failed");
-        if (operation !== operationRef.current) return;
+        if (operation !== operationRef.current) return false;
         verifiedKeyRef.current = result.selected.key;
         await setChatWithoutStudio(false);
+        unknownPlaceRef.current = null;
+        setUnknownPlace(false);
         setSelected(result.selected);
         await rememberTarget(result.selected);
         setTargets((current) =>
@@ -306,8 +324,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           "studio_target_verification_succeeded",
           analyticsProperties("studio_target", { outcome: "success", selection_mode: "manual" }),
         );
+        return true;
       } catch (error) {
-        if (operation !== operationRef.current) return;
+        if (operation !== operationRef.current) return false;
         errorSourceRef.current = "select";
         setError("That Studio window is no longer available. Refresh and choose another.");
         posthog.capture(
@@ -316,6 +335,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
             selection_mode: "manual",
           }),
         );
+        return false;
       } finally {
         // By the latest selection, not the latest operation: switching chats starts a newer one,
         // and nothing else would ever let go of this.
@@ -340,12 +360,40 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     void setChatWithoutStudio(true);
   }, [activeSessionId, setChatWithoutStudio]);
 
-  const tieToStudio = useCallback(() => {
-    const current = selectedRef.current;
-    if (!current || !activeSessionId) return;
-    if (targetsBySessionRef.current[activeSessionId]) return;
-    void rememberTarget(current);
-  }, [activeSessionId, rememberTarget]);
+  const reportStudioUse = useCallback(
+    ({ started, usedStudio }: { started: boolean; usedStudio: boolean }) => {
+      if (!activeSessionId || !configLoadedRef.current) return;
+      const remembered = targetsBySessionRef.current[activeSessionId];
+      const seen = studioUseRef.current;
+      if (seen?.session !== activeSessionId) {
+        // The first look at this chat says what it was already doing, not what it's doing now.
+        studioUseRef.current = { session: activeSessionId, used: usedStudio };
+        if (!usedStudio && started && remembered) {
+          // Older versions saved whichever Studio was open, even for a chat about something else.
+          const { [activeSessionId]: _forgotten, ...rest } = targetsBySessionRef.current;
+          targetsBySessionRef.current = rest;
+          void desktop.patchConfig({ studioTargetsBySession: rest });
+          setForgotten((count) => count + 1);
+          void discover();
+        } else if (usedStudio && !remembered && !selectedRef.current) {
+          unknownPlaceRef.current = activeSessionId;
+          setUnknownPlace(true);
+        } else if (usedStudio && !remembered) {
+          // It has used a Studio, and the one open now could be any place at all.
+          unknownPlaceRef.current = activeSessionId;
+          selectedRef.current = null;
+          setSelected(null);
+          setUnknownPlace(true);
+        }
+        return;
+      }
+      if (!usedStudio || seen.used) return;
+      seen.used = true;
+      const current = selectedRef.current;
+      if (current && !remembered) void rememberTarget(current);
+    },
+    [activeSessionId, discover, rememberTarget],
+  );
 
   // AI traces attach the Studio place the prompt was routed to.
   useEffect(() => {
@@ -374,6 +422,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         configLoadedRef.current = true;
       }
       setWithoutStudio(chatsWithoutStudioRef.current.has(activeSessionId));
+      setUnknownPlace(unknownPlaceRef.current === activeSessionId);
       // A remembered id can belong to a Studio that has since closed, and discovery will tell.
       const remembered = targetsBySessionRef.current[activeSessionId];
       const restored =
@@ -400,13 +449,13 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         ? "Finding Studios."
         : null
       : missing && twins > 1
-        ? `${twins} places named ${placeName(missing.label)} are open. Choose one.`
+        ? `${twins} places named ${placeName(missing.label)} are open. Choose one, or work without Studio.`
         : missing && nameMatch
-          ? `Is the open ${placeName(missing.label)} this chat's place? Choose it to keep going.`
+          ? `Is the open ${placeName(missing.label)} this chat's place? Choose it, or work without Studio.`
           : missing
-            ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
-            : !selected
-              ? "Choose a Studio first."
+            ? `${placeName(missing.label)} isn't open. Reopen it, choose another, or work without Studio.`
+            : unknownPlace && !selected
+              ? "Choose which Studio this chat worked in, or work without Studio."
               : null;
 
   // Quickly while someone is waiting on a Studio to appear, or on this chat's place to reopen. Slowly
@@ -425,9 +474,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
 
   const promptReference = selected
     ? createStudioTargetPromptReference(selected)
-    : withoutStudio || missing
+    : withoutStudio || missing || (status !== "loading" && targets.length === 0)
       ? NO_STUDIO_PROMPT_REFERENCE
-      : null;
+      : targets.length > 1
+        ? createChooseStudioPromptReference(targets)
+        : null;
   const value = useMemo(
     () => ({
       targets,
@@ -440,7 +491,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       sendBlock,
       withoutStudio,
       workWithoutStudio,
-      tieToStudio,
+      reportStudioUse,
+      unknownPlace,
       twins,
       nameMatch,
       discover,
@@ -457,7 +509,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       sendBlock,
       withoutStudio,
       workWithoutStudio,
-      tieToStudio,
+      reportStudioUse,
+      unknownPlace,
       twins,
       nameMatch,
       discover,

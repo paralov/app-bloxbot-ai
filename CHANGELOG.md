@@ -7,12 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Removed
+
+- Intel Macs are no longer supported, and BloxBot for Mac now requires Apple Silicon. Intel Macs stay on v0.14.0.
+
 ### Changed
 
 - BloxBot works without Studio, for things like small websites. Skip setup the first time, or choose Work without Studio in any chat.
 - A chat is tied to a place once the agent has used it. If that place closes while another is open, BloxBot asks before going on, so the agent can't change the wrong one. It picks the place back up when it reopens, and commands like `/new` and `/model` always run.
 - A Studio with the same name as a chat's unpublished place is offered with one click rather than taken, since every new template is a Baseplate.
-- When several Studios are open and a chat hasn't used one, it asks you to choose, or to work without Studio.
+- When several Studios are open and a chat hasn't used one, the agent asks which one before touching Studio.
 - Keyboard focus is easier to see across the app.
 
 ### Fixed

@@ -15,8 +15,12 @@ describe("StudioSetup", () => {
       />,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "BloxBot can't find Studio's MCP helper. Install or update Roblox Studio, then follow the steps above.",
+    expect(
+      screen.getByText(/BloxBot can't find Studio's MCP helper\. Install or update Roblox Studio/),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Get Roblox Studio" })).toHaveAttribute(
+      "href",
+      "https://create.roblox.com/docs/studio/setup",
     );
     expect(screen.queryByText("Looking for Roblox Studio")).toBeNull();
 
@@ -29,10 +33,14 @@ describe("StudioSetup", () => {
         onContinue={vi.fn()}
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Studio's MCP helper stopped. Open Roblox Studio so it can finish updating, or reinstall it if this keeps happening.",
+    expect(
+      screen.getByText(
+        "Studio's MCP helper stopped. Open Roblox Studio so it can finish updating, or reinstall it if this keeps happening.",
+      ),
+    ).toBeVisible();
+    expect(screen.getAllByRole("status").some((status) => status.textContent?.includes(";"))).toBe(
+      false,
     );
-    expect(screen.getByRole("status").textContent).not.toContain(";");
   });
 
   it("offers a way back only when one is given", () => {

@@ -51,7 +51,7 @@ const SLOW_STEP_MS = 20_000;
 function exclusionHelp() {
   return navigator.userAgent.includes("Windows")
     ? {
-        label: "How to add an exclusion",
+        label: "How to add an exclusion in Windows Security",
         href: "https://support.microsoft.com/en-us/windows/add-an-exclusion-to-windows-security-811816c0-4dfd-af4a-47e4-c301afe13b26",
       }
     : undefined;
@@ -143,7 +143,7 @@ function slowPresentation(
   return {
     ...presentation,
     detail: downloading
-      ? "Connection paused. Still trying."
+      ? "Connection paused. Check your Wi-Fi. BloxBot keeps trying."
       : unpacking
         ? "Taking longer than usual. Security software can slow this."
         : "Taking longer than usual. Still trying.",
@@ -431,9 +431,9 @@ export function OpenCodeClientProvider({
 
     function showReconnectToast() {
       if (reconnectToastId != null) return;
-      reconnectToastId = notify.error("Lost connection to OpenCode", {
+      reconnectToastId = notify.error("Lost connection to BloxBot's engine", {
         name: "connection_lost",
-        description: "Events are no longer being received.",
+        description: "Replies won't update until it's back.",
         duration: Number.POSITIVE_INFINITY,
         system: true,
         action: {
