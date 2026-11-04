@@ -193,7 +193,7 @@ export default function StudioTargetPicker({
               <div key={item} className="h-8 animate-pulse rounded-md bg-muted" />
             ))}
           </output>
-        ) : status !== "ready" && missing ? (
+        ) : status === "empty" && missing ? (
           <div className="px-2 pb-2">
             <p className="text-xs leading-relaxed">
               {placeName(missing.label)} isn't open. Reopen it in Studio.

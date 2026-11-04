@@ -38,6 +38,8 @@ const LOOKUP_TIMEOUT_MS = 15_000;
 export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 /** How many tries in a row may get nothing more before a download counts as failed. */
 const DOWNLOAD_RESUMES = 3;
+/** How long a newer version may hold up a launch that already has a working one. */
+const UPDATE_DOWNLOAD_LIMIT_MS = 120_000;
 /** Long enough to outlast a dropped Wi-Fi connection before calling it failed. */
 const RESUME_DELAYS_MS = [5_000, 15_000, 30_000];
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
@@ -395,6 +397,33 @@ async function readSavedDownload(path: string): Promise<PartialDownload> {
  * server that won't resume just sends the whole file again.
  */
 async function downloadWithResume(
+  url: string,
+  fetchFn: Fetch,
+  outerSignal: AbortSignal,
+  savedPath: string,
+  timeLimitMs: number | undefined,
+  reportProgress?: StartupProgressReporter,
+): Promise<{ archiveBuffer: Buffer | undefined; response: Response }> {
+  const limit = new AbortController();
+  const limitTimer =
+    timeLimitMs === undefined
+      ? undefined
+      : setTimeout(
+          () =>
+            limit.abort(
+              new DownloadStalledError(`not finished after ${timeLimitMs / 1000} seconds`),
+            ),
+          timeLimitMs,
+        );
+  const signal = AbortSignal.any([outerSignal, limit.signal]);
+  try {
+    return await downloadUntilDone(url, fetchFn, signal, savedPath, reportProgress);
+  } finally {
+    clearTimeout(limitTimer);
+  }
+}
+
+async function downloadUntilDone(
   url: string,
   fetchFn: Fetch,
   signal: AbortSignal,
@@ -992,6 +1021,7 @@ function publishWithRetry(
 function installRelease(
   context: InstallContext,
   release: CompatibleRelease,
+  timeLimitMs?: number,
 ): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
   const { platformDirectory, platform, arch, spec, downloadFetch, reportProgress } = context;
   return Effect.acquireUseRelease(
@@ -1029,6 +1059,7 @@ function installRelease(
               downloadFetch,
               signal,
               savedDownload,
+              timeLimitMs,
               reportProgress,
             ),
         );
@@ -1192,8 +1223,8 @@ export function ensureOpenCodeBinary(
       delays: { ...DEFAULT_DELAYS, ...options.delays },
       reportProgress: options.onStartupProgress,
     };
-    const install = (release: CompatibleRelease) =>
-      installRelease(context, release).pipe(
+    const install = (release: CompatibleRelease, timeLimitMs?: number) =>
+      installRelease(context, release, timeLimitMs).pipe(
         Effect.tap(() =>
           pruneCache(platformDirectory).pipe(
             Effect.catchAll((error) => Effect.logWarning(error.message, error.cause)),
@@ -1212,7 +1243,19 @@ export function ensureOpenCodeBinary(
             arch,
             spec,
             release,
-          ).pipe(Effect.flatMap((cached) => (cached ? Effect.succeed(cached) : install(release)))),
+          ).pipe(
+            Effect.flatMap((cached) =>
+              cached
+                ? Effect.succeed(cached)
+                : // A newer patch isn't worth holding a working copy back for long. What arrived is
+                  // saved, so each launch gets further until the update is in.
+                  findNewestCachedBinary(platformDirectory, platform, arch, spec).pipe(
+                    Effect.flatMap((working) =>
+                      install(release, working ? UPDATE_DOWNLOAD_LIMIT_MS : undefined),
+                    ),
+                  ),
+            ),
+          ),
         ),
       ),
     );

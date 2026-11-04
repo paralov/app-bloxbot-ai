@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ChatInput from "@/components/ChatInput";
+import ChatInput, { savedDrafts } from "@/components/ChatInput";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { desktop } from "@/lib/desktop";
@@ -226,6 +226,8 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("ChatInput", () => {
+  beforeEach(() => savedDrafts.clear());
+
   it("sends a text message on submit", async () => {
     const client = createClient();
     const qc = createQueryClient();
@@ -520,6 +522,22 @@ describe("ChatInput", () => {
     } finally {
       studio.sendBlock = null;
     }
+  });
+
+  it("keeps what was typed when something else takes over the screen for a while", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    const { unmount } = render(<TestChatInput client={client} queryClient={qc} />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "Build a lobby" } });
+    });
+    unmount();
+
+    render(<TestChatInput client={client} queryClient={createQueryClient()} />);
+    expect(await screen.findByRole("textbox", { name: "Message" })).toHaveTextContent(
+      "Build a lobby",
+    );
   });
 
   it("does not send when session is busy", async () => {

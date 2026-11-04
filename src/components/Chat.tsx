@@ -52,6 +52,7 @@ function Chat() {
   // From the picker the helper is already connected, so setup is done only once a Studio shows up.
   const [setupFromPicker, setSetupFromPicker] = useState(false);
   const [pickerRequest, setPickerRequest] = useState(0);
+  const [focusComposer, setFocusComposer] = useState(false);
   const [showPlaytest, setShowPlaytest] = useState(false);
   const desiredSidePanel = showPlaytest
     ? "playtest"
@@ -150,7 +151,15 @@ function Chat() {
   const handleCloseStudioSetup = useCallback(() => {
     setSetupFromPicker(false);
     setShowStudioSetup(false);
+    setFocusComposer(true);
   }, []);
+  // The picker isn't on screen until setup has gone, so asking it to open has to wait until then.
+  const openPickerAfterSetup = useRef(false);
+  useEffect(() => {
+    if (showStudioSetup || !openPickerAfterSetup.current) return;
+    openPickerAfterSetup.current = false;
+    setPickerRequest((request) => request + 1);
+  }, [showStudioSetup]);
   const placeMissing = studioTarget?.missing != null;
   const handleSessionSelect = useCallback(() => setShowSettings(false), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
@@ -218,10 +227,13 @@ function Chat() {
               <button
                 type="button"
                 onClick={handleOpenPlaytest}
-                disabled={isBusy}
+                disabled={isBusy || !!studioTarget?.sendBlock}
                 className={`${MENU_TRIGGER} gap-1.5`}
                 aria-pressed={showPlaytest}
-                title={isBusy ? "Wait for the agent to finish" : "Create a playtest plan"}
+                title={
+                  studioTarget?.sendBlock ??
+                  (isBusy ? "Wait for the agent to finish" : "Create a playtest plan")
+                }
               >
                 <Play aria-hidden="true" size={14} fill="currentColor" />
                 Playtest
@@ -252,7 +264,10 @@ function Chat() {
             }}
             onContinue={() => {
               handleCloseStudioSetup();
-              if (placeMissing) setPickerRequest((request) => request + 1);
+              if (placeMissing) {
+                openPickerAfterSetup.current = true;
+                setFocusComposer(false);
+              }
             }}
             onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
             needsChoice={placeMissing}
@@ -308,7 +323,7 @@ function Chat() {
               onOpenSetup={handleOpenStudioSetup}
               onOpenPicker={() => setPickerRequest((request) => request + 1)}
             />
-            <ChatInput onOpenSettings={handleOpenSettings} />
+            <ChatInput onOpenSettings={handleOpenSettings} focusOnMount={focusComposer} />
           </>
         )}
 

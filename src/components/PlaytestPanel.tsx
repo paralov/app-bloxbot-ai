@@ -19,6 +19,7 @@ import {
 } from "@/lib/playtestPlan";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { usePreferences } from "@/providers/PreferencesProvider";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 function generationErrorCategory(error: unknown): string {
   if (!(error instanceof Error)) return "unknown";
@@ -82,6 +83,7 @@ function ListEditor({
 
 export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
   const generate = useGeneratePlaytestPlan();
+  const studioTarget = useStudioTargetOptional();
   const sendMessage = useSendMessage();
   const { selectedModel } = usePreferences();
   const [plan, setPlan] = useState<PlaytestPlan | null>(null);
@@ -175,8 +177,15 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         }),
       ),
     );
+    if (studioTarget?.sendBlock) {
+      notify.error(studioTarget.sendBlock);
+      return;
+    }
     sendMessage.mutate(
-      { text: formatPlaytestPrompt(plan) },
+      {
+        text: formatPlaytestPrompt(plan),
+        studioTargetReference: studioTarget?.promptReference ?? null,
+      },
       {
         onSuccess: onClose,
         onError: (error) => notify.error("Playtest not started", { description: error.message }),

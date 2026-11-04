@@ -1198,6 +1198,76 @@ describe("OpenCode downloads on a poor connection", () => {
       ).toBe(0);
     });
 
+    it("won't hold a working copy back for long, and gets further next launch", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const older = [release("v2.2.1", ASSET_NAME, `sha256:${digest}`)];
+      const firstInstall = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: vi
+            .fn()
+            .mockResolvedValueOnce(Response.json(older))
+            .mockResolvedValueOnce(new Response(archive)),
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }),
+      );
+      expect(firstInstall.result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
+
+      const newer = Buffer.alloc(1024 * 10, 7);
+      const newerDigest = createHash("sha256").update(newer).digest("hex");
+      const newerRelease = [release("v2.2.2", ASSET_NAME, `sha256:${newerDigest}`)];
+      const pieces = Array.from({ length: 10 }, (_, index) =>
+        newer.subarray(index * 1024, (index + 1) * 1024),
+      );
+      const { result, elapsedMs } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: vi
+            .fn()
+            .mockResolvedValueOnce(Response.json(newerRelease))
+            .mockImplementationOnce(async () => new Response(slowBody(pieces, 50_000))),
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }),
+      );
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
+      // Well short of the 500 seconds the whole file would take. This clock also runs during real
+      // disk work, so it can read a little over the limit itself.
+      expect(elapsedMs).toBeLessThan(200_000);
+
+      const resume = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(newerRelease))
+        .mockImplementationOnce(async (_url: string, init: RequestInit) => {
+          const from = Number(
+            /bytes=(\d+)-/.exec((init.headers as Record<string, string>).Range ?? "")?.[1],
+          );
+          return new Response(newer.subarray(from), {
+            status: 206,
+            headers: {
+              "content-range": `bytes ${from}-${newer.byteLength - 1}/${newer.byteLength}`,
+            },
+          });
+        });
+      const next = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch: resume,
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }),
+      );
+      expect(next.result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+    });
+
     it("rejects a joined file that doesn't match its checksum", async () => {
       const fetch = vi.fn(async (url: string) =>
         url.includes("api.github.com")

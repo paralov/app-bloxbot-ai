@@ -88,6 +88,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const targetsRef = useRef<readonly StudioTarget[]>([]);
   const discoveryRef = useRef<{ session: string | null; promise: Promise<number> } | null>(null);
   const selectingRef = useRef(false);
+  const verifiedKeyRef = useRef<string | null>(null);
   const [rejoinedByName, setRejoinedByName] = useState(false);
   // Only what discovery itself got wrong clears when discovery next works.
   const errorSourceRef = useRef<"discovery" | "select" | null>(null);
@@ -131,12 +132,19 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
             ? "place_id_match"
             : "session_name_match"
         : "automatic";
-      if (nextSelected && result.selectedKey !== nextSelected.key) {
+      // Once is enough for a Studio this run of the app has already checked: this runs every few
+      // seconds, and repeating it would keep disabling the picker and rewriting the config.
+      if (
+        nextSelected &&
+        result.selectedKey !== nextSelected.key &&
+        verifiedKeyRef.current !== nextSelected.key
+      ) {
         setSelectingKey(nextSelected.key);
         const selection = await desktop.selectStudioTarget(nextSelected.key);
         if (operation !== operationRef.current) return;
         if (!selection.verified) throw new Error("Target verification failed");
         nextSelected = selection.selected;
+        verifiedKeyRef.current = nextSelected.key;
         await rememberTarget(nextSelected);
         setSelectingKey(null);
       }
@@ -150,6 +158,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         if (operation !== operationRef.current) return;
         if (!selection.verified) throw new Error("Target verification failed");
         nextSelected = selection.selected;
+        verifiedKeyRef.current = nextSelected.key;
         await rememberTarget(nextSelected);
         posthog.capture(
           "studio_target_verification_succeeded",
@@ -163,8 +172,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       // A chat that took the Studio already in use is tied to it too, or it would follow to another
       // place if that one closed.
       if (nextSelected && !remembered) await rememberTarget(nextSelected);
-      setRejoinedByName(selectionMode === "session_name_match");
       if (operation !== operationRef.current) return;
+      // Only ever turned on here, since the next check finds this Studio under its own id.
+      if (selectionMode === "session_name_match" && remembered) setRejoinedByName(true);
       setSelected(nextSelected);
       setStatus(result.targets.length === 0 ? "empty" : "ready");
       // A selection this replaced was left mid-way, and nothing else will finish it.
@@ -240,6 +250,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         const result = await desktop.selectStudioTarget(target.key);
         if (!result.verified) throw new Error("Target verification failed");
         if (operation !== operationRef.current) return;
+        verifiedKeyRef.current = result.selected.key;
         setSelected(result.selected);
         await rememberTarget(result.selected);
         setTargets((current) =>
@@ -297,6 +308,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         targetsBySessionRef.current = config.studioTargetsBySession ?? {};
         configLoadedRef.current = true;
       }
+      setRejoinedByName(false);
       // A remembered id can belong to a Studio that has since closed, and discovery will tell.
       const remembered = targetsBySessionRef.current[activeSessionId];
       setSelected(
@@ -318,7 +330,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       : missing && twins > 1
         ? `${twins} places named ${placeName(missing.label)} are open. Choose one.`
         : missing
-          ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
+          ? targets.length > 0
+            ? `${placeName(missing.label)} isn't open. Reopen it or choose another.`
+            : `${placeName(missing.label)} isn't open. Reopen it in Studio.`
           : status === "ready" && !selected
             ? "Choose a Studio first."
             : null;

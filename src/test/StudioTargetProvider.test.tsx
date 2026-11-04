@@ -380,6 +380,72 @@ describe("StudioTargetProvider", () => {
     }
   });
 
+  it("checks a Studio once, not on every background check", async () => {
+    vi.useFakeTimers();
+    try {
+      const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+      mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: dungeon } });
+      mocks.discover.mockResolvedValue({ targets: [dungeon], selectedKey: null });
+      mocks.select.mockResolvedValue({ selected: dungeon, verified: true });
+      render(
+        <StudioTargetProvider>
+          <Seen keys={[]} />
+        </StudioTargetProvider>,
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(mocks.select).toHaveBeenCalledOnce();
+      mocks.patchConfig.mockClear();
+
+      await act(() => vi.advanceTimersByTimeAsync(35_000));
+
+      expect(mocks.select).toHaveBeenCalledOnce();
+      expect(mocks.patchConfig).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps saying a Studio was matched by name after later checks", async () => {
+    vi.useFakeTimers();
+    try {
+      const old = { key: "old-id", label: "Baseplate", detail: null, placeId: null };
+      const reopened = { ...old, key: "new-id" };
+      mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: old } });
+      mocks.discover.mockResolvedValue({ targets: [reopened], selectedKey: null });
+      mocks.select.mockResolvedValue({ selected: reopened, verified: true });
+      function Rejoined() {
+        return <div>rejoined: {String(useStudioTargetOptional()?.rejoinedByName)}</div>;
+      }
+      render(
+        <StudioTargetProvider>
+          <Rejoined />
+        </StudioTargetProvider>,
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("rejoined: true")).toBeInTheDocument();
+
+      await act(() => vi.advanceTimersByTimeAsync(25_000));
+      expect(screen.getByText("rejoined: true")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("doesn't offer another Studio when none is open", async () => {
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { chat: { key: "s1", label: "Dungeon", detail: null, placeId: "1" } },
+    });
+    mocks.discover.mockResolvedValue({ targets: [], selectedKey: null });
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    expect(
+      await screen.findByText("block: Dungeon isn't open. Reopen it in Studio."),
+    ).toBeInTheDocument();
+  });
+
   it("picks a chat's place back up when it opens again", async () => {
     vi.useFakeTimers();
     try {

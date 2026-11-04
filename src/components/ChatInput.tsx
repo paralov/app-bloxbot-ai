@@ -263,7 +263,16 @@ function effortLabel(variant: string | null): string {
   return EFFORT_LABELS[variant] ?? variant;
 }
 
-function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
+/** What was in the message box when something else took over the screen, by chat. */
+export const savedDrafts = new Map<string, { text: string; attachments: ImageAttachment[] }>();
+
+function ChatInput({
+  onOpenSettings,
+  focusOnMount = false,
+}: {
+  onOpenSettings?: () => void;
+  focusOnMount?: boolean;
+}) {
   const {
     pendingReference,
     consumeReference,
@@ -345,6 +354,26 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
       });
     },
   });
+
+  // Setup and Settings replace the message box for a while, and what was typed should still be here.
+  const draftRef = useRef({ text, attachments, sessionId: activeSessionId });
+  draftRef.current = { text, attachments, sessionId: activeSessionId };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: restores once, and saves on the way out
+  useEffect(() => {
+    const draft = activeSessionId ? savedDrafts.get(activeSessionId) : undefined;
+    if (activeSessionId && draft) {
+      savedDrafts.delete(activeSessionId);
+      if (draft.text) promptEditorRef.current?.insertText(draft.text);
+      setAttachments(draft.attachments);
+    }
+    if (focusOnMount) requestAnimationFrame(() => promptEditorRef.current?.focus());
+    return () => {
+      const { text: lastText, attachments: lastAttachments, sessionId } = draftRef.current;
+      if (sessionId && (lastText || lastAttachments.length > 0)) {
+        savedDrafts.set(sessionId, { text: lastText, attachments: lastAttachments });
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (previousSessionRef.current === activeSessionId) return;
