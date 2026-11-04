@@ -126,7 +126,7 @@ export default function StudioNotice({
           <button type="button" onClick={workWithoutStudio} className={LINK}>
             Work without Studio
           </button>
-          {studioTarget?.error ? (
+          {studioTarget?.error && status !== "error" ? (
             <p role="alert" className="w-full text-center text-destructive">
               {studioTarget.error}
             </p>

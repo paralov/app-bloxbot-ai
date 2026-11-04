@@ -34,18 +34,22 @@ export interface StartupProgress {
   meta?: string;
 }
 
-/** Opens a new issue with what happened filled in, to check before sending. */
+/** Opens an email to support with what happened filled in, to check before sending. */
 function reportLink(message: string, technicalDetail?: string): string {
-  const link = new URL("https://github.com/paralov/app-bloxbot-ai/issues/new");
-  link.searchParams.set("title", message);
-  if (technicalDetail) {
-    const detail = scrubErrorMessage(technicalDetail).slice(0, REPORT_DETAIL_MAX_CHARS);
-    link.searchParams.set("body", `What happened:\n\n\`\`\`\n${detail}\n\`\`\``);
-  }
-  return link.href;
+  const detail = technicalDetail
+    ? `\n\nWhat happened:\n${scrubErrorMessage(technicalDetail).slice(0, REPORT_DETAIL_MAX_CHARS)}`
+    : "";
+  return `mailto:support@bloxbot.ai?subject=${encodeURIComponent(message)}&body=${encodeURIComponent(detail)}`;
 }
 
-type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up-to-date" | "error";
+type UpdateCheckStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "up-to-date"
+  | "error"
+  | "install-error";
 
 /**
  * Full-screen loading state featuring the animated BloxBot face.
@@ -114,7 +118,7 @@ function LoadingScreen({
       await desktop.installUpdate();
     } catch (err) {
       console.error("[loading] Failed to install update:", err);
-      setUpdateStatus("error");
+      setUpdateStatus("install-error");
     }
   }
 
@@ -252,11 +256,13 @@ function LoadingScreen({
             ? `Update available: v${updateVersion}`
             : updateStatus === "up-to-date"
               ? "Up to date"
-              : updateStatus === "error"
-                ? "Couldn't check for updates"
-                : downloadedBucket
-                  ? `Downloaded ${downloadedBucket}%`
-                  : null}
+              : updateStatus === "install-error"
+                ? "Couldn't install the update"
+                : updateStatus === "error"
+                  ? "Couldn't check for updates"
+                  : downloadedBucket
+                    ? `Downloaded ${downloadedBucket}%`
+                    : null}
         </output>
 
         {/* Error state: help actions */}
@@ -370,6 +376,16 @@ function LoadingScreen({
                 </span>
               )}
 
+              {updateStatus === "install-error" && (
+                <button
+                  type="button"
+                  onClick={handleInstall}
+                  className="underline transition-colors hover:text-foreground"
+                >
+                  Retry the update
+                </button>
+              )}
+
               {updateStatus === "error" && (
                 <button
                   type="button"
@@ -386,7 +402,7 @@ function LoadingScreen({
                 rel="noreferrer"
                 className="underline transition-colors hover:text-foreground"
               >
-                Report a problem
+                Email support
               </a>
             </div>
 
@@ -397,8 +413,8 @@ function LoadingScreen({
                 </summary>
                 <div className="border-t px-3 py-3">
                   <p className="leading-relaxed">
-                    Report a problem fills these in. They may include local file paths, so check
-                    before sending.
+                    Email support fills these in. They may include local file paths, so check before
+                    sending.
                   </p>
                   <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs leading-relaxed text-foreground/70">
                     {technicalDetail}

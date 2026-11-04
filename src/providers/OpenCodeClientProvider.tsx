@@ -143,6 +143,8 @@ function slowPresentation(
   phase: StartupPhase,
   engineProgress: OpenCodeStartupProgress,
 ): StartupPresentation {
+  // An update just gives up after a while and the current version opens, so nothing is wrong.
+  if (engineProgress.phase === "downloading" && engineProgress.updating) return presentation;
   const downloading = phase === "engine" && engineProgress.phase === "downloading";
   const unpacking =
     phase === "engine" &&
@@ -207,7 +209,8 @@ export function getStartupErrorPresentation(
   if (reason === "other") {
     return {
       message: "Setup couldn't finish",
-      detail: "BloxBot couldn't set up its engine. Try again, or report this if it keeps failing.",
+      detail:
+        "BloxBot couldn't set up its engine. Try again, or email support if it keeps failing.",
       technicalDetail,
     };
   }
@@ -276,7 +279,7 @@ export function getStartupErrorPresentation(
     return {
       message: "This computer isn't supported yet",
       detail:
-        "BloxBot couldn't find a compatible setup package for this system. Check for an app update or contact support.",
+        "BloxBot couldn't find a compatible setup package for this system. Check for an app update or email support.",
       technicalDetail,
     };
   }
@@ -284,7 +287,7 @@ export function getStartupErrorPresentation(
   return {
     message: "Setup couldn't finish",
     detail:
-      "BloxBot hit a problem while preparing its engine. Try again, or report this if it keeps failing.",
+      "BloxBot hit a problem while preparing its engine. Try again, or email support if it keeps failing.",
     technicalDetail,
   };
 }
@@ -577,7 +580,8 @@ export function OpenCodeClientProvider({
           startup={startupError ? undefined : startup.startup}
           error={!!startupError}
           onRetry={
-            startupError || verySlow || (slow && engineProgress.phase === "downloading")
+            startupError ||
+            (engineProgress.phase === "downloading" ? slow && !engineProgress.updating : verySlow)
               ? () => desktop.relaunch()
               : undefined
           }

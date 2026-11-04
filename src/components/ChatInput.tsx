@@ -572,7 +572,8 @@ function ChatInput({
     const trimmed = editorText.trim();
     if (!trimmed && attachments.length === 0) return;
     if (sendBlock && needsStudio(trimmed)) {
-      notify.error(sendBlock);
+      if (studioTarget?.status === "loading") notify.message(sendBlock);
+      else notify.error(sendBlock);
       return;
     }
     const submittedText = editorText;

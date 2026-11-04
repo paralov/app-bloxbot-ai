@@ -28,8 +28,10 @@ function Spinner() {
 export default function StudioTargetPicker({
   onOpenSetup,
   openRequest = 0,
+  onWorkedWithoutStudio,
 }: {
   onOpenSetup: () => void;
+  onWorkedWithoutStudio?: () => void;
   /** Counts up when something else on screen wants this open. */
   openRequest?: number;
 }) {
@@ -181,7 +183,11 @@ export default function StudioTargetPicker({
       }}
     >
       <PopoverTrigger asChild>
-        <button type="button" className={MENU_TRIGGER}>
+        <button
+          type="button"
+          aria-label={`Roblox Studio: ${placeName(buttonLabel)}`}
+          className={MENU_TRIGGER}
+        >
           <Monitor aria-hidden="true" size={14} className="shrink-0" />
           <span className="min-w-0 truncate text-left" title={buttonLabel}>
             {placeName(buttonLabel)}
@@ -291,6 +297,7 @@ export default function StudioTargetPicker({
                 analyticsProperties("studio_target", { status, had_place: selected !== null }),
               );
               studioTarget.workWithoutStudio();
+              onWorkedWithoutStudio?.();
               setOpen(false);
             }}
             className="mx-2 mb-1 mt-1 block text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"

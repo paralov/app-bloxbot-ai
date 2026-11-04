@@ -150,13 +150,13 @@ function parseExternalUrl(rawUrl: string) {
   return Effect.try({
     try: () => new URL(rawUrl),
     catch: (cause) =>
-      new DesktopMainError({ message: "Only HTTP and HTTPS links can be opened", cause }),
+      new DesktopMainError({ message: "Only web and email links can be opened", cause }),
   }).pipe(
     Effect.flatMap((url) =>
-      url.protocol === "https:" || url.protocol === "http:"
+      url.protocol === "https:" || url.protocol === "http:" || url.protocol === "mailto:"
         ? Effect.succeed(url)
         : Effect.fail(
-            new DesktopMainError({ message: "Only HTTP and HTTPS links can be opened" }),
+            new DesktopMainError({ message: "Only web and email links can be opened" }),
           ),
     ),
   );

@@ -330,6 +330,40 @@ describe("Explorer", () => {
     expect(items[1]).toHaveFocus();
   });
 
+  it("doesn't carry a selection over to another place, where it'd be a different object", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    const { rerender } = start();
+    await advance(0);
+    fireEvent.click(screen.getByText("Workspace"));
+    await advance(0);
+    expect(screen.getByRole("treeitem", { selected: true })).toHaveTextContent("Workspace");
+
+    mocks.studioTarget.selected = { key: "studio-2" };
+    try {
+      rerender(
+        <ExplorerReferenceProvider>
+          <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />
+        </ExplorerReferenceProvider>,
+      );
+      await advance(0);
+      expect(screen.queryByRole("treeitem", { selected: true })).toBeNull();
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+    }
+  });
+
+  it("says when a search finds nothing", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    start();
+    await advance(0);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search Explorer" }), {
+      target: { value: "nothing like this" },
+    });
+    await advance(0);
+    expect(screen.getByRole("status")).toHaveTextContent("No matches.");
+  });
+
   it("announces that objects are loading", async () => {
     mocks.getSnapshot.mockReturnValueOnce(new Promise(() => {}));
     start();

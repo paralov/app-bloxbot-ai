@@ -263,7 +263,7 @@ function StudioSetup({
 
         <div className="mt-3 flex flex-col items-center gap-1 text-center text-xs leading-relaxed text-muted-foreground">
           {problem ? (
-            <p className="flex max-w-lg items-start justify-center gap-2">
+            <output className="flex max-w-lg items-start justify-center gap-2">
               <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
               <span>
                 {PROBLEM_COPY[problem]}
@@ -281,7 +281,7 @@ function StudioSetup({
                   </>
                 ) : null}
               </span>
-            </p>
+            </output>
           ) : notFound ? null : (
             <p className="flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
@@ -289,7 +289,11 @@ function StudioSetup({
             </p>
           )}
           <output>
-            {notFound ? "Not found yet. Check these steps, then restart Studio." : null}
+            {notFound && !problem
+              ? "Not found yet. Check these steps, then restart Studio."
+              : notFound
+                ? "Not found yet."
+                : null}
           </output>
           {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
             <button

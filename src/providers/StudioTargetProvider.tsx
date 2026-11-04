@@ -57,7 +57,7 @@ interface StudioTargetContextValue {
   unknownPlace: boolean;
   /** A message is going out, so whichever Studio it's sent to is the one it would use. */
   noteRouted(): void;
-  /** Someone has picked a Studio by hand since this started, so they're here for Studio. */
+  /** Someone picked a Studio for this chat by hand, so it's about Studio. */
   studioChosen: boolean;
   /** How many open Studios share the missing place's name, when that's why nothing was picked. */
   twins: number;
@@ -90,6 +90,10 @@ function discoveredPlaceIds(targets: readonly StudioTarget[]): string[] {
 /** For a chat with no Studio, so the agent doesn't go looking for one and change the wrong place. */
 export const NO_STUDIO_PROMPT_REFERENCE =
   "This chat isn't working in Roblox Studio. Do not use Roblox Studio tools unless the person asks you to connect one.";
+
+/** For a chat whose place is closed, so it says that rather than that the chat isn't about Studio. */
+const PLACE_CLOSED_PROMPT_REFERENCE =
+  "The Roblox Studio place this chat works in isn't open. Do not use Roblox Studio tools. If the request needs Studio, ask the person to reopen that place.";
 
 /**
  * Several are open and nobody has said which, which is only a question if Studio comes up at all.
@@ -366,6 +370,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const workWithoutStudio = useCallback(() => {
     if (!activeSessionId) return;
     operationRef.current += 1;
+    discoveryRef.current = null;
+    selectedRef.current = null;
     setSelected(null);
     if (targetsBySessionRef.current[activeSessionId]) {
       const { [activeSessionId]: _forgotten, ...rest } = targetsBySessionRef.current;
@@ -373,7 +379,10 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       void desktop.patchConfig({ studioTargetsBySession: rest });
     }
     void setChatWithoutStudio(true);
-  }, [activeSessionId, setChatWithoutStudio]);
+    // One under way was just abandoned, and a first one is all that ends "Finding Studios".
+    chatsWithoutStudioRef.current = new Set(chatsWithoutStudioRef.current).add(activeSessionId);
+    void discover();
+  }, [activeSessionId, discover, setChatWithoutStudio]);
 
   const noteRouted = useCallback(() => {
     const current = selectedRef.current;
@@ -384,7 +393,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   }, [activeSessionId]);
 
   const reportStudioUse = useCallback(
-    ({ started, usedStudio }: { started: boolean; usedStudio: boolean }) => {
+    ({ usedStudio }: { started: boolean; usedStudio: boolean }) => {
       if (!activeSessionId || !configLoadedRef.current) return;
       const remembered = targetsBySessionRef.current[activeSessionId];
       const seen = studioUseRef.current;
@@ -394,37 +403,41 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         const routed = routedBySessionRef.current[activeSessionId];
         if (usedStudio && !remembered && routed) {
           // It used the Studio its message went to, whether or not anyone was watching at the time.
-          void rememberTarget(routed);
-        } else if (
-          !usedStudio &&
-          started &&
-          remembered &&
-          !chosenChatsRef.current.has(activeSessionId)
-        ) {
+          // A check under way may have settled on another, so it starts again from this one.
+          operationRef.current += 1;
+          discoveryRef.current = null;
+          void rememberTarget(routed).then(() => discover());
+        } else if (!usedStudio && remembered && !chosenChatsRef.current.has(activeSessionId)) {
           // Older versions saved whichever Studio was open, even for a chat about something else.
           const { [activeSessionId]: _forgotten, ...rest } = targetsBySessionRef.current;
           targetsBySessionRef.current = rest;
           void desktop.patchConfig({ studioTargetsBySession: rest });
           setForgotten((count) => count + 1);
           void discover();
-        } else if (usedStudio && !remembered && !selectedRef.current) {
-          unknownPlaceRef.current = activeSessionId;
-          setUnknownPlace(true);
         } else if (usedStudio && !remembered) {
           // It has used a Studio, and the one open now could be any place at all. A check under way
           // would put it right back.
           operationRef.current += 1;
+          discoveryRef.current = null;
           unknownPlaceRef.current = activeSessionId;
           selectedRef.current = null;
           setSelected(null);
           setUnknownPlace(true);
+          void discover();
         }
         return;
       }
       if (!usedStudio || seen.used) return;
       seen.used = true;
-      const current = selectedRef.current;
-      if (current && !remembered) void rememberTarget(current);
+      if (remembered) return;
+      // What the message went to, since the place may have closed before anyone heard it was used.
+      const usedTarget = routedBySessionRef.current[activeSessionId] ?? selectedRef.current;
+      if (usedTarget) {
+        void rememberTarget(usedTarget);
+      } else {
+        unknownPlaceRef.current = activeSessionId;
+        setUnknownPlace(true);
+      }
     },
     [activeSessionId, discover, rememberTarget],
   );
@@ -459,6 +472,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       }
       setWithoutStudio(chatsWithoutStudioRef.current.has(activeSessionId));
       setUnknownPlace(unknownPlaceRef.current === activeSessionId);
+      setStudioChosen(chosenChatsRef.current.has(activeSessionId));
       // A remembered id can belong to a Studio that has since closed, and discovery will tell.
       const remembered = targetsBySessionRef.current[activeSessionId];
       const restored =
@@ -518,11 +532,13 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
 
   const promptReference = selected
     ? createStudioTargetPromptReference(selected)
-    : withoutStudio || missing || (status !== "loading" && targets.length === 0)
-      ? NO_STUDIO_PROMPT_REFERENCE
-      : targets.length > 1
-        ? CHOOSE_STUDIO_PROMPT_REFERENCE
-        : null;
+    : missing
+      ? PLACE_CLOSED_PROMPT_REFERENCE
+      : withoutStudio || (status !== "loading" && targets.length === 0)
+        ? NO_STUDIO_PROMPT_REFERENCE
+        : targets.length > 1
+          ? CHOOSE_STUDIO_PROMPT_REFERENCE
+          : null;
   const value = useMemo(
     () => ({
       targets,

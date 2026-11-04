@@ -111,9 +111,7 @@ describe("StudioSetup", () => {
     expect(screen.getByRole("button", { name: "Check again" })).toBeVisible();
     rerender(<StudioSetup {...props} checking />);
     rerender(<StudioSetup {...props} checking={false} />);
-    expect(
-      screen.getByText("Not found yet. Check these steps, then restart Studio."),
-    ).toBeVisible();
+    expect(screen.getByText("Not found yet.")).toBeVisible();
   });
 
   it("lets someone who isn't here for Studio skip it, the first time", () => {

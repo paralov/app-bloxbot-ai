@@ -331,6 +331,18 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     setExpanded((current) => new Set([...current, ...ids.slice(0, -1)]));
   }, [focusRequest, tree, consumeFocus]);
 
+  // Rows are named by path, so in another place this would silently be a different object.
+  const selectionStudioRef = useRef(studioId);
+  useEffect(() => {
+    if (selectionStudioRef.current === studioId) return;
+    selectionStudioRef.current = studioId;
+    setSelectedId(null);
+    setFocusedId(null);
+    setRenamingId(null);
+    setMenu(null);
+    setDeleteTarget(null);
+  }, [studioId]);
+
   const selected = selectedId ? (tree?.byId.get(selectedId) ?? null) : null;
 
   // Typing stays quick in a big place, with the list catching up behind it.
@@ -447,9 +459,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     [studioId, requestSync],
   );
 
+  const focusRowRef = useRef<(id: string) => void>(() => {});
   const handleRenamed = useCallback(
     (node: ExplorerNode, name: string | null) => {
       setRenamingId(null);
+      // The field that had focus is gone, so it goes back to the row.
+      focusRowRef.current(nodeId(node));
       const next = name?.trim();
       if (!next || next === node.name) return;
       void editObject(node, { action: "rename", name: next }, (renamed) => {
@@ -484,6 +499,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       EXPLORER_WAIT_NOTICES[waiting])
     : null;
   const placeClosed = !studioId && studioTarget?.missing && studioTarget.status !== "loading";
+  const noMatches = !!tree && !!query && rows.length === 0;
   const statusNotice = placeClosed
     ? studioTarget.status === "error"
       ? "Couldn't reach Studio."
@@ -525,6 +541,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         ? nodeId(renderedRows[0].node)
         : null;
 
+  focusRowRef.current = (id: string) => focusRow(id);
   const focusRow = (id: string) => {
     setFocusedId(id);
     const index = rows.findIndex((row) => !row.loading && nodeId(row.node) === id);
@@ -656,7 +673,14 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       {/* Always in the page, so a screen reader announces it when the words arrive. */}
       <output className="sr-only">
-        {statusNotice ?? (tree ? (recovered ? "Explorer is back." : null) : "Loading objects.")}
+        {statusNotice ??
+          (noMatches
+            ? "No matches."
+            : tree
+              ? recovered
+                ? "Explorer is back."
+                : null
+              : "Loading objects.")}
       </output>
       {statusNotice ? (
         <div
@@ -713,6 +737,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }}
       >
         {!tree && !statusNotice ? <ExplorerLoading /> : null}
+        {noMatches ? (
+          <p aria-hidden="true" className="px-4 py-2 text-xs text-muted-foreground">
+            No matches.
+          </p>
+        ) : null}
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((item) => {
             const row = rows[item.index];
@@ -855,13 +884,21 @@ function DeleteObjectDialog({
   onConfirm: () => void;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const openedFrom = document.activeElement;
     cancelRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      // Back to the row it came from, unless what happened next took focus elsewhere.
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body) (openedFrom as HTMLElement | null)?.focus();
+      });
+    };
   }, [onCancel]);
 
   const inside = countNodes(node.children);
@@ -873,8 +910,23 @@ function DeleteObjectDialog({
       }}
     >
       <div
+        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
+        onKeyDown={(event) => {
+          // Stays inside the dialog: everything behind it is out of reach while it's open.
+          if (event.key !== "Tab") return;
+          const buttons = [...(dialogRef.current?.querySelectorAll("button") ?? [])];
+          const first = buttons[0];
+          const last = buttons[buttons.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }}
         aria-labelledby="delete-object-title"
         aria-describedby="delete-object-description"
         className="animate-scale-in w-full max-w-sm rounded-xl border bg-card p-5 text-card-foreground shadow-2xl"

@@ -327,6 +327,89 @@ describe("StudioTargetProvider", () => {
     expect(mocks.patchConfig).toHaveBeenCalledWith({ studioTargetsBySession: { chat: dungeon } });
   });
 
+  it("says a chat is about Studio by that chat's own choice, not another's", async () => {
+    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: {},
+      chatsWithChosenPlace: ["chat"],
+    });
+    mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+    mocks.select.mockResolvedValue({ selected: lobby, verified: true });
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    const tree = () => (
+      <StudioTargetProvider>
+        <Spy />
+      </StudioTargetProvider>
+    );
+    const { rerender } = render(tree());
+    await waitFor(() => expect(context?.studioChosen).toBe(true));
+
+    mocks.session.id = "next";
+    try {
+      rerender(tree());
+      await waitFor(() => expect(context?.studioChosen).toBe(false));
+    } finally {
+      mocks.session.id = "chat";
+    }
+  });
+
+  it("finishes finding Studios after a chat's history abandons the first check", async () => {
+    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+    let finish: (value: unknown) => void = () => {};
+    mocks.discover.mockReturnValueOnce(Promise.resolve({ targets: [lobby], selectedKey: null }));
+    mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+    mocks.select.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>,
+    );
+    await waitFor(() => expect(mocks.select).toHaveBeenCalled());
+
+    await act(async () => context?.reportStudioUse({ started: true, usedStudio: true }));
+    await act(async () => finish({ selected: lobby, verified: true }));
+
+    expect(await screen.findByText("status: ready")).toBeInTheDocument();
+    expect(screen.getByText("selected: none")).toBeInTheDocument();
+    expect(context?.unknownPlace).toBe(true);
+  });
+
+  it("names a place closed, rather than saying the chat isn't about Studio", async () => {
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { chat: { key: "s1", label: "Dungeon", detail: null, placeId: "1" } },
+      chatsWithChosenPlace: ["chat"],
+    });
+    mocks.discover.mockResolvedValue({ targets: [], selectedKey: null });
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("status: empty")).toBeInTheDocument();
+    expect(context?.promptReference).toContain("isn't open");
+  });
+
   it("doesn't let one stuck check keep every chat from sending", async () => {
     vi.useFakeTimers();
     try {

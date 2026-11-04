@@ -72,11 +72,9 @@ describe("startup progress", () => {
         onRetry={() => {}}
       />,
     );
-    const href = screen.getByRole("link", { name: "Report a problem" }).getAttribute("href") ?? "";
-    expect(href).toContain("/issues/new");
-    expect(decodeURIComponent(href.replace(/\+/g, " "))).toContain(
-      "OpenCode did not become healthy",
-    );
+    const href = screen.getByRole("link", { name: "Email support" }).getAttribute("href") ?? "";
+    expect(href).toMatch(/^mailto:support@bloxbot\.ai/);
+    expect(decodeURIComponent(href)).toContain("OpenCode did not become healthy");
   });
 
   it("says out loud when an update check fails, and how far a download has got", async () => {
@@ -181,6 +179,30 @@ describe("startup progress", () => {
         ),
       ).detail,
     ).toContain("A company network or antivirus blocked the download");
+  });
+
+  it("tells a failed install apart from a failed check, and offers it again", async () => {
+    checkForUpdate.mockResolvedValue({ version: "9.9.9", body: null });
+    installUpdate.mockRejectedValueOnce(new Error("no"));
+    render(<LoadingScreen message="BloxBot couldn't start" error onRetry={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Install v9.9.9 & restart" }));
+    expect(await screen.findByRole("button", { name: "Retry the update" })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't install the update");
+  });
+
+  it("doesn't call a stalled update a problem, since the current version just opens", () => {
+    const presentation = getStartupPresentation(
+      "engine",
+      {
+        phase: "downloading",
+        downloadedBytes: 1,
+        totalBytes: 2,
+        bytesPerSecond: 0,
+        updating: true,
+      },
+      true,
+    );
+    expect(presentation.detail).toBe("Your current version opens if this takes a while");
   });
 
   it("doesn't call an update a one-time setup", () => {
@@ -303,7 +325,7 @@ describe("startup progress", () => {
 
     expect(
       screen.getByText(
-        "BloxBot couldn't set up its engine. Try again, or report this if it keeps failing.",
+        "BloxBot couldn't set up its engine. Try again, or email support if it keeps failing.",
       ),
     ).toBeVisible();
     expect(screen.queryByText(/internet connection/)).not.toBeInTheDocument();

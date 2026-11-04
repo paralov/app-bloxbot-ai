@@ -70,6 +70,7 @@ function Chat() {
   // From the picker the helper is already connected, so setup is done only once a Studio shows up.
   const [setupFromPicker, setSetupFromPicker] = useState(false);
   const [pickerRequest, setPickerRequest] = useState(0);
+  const explorerToggleRef = useRef<HTMLButtonElement>(null);
   const [focusComposer, setFocusComposer] = useState(false);
   const [showPlaytest, setShowPlaytest] = useState(false);
   const desiredSidePanel = showPlaytest
@@ -273,6 +274,7 @@ function Chat() {
         ? createPortal(
             <>
               <button
+                ref={explorerToggleRef}
                 type="button"
                 onClick={handleToggleExplorer}
                 className={`${MENU_TRIGGER} gap-1.5`}
@@ -374,6 +376,7 @@ function Chat() {
               <div className="flex max-w-[45%] shrink-0">
                 <StudioTargetPicker
                   onOpenSetup={handleOpenStudioSetup}
+                  onWorkedWithoutStudio={handleWorkedWithoutStudio}
                   openRequest={pickerRequest}
                 />
               </div>
@@ -405,7 +408,10 @@ function Chat() {
               key={activeSessionId}
               collapsed={false}
               sessionBusy={isBusy}
-              onToggle={() => setExplorerChoice(false)}
+              onToggle={() => {
+                setExplorerChoice(false);
+                explorerToggleRef.current?.focus();
+              }}
             />
           ) : (
             <PlaytestPanel onClose={handleClosePlaytest} />
