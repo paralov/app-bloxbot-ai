@@ -9,7 +9,7 @@ import { networkConnections, type Systeminformation } from "systeminformation";
 import type { OpenCodeInfo, OpenCodeStartupProgress } from "../../src/types/desktop";
 import { createOpenCodeConfig, OPENCODE_ISOLATION_ENV } from "../opencodeConfig";
 import { loadShellPath } from "../shellEnv";
-import { ensureOpenCodeBinary } from "./OpenCodeBinary";
+import { ensureOpenCodeBinary, type OpenCodeBinaryOptions } from "./OpenCodeBinary";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 
 const LOOPBACK = "127.0.0.1";
@@ -156,6 +156,7 @@ interface PreparedOpenCode {
 export interface OpenCodeOptions {
   loadSystemPrompt?: () => Effect.Effect<string | null>;
   binaryCacheDirectory: string;
+  fetchWithSystemCertificates?: OpenCodeBinaryOptions["fetchWithSystemCertificates"];
   workspace: string;
   onStartupProgress?: (progress: OpenCodeStartupProgress) => void;
   /** Windows only: OpenCode started fine, but netstat wouldn't have found it. */
@@ -505,6 +506,7 @@ function prepareOpenCode(
     const broker = yield* StudioMcpBroker;
     const { executable, version } = yield* ensureOpenCodeBinary({
       cacheDirectory: options.binaryCacheDirectory,
+      fetchWithSystemCertificates: options.fetchWithSystemCertificates,
       onStartupProgress: options.onStartupProgress,
     }).pipe(
       Effect.mapError(

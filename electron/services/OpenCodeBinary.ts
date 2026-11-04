@@ -29,16 +29,34 @@ const SUPPORTED_MAJOR = 2;
 const SUPPORTED_MINOR = 2;
 const RELEASES_PER_PAGE = 100;
 const LOOKUP_TIMEOUT_MS = 15_000;
-const DOWNLOAD_TIMEOUT_MS = 120_000;
+/**
+ * How long a download may go without a byte before it counts as dead. There is no limit on total
+ * time, so a slow connection can finish. This outlasts TCP retransmission backoff and security
+ * software that holds a download back while it scans, and a dead connection still fails faster
+ * than the old 120 second limit did.
+ */
+export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 /** The Windows archive unpacks to a ~180 MB executable; leave room for the archive and a margin. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024;
 const EXTRACT_ATTEMPTS = 3;
-const RENAME_ATTEMPTS = 3;
 /** Error codes Windows returns while antivirus software scans or locks a new file. */
 const LOCKED_CODES = new Set(["EPERM", "EBUSY", "EACCES", "UNKNOWN"]);
 const DENIED_CODES = new Set(["EPERM", "EACCES"]);
 const RENAME_RETRY_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
 const VIRUS_PATTERN = /virus|potentially unwanted/i;
+/**
+ * TLS errors meaning Node doesn't know who issued a certificate, as when corporate or antivirus
+ * software intercepts HTTPS with its own root. Expired or wrong-host certificates aren't here:
+ * another certificate store wouldn't fix those.
+ */
+const UNKNOWN_ISSUER_CODES = new Set([
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "CERT_UNTRUSTED",
+]);
 
 const GitHubAssetSchema = Schema.mutable(
   Schema.Struct({
@@ -113,7 +131,7 @@ export class OpenCodeBinaryError extends Data.TaggedError("OpenCodeBinaryError")
   reason?: OpenCodeInstallFailureReason;
 }> {}
 
-type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 /** Resolves with each extracted file's expected size in bytes, when the format records it. */
 type ExtractArchive = (
   archivePath: string,
@@ -136,14 +154,15 @@ export interface OpenCodeInstallDelays {
   extractRetryMs: readonly number[];
   /** Before re-checking that the extracted executable still exists. */
   verifyMs: number;
-  /** Before the 2nd and 3rd publish (rename) attempts. */
+  /** Before each publish (rename) attempt after the first, which also sets how many there are. */
   renameRetryMs: readonly number[];
 }
 
 const DEFAULT_DELAYS: OpenCodeInstallDelays = {
   extractRetryMs: [1_000, 3_000],
   verifyMs: 500,
-  renameRetryMs: [250, 1_000],
+  // About 30 seconds. Scanning a new 180 MB executable can hold its folder far longer than a blip.
+  renameRetryMs: [250, 500, 1_000, 2_000, 4_000, 8_000, 8_000, 8_000],
 };
 
 async function defaultFreeBytes(path: string): Promise<number | null> {
@@ -164,6 +183,11 @@ export interface OpenCodeBinaryOptions {
   platform?: NodeJS.Platform;
   arch?: string;
   fetch?: Fetch;
+  /**
+   * Retries a download Node refused over an unknown certificate issuer, using the operating
+   * system's certificates. The archive still has to match the same SHA-256.
+   */
+  fetchWithSystemCertificates?: Fetch;
   extractArchive?: ExtractArchive;
   onStartupProgress?: StartupProgressReporter;
   /** Defaults to {@link PINNED_OPENCODE_RELEASE}. */
@@ -208,6 +232,25 @@ function classifyFileError(cause: unknown, repeated = false): OpenCodeInstallFai
   return "other";
 }
 
+function hasUnknownIssuer(cause: unknown): boolean {
+  // Node's fetch rejects with "fetch failed" and puts the TLS error in `cause`.
+  const code = cause instanceof Error ? errorCode(cause.cause) : undefined;
+  return code !== undefined && UNKNOWN_ISSUER_CODES.has(code);
+}
+
+/**
+ * Node stays the first choice so most people's downloads don't change. Only a request it refused
+ * over the issuer goes to the fallback, and any other failure is reported as it happened.
+ */
+function withCertificateFallback(fetchFn: Fetch, fallback: Fetch | undefined): Fetch {
+  if (!fallback) return fetchFn;
+  return (url, init) =>
+    fetchFn(url, init).catch((cause: unknown) => {
+      if (!hasUnknownIssuer(cause)) throw cause;
+      return fallback(url, init);
+    });
+}
+
 const tryPromise = <A>(message: string, evaluate: (signal: AbortSignal) => PromiseLike<A>) =>
   Effect.tryPromise({
     try: evaluate,
@@ -226,9 +269,36 @@ function contentLength(response: Response): number | null {
   return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
+class DownloadStalledError extends Error {}
+
+/** Aborts its signal when `touch` hasn't been called for `timeoutMs`. Call `stop` when finished. */
+function watchForStall(timeoutMs: number) {
+  const controller = new AbortController();
+  let receivedBytes = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const stop = () => clearTimeout(timer);
+  const touch = (bytes = 0) => {
+    receivedBytes += bytes;
+    stop();
+    timer = setTimeout(() => {
+      const receivedMb = (receivedBytes / 1024 ** 2).toFixed(1);
+      controller.abort(
+        new DownloadStalledError(
+          `stalled, no data for ${timeoutMs / 1000} seconds (${receivedMb} MB received)`,
+        ),
+      );
+    }, timeoutMs);
+  };
+  touch();
+
+  return { signal: controller.signal, touch, stop };
+}
+
 async function readDownload(
   response: Response,
   signal: AbortSignal,
+  onData: (bytes: number) => void,
   reportProgress?: StartupProgressReporter,
 ): Promise<Buffer | undefined> {
   if (!response.body) return undefined;
@@ -262,6 +332,7 @@ async function readDownload(
 
       chunks.push(value);
       downloadedBytes += value.byteLength;
+      if (value.byteLength > 0) onData(value.byteLength);
       const now = Date.now();
       if (now - lastReportAt >= 100) {
         report(now);
@@ -350,6 +421,7 @@ export function selectCompatibleRelease(
 
 /** Short, report-friendly text for why a fetch failed: timeout, DNS or network error. */
 export function describeNetworkError(cause: unknown, timeoutMs: number): string {
+  if (cause instanceof DownloadStalledError) return cause.message;
   if (cause instanceof Error || cause instanceof DOMException) {
     if (cause.name === "TimeoutError") return `timed out after ${timeoutMs / 1000} seconds`;
     if (cause.name === "AbortError") return "aborted";
@@ -572,7 +644,7 @@ interface InstallContext {
   platform: NodeJS.Platform;
   arch: string;
   spec: AssetSpec;
-  fetchFn: Fetch;
+  downloadFetch: Fetch;
   extractArchive: ExtractArchive;
   fileSystem: OpenCodeInstallFileSystem;
   delays: OpenCodeInstallDelays;
@@ -758,23 +830,29 @@ function extractWithRetry(
   return attempt(1, []);
 }
 
-/** Windows can briefly lock a new directory while security software scans it. */
+/**
+ * Windows can lock a new directory while security software scans it. `findPublished` looks for a
+ * copy another running BloxBot installed in the meantime, since a rename can't replace that.
+ */
 function publishWithRetry(
   context: InstallContext,
   installDirectory: string,
   versionDirectory: string,
+  findPublished: Effect.Effect<OpenCodeBinary | null>,
 ): Effect.Effect<void, OpenCodeBinaryError> {
+  const retryDelays = context.delays.renameRetryMs;
   const attempt = (number: number): Effect.Effect<void, OpenCodeBinaryError> =>
     Effect.gen(function* () {
       const result = yield* Effect.either(
         Effect.tryPromise(() => context.fileSystem.rename(installDirectory, versionDirectory)),
       );
       if (Either.isRight(result)) return;
+      if (yield* findPublished) return;
 
       const cause = result.left.error;
       const code = errorCode(cause);
       const retryable = code !== undefined && RENAME_RETRY_CODES.has(code);
-      if (!retryable || number >= RENAME_ATTEMPTS) {
+      if (!retryable || number > retryDelays.length) {
         const suffix = retryable ? ` (${number} attempts)` : "";
         return yield* fail(
           `Failed to publish the OpenCode installation: ${describeCause(cause)}${suffix}`,
@@ -782,7 +860,8 @@ function publishWithRetry(
           classifyFileError(cause, retryable),
         );
       }
-      yield* sleep(context.delays.renameRetryMs[number - 1] ?? 0);
+      // Nothing is in flight during this wait, so quitting doesn't have to sit through it.
+      yield* Effect.interruptible(sleep(retryDelays[number - 1] ?? 0));
       return yield* attempt(number + 1);
     });
   return attempt(1);
@@ -792,7 +871,7 @@ function installRelease(
   context: InstallContext,
   release: CompatibleRelease,
 ): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
-  const { platformDirectory, platform, arch, spec, fetchFn, reportProgress } = context;
+  const { platformDirectory, platform, arch, spec, downloadFetch, reportProgress } = context;
   return Effect.acquireUseRelease(
     tryPromise(
       "Failed to create a temporary OpenCode directory",
@@ -806,22 +885,25 @@ function installRelease(
         yield* requireFreeSpace(context);
         const { archiveBuffer, response } = yield* tryNetwork(
           "OpenCode download failed",
-          DOWNLOAD_TIMEOUT_MS,
+          DOWNLOAD_STALL_TIMEOUT_MS,
           async (signal) => {
-            const downloadSignal = AbortSignal.any([
-              signal,
-              AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-            ]);
-            const response = await fetchFn(release.asset.browser_download_url, {
-              headers: { "User-Agent": "BloxBot" },
-              signal: downloadSignal,
-            });
-            return {
-              archiveBuffer: response.ok
-                ? await readDownload(response, downloadSignal, reportProgress)
-                : undefined,
-              response,
-            };
+            const stall = watchForStall(DOWNLOAD_STALL_TIMEOUT_MS);
+            try {
+              const downloadSignal = AbortSignal.any([signal, stall.signal]);
+              const response = await downloadFetch(release.asset.browser_download_url, {
+                headers: { "User-Agent": "BloxBot" },
+                signal: downloadSignal,
+              });
+              stall.touch();
+              return {
+                archiveBuffer: response.ok
+                  ? await readDownload(response, downloadSignal, stall.touch, reportProgress)
+                  : undefined,
+                response,
+              };
+            } finally {
+              stall.stop();
+            }
           },
         );
         if (!response.ok) {
@@ -882,10 +964,21 @@ function installRelease(
                 JSON.stringify(metadata, null, 2),
               ),
             );
+            const findPublished = readValidCachedBinary(
+              versionDirectory,
+              platform,
+              arch,
+              spec,
+              release,
+            );
+            // Another running BloxBot may have just installed this version, and may be using it.
+            const published = yield* findPublished;
+            if (published) return published;
+
             yield* tryPromise("Failed to replace the cached OpenCode version", () =>
               rm(versionDirectory, { recursive: true, force: true }),
             );
-            yield* publishWithRetry(context, installDirectory, versionDirectory);
+            yield* publishWithRetry(context, installDirectory, versionDirectory, findPublished);
             return {
               executable: join(versionDirectory, spec.executableName),
               version: release.version.value,
@@ -960,7 +1053,9 @@ export function ensureOpenCodeBinary(
       platform,
       arch,
       spec,
-      fetchFn,
+      // Only downloads, never the release lookup: the expected SHA-256 has to come from the app
+      // or from Node's stricter TLS, so software that intercepts HTTPS can't vouch for a binary.
+      downloadFetch: withCertificateFallback(fetchFn, options.fetchWithSystemCertificates),
       extractArchive,
       fileSystem: { ...DEFAULT_FILE_SYSTEM, ...options.fileSystem },
       delays: { ...DEFAULT_DELAYS, ...options.delays },

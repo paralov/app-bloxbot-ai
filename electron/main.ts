@@ -3,7 +3,7 @@ import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, ipcMain, Menu, Notification, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, net, Notification, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { Cause, Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
@@ -117,6 +117,8 @@ const openCodeBinaryDirectory = join(app.getPath("userData"), "opencode");
 const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
       binaryCacheDirectory: openCodeBinaryDirectory,
+      // Chromium's network stack, which trusts the certificates installed on the system.
+      fetchWithSystemCertificates: (url, init) => net.fetch(url, init),
       workspace: join(app.getPath("home"), "BloxBot"),
       onNetstatMiss: (error) => reportMainError("opencode_netstat_miss", error),
       loadSystemPrompt: () =>
