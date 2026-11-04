@@ -1,9 +1,14 @@
 import { Data, Effect, Schema } from "effect";
 import {
+  type ExplorerDetailsRequest,
+  type ExplorerEdit,
+  type ExplorerEditResult,
+  ExplorerEditResultSchema,
   type ExplorerNodeDetails,
   ExplorerNodeDetailsSchema,
-  type ExplorerSnapshot,
-  ExplorerSnapshotSchema,
+  type ExplorerSyncRequest,
+  type ExplorerSyncResult,
+  ExplorerSyncResultSchema,
 } from "@/lib/explorer";
 import {
   type AppConfig,
@@ -40,9 +45,16 @@ export class DesktopError extends Data.TaggedError("DesktopError")<{
 interface DesktopEffects {
   readonly getExplorerNodeDetails: (
     studioId: string,
-    path: string,
-  ) => Effect.Effect<ExplorerNodeDetails, DesktopError>;
-  readonly getExplorerSnapshot: (studioId: string) => Effect.Effect<ExplorerSnapshot, DesktopError>;
+    request: ExplorerDetailsRequest,
+  ) => Effect.Effect<ExplorerNodeDetails | null, DesktopError>;
+  readonly editExplorerObject: (
+    studioId: string,
+    edit: ExplorerEdit,
+  ) => Effect.Effect<ExplorerEditResult, DesktopError>;
+  readonly syncExplorerTree: (
+    studioId: string,
+    request: ExplorerSyncRequest,
+  ) => Effect.Effect<ExplorerSyncResult, DesktopError>;
   readonly getOpenCodeInfo: Effect.Effect<OpenCodeInfo, DesktopError>;
   readonly getOpenCodeInstallFolder: Effect.Effect<string | null, DesktopError>;
   readonly getStudioMcpStatus: Effect.Effect<StudioMcpStatus, DesktopError>;
@@ -88,7 +100,9 @@ const loadBrowserConfig = Effect.gen(function* () {
 const browserEffects: DesktopEffects = {
   getExplorerNodeDetails: () =>
     Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
-  getExplorerSnapshot: () =>
+  editExplorerObject: () =>
+    Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
+  syncExplorerTree: () =>
     Effect.fail(new DesktopError({ message: "Explorer requires the desktop app." })),
   getOpenCodeInfo: Effect.fail(
     new DesktopError({
@@ -155,14 +169,20 @@ const decodeBridgeValue =
 
 function makeBridgeEffects(api: DesktopApi): DesktopEffects {
   return {
-    getExplorerNodeDetails: (studioId, path) =>
+    getExplorerNodeDetails: (studioId, request) =>
       invoke("Failed to read this object from Studio", () =>
-        api.getExplorerNodeDetails(studioId, path),
-      ).pipe(decodeBridgeValue("Object details are invalid", ExplorerNodeDetailsSchema)),
-    getExplorerSnapshot: (studioId) =>
-      invoke("Failed to read Studio's instance tree", () => api.getExplorerSnapshot(studioId)).pipe(
-        decodeBridgeValue("Explorer snapshot is invalid", ExplorerSnapshotSchema),
+        api.getExplorerNodeDetails(studioId, request),
+      ).pipe(
+        decodeBridgeValue("Object details are invalid", Schema.NullOr(ExplorerNodeDetailsSchema)),
       ),
+    editExplorerObject: (studioId, edit) =>
+      invoke("Failed to change this object in Studio", () =>
+        api.editExplorerObject(studioId, edit),
+      ).pipe(decodeBridgeValue("Studio's answer is invalid", ExplorerEditResultSchema)),
+    syncExplorerTree: (studioId, request) =>
+      invoke("Failed to read Studio's instance tree", () =>
+        api.syncExplorerTree(studioId, request),
+      ).pipe(decodeBridgeValue("Studio's instance tree is invalid", ExplorerSyncResultSchema)),
     getOpenCodeInfo: invoke("Failed to get OpenCode connection details", () =>
       api.getOpenCodeInfo(),
     ).pipe(decodeBridgeValue("OpenCode connection details are invalid", OpenCodeInfoSchema)),
@@ -213,9 +233,16 @@ const runPromise = <A>(effect: Effect.Effect<A, DesktopError>): Promise<A> =>
 
 /** Promise-only adapter consumed by React and exposed by the Electron bridge contract. */
 export const desktop: DesktopApi = {
-  getExplorerSnapshot: (studioId) => runPromise(desktopEffects.getExplorerSnapshot(studioId)),
-  getExplorerNodeDetails: (studioId, path) =>
-    runPromise(desktopEffects.getExplorerNodeDetails(studioId, path)),
+  syncExplorerTree: (studioId, request) =>
+    runPromise(desktopEffects.syncExplorerTree(studioId, request)),
+  // Trees are large and come from our own main process, so these aren't decoded one by one.
+  onExplorerTreeUpdate: (listener) => window.bloxbot?.onExplorerTreeUpdate(listener) ?? (() => {}),
+  readInstructions: () => window.bloxbot?.readInstructions() ?? Promise.resolve(""),
+  saveInstructions: (text) => window.bloxbot?.saveInstructions(text) ?? Promise.resolve(),
+  getExplorerNodeDetails: (studioId, request) =>
+    runPromise(desktopEffects.getExplorerNodeDetails(studioId, request)),
+  editExplorerObject: (studioId, edit) =>
+    runPromise(desktopEffects.editExplorerObject(studioId, edit)),
   getOpenCodeInfo: () => runPromise(desktopEffects.getOpenCodeInfo),
   getOpenCodeInstallFolder: () => runPromise(desktopEffects.getOpenCodeInstallFolder),
   getStudioMcpStatus: () => runPromise(desktopEffects.getStudioMcpStatus),
@@ -228,6 +255,7 @@ export const desktop: DesktopApi = {
     runPromise(desktopEffects.showSystemNotification(notification)),
   onSystemNotificationClick: (listener) =>
     window.bloxbot?.onSystemNotificationClick(listener) ?? (() => {}),
+  openNotificationSettings: () => window.bloxbot?.openNotificationSettings() ?? Promise.resolve(),
   loadConfig: () => runPromise(desktopEffects.loadConfig),
   patchConfig: (patch) => runPromise(desktopEffects.patchConfig(patch)),
   setSystemPrompt: (systemPrompt) => runPromise(desktopEffects.setSystemPrompt(systemPrompt)),

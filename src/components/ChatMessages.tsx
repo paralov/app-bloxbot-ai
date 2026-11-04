@@ -27,8 +27,10 @@ import {
 } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ReferenceChip } from "@/components/ReferenceChip";
 import type { HighlightLanguage } from "@/components/SyntaxHighlightedOutput";
 import { analyticsProperties } from "@/lib/analytics";
+import type { ExplorerReferenceKind } from "@/lib/explorer";
 import type {
   Part,
   PermissionRequest,
@@ -40,7 +42,8 @@ import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 
 /** Module-level constant to avoid creating a new array on every render. */
 const REMARK_PLUGINS = [remarkGfm];
-const INSTANCE_REFERENCE_PATTERN = /<Instance reference="([^"]+)">([^<]+)<\/Instance>/g;
+const INSTANCE_REFERENCE_PATTERN =
+  /<Instance reference="([^"]+)"(?: (property|attribute|tag)="[^"]*")?>([^<]+)<\/Instance>/g;
 const SyntaxHighlightedOutput = lazy(() => import("@/components/SyntaxHighlightedOutput"));
 const HIGHLIGHT_LANGUAGE_ALIASES: Record<string, HighlightLanguage> = {
   bash: "bash",
@@ -671,26 +674,35 @@ function decodeReference(value: string) {
   return value.replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 }
 
-function MessageText({ text }: { text: string }) {
-  const parts: Array<{ type: "text" | "instance"; value: string; label?: string }> = [];
+export function MessageText({ text }: { text: string }) {
+  const parts: Array<{
+    type: "text" | "instance";
+    value: string;
+    label?: string;
+    fieldKind?: ExplorerReferenceKind;
+  }> = [];
   let cursor = 0;
   for (const match of text.matchAll(INSTANCE_REFERENCE_PATTERN)) {
     const index = match.index ?? 0;
     if (index > cursor) parts.push({ type: "text", value: text.slice(cursor, index) });
-    parts.push({ type: "instance", value: decodeReference(match[1]), label: match[2] });
+    parts.push({
+      type: "instance",
+      value: decodeReference(match[1]),
+      fieldKind: match[2] as ExplorerReferenceKind | undefined,
+      label: match[3],
+    });
     cursor = index + match[0].length;
   }
   if (cursor < text.length) parts.push({ type: "text", value: text.slice(cursor) });
 
   return parts.map((part, index) =>
     part.type === "instance" ? (
-      <span
+      <ReferenceChip
         key={`${part.value}:${index}`}
-        className="mx-0.5 inline-flex items-center rounded-md border border-blue-500/25 bg-blue-500/10 px-1.5 py-0.5 align-baseline text-xs font-medium text-blue-700 dark:text-blue-300"
-        title={part.value}
-      >
-        {part.label}
-      </span>
+        label={part.label ?? ""}
+        path={part.value}
+        fieldKind={part.fieldKind}
+      />
     ) : (
       <Markdown key={index} remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
         {part.value}

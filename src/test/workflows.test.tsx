@@ -138,10 +138,13 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
       selected: { key: "studio-1", label: "My Place", detail: "Local place" },
       verified: true,
     } as never);
-    vi.spyOn(desktop, "getExplorerSnapshot").mockResolvedValue({
-      placeName: "My Place",
-      roots: [],
-    } as never);
+    vi.spyOn(desktop, "syncExplorerTree").mockResolvedValue({
+      changed: false,
+      watching: false,
+      complete: true,
+      truncated: false,
+      slowestReadMs: 0,
+    });
   });
 
   afterEach(async () => {

@@ -18,13 +18,30 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Providers show OpenCode's official logos, which work offline.
 - System notifications. While BloxBot isn't the app in front, it tells you when a chat finishes, runs into a problem, or is waiting for an answer or your approval, and when an update is ready or the connection is lost. Clicking one takes you to that chat. Turn them off in Settings → Notifications.
 - A toast when a chat you aren't looking at finishes or needs you, with a button to open it.
-- Edit the instructions BloxBot follows in Settings → System prompt, and reset them to the default at any time.
+- Settings → Instructions: tell BloxBot what to keep in mind in every chat. They're saved as BloxBot's own `AGENTS.md`.
+- The system prompt can still be edited under Settings → Instructions, with a warning: it can make BloxBot worse at Studio work, and your next message costs more.
+- Choose which notifications you get: a chat finishing, needing you, or running into a problem, and updates and connection problems. They come with a soft chime you can turn off, and a test button.
+- On a Mac, BloxBot offers once to turn notifications on, and Settings → Notifications can open your system's notification settings.
 - A one-time invitation to star BloxBot on GitHub, shown when you open BloxBot if you already have chats, otherwise after your third prompt.
 
 ### Changed
 
 - A redesigned interface: one calm surface for chats, compact tool activity you can open for detail, a single message box with your model and effort, and a clearer working state.
 - Reasoning effort now names its choices and explains what they do.
+- Settings → Privacy has shorter text, and data requests now go to support@bloxbot.ai.
+- The model picker has a way to add providers and models.
+- Settings → Providers lists each connected provider's models under it, replacing the separate Models tab.
+- Settings → About links to Paralov, Studs.gg, the Privacy Policy and the Terms of Service.
+- Drag an object from Explorer into your message to reference it, the same as an `@` mention.
+- Explorer shows an object's name and path with its properties, and keeps attributes on their own tab.
+- Right-click an object in Explorer to reference it in chat, copy its path, or rename, duplicate or delete it where Roblox allows.
+- Explorer shows every property Studio exposes, including Position, CFrame and Pivot for parts and Models, grouped by category. Change them in place with dropdowns, a color wheel, a BrickColor palette and X, Y and Z fields. Numbers read the same everywhere, without long decimals.
+- Add, change and remove attributes from Explorer, and add and remove tags.
+- Objects with the same name each get their own row in Explorer, with their own children and values.
+- Explorer stays out of Studio's redo while you look around, apart from once when you first select an object after opening Studio. While there's something to redo, it hides computed values like Mass until there isn't.
+- Explorer handles very large places. Objects appear as they're read instead of all at once, Studio no longer stalls on one long read in most places, the list stays smooth with tens of thousands of objects open, and when nothing has changed in Studio it hardly asks at all.
+- Explorer shows objects below Studio's depth limit, and the right children under each of any number of objects with the same name.
+- Right-click a property or attribute to reference it in chat or copy its value. Referenced properties, attributes and tags each have their own color and icon.
 - Notifications appear at the bottom right.
 - `@` and `/` suggestions open above the message box, find objects even with Explorer closed, and rank the closest matches first.
 - Explorer and Playtest moved to the top bar.

@@ -1,5 +1,13 @@
 import { Schema } from "effect";
-import type { ExplorerNodeDetails, ExplorerSnapshot } from "../lib/explorer";
+import type {
+  ExplorerDetailsRequest,
+  ExplorerEdit,
+  ExplorerEditResult,
+  ExplorerNodeDetails,
+  ExplorerSyncRequest,
+  ExplorerSyncResult,
+  ExplorerTreeUpdate,
+} from "../lib/explorer";
 import {
   type StudioTargetDiscovery,
   StudioTargetSchema,
@@ -13,6 +21,15 @@ export const DetailedAnalyticsPreferenceSchema = Schema.Literal("unset", "enable
 
 export type ThemePreference = typeof ThemePreferenceSchema.Type;
 
+export const NotificationKindsSchema = Schema.Struct({
+  finished: Schema.Boolean,
+  waiting: Schema.Boolean,
+  failed: Schema.Boolean,
+  app: Schema.Boolean,
+});
+
+export type NotificationKinds = typeof NotificationKindsSchema.Type;
+
 export const AppConfigSchema = Schema.mutable(
   Schema.Struct({
     lastModel: Schema.NullOr(Schema.String),
@@ -22,7 +39,11 @@ export const AppConfigSchema = Schema.mutable(
     // Highest analytics policy notice the user has seen; 0 predates the opt-out model.
     analyticsNoticeVersion: Schema.Number,
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
+    // Only for people who haven't chosen kinds yet: off here means every kind starts off.
     systemNotifications: Schema.Boolean,
+    notificationKinds: Schema.NullOr(NotificationKindsSchema),
+    notificationSound: Schema.Boolean,
+    notificationsOffered: Schema.Boolean,
     // What the user wrote in Settings; null follows BloxBot's default as it changes.
     systemPrompt: Schema.NullOr(Schema.String),
     promptsSent: Schema.Number,
@@ -40,6 +61,9 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   analyticsNoticeVersion: 0,
   studioTargetsBySession: {},
   systemNotifications: true,
+  notificationKinds: null,
+  notificationSound: true,
+  notificationsOffered: false,
   systemPrompt: null,
   promptsSent: 0,
   starCalloutShown: false,
@@ -114,8 +138,15 @@ export const SystemNotificationSchema = Schema.Struct({
 export type SystemNotification = typeof SystemNotificationSchema.Type;
 
 export interface DesktopApi {
-  getExplorerSnapshot(studioId: string): Promise<ExplorerSnapshot>;
-  getExplorerNodeDetails(studioId: string, path: string): Promise<ExplorerNodeDetails>;
+  /** Brings the tree up to date, sending the parts that changed to `onExplorerTreeUpdate`. */
+  syncExplorerTree(studioId: string, request: ExplorerSyncRequest): Promise<ExplorerSyncResult>;
+  onExplorerTreeUpdate(listener: (update: ExplorerTreeUpdate) => void): () => void;
+  /** Null when reading it in the background would have to run a script. */
+  getExplorerNodeDetails(
+    studioId: string,
+    request: ExplorerDetailsRequest,
+  ): Promise<ExplorerNodeDetails | null>;
+  editExplorerObject(studioId: string, edit: ExplorerEdit): Promise<ExplorerEditResult>;
   discoverStudioTargets(): Promise<StudioTargetDiscovery>;
   selectStudioTarget(targetKey: string): Promise<StudioTargetSelection>;
   getOpenCodeInfo(): Promise<OpenCodeInfo>;
@@ -125,9 +156,14 @@ export interface DesktopApi {
   onOpenCodeStartupProgress(listener: (progress: OpenCodeStartupProgress) => void): () => void;
   getVersion(): Promise<string>;
   getInstructionFiles(): Promise<readonly InstructionFile[]>;
+  /** BloxBot's AGENTS.md, which is empty until the user writes something. */
+  readInstructions(): Promise<string>;
+  saveInstructions(text: string): Promise<void>;
   openUrl(url: string): Promise<void>;
   showSystemNotification(notification: SystemNotification): Promise<boolean>;
   onSystemNotificationClick(listener: (id: string) => void): () => void;
+  /** Opens the page where the system lets people allow BloxBot's notifications. */
+  openNotificationSettings(): Promise<void>;
   loadConfig(): Promise<AppConfig>;
   patchConfig(patch: Partial<AppConfig>): Promise<void>;
   setSystemPrompt(systemPrompt: string | null): Promise<void>;

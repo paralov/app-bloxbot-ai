@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Building2, ChevronRight, FileText, Globe, Search, Shield } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProviderCheckPopover from "@/components/ProviderCheckPopover";
@@ -7,6 +7,7 @@ import ProviderConnectDialog from "@/components/ProviderConnectDialog";
 import ProviderLogo from "@/components/ProviderLogo";
 import { THEME_OPTIONS, type Theme, useTheme } from "@/components/theme-provider";
 import { useCheckProvider } from "@/hooks/mutations/useCheckProvider";
+import { useSaveInstructions } from "@/hooks/mutations/useSaveInstructions";
 import { useSaveSystemPrompt } from "@/hooks/mutations/useSaveSystemPrompt";
 import { useDisconnectProvider } from "@/hooks/mutations/useSetApiKey";
 import {
@@ -16,10 +17,13 @@ import {
   useConnectedProviders,
   useProviderList,
 } from "@/hooks/useProviders";
+import { useAnyChatBusy } from "@/hooks/useSessionStatuses";
 import { analyticsDeviceId, analyticsProperties } from "@/lib/analytics";
+import { appLink } from "@/lib/appLink";
+import { playChime } from "@/lib/chime";
 import { type AppConfig, loadConfig } from "@/lib/config";
 import { desktop } from "@/lib/desktop";
-import { notify } from "@/lib/notifications";
+import { canOpenNotificationSettings, notify, openNotificationSettings } from "@/lib/notifications";
 import type { Model } from "@/lib/opencode/types";
 import { OPENCODE_GO, shouldRecommendOpenCodeGo } from "@/lib/opencodeGo";
 import { connectHint, isFreeTier, providerDisplayName } from "@/lib/providerAuth";
@@ -28,7 +32,7 @@ import { qk } from "@/lib/queryKeys";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { usePreferences } from "@/providers/PreferencesProvider";
 import type { ModelInfo, ProviderInfo } from "@/types";
-import type { UpdateInfo } from "@/types/desktop";
+import type { NotificationKinds, UpdateInfo } from "@/types/desktop";
 
 // ── Popular providers (same order as OpenCode's web UI) ──────────────
 const POPULAR_PROVIDERS = [
@@ -67,9 +71,8 @@ const TECHNOLOGIES = [
 
 type SettingsTab =
   | "providers"
-  | "models"
   | "appearance"
-  | "systemPrompt"
+  | "instructions"
   | "notifications"
   | "privacy"
   | "about";
@@ -142,36 +145,10 @@ function Settings({ onClose }: SettingsProps) {
               Providers
             </button>
             <button
-              onClick={() => setTab("models")}
-              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
-                tab === "models"
-                  ? "bg-accent font-medium text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-              </svg>
-              Models
-            </button>
-
-            <div className="mt-3 hidden px-2 py-1.5 text-xs text-muted-foreground @xl:block">
-              App
-            </div>
-            <button
               type="button"
-              onClick={() => setTab("systemPrompt")}
+              onClick={() => setTab("instructions")}
               className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
-                tab === "systemPrompt"
+                tab === "instructions"
                   ? "bg-accent font-medium text-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
@@ -191,8 +168,12 @@ function Settings({ onClose }: SettingsProps) {
                 <path d="M8 13h8" />
                 <path d="M8 17h5" />
               </svg>
-              System prompt
+              Instructions
             </button>
+
+            <div className="mt-3 hidden px-2 py-1.5 text-xs text-muted-foreground @xl:block">
+              App
+            </div>
             <button
               type="button"
               onClick={() => setTab("notifications")}
@@ -293,9 +274,8 @@ function Settings({ onClose }: SettingsProps) {
         {/* Content area */}
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-t-xl border-x border-t bg-background">
           {tab === "providers" && <ProvidersTab />}
-          {tab === "models" && <ModelsTab />}
           {tab === "appearance" && <AppearanceTab />}
-          {tab === "systemPrompt" && <SystemPromptTab />}
+          {tab === "instructions" && <InstructionsTab />}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "privacy" && <PrivacyTab />}
           {tab === "about" && <AboutTab appVersion={appVersion} />}
@@ -306,7 +286,7 @@ function Settings({ onClose }: SettingsProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Providers Tab — connected, popular, and every other provider, searchable
+// Providers Tab — connected ones with their models, then every other provider, searchable
 // ═══════════════════════════════════════════════════════════════════════
 
 function ProvidersTab() {
@@ -321,7 +301,9 @@ function ProvidersTab() {
   const [checks, setChecks] = useState<Record<string, "checking" | ProviderCheckResult>>({});
   const checkMutation = useCheckProvider();
   const providerList = useProviderList();
-  const { selectedModel } = usePreferences();
+  const { selectedModel, hiddenModels, toggleModelVisibility } = usePreferences();
+  const allModels = useAllModels();
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 
   // Bumped whenever a provider's credential changes, so a check that was
   // running for the old credential can't report onto the new one.
@@ -377,6 +359,7 @@ function ProvidersTab() {
   function handleConnected(provider: ProviderInfo) {
     // A new credential makes any earlier or running check stale.
     forgetCheck(provider.id);
+    setExpanded((current) => new Set([...current, provider.id]));
     notify.success(`${provider.name} connected`, {
       name: "provider_connected",
       action: {
@@ -412,8 +395,23 @@ function ProvidersTab() {
     [needle],
   );
 
+  const modelsByProvider = useMemo(() => {
+    const groups = new Map<string, ModelInfo[]>();
+    for (const model of allModels) {
+      groups.set(model.providerId, [...(groups.get(model.providerId) ?? []), model]);
+    }
+    for (const models of groups.values()) models.sort((a, b) => a.name.localeCompare(b.name));
+    return groups;
+  }, [allModels]);
+  const matchingModels = (providerId: string) =>
+    (modelsByProvider.get(providerId) ?? []).filter((model) =>
+      `${model.name} ${model.id}`.toLowerCase().includes(needle),
+    );
+
   const connected = allProviders.filter(
-    (p) => connectedProviders.includes(p.id) && matches(p, providerDisplayName(p)),
+    (p) =>
+      connectedProviders.includes(p.id) &&
+      (matches(p, providerDisplayName(p)) || (needle && matchingModels(p.id).length > 0)),
   );
 
   const goProvider = allProviders.find((p) => p.id === OPENCODE_GO.providerId);
@@ -480,9 +478,6 @@ function ProvidersTab() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="text-lg font-medium text-foreground">Providers</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Connect an AI provider to chat with its models.
-      </p>
 
       {allProviders.length > 0 && (
         <div className="relative mt-5">
@@ -491,7 +486,7 @@ function ProvidersTab() {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search ${allProviders.length} providers`}
+            placeholder={`Search ${allProviders.length} providers and your models`}
             aria-label="Search providers"
             className="h-8 w-full rounded-md border bg-transparent pr-2 pl-8 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
           />
@@ -505,9 +500,8 @@ function ProvidersTab() {
             <div className="min-w-0">
               <div className="text-sm font-medium">Want more than the free models?</div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                OpenCode Go is a low-cost subscription to strong open coding models like Kimi, GLM,
-                Qwen and DeepSeek. Go is {OPENCODE_GO.goPrice}, and Go Plus is{" "}
-                {OPENCODE_GO.goPlusPrice} with higher limits.
+                OpenCode Go has strong open models like Kimi, GLM and DeepSeek, from{" "}
+                {OPENCODE_GO.goPrice}.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <button
@@ -537,6 +531,13 @@ function ProvidersTab() {
           <div className="divide-y rounded-lg border bg-card">
             {connected.map((provider) => {
               const check = checks[provider.id];
+              const models = modelsByProvider.get(provider.id) ?? [];
+              const nameMatches = matches(provider, providerDisplayName(provider));
+              const listed = needle && !nameMatches ? matchingModels(provider.id) : models;
+              const modelsOpen = expanded.has(provider.id) || (!!needle && !nameMatches);
+              const shownCount = models.filter(
+                (model) => !hiddenModels.has(`${model.providerId}/${model.id}`),
+              ).length;
               return (
                 <div key={provider.id} className="px-3 py-2.5">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -609,6 +610,64 @@ function ProvidersTab() {
                       )}
                     </p>
                   )}
+                  {models.length > 0 && (
+                    <div className="mt-1.5 @md:pl-8">
+                      <button
+                        type="button"
+                        aria-expanded={modelsOpen}
+                        onClick={() =>
+                          setExpanded((current) => {
+                            const next = new Set(current);
+                            if (next.has(provider.id)) next.delete(provider.id);
+                            else next.add(provider.id);
+                            return next;
+                          })
+                        }
+                        className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <ChevronRight
+                          aria-hidden="true"
+                          size={12}
+                          className={`transition-transform ${modelsOpen ? "rotate-90" : ""}`}
+                        />
+                        {shownCount === models.length
+                          ? `${models.length} ${models.length === 1 ? "model" : "models"}`
+                          : `${shownCount} of ${models.length} models shown`}
+                      </button>
+                      {modelsOpen && (
+                        <div className="mt-1 space-y-0.5">
+                          {listed.map((model) => {
+                            const modelKey = `${model.providerId}/${model.id}`;
+                            const isVisible = !hiddenModels.has(modelKey);
+                            return (
+                              <button
+                                key={modelKey}
+                                type="button"
+                                role="switch"
+                                aria-checked={isVisible}
+                                aria-label={`Show ${model.name} in the chat`}
+                                onClick={() => toggleModelVisibility(modelKey)}
+                                className="flex w-full items-center justify-between gap-3 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent/60"
+                              >
+                                <span className="truncate text-xs">{model.name}</span>
+                                <span
+                                  className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+                                    isVisible ? "bg-foreground" : "bg-border"
+                                  }`}
+                                >
+                                  <span
+                                    className={`inline-block h-3 w-3 rounded-full bg-background transition-transform ${
+                                      isVisible ? "translate-x-3.5" : "translate-x-0.5"
+                                    }`}
+                                  />
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -662,183 +721,6 @@ function ProvidersTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Models Tab
-// ═══════════════════════════════════════════════════════════════════════
-
-function ModelsTab() {
-  const allModels = useAllModels();
-  const connectedProviders = useConnectedProviders();
-  const { hiddenModels, toggleModelVisibility } = usePreferences();
-
-  const [search, setSearch] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    searchRef.current?.focus();
-  }, []);
-
-  // Group models by provider (only connected providers), filtered by search
-  const modelsByProvider = useMemo(() => {
-    const query = search.toLowerCase().trim();
-    const groups: Record<string, { providerName: string; models: ModelInfo[] }> = {};
-
-    for (const model of allModels) {
-      // Only show models from connected providers
-      if (!connectedProviders.includes(model.providerId)) continue;
-
-      // Filter by search
-      if (query) {
-        const haystack = `${model.name} ${model.id} ${model.providerName}`.toLowerCase();
-        if (!haystack.includes(query)) continue;
-      }
-
-      if (!groups[model.providerId]) {
-        groups[model.providerId] = {
-          providerName: model.providerName,
-          models: [],
-        };
-      }
-      groups[model.providerId].models.push(model);
-    }
-
-    // Sort models within each group
-    for (const group of Object.values(groups)) {
-      group.models.sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    // Sort provider groups: popular first, then alphabetical
-    const entries = Object.entries(groups);
-    entries.sort(([aId], [bId]) => {
-      const aPopular = POPULAR_PROVIDERS.includes(aId);
-      const bPopular = POPULAR_PROVIDERS.includes(bId);
-      if (aPopular && !bPopular) return -1;
-      if (!aPopular && bPopular) return 1;
-      if (aPopular && bPopular) {
-        return POPULAR_PROVIDERS.indexOf(aId) - POPULAR_PROVIDERS.indexOf(bId);
-      }
-      return groups[aId].providerName.localeCompare(groups[bId].providerName);
-    });
-
-    return entries;
-  }, [allModels, connectedProviders, search]);
-
-  const totalModels = allModels.filter((m) => connectedProviders.includes(m.providerId)).length;
-
-  return (
-    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-medium text-foreground">Models</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Toggle which models appear in the model selector.
-      </p>
-
-      {/* Search */}
-      <div className="mt-4">
-        <div className="flex items-center gap-1.5 rounded-md border bg-transparent px-2.5">
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="shrink-0 text-muted-foreground/50"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            ref={searchRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search models..."
-            className="h-8 flex-1 bg-transparent text-xs placeholder:text-muted-foreground/40 focus:outline-none"
-          />
-          {search && (
-            <button
-              onClick={() => {
-                setSearch("");
-                searchRef.current?.focus();
-              }}
-              className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-            >
-              <svg
-                width="8"
-                height="8"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Model groups */}
-      <div className="mt-5 space-y-6">
-        {modelsByProvider.map(([providerId, group]) => (
-          <div key={providerId}>
-            <div className="flex items-center gap-2 pb-2">
-              <ProviderLogo providerId={providerId} />
-              <span className="text-sm font-medium">{group.providerName}</span>
-            </div>
-            <div className="rounded-lg border bg-card">
-              {group.models.map((model, idx) => {
-                const modelKey = `${model.providerId}/${model.id}`;
-                const isVisible = !hiddenModels.has(modelKey);
-                return (
-                  <div key={modelKey}>
-                    {idx > 0 && <div className="mx-3.5 h-px bg-border" />}
-                    <button
-                      onClick={() => toggleModelVisibility(modelKey)}
-                      className="flex w-full items-center justify-between px-3.5 py-2.5 text-left"
-                    >
-                      <span className="truncate text-xs">{model.name}</span>
-                      {/* Toggle switch */}
-                      <span
-                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-                          isVisible ? "bg-foreground" : "bg-border"
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
-                            isVisible ? "translate-x-4" : "translate-x-0.5"
-                          }`}
-                        />
-                      </span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-
-        {modelsByProvider.length === 0 && totalModels > 0 && (
-          <div className="py-4 text-center text-xs text-muted-foreground">
-            No models matching &quot;{search}&quot;
-          </div>
-        )}
-
-        {totalModels === 0 && (
-          <div className="py-4 text-center text-xs text-muted-foreground">
-            Connect a provider to see available models.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════
 // Appearance Tab
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -848,9 +730,6 @@ function AppearanceTab() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="text-lg font-medium text-foreground">Appearance</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Choose how BloxBot looks. System follows your OS preference.
-      </p>
 
       <div className="mt-6">
         <div className="mb-1.5 text-xs font-medium text-muted-foreground">Theme</div>
@@ -909,10 +788,73 @@ function ThemePreview({ swatch }: { swatch: Theme }) {
 // Privacy Tab
 // ═══════════════════════════════════════════════════════════════════════
 
-function SystemPromptTab() {
+function InstructionsTab() {
+  const { data: saved } = useQuery<string>({
+    queryKey: qk.instructions,
+    queryFn: () => desktop.readInstructions(),
+  });
+  const saveInstructions = useSaveInstructions();
+  // Saving reloads OpenCode, which every running chat depends on.
+  const chatRunning = useAnyChatBusy();
+  const [draft, setDraft] = useState<string | null>(null);
+  const text = draft ?? saved ?? "";
+
+  const save = () => {
+    saveInstructions.mutate(text, {
+      onSuccess: () => {
+        setDraft(null);
+        notify.success("Instructions saved");
+      },
+      onError: (error) => {
+        notify.error("Couldn't save your instructions", { description: error.message });
+      },
+    });
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
+      <h4 className="text-lg font-medium text-foreground">Instructions</h4>
+      <p className="mt-1 text-xs text-muted-foreground">
+        What BloxBot should always keep in mind, in every chat.
+      </p>
+
+      <textarea
+        aria-label="Instructions"
+        value={text}
+        onChange={(event) => setDraft(event.target.value)}
+        rows={10}
+        placeholder="Keep scripts in ServerScriptService. Explain changes simply."
+        className="mt-6 w-full resize-y rounded-lg border bg-card p-3.5 text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-foreground/30"
+      />
+
+      <div className="mt-3 flex items-center justify-end gap-3">
+        {chatRunning && (
+          <span className="text-xs text-muted-foreground">
+            Saving waits for your chats to finish.
+          </span>
+        )}
+        <button
+          type="button"
+          disabled={
+            chatRunning || saveInstructions.isPending || draft === null || draft === (saved ?? "")
+          }
+          onClick={save}
+          className="h-8 rounded-lg bg-foreground px-3 text-xs text-background transition-opacity disabled:opacity-30"
+        >
+          Save
+        </button>
+      </div>
+
+      <SystemPromptSection chatRunning={chatRunning} />
+    </div>
+  );
+}
+
+function SystemPromptSection({ chatRunning }: { chatRunning: boolean }) {
   const { data: config } = useQuery<AppConfig>({ queryKey: qk.config, queryFn: loadConfig });
   const saveSystemPrompt = useSaveSystemPrompt();
   const saved = config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const text = draft ?? saved;
   const customized = (config?.systemPrompt ?? null) !== null;
@@ -930,87 +872,167 @@ function SystemPromptTab() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
-      <h4 className="text-lg font-medium text-foreground">System prompt</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        The instructions BloxBot follows in every chat. Changes apply from your next message.
-      </p>
+    <div className="mt-8 border-t pt-4">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronRight
+          aria-hidden="true"
+          size={12}
+          className={`transition-transform ${open ? "rotate-90" : ""}`}
+        />
+        System prompt
+        {customized && <span className="text-amber-700 dark:text-amber-400">(changed)</span>}
+      </button>
 
-      <textarea
-        aria-label="System prompt"
-        value={text}
-        onChange={(event) => setDraft(event.target.value)}
-        rows={12}
-        className="mt-6 w-full resize-y rounded-lg border bg-card p-3.5 text-xs leading-relaxed text-foreground outline-none focus:border-foreground/30"
-      />
+      {open && (
+        <>
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+            Not recommended. BloxBot can get worse at Studio work, and your next message costs more
+            because the AI has to rebuild its cache. Use Instructions instead.
+          </p>
 
-      <div className="mt-3 flex items-center justify-end gap-2">
-        {(customized || text !== DEFAULT_SYSTEM_PROMPT) && (
-          <button
-            type="button"
-            disabled={saveSystemPrompt.isPending}
-            onClick={() => (customized ? save(null) : setDraft(null))}
-            className="h-8 rounded-lg border bg-card px-3 text-xs transition-colors hover:bg-accent disabled:opacity-50"
-          >
-            Reset to default
-          </button>
-        )}
-        <button
-          type="button"
-          disabled={saveSystemPrompt.isPending || !text.trim() || text === saved}
-          onClick={() => save(text === DEFAULT_SYSTEM_PROMPT ? null : text)}
-          className="h-8 rounded-lg bg-foreground px-3 text-xs text-background transition-opacity disabled:opacity-30"
-        >
-          Save
-        </button>
-      </div>
+          <textarea
+            aria-label="System prompt"
+            value={text}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={12}
+            className="mt-3 w-full resize-y rounded-lg border bg-card p-3.5 text-xs leading-relaxed text-foreground outline-none focus:border-foreground/30"
+          />
+
+          <div className="mt-3 flex items-center justify-end gap-2">
+            {(customized || text !== DEFAULT_SYSTEM_PROMPT) && (
+              <button
+                type="button"
+                disabled={chatRunning || saveSystemPrompt.isPending}
+                onClick={() => (customized ? save(null) : setDraft(null))}
+                className="h-8 rounded-lg border bg-card px-3 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+              >
+                Reset to default
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={chatRunning || saveSystemPrompt.isPending || !text.trim() || text === saved}
+              onClick={() => save(text === DEFAULT_SYSTEM_PROMPT ? null : text)}
+              className="h-8 rounded-lg bg-foreground px-3 text-xs text-background transition-opacity disabled:opacity-30"
+            >
+              Save
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
+const NOTIFICATION_KINDS: ReadonlyArray<{ kind: keyof NotificationKinds; label: string }> = [
+  { kind: "finished", label: "A chat finishes" },
+  { kind: "waiting", label: "A chat needs your answer or approval" },
+  { kind: "failed", label: "A chat runs into a problem" },
+  { kind: "app", label: "An update is ready or the connection is lost" },
+];
+
+function SettingSwitch({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-left transition-colors hover:bg-accent/60"
+    >
+      <span className="text-xs">{label}</span>
+      <span
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+          checked ? "bg-foreground" : "bg-border"
+        }`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
+            checked ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
 function NotificationsTab() {
-  const { systemNotificationsEnabled, setSystemNotificationsEnabled } = usePreferences();
+  const { notifications, setNotificationKind, setNotificationSound } = usePreferences();
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="text-lg font-medium text-foreground">Notifications</h4>
       <p className="mt-1 text-xs text-muted-foreground">
-        While you work in Roblox Studio or another app, BloxBot can tell you when it needs you.
+        Sent while BloxBot isn't the app in front.
       </p>
 
-      <div className="mt-6 rounded-lg border bg-card p-3.5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-sm font-medium">System notifications</div>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Notifies you when a chat finishes, runs into a problem, or is waiting for an answer or
-              your approval, and when an update is ready or the connection is lost. Only sent while
-              BloxBot isn't the app in front. They show the chat's title.
-            </p>
-          </div>
+      <div className="mt-6">
+        <div className="mb-1.5 text-xs font-medium text-muted-foreground">Notify me when</div>
+        <div className="divide-y rounded-lg border bg-card">
+          {NOTIFICATION_KINDS.map(({ kind, label }) => (
+            <SettingSwitch
+              key={kind}
+              label={label}
+              checked={notifications.kinds[kind]}
+              onChange={(enabled) => {
+                posthog.capture(
+                  "system_notifications_toggled",
+                  analyticsProperties("notifications", { kind, enabled }),
+                );
+                setNotificationKind(kind, enabled);
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border bg-card">
+        <SettingSwitch
+          label="Play a sound"
+          checked={notifications.sound}
+          onChange={(enabled) => {
+            posthog.capture(
+              "notification_sound_toggled",
+              analyticsProperties("notifications", { enabled }),
+            );
+            setNotificationSound(enabled);
+            if (enabled) playChime();
+          }}
+        />
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2">
+        {canOpenNotificationSettings() && (
           <button
             type="button"
-            role="switch"
-            aria-checked={systemNotificationsEnabled}
-            aria-label="System notifications"
-            onClick={() => {
-              posthog.capture(
-                "system_notifications_toggled",
-                analyticsProperties("notifications", { enabled: !systemNotificationsEnabled }),
-              );
-              setSystemNotificationsEnabled(!systemNotificationsEnabled);
-            }}
-            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-              systemNotificationsEnabled ? "bg-foreground" : "bg-border"
-            }`}
+            onClick={openNotificationSettings}
+            className="h-8 rounded-lg border bg-card px-3 text-xs transition-colors hover:bg-accent"
           >
-            <span
-              className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
-                systemNotificationsEnabled ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
+            Open system settings
           </button>
-        </div>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            void notify.test();
+          }}
+          className="h-8 rounded-lg border bg-card px-3 text-xs transition-colors hover:bg-accent"
+        >
+          Send a test notification
+        </button>
       </div>
     </div>
   );
@@ -1023,24 +1045,22 @@ function PrivacyTab() {
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="text-lg font-medium text-foreground">Privacy</h4>
       <p className="mt-1 text-xs text-muted-foreground">
-        BloxBot uses PostHog's standard product analytics with persistent device and session
-        identifiers, but events stay anonymous: no person profile is created. Error reports are
-        included, with personal file paths, usernames, email addresses and API keys removed. They
-        can name the provider and model an error came from. Attached images and files are never
-        uploaded.
+        We use app usage and error reports, not linked to your name, to fix bugs and improve
+        BloxBot.
       </p>
 
       <div className="mt-6 rounded-lg border bg-card p-3.5">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-sm font-medium">Share AI usage data</div>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Shares your prompts, AI responses and reasoning, tool calls and their results, code
-              changes, instruction files like AGENTS.md, timings, provider and model names, token
-              counts, and Roblox place IDs and names, on by default. Turn this off to keep
-              conversations and model usage out of analytics. Basic app health events and error
-              reports remain enabled.
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">On by default. Also sends:</p>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+              <li>Your prompts, and the AI's replies and reasoning</li>
+              <li>What the AI runs and the results</li>
+              <li>Code changes and your AGENTS.md instructions</li>
+              <li>Which AI model you use, how much and how long it takes</li>
+              <li>Roblox place names and IDs</li>
+            </ul>
           </div>
           <button
             type="button"
@@ -1088,7 +1108,7 @@ function PrivacyDetails() {
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-foreground">Device ID</div>
-            <div className="truncate font-mono">{deviceId}</div>
+            <div className="select-text truncate font-mono">{deviceId}</div>
           </div>
           <button
             type="button"
@@ -1100,27 +1120,28 @@ function PrivacyDetails() {
         </div>
       )}
       <p>
-        Include your device ID when asking Paralov AS to access or delete your data at{" "}
-        <span className="select-text text-foreground">hello@paralov.com</span>. Read the{" "}
+        To access or delete your data, email{" "}
+        <span className="select-text text-foreground">support@bloxbot.ai</span>
+        {deviceId ? " with this ID." : "."}
+      </p>
+      <div className="flex gap-3">
         <a
-          href={PRIVACY_POLICY_URL}
+          href={appLink(PRIVACY_POLICY_URL, "privacy")}
           target="_blank"
           rel="noreferrer"
           className="underline underline-offset-2"
         >
           Privacy Policy
-        </a>{" "}
-        and{" "}
+        </a>
         <a
-          href={TERMS_URL}
+          href={appLink(TERMS_URL, "privacy")}
           target="_blank"
           rel="noreferrer"
           className="underline underline-offset-2"
         >
           Terms of Service
         </a>
-        .
-      </p>
+      </div>
     </div>
   );
 }
@@ -1130,6 +1151,13 @@ function PrivacyDetails() {
 // ═══════════════════════════════════════════════════════════════════════
 
 type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up-to-date" | "error";
+
+const ABOUT_LINKS = [
+  { name: "Paralov", url: appLink("https://paralov.com", "about"), icon: Building2 },
+  { name: "Studs.gg", url: appLink("https://studs.gg", "about"), icon: Globe },
+  { name: "Privacy Policy", url: appLink(PRIVACY_POLICY_URL, "about"), icon: Shield },
+  { name: "Terms of Service", url: appLink(TERMS_URL, "about"), icon: FileText },
+];
 
 function AboutTab({ appVersion }: { appVersion: string | null }) {
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>("idle");
@@ -1175,9 +1203,6 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="text-lg font-medium text-foreground">About BloxBot</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        AI-assisted Roblox development, right from your desktop.
-      </p>
 
       {/* Version & update check */}
       <div className="mt-6">
@@ -1326,9 +1351,6 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
             </div>
           ))}
         </div>
-        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          BloxBot is powered by these projects. Thank you to the teams behind them.
-        </p>
       </div>
 
       {/* Links */}
@@ -1336,7 +1358,7 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
         <div className="mb-1.5 text-xs font-medium text-muted-foreground">Links</div>
         <div className="space-y-1.5">
           <a
-            href="https://bloxbot.ai"
+            href={appLink("https://bloxbot.ai", "about")}
             target="_blank"
             rel="noreferrer"
             className="flex h-9 w-full items-center gap-2 rounded-lg border bg-card px-3.5 text-xs transition-colors hover:bg-accent"
@@ -1368,6 +1390,18 @@ function AboutTab({ appVersion }: { appVersion: string | null }) {
             </svg>
             GitHub
           </a>
+          {ABOUT_LINKS.map((link) => (
+            <a
+              key={link.name}
+              href={link.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex h-9 w-full items-center gap-2 rounded-lg border bg-card px-3.5 text-xs transition-colors hover:bg-accent"
+            >
+              <link.icon className="size-3" />
+              {link.name}
+            </a>
+          ))}
         </div>
       </div>
     </div>

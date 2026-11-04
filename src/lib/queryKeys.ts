@@ -11,6 +11,7 @@ export const qk = {
   questions: (id: string) => ["sessions", id, "questions"] as const,
   permissions: (id: string) => ["sessions", id, "permissions"] as const,
   config: ["config"] as const,
+  instructions: ["instructions"] as const,
   studioConnection: ["studio-connection"] as const,
   studioMcpStatus: ["studio-mcp-status"] as const,
 };

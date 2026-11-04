@@ -34,9 +34,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { iconForClass } from "@/components/Explorer";
+import { ReferenceChip } from "@/components/ReferenceChip";
 import { MENU_LABEL, MENU_SURFACE } from "@/components/ui/menu";
 import { analyticsProperties } from "@/lib/analytics";
-import type { ExplorerNode } from "@/lib/explorer";
+import type { ExplorerNode, ExplorerReference } from "@/lib/explorer";
 import type { Command } from "@/lib/opencode/types";
 import {
   buildObjectSearchIndex,
@@ -49,10 +50,15 @@ import {
 
 type TokenKind = "object" | "command";
 
+function escapeTagValue(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
 interface SerializedPromptTokenNode extends SerializedLexicalNode {
   kind: TokenKind;
   label: string;
   value: string;
+  field?: ExplorerReference["field"];
   type: "prompt-token";
   version: 1;
 }
@@ -61,25 +67,39 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
   __kind: TokenKind;
   __label: string;
   __value: string;
+  /** A property or attribute of the object, when the reference is to one of those. */
+  __field: ExplorerReference["field"];
 
   static getType() {
     return "prompt-token";
   }
 
   static clone(node: PromptTokenNode) {
-    return new PromptTokenNode(node.__kind, node.__label, node.__value, node.__key);
+    return new PromptTokenNode(node.__kind, node.__label, node.__value, node.__field, node.__key);
   }
 
   static importJSON(serializedNode: SerializedLexicalNode & Record<string, unknown>) {
     const serialized = serializedNode as unknown as SerializedPromptTokenNode;
-    return new PromptTokenNode(serialized.kind, serialized.label, serialized.value);
+    return new PromptTokenNode(
+      serialized.kind,
+      serialized.label,
+      serialized.value,
+      serialized.field,
+    );
   }
 
-  constructor(kind: TokenKind, label: string, value: string, key?: NodeKey) {
+  constructor(
+    kind: TokenKind,
+    label: string,
+    value: string,
+    field?: ExplorerReference["field"],
+    key?: NodeKey,
+  ) {
     super(key);
     this.__kind = kind;
     this.__label = label;
     this.__value = value;
+    this.__field = field;
   }
 
   createDOM(_config: EditorConfig) {
@@ -98,6 +118,7 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
       kind: this.__kind,
       label: this.__label,
       value: this.__value,
+      field: this.__field,
       type: "prompt-token",
       version: 1,
     };
@@ -105,8 +126,10 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
 
   getTextContent() {
     if (this.__kind === "object") {
-      const reference = this.__value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-      return `<Instance reference="${reference}">${this.__label}</Instance>`;
+      const field = this.__field
+        ? ` ${this.__field.kind}="${escapeTagValue(this.__field.name)}"`
+        : "";
+      return `<Instance reference="${escapeTagValue(this.__value)}"${field}>${this.__label}</Instance>`;
     }
     return this.__value;
   }
@@ -116,13 +139,19 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
   }
 
   decorate() {
+    if (this.__kind === "object") {
+      return (
+        <ReferenceChip
+          label={this.__label}
+          path={this.__value}
+          fieldKind={this.__field?.kind}
+          className="select-all"
+        />
+      );
+    }
     return (
       <span
-        className={`mx-0.5 inline-flex select-all items-center rounded-md border px-1.5 py-0.5 align-baseline text-xs font-medium ${
-          this.__kind === "object"
-            ? "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300"
-            : "border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300"
-        }`}
+        className="mx-0.5 inline-flex select-all items-center rounded-md border border-violet-500/25 bg-violet-500/10 px-1.5 py-0.5 align-baseline text-xs font-medium text-violet-700 dark:text-violet-300"
         title={this.__value}
       >
         {this.__label}
@@ -131,8 +160,13 @@ class PromptTokenNode extends DecoratorNode<ReactNode> {
   }
 }
 
-function $createPromptTokenNode(kind: TokenKind, label: string, value: string) {
-  return new PromptTokenNode(kind, label, value);
+function $createPromptTokenNode(
+  kind: TokenKind,
+  label: string,
+  value: string,
+  field?: ExplorerReference["field"],
+) {
+  return new PromptTokenNode(kind, label, value, field);
 }
 
 class PromptOption extends MenuOption {
@@ -409,6 +443,8 @@ export interface PromptEditorHandle {
   focus(): void;
   getText(): string;
   insertText(text: string): void;
+  /** Adds the same chip as picking the object from the @ list, after what's already written. */
+  insertObject(reference: ExplorerReference): void;
 }
 
 interface PromptEditorProps {
@@ -463,6 +499,26 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
         if (root.getTextContent().trim()) paragraph.append($createTextNode("\n\n"));
         paragraph.append($createTextNode(text));
         paragraph.selectEnd();
+      });
+    },
+    insertObject({ name, path, field }) {
+      editorRef.current?.update(() => {
+        const root = $getRoot();
+        const last = root.getLastChild();
+        const paragraph = last && $isElementNode(last) ? last : $createParagraphNode();
+        if (!last || !$isElementNode(last)) root.append(paragraph);
+        if (/\S$/.test(root.getTextContent())) paragraph.append($createTextNode(" "));
+        const trailingSpace = $createTextNode(" ");
+        paragraph.append(
+          $createPromptTokenNode(
+            "object",
+            field ? `@${name}.${field.name}` : `@${name}`,
+            path,
+            field,
+          ),
+          trailingSpace,
+        );
+        trailingSpace.selectEnd();
       });
     },
   }));

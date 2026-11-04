@@ -2,7 +2,9 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import { type ExternalToast, toast } from "sonner";
 
 import { analyticsProperties } from "@/lib/analytics";
+import { playChime } from "@/lib/chime";
 import { desktop } from "@/lib/desktop";
+import type { NotificationKinds } from "@/types/desktop";
 
 /**
  * Every message BloxBot shows the user goes through here, so one place decides how it reaches them.
@@ -47,13 +49,38 @@ export interface AttentionOptions {
   open?: { label: string; onClick: () => void };
 }
 
-let systemNotificationsEnabled = true;
+export type NotificationKind = keyof NotificationKinds;
+
+const ALL_KINDS: NotificationKinds = { finished: true, waiting: true, failed: true, app: true };
+
+let enabledKinds: NotificationKinds = ALL_KINDS;
+let soundEnabled = true;
 let nextSystemId = 0;
 let unsubscribeFromClicks: (() => void) | undefined;
 const clickHandlers = new Map<string, () => void>();
 
-export function setSystemNotificationsAllowed(enabled: boolean): void {
-  systemNotificationsEnabled = enabled;
+export function setNotificationPreferences(kinds: NotificationKinds, sound: boolean): void {
+  enabledKinds = kinds;
+  soundEnabled = sound;
+}
+
+/** Linux has no one place that lists an app's notifications. */
+export function canOpenNotificationSettings(): boolean {
+  return /Mac|Win/.test(navigator.platform);
+}
+
+export function openNotificationSettings(): void {
+  desktop.openNotificationSettings().catch((error) => {
+    console.warn("Couldn't open the notification settings:", error);
+  });
+}
+
+/** Which setting a notification falls under. Anything else is about the app itself. */
+function kindOf(name: string): NotificationKind {
+  if (name === "chat_finished") return "finished";
+  if (name === "chat_failed") return "failed";
+  if (name === "chat_question" || name === "chat_permission") return "waiting";
+  return "app";
 }
 
 /** True while the user is looking at BloxBot rather than at Studio or another app. */
@@ -109,8 +136,13 @@ function showSystem(name: string, title: string, options: SystemOptions): Promis
   });
   return desktop.showSystemNotification({ id, title, body: options.body ?? "" }).then(
     (shown) => {
-      if (shown) captureShown(name, "system");
-      else clickHandlers.delete(id);
+      if (shown) {
+        captureShown(name, "system");
+        // Only once the system has agreed, so a refused notification doesn't make a sound for nothing.
+        if (soundEnabled) playChime();
+      } else {
+        clickHandlers.delete(id);
+      }
       return shown;
     },
     (error) => {
@@ -126,7 +158,7 @@ function withSystem(title: string, options: NotifyOptions | undefined): External
   const { name, system, ...toastOptions } = options;
   if (!name) return toastOptions;
   captureShown(name, "toast");
-  if (system && systemNotificationsEnabled && !isWindowFocused()) {
+  if (system && enabledKinds[kindOf(name)] && !isWindowFocused()) {
     const systemOptions = system === true ? {} : system;
     void showSystem(name, title, {
       ...systemOptions,
@@ -157,12 +189,33 @@ export const notify = {
       const show = tone === "error" ? toast.error : toast;
       show(title, { description, action: trackedButton(name, open) });
     };
-    if (!systemNotificationsEnabled || isWindowFocused()) {
+    if (!enabledKinds[kindOf(name)] || isWindowFocused()) {
       showToast();
       return;
     }
     void showSystem(name, title, { body: description, onClick: open?.onClick }).then((shown) => {
       if (!shown) showToast();
+    });
+  },
+  /**
+   * Sends one the way a real one goes, whatever the settings and wherever the user is looking. On a
+   * Mac, the first one is also what makes the system ask for permission.
+   */
+  async test(): Promise<void> {
+    const shown = await showSystem("notification_test", "BloxBot notifications are working", {
+      body: "This is how BloxBot gets your attention.",
+    });
+    if (shown) {
+      toast.success("Test notification sent", {
+        description: "Didn't see it? Check Focus or Do Not Disturb.",
+      });
+      return;
+    }
+    toast.error("Notifications are off for BloxBot", {
+      description: "Turn them on in your computer's settings.",
+      action: canOpenNotificationSettings()
+        ? { label: "Open settings", onClick: openNotificationSettings }
+        : undefined,
     });
   },
   dismiss: (id: ToastId): void => {

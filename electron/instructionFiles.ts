@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, sep } from "node:path";
 
 import type { InstructionFile } from "../src/types/desktop";
@@ -45,4 +45,19 @@ export async function findInstructionFiles(options: {
     }),
   );
   return files.filter((file) => file.content.length > 0);
+}
+
+/** What the user wrote in Settings, which is the file OpenCode loads. */
+export async function readInstructions(globalConfigDirectory: string): Promise<string> {
+  return readFile(join(globalConfigDirectory, "AGENTS.md"), "utf8").catch(() => "");
+}
+
+export async function saveInstructions(globalConfigDirectory: string, text: string): Promise<void> {
+  const path = join(globalConfigDirectory, "AGENTS.md");
+  if (!text.trim()) {
+    await rm(path, { force: true });
+    return;
+  }
+  await mkdir(globalConfigDirectory, { recursive: true });
+  await writeFile(path, text);
 }

@@ -1,4 +1,5 @@
-import { Paperclip } from "lucide-react";
+import { Paperclip, Plus } from "lucide-react";
+import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import GoalPill from "@/components/GoalPill";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
@@ -20,8 +21,8 @@ import { useAllModels, useConnectedProviders } from "@/hooks/useProviders";
 import { useSessionGoal } from "@/hooks/useSessionGoal";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { useTodos } from "@/hooks/useTodos";
-import { desktop } from "@/lib/desktop";
-import { sortExplorerSnapshot } from "@/lib/explorer";
+import { analyticsProperties } from "@/lib/analytics";
+import { OBJECT_DRAG_TYPE } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
@@ -259,7 +260,16 @@ function effortLabel(variant: string | null): string {
 }
 
 function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
-  const { pendingReference, consumeReference, objects, publishObjects } = useExplorerReference();
+  const {
+    pendingReference,
+    consumeReference,
+    referenceObject,
+    objects,
+    objectIndex,
+    objectsLoading,
+    objectsFailed,
+    requestSync,
+  } = useExplorerReference();
   const allModels = useAllModels();
   const connectedProviders = useConnectedProviders();
   const { activeSessionId, activeSessionIdRef } = useActiveSession();
@@ -279,44 +289,11 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
       if (activeSessionIdRef.current === sessionID) promptEditorRef.current?.insertText(draft);
     },
   });
-  const [objectsLoading, setObjectsLoading] = useState(false);
-  const [objectsFailed, setObjectsFailed] = useState(false);
-  const objectsRequest = useRef(0);
-
-  // Objects belong to one place, so a different Studio starts with none.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: studioId is what triggers the reset
-  useEffect(() => {
-    objectsRequest.current += 1;
-    publishObjects([]);
-    setObjectsLoading(false);
-    setObjectsFailed(false);
-  }, [studioId, publishObjects]);
-
-  // The Explorer panel may be closed, so "@" fetches what it can offer itself.
-  const loadObjects = useCallback(() => {
-    if (!studioId) return;
-    const request = ++objectsRequest.current;
-    setObjectsLoading(true);
-    setObjectsFailed(false);
-    desktop
-      .getExplorerSnapshot(studioId)
-      .then((snapshot) => {
-        if (request !== objectsRequest.current) return;
-        publishObjects(sortExplorerSnapshot(snapshot).roots);
-      })
-      .catch((error) => {
-        console.error("[composer] couldn't read Studio objects", error);
-        if (request === objectsRequest.current) setObjectsFailed(true);
-      })
-      .finally(() => {
-        if (request === objectsRequest.current) setObjectsLoading(false);
-      });
-  }, [studioId, publishObjects]);
-
   // Replies link to these objects, and a turn can add some, so stay current without the Explorer.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a different Studio needs reading too
   useEffect(() => {
-    if (!isBusy) loadObjects();
-  }, [isBusy, loadObjects]);
+    if (!isBusy) requestSync();
+  }, [isBusy, requestSync, studioId]);
 
   // Available variants for the currently selected model
   const availableVariants = useMemo(() => {
@@ -329,6 +306,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingObject, setIsDraggingObject] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [lbSlideDir, setLbSlideDir] = useState<"left" | "right" | null>(null);
   const [lbAnimKey, setLbAnimKey] = useState(0);
@@ -372,7 +350,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
 
   useEffect(() => {
     if (!pendingReference) return;
-    promptEditorRef.current?.insertText(pendingReference);
+    promptEditorRef.current?.insertObject(pendingReference);
     consumeReference();
     requestAnimationFrame(() => promptEditorRef.current?.focus());
   }, [pendingReference, consumeReference]);
@@ -470,11 +448,15 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
     e.preventDefault();
     e.stopPropagation();
     dragCounterRef.current++;
-    if (dragCounterRef.current === 1) setIsDragging(true);
+    if (dragCounterRef.current === 1) {
+      setIsDragging(true);
+      setIsDraggingObject(e.dataTransfer.types.includes(OBJECT_DRAG_TYPE));
+    }
   }, []);
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
   }, []);
   const onDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -488,9 +470,15 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
       e.stopPropagation();
       dragCounterRef.current = 0;
       setIsDragging(false);
-      if (e.dataTransfer.files.length > 0) addImageFiles(e.dataTransfer.files);
+      const path = e.dataTransfer.getData(OBJECT_DRAG_TYPE);
+      // The panel can be ahead of this list while a big place loads, and the path is what counts.
+      if (path)
+        referenceObject(
+          objectIndex.get(path) ?? { name: path.slice(path.lastIndexOf(".") + 1), path },
+        );
+      else if (e.dataTransfer.files.length > 0) addImageFiles(e.dataTransfer.files);
     },
-    [addImageFiles],
+    [addImageFiles, objectIndex, referenceObject],
   );
 
   const modelsByProvider = useMemo(() => {
@@ -707,7 +695,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
                     ? "Couldn't read this place in Studio. Type @ again to retry."
                     : null
               }
-              onObjectsWanted={loadObjects}
+              onObjectsWanted={requestSync}
               onChange={setText}
               onSubmit={handleSubmit}
               onPaste={(e) => {
@@ -725,7 +713,11 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
                 }
               }}
               placeholder={
-                isDragging ? "Drop images here..." : "Describe what you want to build..."
+                isDragging
+                  ? isDraggingObject
+                    ? "Drop to reference this object..."
+                    : "Drop images here..."
+                  : "Describe what you want to build..."
               }
             />
           </div>
@@ -768,10 +760,29 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
                     {modelsByProvider.map(([id, group]) => renderProviderGroup(id, group))}
                     {modelsByProvider.length === 0 && (
                       <MenuLabel className="text-center">
-                        No models matching "{modelSearch}"
+                        {modelSearch ? `No models matching "${modelSearch}"` : "No models yet"}
                       </MenuLabel>
                     )}
                   </div>
+                  {onOpenSettings ? (
+                    <div className="shrink-0 border-t p-1">
+                      <MenuItem
+                        role="button"
+                        onClick={() => {
+                          posthog.capture(
+                            "model_picker_add_models_clicked",
+                            analyticsProperties("chat"),
+                          );
+                          setShowModelPicker(false);
+                          setModelSearch("");
+                          onOpenSettings();
+                        }}
+                      >
+                        <Plus aria-hidden="true" size={14} className="shrink-0" />
+                        Add providers and models
+                      </MenuItem>
+                    </div>
+                  ) : null}
                 </PopoverContent>
               </Popover>
 

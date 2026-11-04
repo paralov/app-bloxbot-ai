@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { findInstructionFiles } from "../../electron/instructionFiles";
+import {
+  findInstructionFiles,
+  readInstructions,
+  saveInstructions,
+} from "../../electron/instructionFiles";
 
 let root: string;
 
@@ -32,5 +36,23 @@ describe("instruction files", () => {
         content: "Use tabs",
       },
     ]);
+  });
+});
+
+describe("saved instructions", () => {
+  it("creates the folder, reads back what was saved, and removes the file when emptied", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bloxbot-instructions-"));
+    const folder = join(root, "config", "opencode");
+
+    await expect(readInstructions(folder)).resolves.toBe("");
+    await saveInstructions(folder, "Name folders clearly.");
+    await expect(readInstructions(folder)).resolves.toBe("Name folders clearly.");
+
+    await saveInstructions(folder, "   ");
+    await expect(readInstructions(folder)).resolves.toBe("");
+    await expect(
+      findInstructionFiles({ globalConfigDirectory: folder, home: root }),
+    ).resolves.toEqual([]);
+    await rm(root, { recursive: true, force: true });
   });
 });

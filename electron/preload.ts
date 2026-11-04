@@ -6,6 +6,7 @@ import type {
   MainErrorReport,
   OpenCodeStartupProgress,
 } from "../src/types/desktop";
+import type { ExplorerTreeUpdate } from "../src/lib/explorer";
 import { channels } from "./channels";
 
 const api: DesktopApi = {
@@ -29,14 +30,26 @@ const api: DesktopApi = {
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
   showSystemNotification: (notification) =>
     ipcRenderer.invoke(channels.showSystemNotification, notification),
+  openNotificationSettings: () => ipcRenderer.invoke(channels.openNotificationSettings),
   onSystemNotificationClick: (listener) => {
     const handleClick = (_event: Electron.IpcRendererEvent, id: string) => listener(id);
     ipcRenderer.on(channels.systemNotificationClicked, handleClick);
     return () => ipcRenderer.removeListener(channels.systemNotificationClicked, handleClick);
   },
-  getExplorerSnapshot: (studioId) => ipcRenderer.invoke(channels.getExplorerSnapshot, studioId),
-  getExplorerNodeDetails: (studioId, path) =>
-    ipcRenderer.invoke(channels.getExplorerNodeDetails, studioId, path),
+  syncExplorerTree: (studioId, request) =>
+    ipcRenderer.invoke(channels.syncExplorerTree, studioId, request),
+  onExplorerTreeUpdate: (listener) => {
+    const handleUpdate = (_event: Electron.IpcRendererEvent, update: ExplorerTreeUpdate) =>
+      listener(update);
+    ipcRenderer.on(channels.explorerTreeUpdate, handleUpdate);
+    return () => ipcRenderer.removeListener(channels.explorerTreeUpdate, handleUpdate);
+  },
+  readInstructions: () => ipcRenderer.invoke(channels.readInstructions),
+  saveInstructions: (text) => ipcRenderer.invoke(channels.saveInstructions, text),
+  getExplorerNodeDetails: (studioId, request) =>
+    ipcRenderer.invoke(channels.getExplorerNodeDetails, studioId, request),
+  editExplorerObject: (studioId, edit) =>
+    ipcRenderer.invoke(channels.editExplorerObject, studioId, edit),
   discoverStudioTargets: () => ipcRenderer.invoke(channels.discoverStudioTargets),
   selectStudioTarget: (targetKey) => ipcRenderer.invoke(channels.selectStudioTarget, targetKey),
   onMainError: (listener) => {

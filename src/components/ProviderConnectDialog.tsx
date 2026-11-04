@@ -555,10 +555,8 @@ function ProviderConnectDialog({ provider, onClose, onConnected }: ProviderConne
             <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
               <p className="text-sm font-medium">You're proceeding on your own</p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                This uses your own Claude Code login through OpenCode. BloxBot isn't affiliated with
-                Anthropic and can't vouch for this use. Anthropic's terms may limit using Claude
-                plans in other apps, and any limits or action on your account are your
-                responsibility.{" "}
+                BloxBot isn't affiliated with Anthropic. Its terms may limit using Claude plans in
+                other apps, and anything that happens to your account is your responsibility.{" "}
                 <button
                   type="button"
                   onClick={() => desktop.openUrl(ANTHROPIC_TERMS_URL).catch(() => {})}
@@ -657,8 +655,7 @@ function OpenCodeGoSetup() {
       <li className="flex gap-2">
         <span className="font-medium text-foreground">1.</span>
         <span>
-          Subscribe to Go ({OPENCODE_GO.goPrice}) or Go Plus ({OPENCODE_GO.goPlusPrice}, higher
-          limits) in the OpenCode console.{" "}
+          Subscribe to Go ({OPENCODE_GO.goPrice}) or Go Plus ({OPENCODE_GO.goPlusPrice}).{" "}
           <button
             onClick={() => {
               desktop.openUrl(OPENCODE_GO.consoleUrl).catch(() => {});
@@ -672,11 +669,11 @@ function OpenCodeGoSetup() {
       </li>
       <li className="flex gap-2">
         <span className="font-medium text-foreground">2.</span>
-        <span>Copy your API key from the console.</span>
+        <span>Copy your API key.</span>
       </li>
       <li className="flex gap-2">
         <span className="font-medium text-foreground">3.</span>
-        <span>Paste it here. Both plans use the same key.</span>
+        <span>Paste it here.</span>
       </li>
     </ol>
   );
