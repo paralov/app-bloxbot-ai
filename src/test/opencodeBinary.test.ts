@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+  cp,
   mkdtemp,
   readdir,
   readFile,
@@ -15,6 +16,7 @@ import { Effect, Fiber, Logger, LogLevel } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DOWNLOAD_STALL_TIMEOUT_MS,
   describeCause,
   ensureOpenCodeBinary,
   type GitHubRelease,
@@ -79,7 +81,28 @@ function writeExecutable(name: string) {
   });
 }
 
+/**
+ * Runs an install under a fake clock, moving time on until it settles, so minutes of waiting take
+ * milliseconds. Only timers and the date are faked, because the install does real file I/O.
+ */
+async function runInVirtualTime<A, E>(effect: Effect.Effect<A, E>) {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const startedAt = Date.now();
+  let elapsedMs: number | undefined;
+  const running = Effect.runPromise(
+    Effect.either(effect).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+  ).finally(() => {
+    elapsedMs = Date.now() - startedAt;
+  });
+  while (elapsedMs === undefined) {
+    await vi.advanceTimersByTimeAsync(1_000);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return { result: await running, elapsedMs };
+}
+
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await Promise.all(
     temporaryDirectories
@@ -726,6 +749,120 @@ describe("OpenCode installs that Windows blocks", () => {
     expect(rename).toHaveBeenCalledTimes(3);
   });
 
+  it("keeps retrying a publish that antivirus holds for 20 seconds", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("pinned windows archive");
+    let firstAttemptAt: number | undefined;
+    const rename = vi.fn(async (from: string, to: string) => {
+      firstAttemptAt ??= Date.now();
+      if (Date.now() - firstAttemptAt < 20_000) {
+        throw errno("EPERM", "EPERM: operation not permitted, rename");
+      }
+      await realRename(from, to);
+    });
+
+    const { result } = await runInVirtualTime(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "win32",
+        arch: "x64",
+        fetch: async (url) =>
+          url.includes("api.github.com") ? rateLimited() : new Response(archive),
+        pinnedRelease: pinnedFor("win32-x64", "opencode-windows-x64.zip", archive),
+        // The default publish delays are what's being tested.
+        delays: { extractRetryMs: [0, 0], verifyMs: 0 },
+        extractArchive: writeExecutable(EXE),
+        fileSystem: { freeBytes: PLENTY_OF_SPACE, rename },
+      }),
+    );
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.3" } });
+    expect(rename.mock.calls.length).toBeGreaterThan(3);
+  });
+
+  it("stops waiting between publish attempts when interrupted, and cleans up", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("pinned windows archive");
+    let markRenameFailed: (() => void) | undefined;
+    const renameFailed = new Promise<void>((resolve) => {
+      markRenameFailed = resolve;
+    });
+    const rename = vi.fn(async () => {
+      markRenameFailed?.();
+      throw errno("EPERM", "EPERM: operation not permitted, rename");
+    });
+    const fiber = Effect.runFork(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "win32",
+        arch: "x64",
+        fetch: async (url) =>
+          url.includes("api.github.com") ? rateLimited() : new Response(archive),
+        pinnedRelease: pinnedFor("win32-x64", "opencode-windows-x64.zip", archive),
+        // Far longer than the test may run, so finishing at all shows the wait was cut short.
+        delays: { extractRetryMs: [0, 0], verifyMs: 0, renameRetryMs: [3_600_000] },
+        extractArchive: writeExecutable(EXE),
+        fileSystem: { freeBytes: PLENTY_OF_SPACE, rename },
+      }),
+    );
+
+    await renameFailed;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(rename).toHaveBeenCalledTimes(1);
+    const entries = await readdir(join(cacheDirectory, "win32-x64"));
+    expect(entries.some((entry) => entry.startsWith(".download-"))).toBe(false);
+  });
+
+  it("uses the copy another BloxBot published while this one's rename was failing", async () => {
+    // Moving the folder and then failing leaves what the other install would have: a valid copy.
+    const rename = vi.fn(async (from: string, to: string) => {
+      await realRename(from, to);
+      throw errno("EPERM", "EPERM: operation not permitted, rename");
+    });
+    const { cacheDirectory, result } = await installOnWindows({
+      extractArchive: writeExecutable(EXE),
+      fileSystem: { rename },
+    });
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.3" } });
+    expect(rename).toHaveBeenCalledTimes(1);
+    await expect(readFile(join(cacheDirectory, "win32-x64", "2.2.3", EXE), "utf8")).resolves.toBe(
+      "runtime binary",
+    );
+  });
+
+  it("leaves a copy alone when another BloxBot published it during this install", async () => {
+    const first = await installOnWindows({ extractArchive: writeExecutable(EXE) });
+    expect(first.result._tag).toBe("Right");
+    const published = join(first.cacheDirectory, "win32-x64", "2.2.3");
+    const saved = join(await makeTemporaryDirectory(), "2.2.3");
+    await cp(published, saved, { recursive: true });
+    await rm(published, { recursive: true });
+
+    const archive = Buffer.from("pinned windows archive");
+    const rename = vi.fn(realRename);
+    const result = await Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory: first.cacheDirectory,
+        platform: "win32",
+        arch: "x64",
+        fetch: async (url) =>
+          url.includes("api.github.com") ? rateLimited() : new Response(archive),
+        pinnedRelease: pinnedFor("win32-x64", "opencode-windows-x64.zip", archive),
+        delays: NO_DELAYS,
+        extractArchive: async (_archivePath, destination) => {
+          await writeFile(join(destination, EXE), "runtime binary");
+          await cp(saved, published, { recursive: true });
+        },
+        fileSystem: { freeBytes: PLENTY_OF_SPACE, rename },
+      }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+    );
+
+    expect(result.executable).toBe(join(published, EXE));
+    expect(rename).not.toHaveBeenCalled();
+  });
+
   it("labels a failure where both downloads fail as a network problem", async () => {
     const cacheDirectory = await makeTemporaryDirectory();
     const fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
@@ -743,6 +880,291 @@ describe("OpenCode installs that Windows blocks", () => {
     expect(result).toMatchObject({
       _tag: "Left",
       left: { reason: "network", message: expect.stringContaining("(reason: network)") },
+    });
+  });
+});
+
+describe("OpenCode downloads on a poor connection", () => {
+  const ASSET_NAME = "opencode-darwin-arm64.zip";
+
+  /** A body that sends one chunk each `intervalMs`, then ends. */
+  function slowBody(chunks: readonly Uint8Array[], intervalMs: number) {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        const sendFrom = (index: number) => {
+          setTimeout(() => {
+            const chunk = chunks[index];
+            if (chunk) controller.enqueue(chunk);
+            if (index + 1 < chunks.length) sendFrom(index + 1);
+            else controller.close();
+          }, intervalMs);
+        };
+        sendFrom(0);
+      },
+    });
+  }
+
+  /** A body that sends `chunk`, then a few empty chunks, and then nothing, without ever ending. */
+  function stalledBody(chunk: Uint8Array) {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(chunk);
+        for (const delayMs of [20_000, 40_000]) {
+          setTimeout(() => controller.enqueue(new Uint8Array(0)), delayMs);
+        }
+      },
+    });
+  }
+
+  it("finishes a download that takes far longer than 120 seconds but keeps moving", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const chunks = Array.from({ length: 5 }, (_, index) => Buffer.alloc(1024, index));
+    const archive = Buffer.concat(chunks);
+    const digest = createHash("sha256").update(archive).digest("hex");
+    const releases = [release("v2.2.2", ASSET_NAME, `sha256:${digest}`)];
+    const startupProgress: OpenCodeStartupProgress[] = [];
+    const intervalMs = DOWNLOAD_STALL_TIMEOUT_MS - 1_000;
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(releases))
+      .mockImplementationOnce(
+        async () =>
+          new Response(slowBody(chunks, intervalMs), {
+            headers: { "content-length": String(archive.byteLength) },
+          }),
+      );
+
+    const { result, elapsedMs } = await runInVirtualTime(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive: writeExecutable("opencode"),
+        onStartupProgress: (progress) => startupProgress.push(progress),
+        delays: { verifyMs: 0 },
+      }),
+    );
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+    expect(elapsedMs).toBeGreaterThan(120_000);
+    // Only the release lookup and one download, with no fallback to the pinned release.
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    const downloading = startupProgress.filter((progress) => progress.phase === "downloading");
+    expect(downloading.map((progress) => progress.downloadedBytes)).toEqual(
+      expect.arrayContaining([chunks[0]?.byteLength, archive.byteLength]),
+    );
+    expect(downloading.at(-1)).toMatchObject({
+      downloadedBytes: archive.byteLength,
+      totalBytes: archive.byteLength,
+    });
+    expect(downloading.at(-1)?.bytesPerSecond).toBeGreaterThan(0);
+  });
+
+  it("aborts a download that stops sending data and says how far it got", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("never finishes");
+    let abortedAfterMs: number | undefined;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("api.github.com")) return rateLimited();
+      const fetchedAt = Date.now();
+      init?.signal?.addEventListener("abort", () => {
+        abortedAfterMs = Date.now() - fetchedAt;
+      });
+      return new Response(stalledBody(Buffer.alloc(1024 ** 2)));
+    });
+
+    const { result } = await runInVirtualTime(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive: vi.fn(),
+        pinnedRelease: pinnedFor("darwin-arm64", ASSET_NAME, archive),
+      }),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "network",
+        message: expect.stringContaining(
+          `OpenCode download failed: stalled, no data for ${DOWNLOAD_STALL_TIMEOUT_MS / 1000} seconds (1.0 MB received)`,
+        ),
+      },
+    });
+    // Counted from the last real data, so the empty chunks didn't keep it alive.
+    expect(abortedAfterMs).toBeGreaterThanOrEqual(DOWNLOAD_STALL_TIMEOUT_MS);
+    expect(abortedAfterMs).toBeLessThan(DOWNLOAD_STALL_TIMEOUT_MS + 5_000);
+    const entries = await readdir(join(cacheDirectory, "darwin-arm64"));
+    expect(entries.some((entry) => entry.startsWith(".download-"))).toBe(false);
+  });
+
+  it("aborts when the server never answers", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("api.github.com")) return Promise.resolve(rateLimited());
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    });
+
+    const { result } = await runInVirtualTime(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive: vi.fn(),
+        pinnedRelease: pinnedFor("darwin-arm64", ASSET_NAME, Buffer.from("never sent")),
+      }),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "network",
+        message: expect.stringContaining("stalled, no data for 60 seconds (0.0 MB received)"),
+      },
+    });
+  });
+});
+
+describe("OpenCode downloads refused over an unknown certificate issuer", () => {
+  const ASSET_NAME = "opencode-darwin-arm64.zip";
+
+  /** How Node's fetch rejects, checked against a real TLS server. */
+  function certificateFailure(code: string) {
+    return Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("unable to verify the first certificate"), { code }),
+    });
+  }
+
+  function install(
+    options: Pick<OpenCodeBinaryOptions, "fetch" | "fetchWithSystemCertificates" | "pinnedRelease">,
+    cacheDirectory: string,
+  ) {
+    return Effect.runPromise(
+      Effect.either(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+          ...options,
+        }).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+      ),
+    );
+  }
+
+  it.each([
+    "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    "SELF_SIGNED_CERT_IN_CHAIN",
+  ])("installs the pinned release over system certificates after %s", async (code) => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("pinned archive");
+    const pinnedRelease = pinnedFor("darwin-arm64", ASSET_NAME, archive);
+    const fetch = vi.fn().mockRejectedValue(certificateFailure(code));
+    const fetchWithSystemCertificates = vi.fn().mockResolvedValueOnce(new Response(archive));
+
+    const result = await install(
+      { fetch, fetchWithSystemCertificates, pinnedRelease },
+      cacheDirectory,
+    );
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.3" } });
+    // The lookup supplies the expected SHA-256, so it never goes over system certificates.
+    expect(fetchWithSystemCertificates).toHaveBeenCalledTimes(1);
+    expect(fetchWithSystemCertificates.mock.calls[0]?.[0]).toBe(
+      pinnedRelease.assets["darwin-arm64"]?.url,
+    );
+    // The stall limit and interruption still reach the request that replaced the failed one.
+    expect(fetchWithSystemCertificates.mock.calls[0]?.[1]?.signal).toBe(
+      fetch.mock.calls[1]?.[1]?.signal,
+    );
+  });
+
+  it("checks a download over system certificates against the digest Node fetched", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("verified archive");
+    const digest = createHash("sha256").update(archive).digest("hex");
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json([release("v2.2.2", ASSET_NAME, `sha256:${digest}`)]))
+      .mockRejectedValueOnce(certificateFailure("SELF_SIGNED_CERT_IN_CHAIN"));
+    const fetchWithSystemCertificates = vi.fn().mockResolvedValueOnce(new Response(archive));
+
+    const result = await install({ fetch, fetchWithSystemCertificates }, cacheDirectory);
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.2" } });
+    expect(fetchWithSystemCertificates).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an archive with the wrong SHA-256 over system certificates", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const extractArchive = vi.fn();
+    const fetch = vi.fn().mockRejectedValue(certificateFailure("SELF_SIGNED_CERT_IN_CHAIN"));
+    const fetchWithSystemCertificates = vi.fn(async () => new Response("tampered archive"));
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch,
+          fetchWithSystemCertificates,
+          extractArchive,
+          pinnedRelease: pinnedFor("darwin-arm64", ASSET_NAME, Buffer.from("real archive")),
+        }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        message: expect.stringContaining(
+          "The downloaded OpenCode archive failed SHA-256 verification",
+        ),
+      },
+    });
+    expect(fetchWithSystemCertificates).toHaveBeenCalledTimes(1);
+    expect(extractArchive).not.toHaveBeenCalled();
+    expect(await readdir(join(cacheDirectory, "darwin-arm64"))).toEqual([]);
+  });
+
+  it.each([
+    ["an expired certificate", certificateFailure("CERT_HAS_EXPIRED")],
+    ["a wrong-host certificate", certificateFailure("ERR_TLS_CERT_ALTNAME_INVALID")],
+    ["a refused connection", certificateFailure("ECONNREFUSED")],
+    ["a failure with no cause", new TypeError("fetch failed")],
+    ["a timeout", new DOMException("The operation timed out.", "TimeoutError")],
+  ])("doesn't fall back after %s", async (_label, failure) => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const fetch = vi.fn().mockRejectedValue(failure);
+    const fetchWithSystemCertificates = vi.fn();
+
+    const result = await install({ fetch, fetchWithSystemCertificates }, cacheDirectory);
+
+    expect(result._tag).toBe("Left");
+    expect(fetchWithSystemCertificates).not.toHaveBeenCalled();
+  });
+
+  it("reports the certificate error when there is no fallback", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const fetch = vi.fn().mockRejectedValue(certificateFailure("SELF_SIGNED_CERT_IN_CHAIN"));
+
+    const result = await install({ fetch }, cacheDirectory);
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        reason: "network",
+        message: expect.stringContaining("unable to verify the first certificate"),
+      },
     });
   });
 });
