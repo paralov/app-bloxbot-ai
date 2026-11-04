@@ -28,6 +28,7 @@ import { PreferencesProvider } from "@/providers/PreferencesProvider";
 const studio = vi.hoisted(() => ({
   selected: null as { key: string } | null,
   sendBlock: null as string | null,
+  targets: [] as unknown[],
 }));
 vi.mock("@/providers/StudioTargetProvider", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/providers/StudioTargetProvider")>()),

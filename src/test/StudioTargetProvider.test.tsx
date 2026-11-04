@@ -410,6 +410,50 @@ describe("StudioTargetProvider", () => {
     expect(context?.promptReference).toContain("isn't open");
   });
 
+  it("doesn't follow an id Studio reused for a different place", async () => {
+    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { chat: dungeon },
+      chatsWithChosenPlace: ["chat"],
+    });
+    mocks.discover.mockResolvedValue({
+      targets: [{ key: "s1", label: "Lobby", detail: null, placeId: "2" }],
+      selectedKey: null,
+    });
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("missing: Dungeon")).toBeInTheDocument();
+    expect(screen.getByText("selected: none")).toBeInTheDocument();
+  });
+
+  it("gives a forked chat its parent's place", async () => {
+    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: dungeon } });
+    mocks.discover.mockResolvedValue({ targets: [dungeon], selectedKey: null });
+    mocks.select.mockResolvedValue({ selected: dungeon, verified: true });
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("selected: s1")).toBeInTheDocument();
+
+    act(() => context?.copyPlaceToChat("chat", "fork"));
+
+    expect(mocks.patchConfig).toHaveBeenCalledWith({
+      studioTargetsBySession: { chat: dungeon, fork: dungeon },
+    });
+  });
+
   it("doesn't let one stuck check keep every chat from sending", async () => {
     vi.useFakeTimers();
     try {

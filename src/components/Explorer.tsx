@@ -62,6 +62,7 @@ import { useExplorerReference, useExplorerTree } from "@/providers/ExplorerRefer
 import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ROW_HEIGHT = 28;
+const ROW_FOCUS_DELAY_MS = 150;
 
 const LONG_WAIT_MS = 30_000;
 
@@ -480,6 +481,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }
         setSelectedId((current) => current && movedPath(current, from, to));
         setExpanded((current) => new Set([...current].map((id) => movedPath(id, from, to))));
+        // The row is about to come back under its new name, and focus has to come back with it.
+        window.setTimeout(() => focusRowRef.current(to), ROW_FOCUS_DELAY_MS);
       });
     },
     [editObject],
@@ -487,10 +490,15 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
   const handleDelete = (node: ExplorerNode) => {
     setDeleteTarget(null);
+    // Its row is going away, so focus goes to the one before it, or after it if it was first.
+    const shown = [...(treeRef.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? [])];
+    const at = shown.findIndex((row) => row.dataset.id === nodeId(node));
+    const nextFocus = (shown[at - 1] ?? shown[at + 1])?.dataset.id;
     void editObject(node, { action: "delete" }, () => {
       setSelectedId((current) =>
         current === nodeId(node) || current?.startsWith(`${nodeId(node)}.`) ? null : current,
       );
+      if (nextFocus) window.setTimeout(() => focusRowRef.current(nextFocus), ROW_FOCUS_DELAY_MS);
     });
   };
 

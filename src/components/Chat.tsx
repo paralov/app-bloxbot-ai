@@ -59,6 +59,10 @@ function Chat() {
   // Null until someone says. It opens by itself once a chat is about Studio, not just for one being
   // open, since it takes a lot of room from a chat about a website.
   const [explorerChoice, setExplorerChoice] = useState<boolean | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each chat decides for itself
+  useEffect(() => {
+    setExplorerChoice(null);
+  }, [activeSessionId]);
   const explorerCollapsed = !(
     explorerChoice ??
     (usedStudio === true || studioTarget?.missing != null || studioTarget?.studioChosen === true)
@@ -102,14 +106,14 @@ function Chat() {
   const needsSetup =
     studioConnection.state === "waiting" && setupSkipped !== true && !everConnected.current;
   // Choosing a Studio means they're here for it after all, so the guidance can come back.
-  const studioChosen = studioTarget?.studioChosen === true;
+  const studioChoices = studioTarget?.studioChoices ?? 0;
   useEffect(() => {
-    if (!studioChosen) return;
+    if (studioChoices === 0) return;
     setSetupSkipped((skipped) => {
       if (skipped) void desktop.patchConfig({ studioSetupSkipped: false });
       return skipped ? false : skipped;
     });
-  }, [studioChosen]);
+  }, [studioChoices]);
   // Choosing to work without Studio once is enough to stop asking on every new chat.
   const handleWorkedWithoutStudio = useCallback(() => {
     setSetupSkipped(true);
@@ -405,7 +409,6 @@ function Chat() {
         >
           {renderedSidePanel === "explorer" ? (
             <Explorer
-              key={activeSessionId}
               collapsed={false}
               sessionBusy={isBusy}
               onToggle={() => {

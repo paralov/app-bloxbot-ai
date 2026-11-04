@@ -15,6 +15,7 @@ import { recordPromptSent } from "@/lib/starCallout";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import { usePreferences } from "@/providers/PreferencesProvider";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const BUILT_IN = new Set(["init", "review", "goal", ...CLIENT_COMMANDS.map(({ name }) => name)]);
 
@@ -43,6 +44,7 @@ export function useComposerCommands(actions: {
   openSettings: () => void;
   restoreDraft: (text: string, sessionID: string) => void;
 }) {
+  const studioTarget = useStudioTargetOptional();
   const { client } = useOpenCodeClient();
   const { activeSessionId, selectSession } = useActiveSession();
   const { selectedModel, selectedVariant } = usePreferences();
@@ -131,6 +133,8 @@ export function useComposerCommands(actions: {
         queryClient.setQueryData<Session[]>(qk.sessions, (previous) =>
           previous?.some(({ id }) => id === session.id) ? previous : [session, ...(previous ?? [])],
         );
+        // The same history means the same place, which has to be known before the chat opens.
+        studioTarget?.copyPlaceToChat?.(sessionID, session.id);
         await selectSession(session.id);
         return;
       }

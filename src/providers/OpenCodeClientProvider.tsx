@@ -152,7 +152,7 @@ function slowPresentation(
   return {
     ...presentation,
     detail: downloading
-      ? "Connection paused. Check your Wi-Fi. BloxBot keeps trying."
+      ? "Connection paused. Check your Wi-Fi or security software. BloxBot keeps trying."
       : unpacking
         ? "Taking longer than usual. Security software can slow this."
         : "Taking longer than usual. Still trying.",

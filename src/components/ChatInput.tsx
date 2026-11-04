@@ -747,7 +747,9 @@ function ChatInput({
               objectsLoading={objectsLoading}
               objectsUnavailable={
                 !studioId
-                  ? "Open a place in Studio to reference its objects."
+                  ? (studioTarget?.targets.length ?? 0) > 0
+                    ? "Choose a Studio to reference its objects."
+                    : "Open a place in Studio to reference its objects."
                   : objectsWaiting
                     ? EXPLORER_WAIT_NOTICES[objectsWaiting]
                     : objectsFailed

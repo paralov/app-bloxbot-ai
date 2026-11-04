@@ -72,7 +72,8 @@ describe("startup progress", () => {
         onRetry={() => {}}
       />,
     );
-    const href = screen.getByRole("link", { name: "Email support" }).getAttribute("href") ?? "";
+    const href =
+      screen.getByRole("link", { name: "Email support@bloxbot.ai" }).getAttribute("href") ?? "";
     expect(href).toMatch(/^mailto:support@bloxbot\.ai/);
     expect(decodeURIComponent(href)).toContain("OpenCode did not become healthy");
   });
@@ -229,7 +230,9 @@ describe("startup progress", () => {
     expect(moving.startup.meta).toBe("50% 2.0 KB/s");
 
     const quiet = getStartupPresentation("engine", downloading, true);
-    expect(quiet.detail).toBe("Connection paused. Check your Wi-Fi. BloxBot keeps trying.");
+    expect(quiet.detail).toBe(
+      "Connection paused. Check your Wi-Fi or security software. BloxBot keeps trying.",
+    );
     expect(quiet.startup.meta).toBe("50%");
     // With no total to measure against there's no percentage, and the old speed is no use.
     expect(

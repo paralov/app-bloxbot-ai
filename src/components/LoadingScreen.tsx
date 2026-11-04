@@ -4,7 +4,8 @@ import { desktop } from "@/lib/desktop";
 import { scrubErrorMessage } from "@/lib/errorReporting";
 import type { UpdateInfo } from "@/types/desktop";
 
-const REPORT_DETAIL_MAX_CHARS = 1500;
+// Windows limits how long a link can be, and encoding can triple this.
+const REPORT_DETAIL_MAX_CHARS = 600;
 
 interface LoadingScreenProps {
   message?: string;
@@ -256,13 +257,17 @@ function LoadingScreen({
             ? `Update available: v${updateVersion}`
             : updateStatus === "up-to-date"
               ? "Up to date"
-              : updateStatus === "install-error"
-                ? "Couldn't install the update"
-                : updateStatus === "error"
-                  ? "Couldn't check for updates"
-                  : downloadedBucket
-                    ? `Downloaded ${downloadedBucket}%`
-                    : null}
+              : copyStatus === "copied" || folderCopied === "copied"
+                ? "Copied"
+                : copyStatus === "error" || folderCopied === "error"
+                  ? "Couldn't copy"
+                  : updateStatus === "install-error"
+                    ? "Couldn't install the update"
+                    : updateStatus === "error"
+                      ? "Couldn't check for updates"
+                      : downloadedBucket
+                        ? `Downloaded ${downloadedBucket}%`
+                        : null}
         </output>
 
         {/* Error state: help actions */}
@@ -402,7 +407,7 @@ function LoadingScreen({
                 rel="noreferrer"
                 className="underline transition-colors hover:text-foreground"
               >
-                Email support
+                Email support@bloxbot.ai
               </a>
             </div>
 
@@ -413,8 +418,8 @@ function LoadingScreen({
                 </summary>
                 <div className="border-t px-3 py-3">
                   <p className="leading-relaxed">
-                    Email support fills these in. They may include local file paths, so check before
-                    sending.
+                    The email link fills these in. They may include local file paths, so check
+                    before sending.
                   </p>
                   <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs leading-relaxed text-foreground/70">
                     {technicalDetail}

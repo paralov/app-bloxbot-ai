@@ -59,6 +59,10 @@ interface StudioTargetContextValue {
   noteRouted(): void;
   /** Someone picked a Studio for this chat by hand, so it's about Studio. */
   studioChosen: boolean;
+  /** How many times someone has picked a Studio since the app opened. */
+  studioChoices: number;
+  /** A forked chat carries the same history, so it's working in the same place. */
+  copyPlaceToChat(from: string, to: string): void;
   /** How many open Studios share the missing place's name, when that's why nothing was picked. */
   twins: number;
   /**
@@ -131,6 +135,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const chosenChatsRef = useRef<ReadonlySet<string>>(new Set());
   const routedBySessionRef = useRef<Record<string, StudioTarget>>({});
   const [studioChosen, setStudioChosen] = useState(false);
+  const [studioChoices, setStudioChoices] = useState(0);
   const [findingForAWhile, setFindingForAWhile] = useState(false);
   const verifiedKeyRef = useRef<string | null>(null);
   // Only what discovery itself got wrong clears when discovery next works.
@@ -180,7 +185,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         ? result.targets.filter((target) => target.placeId === remembered.placeId)
         : [];
       let nextSelected = remembered
-        ? (result.targets.find((target) => target.key === remembered.key) ??
+        ? // Studio could reuse an id for another place in the same window, which isn't this chat's.
+          (result.targets.find(
+            (target) =>
+              target.key === remembered.key &&
+              (!target.placeId || !remembered.placeId || target.placeId === remembered.placeId),
+          ) ??
           (placeMatches.length === 1 ? placeMatches[0] : undefined) ??
           null)
         : // Not tied to anything yet, so it stays with the Studio it has while that's still open.
@@ -326,6 +336,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         unknownPlaceRef.current = null;
         setUnknownPlace(false);
         setStudioChosen(true);
+        setStudioChoices((count) => count + 1);
         if (activeSessionId && !chosenChatsRef.current.has(activeSessionId)) {
           const chosen = new Set(chosenChatsRef.current).add(activeSessionId);
           chosenChatsRef.current = chosen;
@@ -383,6 +394,27 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
     chatsWithoutStudioRef.current = new Set(chatsWithoutStudioRef.current).add(activeSessionId);
     void discover();
   }, [activeSessionId, discover, setChatWithoutStudio]);
+
+  const copyPlaceToChat = useCallback((from: string, to: string) => {
+    const place = targetsBySessionRef.current[from];
+    const routed = routedBySessionRef.current[from];
+    if (place) {
+      targetsBySessionRef.current = { ...targetsBySessionRef.current, [to]: place };
+      void desktop.patchConfig({ studioTargetsBySession: targetsBySessionRef.current });
+    }
+    if (routed) {
+      routedBySessionRef.current = { ...routedBySessionRef.current, [to]: routed };
+      void desktop.patchConfig({ routedTargetsBySession: routedBySessionRef.current });
+    }
+    if (chatsWithoutStudioRef.current.has(from)) {
+      chatsWithoutStudioRef.current = new Set(chatsWithoutStudioRef.current).add(to);
+      void desktop.patchConfig({ chatsWithoutStudio: [...chatsWithoutStudioRef.current] });
+    }
+    if (chosenChatsRef.current.has(from)) {
+      chosenChatsRef.current = new Set(chosenChatsRef.current).add(to);
+      void desktop.patchConfig({ chatsWithChosenPlace: [...chosenChatsRef.current] });
+    }
+  }, []);
 
   const noteRouted = useCallback(() => {
     const current = selectedRef.current;
@@ -555,6 +587,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       unknownPlace,
       noteRouted,
       studioChosen,
+      studioChoices,
+      copyPlaceToChat,
       twins,
       nameMatch,
       discover,
@@ -575,6 +609,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       unknownPlace,
       noteRouted,
       studioChosen,
+      studioChoices,
+      copyPlaceToChat,
       twins,
       nameMatch,
       discover,
