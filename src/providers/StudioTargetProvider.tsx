@@ -112,7 +112,9 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         await rememberTarget(nextSelected);
         setSelectingKey(null);
       }
-      if (!nextSelected && result.targets.length === 1) {
+      // A chat tied to a place stays tied to it: the only other open Studio could be a place the
+      // agent was never meant to change, so that needs someone to choose it.
+      if (!nextSelected && !remembered && result.targets.length === 1) {
         const onlyTarget = result.targets[0];
         setSelectingKey(onlyTarget.key);
         posthog.capture("studio_target_selected", analyticsProperties("studio_target"));

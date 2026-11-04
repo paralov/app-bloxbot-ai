@@ -71,6 +71,44 @@ describe("StudioTargetProvider", () => {
     expect(keys).not.toContain("old-id");
   });
 
+  it("doesn't move a chat to a different place when its own Studio is gone", async () => {
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: {
+        chat: { key: "old-id", label: "Dungeon", detail: null, placeId: "1" },
+      },
+    });
+    mocks.discover.mockResolvedValue({
+      targets: [{ key: "other-id", label: "Lobby", detail: null, placeId: "2" }],
+      selectedKey: null,
+    });
+
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+
+    await waitFor(() => expect(mocks.discover).toHaveBeenCalled());
+    expect(await screen.findByText("selected: none")).toBeInTheDocument();
+    expect(mocks.select).not.toHaveBeenCalled();
+    expect(mocks.patchConfig).not.toHaveBeenCalled();
+  });
+
+  it("still selects the only Studio for a chat that hasn't used one yet", async () => {
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+    const target = { key: "only-id", label: "Lobby", detail: null, placeId: "2" };
+    mocks.discover.mockResolvedValue({ targets: [target], selectedKey: null });
+    mocks.select.mockResolvedValue({ selected: target, verified: true });
+
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+      </StudioTargetProvider>,
+    );
+
+    expect(await screen.findByText("selected: only-id")).toBeInTheDocument();
+  });
+
   it("still selects a remembered Studio that discovery finds under the same id", async () => {
     const target = { key: "same-id", label: "Dungeon", detail: null };
     mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: { chat: target } });

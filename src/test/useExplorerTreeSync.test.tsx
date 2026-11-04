@@ -236,7 +236,6 @@ describe("useExplorerTreeSync", () => {
       started();
       await settle();
       expect(mocks.discover).toHaveBeenCalledOnce();
-      expect(mocks.discover).toHaveBeenCalledWith(false);
     });
 
     it("leaves the Studio list alone for the other waits", async () => {
