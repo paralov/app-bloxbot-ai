@@ -13,8 +13,8 @@ mac:
   category: public.app-category.developer-tools
   icon: electron/icons/icon.icns
   hardenedRuntime: true
-  # "arm64" in the name also keeps auto-update off Intel Macs, which skip files named that way
-  # and stay on the last build that runs on them.
+  # "arm64" in the name keeps Intel Macs from installing a build they can't open. The updater drops
+  # files named that way on Intel, so their update fails and they stay on the last build they can run.
   artifactName: BloxBot-${version}-arm64-mac.${ext}
   target:
     - dmg

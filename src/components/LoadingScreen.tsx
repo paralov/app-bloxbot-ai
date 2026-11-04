@@ -77,6 +77,11 @@ function LoadingScreen({
   const quarter = fraction === undefined ? 0 : Math.floor(fraction * 4) * 25;
   const downloadedBucket = quarter > 0 && quarter < 100 ? quarter : null;
   const updateRef = useRef<UpdateInfo | null>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: moves focus once, when the error appears
+  useEffect(() => {
+    if (error) retryRef.current?.focus();
+  }, [error]);
 
   async function handleCheckForUpdates() {
     setUpdateStatus("checking");
@@ -200,13 +205,13 @@ function LoadingScreen({
               {detail}
             </p>
           )}
-        </div>
 
-        {detailPath && (
-          <code className="mt-2 max-w-sm select-all break-all rounded-md border bg-card px-2 py-1 text-center font-mono text-xs text-foreground">
-            {detailPath}
-          </code>
-        )}
+          {detailPath && (
+            <code className="mt-2 max-w-sm select-all break-all rounded-md border bg-card px-2 py-1 text-center font-mono text-xs text-foreground">
+              {detailPath}
+            </code>
+          )}
+        </div>
 
         {(detailPath || helpLink) && (
           <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
@@ -270,6 +275,7 @@ function LoadingScreen({
             {/* Retry button */}
             {onRetry && (
               <button
+                ref={retryRef}
                 type="button"
                 onClick={() => {
                   setRestarting(true);

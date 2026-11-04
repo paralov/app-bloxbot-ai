@@ -10,10 +10,12 @@ const LINK = "shrink-0 text-foreground underline underline-offset-2 hover:opacit
 export default function StudioNotice({
   onOpenSetup,
   onOpenPicker,
+  onWorkedWithoutStudio,
   quiet = false,
 }: {
   onOpenSetup: () => void;
   onOpenPicker: () => void;
+  onWorkedWithoutStudio?: () => void;
   /**
    * Under way without a Studio, or Studio was skipped: this chat is about something else, so this
    * stays out of it unless there's a place at stake.
@@ -94,6 +96,7 @@ export default function StudioNotice({
     );
     studioTarget?.workWithoutStudio();
     setReturned("Working without Studio.");
+    onWorkedWithoutStudio?.();
     document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
   };
 

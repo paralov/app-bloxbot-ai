@@ -181,6 +181,7 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         }),
       ),
     );
+    studioTarget?.noteRouted?.();
     sendMessage.mutate(
       {
         text: formatPlaytestPrompt(plan),

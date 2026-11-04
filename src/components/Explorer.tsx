@@ -84,6 +84,7 @@ interface TreeRowProps {
   onToggle: (path: string) => void;
   onSelect: (node: ExplorerNode) => void;
   onOpenMenu: (event: MouseEvent, node: ExplorerNode) => void;
+  onOpenMenuAt: (x: number, y: number, node: ExplorerNode) => void;
   onRenamed: (node: ExplorerNode, name: string | null) => void;
   onDroppedInChat: (node: ExplorerNode) => void;
 }
@@ -122,6 +123,7 @@ const TreeRow = memo(function TreeRow({
   onToggle,
   onSelect,
   onOpenMenu,
+  onOpenMenuAt,
   onRenamed,
   onDroppedInChat,
 }: TreeRowProps) {
@@ -134,6 +136,8 @@ const TreeRow = memo(function TreeRow({
       role="treeitem"
       data-path={node.path}
       data-id={id}
+      aria-label={node.name}
+      aria-keyshortcuts="Shift+F10"
       tabIndex={isTabStop ? 0 : -1}
       draggable={!isRenaming}
       onDragStart={(event) => {
@@ -157,6 +161,11 @@ const TreeRow = memo(function TreeRow({
           event.preventDefault();
           onSelect(node);
         }
+        if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+          event.preventDefault();
+          const { left, top } = event.currentTarget.getBoundingClientRect();
+          onOpenMenuAt(left + 24, top + ROW_HEIGHT, node);
+        }
       }}
       className={`group absolute top-0 left-0 flex h-7 w-full cursor-default items-center rounded-md pr-2 text-sm ${isSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
       style={{ paddingLeft: `${8 + depth * 14}px`, transform: `translateY(${start}px)` }}
@@ -165,6 +174,7 @@ const TreeRow = memo(function TreeRow({
       <button
         type="button"
         aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`}
+        aria-hidden="true"
         tabIndex={-1}
         disabled={!canExpand}
         onClick={(event) => {
@@ -389,6 +399,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     posthog.capture("object_menu_opened", analyticsProperties("explorer"));
   }, []);
 
+  const openMenuAt = useCallback((x: number, y: number, node: ExplorerNode) => {
+    setSelectedId(nodeId(node));
+    setMenu({ node, ...menuPosition({ clientX: x, clientY: y }) });
+    posthog.capture("object_menu_opened", analyticsProperties("explorer"));
+  }, []);
+
   const copyPath = async (node: ExplorerNode) => {
     try {
       await navigator.clipboard.writeText(node.path);
@@ -471,9 +487,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const statusNotice = placeClosed
     ? studioTarget.status === "error"
       ? "Couldn't reach Studio."
-      : studioTarget.nameMatch
-        ? `Is the open ${placeName(studioTarget.nameMatch.label)} this chat's place?`
-        : `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
+      : (studioTarget.twins ?? 0) > 1
+        ? `${studioTarget.twins} places named ${placeName(studioTarget.missing?.label ?? "")} are open. Choose one in the Studio picker.`
+        : studioTarget.nameMatch
+          ? `Is the open ${placeName(studioTarget.nameMatch.label)} this chat's place?`
+          : `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
     : (waitingNotice ??
       (syncError
         ? "Explorer couldn’t load this place. If it keeps failing, restart Studio."
@@ -496,11 +514,15 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, [statusNotice, tree]);
 
   const focusableRows = rows.filter((row) => !row.loading);
+  // Has to be a row that's actually rendered, or Tab would skip the tree altogether.
+  const renderedRows = virtualizer
+    .getVirtualItems()
+    .flatMap((item) => (rows[item.index] && !rows[item.index]?.loading ? [rows[item.index]] : []));
   const tabStopId =
-    focusedId && focusableRows.some((row) => nodeId(row.node) === focusedId)
+    focusedId && renderedRows.some((row) => row && nodeId(row.node) === focusedId)
       ? focusedId
-      : focusableRows[0]
-        ? nodeId(focusableRows[0].node)
+      : renderedRows[0]
+        ? nodeId(renderedRows[0].node)
         : null;
 
   const focusRow = (id: string) => {
@@ -545,13 +567,14 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         go(focusableRows[focusableRows.length - 1]);
         break;
       case "ArrowRight":
-        if (canExpand && !visibleExpanded.has(id)) {
+        // A search shows what matches however things are expanded, so there's nothing to change.
+        if (canExpand && !visibleExpanded.has(id) && !query) {
           event.preventDefault();
           toggleNode(id);
         } else if (canExpand) go(next);
         break;
       case "ArrowLeft":
-        if (canExpand && visibleExpanded.has(id)) {
+        if (canExpand && visibleExpanded.has(id) && !query) {
           event.preventDefault();
           toggleNode(id);
         } else {
@@ -651,7 +674,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
               <button
                 type="button"
                 onClick={() => {
-                  if (studioTarget.nameMatch) void studioTarget.select(studioTarget.nameMatch);
+                  if (!studioTarget.nameMatch) return;
+                  void studioTarget.select(studioTarget.nameMatch).then((worked) => {
+                    if (worked) {
+                      document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
+                    }
+                  });
                 }}
                 className="shrink-0 underline underline-offset-2 hover:text-foreground"
               >
@@ -719,6 +747,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
                 onToggle={toggleNode}
                 onSelect={selectNode}
                 onOpenMenu={openMenu}
+                onOpenMenuAt={openMenuAt}
                 onRenamed={handleRenamed}
                 onDroppedInChat={handleDroppedInChat}
               />

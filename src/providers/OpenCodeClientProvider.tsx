@@ -57,6 +57,8 @@ function exclusionHelp() {
     : undefined;
 }
 const SERVER_WAIT_MS = 60_000;
+/** Restarting would only start a slow step's wait over, so it isn't offered right away. */
+const TRY_AGAIN_AFTER_MS = 45_000;
 
 const STARTUP_COPY: Record<Exclude<StartupPhase, "engine">, StartupPresentation> = {
   connection: {
@@ -94,7 +96,12 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
         step: 1,
         label: "Preparing",
         progress: fraction,
-        meta: [percentage, formatTransferSpeed(progress.bytesPerSecond)].filter(Boolean).join(" "),
+        meta: [
+          percentage,
+          progress.bytesPerSecond > 0 ? formatTransferSpeed(progress.bytesPerSecond) : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
       },
     };
   }
@@ -207,6 +214,7 @@ export function getStartupErrorPresentation(
 
   if (
     normalized.includes("failed to spawn") ||
+    normalized.includes("failed to start opencode") ||
     normalized.includes("exited during startup") ||
     normalized.includes("stopped unexpectedly")
   ) {
@@ -531,13 +539,24 @@ export function OpenCodeClientProvider({
 
   // Any news restarts the clock, so this only shows once a step has actually gone quiet.
   const [slow, setSlow] = useState(false);
+  const [verySlow, setVerySlow] = useState(false);
+  // A retry of a download isn't news. Only data arriving means it isn't stuck.
+  const startupNews =
+    engineProgress.phase === "downloading"
+      ? `downloading:${engineProgress.downloadedBytes}`
+      : engineProgress.phase;
   // biome-ignore lint/correctness/useExhaustiveDependencies: watches for startup news, not its contents
   useEffect(() => {
     setSlow(false);
+    setVerySlow(false);
     if (ready || initError) return;
     const timer = window.setTimeout(() => setSlow(true), SLOW_STEP_MS);
-    return () => window.clearTimeout(timer);
-  }, [startupPhase, engineProgress, ready, initError]);
+    const later = window.setTimeout(() => setVerySlow(true), TRY_AGAIN_AFTER_MS);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(later);
+    };
+  }, [startupPhase, startupNews, ready, initError]);
 
   const value = useMemo<OpenCodeClientContextValue>(
     () => ({ client, status, port, ready, initError }),
@@ -557,7 +576,11 @@ export function OpenCodeClientProvider({
           technicalDetail={startupError?.technicalDetail}
           startup={startupError ? undefined : startup.startup}
           error={!!startupError}
-          onRetry={startupError || slow ? () => desktop.relaunch() : undefined}
+          onRetry={
+            startupError || verySlow || (slow && engineProgress.phase === "downloading")
+              ? () => desktop.relaunch()
+              : undefined
+          }
         />
       </OpenCodeClientContext.Provider>
     );

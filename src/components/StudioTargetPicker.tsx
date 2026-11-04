@@ -83,6 +83,14 @@ export default function StudioTargetPicker({
             ? "No Studio"
             : "Choose Studio"));
 
+  // Two unpublished places with one name are otherwise the same row twice.
+  const twinNumber = (target: (typeof targets)[number]) => {
+    const twins = targets.filter((other) => other.label === target.label);
+    return twins.length < 2
+      ? target.detail
+      : `${target.detail ?? "Window"} ${twins.indexOf(target) + 1} of ${twins.length}`;
+  };
+
   const refresh = async () => {
     // Refresh keeps keyboard focus while it's busy, so it can't use the disabled attribute.
     if (busy) return;
@@ -248,7 +256,7 @@ export default function StudioTargetPicker({
               <MenuItem
                 key={target.key}
                 checked={selected?.key === target.key}
-                description={target.detail}
+                description={twinNumber(target)}
                 trailing={selectingKey === target.key ? <Spinner /> : undefined}
                 disabled={selectingKey !== null}
                 onClick={() => {

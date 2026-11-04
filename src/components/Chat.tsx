@@ -56,7 +56,13 @@ function Chat() {
   const activeSessionTitle = allSessions?.find((s) => s.id === activeSessionId)?.title ?? null;
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [explorerCollapsed, setExplorerCollapsed] = useState(false);
+  // Null until someone says. It opens by itself once a chat is about Studio, not just for one being
+  // open, since it takes a lot of room from a chat about a website.
+  const [explorerChoice, setExplorerChoice] = useState<boolean | null>(null);
+  const explorerCollapsed = !(
+    explorerChoice ??
+    (usedStudio === true || studioTarget?.missing != null || studioTarget?.studioChosen === true)
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [titlebarActions, setTitlebarActions] = useState<HTMLElement | null>(null);
   useEffect(() => setTitlebarActions(document.getElementById("titlebar-actions")), []);
@@ -94,6 +100,28 @@ function Chat() {
   if (studioConnection.state === "connected") everConnected.current = true;
   const needsSetup =
     studioConnection.state === "waiting" && setupSkipped !== true && !everConnected.current;
+  // Choosing a Studio means they're here for it after all, so the guidance can come back.
+  const studioChosen = studioTarget?.studioChosen === true;
+  useEffect(() => {
+    if (!studioChosen) return;
+    setSetupSkipped((skipped) => {
+      if (skipped) void desktop.patchConfig({ studioSetupSkipped: false });
+      return skipped ? false : skipped;
+    });
+  }, [studioChosen]);
+  // Choosing to work without Studio once is enough to stop asking on every new chat.
+  const handleWorkedWithoutStudio = useCallback(() => {
+    setSetupSkipped(true);
+    void desktop.patchConfig({ studioSetupSkipped: true });
+  }, []);
+  // A chat without Studio doesn't check by itself, but setup is waiting on one to appear.
+  const discoverStudios = studioTarget?.discover;
+  const setupWatching = showStudioSetup && studioTarget?.withoutStudio === true;
+  useEffect(() => {
+    if (!setupWatching) return;
+    const timer = window.setInterval(() => void discoverStudios?.(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [setupWatching, discoverStudios]);
   const connectionPending =
     studioConnection.state !== "connected" &&
     (setupSkipped === null || (studioConnection.state === "checking" && !setupSkipped));
@@ -202,16 +230,16 @@ function Chat() {
     if (showPlaytest) {
       posthog.capture("playtest_closed", analyticsProperties("playtest"));
       setShowPlaytest(false);
-      setExplorerCollapsed(false);
+      setExplorerChoice(true);
       return;
     }
 
-    setExplorerCollapsed((collapsed) => !collapsed);
-  }, [showPlaytest]);
+    setExplorerChoice(explorerCollapsed);
+  }, [showPlaytest, explorerCollapsed]);
   const handleOpenPlaytest = useCallback(() => {
     if (!hasStudioTarget) return;
     posthog.capture("playtest_opened", analyticsProperties("playtest"));
-    setExplorerCollapsed(true);
+    setExplorerChoice(false);
     setShowPlaytest(true);
   }, [hasStudioTarget]);
   const handleClosePlaytest = useCallback(() => {
@@ -224,7 +252,7 @@ function Chat() {
   useEffect(() => {
     if (!focusRequest) return;
     setShowPlaytest(false);
-    setExplorerCollapsed(false);
+    setExplorerChoice(true);
   }, [focusRequest]);
 
   // Settings brings its own sidebar, so the chat list steps aside for it.
@@ -296,14 +324,14 @@ function Chat() {
             }}
             onContinue={() => {
               handleCloseStudioSetup();
-              if (placeMissing) {
+              if (placeMissing || studioTarget?.withoutStudio) {
                 openPickerAfterSetup.current = true;
                 setFocusComposer(false);
               }
             }}
             onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
             onSkip={setupFromPicker ? undefined : handleSkipSetup}
-            needsChoice={placeMissing}
+            needsChoice={placeMissing || studioTarget?.withoutStudio === true}
           />
         ) : connectionPending ? (
           <LoadingScreen message="Finding Roblox Studio" animation="dots" />
@@ -354,6 +382,7 @@ function Chat() {
             <ChatMessages />
             <StudioNotice
               quiet={studioUse?.started === true || setupSkipped === true}
+              onWorkedWithoutStudio={handleWorkedWithoutStudio}
               onOpenSetup={handleOpenStudioSetup}
               onOpenPicker={() => setPickerRequest((request) => request + 1)}
             />
@@ -373,10 +402,10 @@ function Chat() {
         >
           {renderedSidePanel === "explorer" ? (
             <Explorer
-              key={`${activeSessionId}:${studioTarget?.selected?.key ?? "unselected"}`}
+              key={activeSessionId}
               collapsed={false}
               sessionBusy={isBusy}
-              onToggle={() => setExplorerCollapsed(true)}
+              onToggle={() => setExplorerChoice(false)}
             />
           ) : (
             <PlaytestPanel onClose={handleClosePlaytest} />

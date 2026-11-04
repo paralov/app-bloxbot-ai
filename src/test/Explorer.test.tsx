@@ -314,6 +314,22 @@ describe("Explorer", () => {
     expect(document.activeElement).toBe(screen.getAllByRole("treeitem")[1]);
   });
 
+  it("opens the actions menu from the keyboard, with focus on its first item", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    start();
+    await advance(0);
+    const row = screen.getByRole("treeitem", { name: "Workspace" });
+
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+    await advance(0);
+
+    const items = screen.getAllByRole("menuitem");
+    expect(items[0]).toHaveFocus();
+    fireEvent.keyDown(items[0] as HTMLElement, { key: "ArrowDown" });
+    expect(items[1]).toHaveFocus();
+  });
+
   it("announces that objects are loading", async () => {
     mocks.getSnapshot.mockReturnValueOnce(new Promise(() => {}));
     start();

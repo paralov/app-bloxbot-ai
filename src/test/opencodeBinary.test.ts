@@ -1568,8 +1568,6 @@ describe("OpenCode downloads refused over an unknown certificate issuer", () => 
   it.each([
     ["an expired certificate", certificateFailure("CERT_HAS_EXPIRED")],
     ["a wrong-host certificate", certificateFailure("ERR_TLS_CERT_ALTNAME_INVALID")],
-    ["a refused connection", certificateFailure("ECONNREFUSED")],
-    ["a failure with no cause", new TypeError("fetch failed")],
     ["a timeout", new DOMException("The operation timed out.", "TimeoutError")],
   ])("doesn't fall back after %s", async (_label, failure) => {
     const cacheDirectory = await makeTemporaryDirectory();
@@ -1580,6 +1578,20 @@ describe("OpenCode downloads refused over an unknown certificate issuer", () => 
 
     expect(result._tag).toBe("Left");
     expect(fetchWithSystemCertificates).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a refused connection", certificateFailure("ECONNREFUSED")],
+    ["a failure with no cause", new TypeError("fetch failed")],
+  ])("tries the system's network after %s, since Node doesn't know its proxy", async (_label, failure) => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const fetch = vi.fn().mockRejectedValue(failure);
+    const fetchWithSystemCertificates = vi.fn().mockRejectedValue(failure);
+
+    const result = await install({ fetch, fetchWithSystemCertificates }, cacheDirectory);
+
+    expect(result._tag).toBe("Left");
+    expect(fetchWithSystemCertificates).toHaveBeenCalled();
   });
 
   it("reports the certificate error when there is no fallback", async () => {

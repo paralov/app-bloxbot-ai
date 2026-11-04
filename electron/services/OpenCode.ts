@@ -213,7 +213,8 @@ function waitForSpawn(child: ChildProcessWithoutNullStreams): Effect.Effect<void
     };
     const onError = (cause: Error) => {
       cleanup();
-      resume(Effect.fail(new OpenCodeError({ message: "Failed to spawn OpenCode", cause })));
+      const reason = (cause as NodeJS.ErrnoException).code ?? cause.message;
+      resume(Effect.fail(new OpenCodeError({ message: `Failed to spawn OpenCode: ${reason}`, cause })));
     };
 
     child.once("spawn", onSpawn);

@@ -41,6 +41,10 @@ export const AppConfigSchema = Schema.mutable(
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
     // Chats someone chose to use for work that has nothing to do with Studio.
     chatsWithoutStudio: MutableStrings,
+    // Places someone picked by hand, as opposed to whichever Studio happened to be open.
+    chatsWithChosenPlace: MutableStrings,
+    // The Studio a chat's latest message was sent to, which says which one it used if it did.
+    routedTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
     studioSetupSkipped: Schema.Boolean,
     // Only for people who haven't chosen kinds yet: off here means every kind starts off.
     systemNotifications: Schema.Boolean,
@@ -64,6 +68,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   analyticsNoticeVersion: 0,
   studioTargetsBySession: {},
   chatsWithoutStudio: [],
+  chatsWithChosenPlace: [],
+  routedTargetsBySession: {},
   studioSetupSkipped: false,
   systemNotifications: true,
   notificationKinds: null,

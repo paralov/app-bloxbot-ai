@@ -278,6 +278,74 @@ describe("StudioTargetProvider", () => {
     expect(mocks.patchConfig).toHaveBeenCalledWith({ studioTargetsBySession: {} });
   });
 
+  it("keeps a place picked by hand even if no tool has used it yet", async () => {
+    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { chat: dungeon },
+      chatsWithChosenPlace: ["chat"],
+    });
+    mocks.discover.mockResolvedValue({ targets: [], selectedKey: null });
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("missing: Dungeon")).toBeInTheDocument();
+    await act(async () => context?.reportStudioUse({ started: true, usedStudio: false }));
+    expect(screen.getByText("missing: Dungeon")).toBeInTheDocument();
+  });
+
+  it("ties a chat to the Studio its message went to, when that use happened out of sight", async () => {
+    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: {},
+      routedTargetsBySession: { chat: dungeon },
+    });
+    mocks.discover.mockResolvedValue({ targets: [dungeon], selectedKey: null });
+    mocks.select.mockResolvedValue({ selected: dungeon, verified: true });
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    render(
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>,
+    );
+    expect(await screen.findByText("selected: s1")).toBeInTheDocument();
+    await act(async () => context?.reportStudioUse({ started: true, usedStudio: true }));
+
+    expect(screen.getByText("block: none")).toBeInTheDocument();
+    expect(mocks.patchConfig).toHaveBeenCalledWith({ studioTargetsBySession: { chat: dungeon } });
+  });
+
+  it("doesn't let one stuck check keep every chat from sending", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+      mocks.discover.mockReturnValue(new Promise(() => {}));
+      render(
+        <StudioTargetProvider>
+          <Seen keys={[]} />
+        </StudioTargetProvider>,
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("block: Finding Studios.")).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+      expect(screen.getByText("block: none")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("asks which Studio when a chat used one and it isn't written down", async () => {
     const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
     mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });

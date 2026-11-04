@@ -16,7 +16,7 @@ describe("StudioSetup", () => {
     );
 
     expect(
-      screen.getByText(/BloxBot can't find Studio's MCP helper\. Install or update Roblox Studio/),
+      screen.getByText(/BloxBot can't find Roblox Studio\. Install or update it/),
     ).toBeVisible();
     expect(screen.getByRole("link", { name: "Get Roblox Studio" })).toHaveAttribute(
       "href",
@@ -35,7 +35,7 @@ describe("StudioSetup", () => {
     );
     expect(
       screen.getByText(
-        "Studio's MCP helper stopped. Open Roblox Studio so it can finish updating, or reinstall it if this keeps happening.",
+        "Roblox Studio stopped responding. Open it so it can finish updating, or reinstall it if this keeps happening.",
       ),
     ).toBeVisible();
     expect(screen.getAllByRole("status").some((status) => status.textContent?.includes(";"))).toBe(
@@ -93,6 +93,22 @@ describe("StudioSetup", () => {
     const { rerender } = render(<StudioSetup {...props} checking={false} />);
     expect(screen.queryByText(/Not found yet/)).toBeNull();
 
+    rerender(<StudioSetup {...props} checking />);
+    rerender(<StudioSetup {...props} checking={false} />);
+    expect(
+      screen.getByText("Not found yet. Check these steps, then restart Studio."),
+    ).toBeVisible();
+  });
+
+  it("says so when a check finds nothing, even with a known problem, and offers it on every step", () => {
+    const props = {
+      connected: false,
+      onCheck: vi.fn(),
+      onContinue: vi.fn(),
+      problem: "unavailable" as const,
+    };
+    const { rerender } = render(<StudioSetup {...props} checking={false} />);
+    expect(screen.getByRole("button", { name: "Check again" })).toBeVisible();
     rerender(<StudioSetup {...props} checking />);
     rerender(<StudioSetup {...props} checking={false} />);
     expect(

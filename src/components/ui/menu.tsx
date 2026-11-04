@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 export const MENU_SURFACE =
   "rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg outline-hidden";
 export const MENU_ITEM =
-  "flex min-h-7 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent disabled:opacity-60";
+  "flex min-h-7 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
 export const MENU_TRIGGER =
   "flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-accent aria-pressed:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50";
 

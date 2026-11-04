@@ -247,6 +247,18 @@ function hasUnknownIssuer(cause: unknown): boolean {
 }
 
 /**
+ * Chromium's network stack also knows the system's proxy settings, which Node doesn't, so any failed
+ * connection is worth one try through it. Not a cancelled request, or a certificate that's plainly
+ * bad, which another store wouldn't change. The archive still has to match the same SHA-256.
+ */
+function worthTheSystemNetwork(cause: unknown): boolean {
+  if (hasUnknownIssuer(cause)) return true;
+  if (!(cause instanceof TypeError)) return false;
+  const code = errorCode(cause.cause);
+  return code === undefined || !/^(CERT_|ERR_TLS_|DEPTH_ZERO|SELF_SIGNED)/.test(code);
+}
+
+/**
  * Node stays the first choice so most people's downloads don't change. Only a request it refused
  * over the issuer goes to the fallback, and any other failure is reported as it happened.
  */
@@ -254,7 +266,7 @@ function withCertificateFallback(fetchFn: Fetch, fallback: Fetch | undefined): F
   if (!fallback) return fetchFn;
   return (url, init) =>
     fetchFn(url, init).catch((cause: unknown) => {
-      if (!hasUnknownIssuer(cause)) throw cause;
+      if (!worthTheSystemNetwork(cause)) throw cause;
       return fallback(url, init);
     });
 }
@@ -498,7 +510,7 @@ async function downloadUntilDone(
     } catch (cause) {
       if (partial.bytes > bytesAtLastFailure) resumes = 0;
       bytesAtLastFailure = partial.bytes;
-      if (signal.aborted || hasUnknownIssuer(cause) || resumes >= DOWNLOAD_RESUMES) {
+      if (signal.aborted || resumes >= DOWNLOAD_RESUMES) {
         if (partial.bytes > 0) {
           await saveDownload(savedPath, Buffer.concat(partial.chunks, partial.bytes));
         }

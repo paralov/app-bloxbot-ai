@@ -35,9 +35,9 @@ export const STUDIO_SETUP_STEPS = [
 
 const PROBLEM_COPY: Record<StudioMcpProblem, string> = {
   not_installed:
-    "BloxBot can't find Studio's MCP helper. Install or update Roblox Studio, then follow the steps above.",
+    "BloxBot can't find Roblox Studio. Install or update it, then follow the steps above.",
   unavailable:
-    "Studio's MCP helper stopped. Open Roblox Studio so it can finish updating, or reinstall it if this keeps happening.",
+    "Roblox Studio stopped responding. Open it so it can finish updating, or reinstall it if this keeps happening.",
 };
 
 interface StudioSetupProps {
@@ -261,45 +261,49 @@ function StudioSetup({
           </div>
         </div>
 
-        {problem ? (
-          <output className="mx-auto mt-3 flex max-w-lg items-start justify-center gap-2 text-center text-xs leading-relaxed text-muted-foreground">
-            <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
-            <span>
-              {PROBLEM_COPY[problem]}
-              {problem === "not_installed" ? (
-                <>
-                  {" "}
-                  <a
-                    href="https://create.roblox.com/docs/studio/setup"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline hover:text-foreground"
-                  >
-                    Get Roblox Studio
-                  </a>
-                </>
-              ) : null}
-            </span>
+        <div className="mt-3 flex flex-col items-center gap-1 text-center text-xs leading-relaxed text-muted-foreground">
+          {problem ? (
+            <p className="flex max-w-lg items-start justify-center gap-2">
+              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+              <span>
+                {PROBLEM_COPY[problem]}
+                {problem === "not_installed" ? (
+                  <>
+                    {" "}
+                    <a
+                      href="https://create.roblox.com/docs/studio/setup"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-foreground"
+                    >
+                      Get Roblox Studio
+                    </a>
+                  </>
+                ) : null}
+              </span>
+            </p>
+          ) : notFound ? null : (
+            <p className="flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+              Looking for Roblox Studio
+            </p>
+          )}
+          <output>
+            {notFound ? "Not found yet. Check these steps, then restart Studio." : null}
           </output>
-        ) : (
-          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
-            {notFound ? null : "Looking for Roblox Studio"}
-            <output>
-              {notFound ? "Not found yet. Check these steps, then restart Studio." : null}
-            </output>
-            {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
-              <button
-                type="button"
-                onClick={onCheck}
-                aria-busy={checking}
-                className="underline underline-offset-2 hover:text-foreground aria-busy:opacity-60"
-              >
-                Check again
-              </button>
-            ) : null}
-          </div>
-        )}
+          {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (!checking) onCheck();
+              }}
+              aria-busy={checking}
+              className="underline underline-offset-2 hover:text-foreground aria-busy:opacity-60"
+            >
+              Check again
+            </button>
+          ) : null}
+        </div>
       </section>
     </div>
   );
