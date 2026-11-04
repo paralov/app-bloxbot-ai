@@ -158,6 +158,8 @@ export interface OpenCodeOptions {
   binaryCacheDirectory: string;
   workspace: string;
   onStartupProgress?: (progress: OpenCodeStartupProgress) => void;
+  /** Windows only: OpenCode started fine, but netstat wouldn't have found it. */
+  onNetstatMiss?: (error: OpenCodeError) => void;
 }
 
 export interface OpenCodeService {
@@ -244,6 +246,7 @@ export interface PortLookup {
   readonly probe: (pid: number) => Promise<string | null>;
 }
 
+const NETSTAT_CHECK_TIMEOUT = "15 seconds";
 const PROBE_TIMEOUT_MS = 5_000;
 const PROBE_DETAIL_MAX_CHARS = 120;
 
@@ -284,6 +287,16 @@ interface NetstatSightings {
   listenersForPid: string[];
   problem: string | null;
 }
+
+const noSightings = (): NetstatSightings => ({
+  started: 0,
+  returned: 0,
+  rows: 0,
+  listening: 0,
+  rowsForPid: 0,
+  listenersForPid: [],
+  problem: null,
+});
 
 function recordNetstatRows(
   sightings: NetstatSightings,
@@ -369,15 +382,7 @@ export function waitForListeningPort(
     return Effect.fail(new OpenCodeError({ message: "OpenCode started without a process ID" }));
   }
   return Effect.gen(function* () {
-    const sightings: NetstatSightings = {
-      started: 0,
-      returned: 0,
-      rows: 0,
-      listening: 0,
-      rowsForPid: 0,
-      listenersForPid: [],
-      problem: null,
-    };
+    const sightings = noSightings();
     const port = yield* Effect.raceFirst(
       Effect.promise(() => output.announcedPort),
       pollListeningPort(lookup, pid, sightings),
@@ -394,6 +399,37 @@ export function waitForListeningPort(
         ),
       }),
     );
+  });
+}
+
+/**
+ * With OpenCode confirmed on a port, says how netstat's view differs, or null if it agrees. Reading
+ * the port from the output means affected machines no longer time out, so this is the only report
+ * left of why netstat misses it on them.
+ */
+export function explainNetstatMiss(
+  pid: number,
+  port: number,
+  lookup: PortLookup = systemPortLookup,
+  timeout: Duration.DurationInput = NETSTAT_CHECK_TIMEOUT,
+): Effect.Effect<string | null> {
+  return Effect.gen(function* () {
+    const sightings = noSightings();
+    sightings.started = 1;
+    const connections = yield* Effect.tryPromise(() => lookup.connections()).pipe(
+      Effect.timeoutOption(timeout),
+      Effect.orElseSucceed(() => Option.none<readonly NetworkConnection[]>()),
+    );
+    const rows = Option.getOrElse(connections, (): readonly NetworkConnection[] => []);
+    const holders = rows.filter(
+      (row) => Number(row.localPort) === port && row.state === "LISTEN",
+    );
+    if (holders.some((row) => row.pid === pid && row.localAddress === LOOPBACK)) return null;
+
+    if (Option.isSome(connections)) recordNetstatRows(sightings, rows, pid);
+    const netstat = yield* describeNetstat(sightings, lookup, pid);
+    const pids = holders.map((row) => row.pid).join(" ") || "nobody";
+    return `OpenCode is on port ${port} but netstat doesn't show it for pid ${pid}: ${netstat}, port held by ${pids}`;
   });
 }
 
@@ -604,6 +640,16 @@ export function makeOpenCodeLayer(options: OpenCodeOptions) {
       const prepared = yield* prepareOpenCode(options);
       const process = yield* Effect.acquireRelease(spawnOpenCode(prepared), stopOpenCode);
       const resource = yield* awaitOpenCode(process);
+      const { pid } = resource.child;
+      const { onNetstatMiss } = options;
+      if (onNetstatMiss && pid !== undefined && globalThis.process.platform === "win32") {
+        yield* explainNetstatMiss(pid, resource.port).pipe(
+          Effect.tap((message) => {
+            if (message) onNetstatMiss(new OpenCodeError({ message }));
+          }),
+          Effect.forkScoped,
+        );
+      }
       return {
         info: Effect.suspend(() => {
           if (resource.child.exitCode !== null) {

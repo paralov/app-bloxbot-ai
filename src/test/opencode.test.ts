@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { Effect, Either, Logger, LogLevel } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  explainNetstatMiss,
   findOpenCodeListeningPort,
   parseListeningPort,
   trackOpenCodeOutput,
@@ -333,6 +334,40 @@ describe("finding OpenCode's port", () => {
         "netstat 0 of 1 calls returned, direct netstat failed with 1: 'netstat' is not recognized",
     );
     expect(probe).toHaveBeenCalledWith(PID);
+  });
+
+  describe("explaining a netstat miss once OpenCode is up", () => {
+    const row = { ...listener, localPort: "51078" };
+    const explain = (connections: () => Promise<(typeof row)[]>, probe = noProbe.probe) =>
+      Effect.runPromise(explainNetstatMiss(PID, 51078, { connections, probe }, "100 millis"));
+
+    it("stays quiet when netstat shows the port under the spawned pid", async () => {
+      expect(await explain(async () => [row])).toBeNull();
+    });
+
+    it("names the pid that holds the port when it isn't the spawned one", async () => {
+      expect(await explain(async () => [{ ...row, pid: 999 }])).toBe(
+        "OpenCode is on port 51078 but netstat doesn't show it for pid 1234: " +
+          "netstat 1 of 1 calls returned, last 1 rows, 1 listening, 0 for pid 1234, " +
+          "its listeners none, port held by 999",
+      );
+    });
+
+    it("says when netstat returned no rows", async () => {
+      expect(await explain(async () => [])).toBe(
+        "OpenCode is on port 51078 but netstat doesn't show it for pid 1234: " +
+          "netstat 1 of 1 calls returned, last 0 rows, 0 listening, 0 for pid 1234, " +
+          "its listeners none, port held by nobody",
+      );
+    });
+
+    it("asks netstat directly when the lookup never comes back", async () => {
+      expect(await explain(never, async () => "failed with 1: not recognized")).toBe(
+        "OpenCode is on port 51078 but netstat doesn't show it for pid 1234: " +
+          "netstat 0 of 1 calls returned, direct netstat failed with 1: not recognized, " +
+          "port held by nobody",
+      );
+    });
   });
 
   it("names the port and the last response when the health check never passes", async () => {

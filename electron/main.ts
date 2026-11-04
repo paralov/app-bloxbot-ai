@@ -118,6 +118,7 @@ const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
       binaryCacheDirectory: openCodeBinaryDirectory,
       workspace: join(app.getPath("home"), "BloxBot"),
+      onNetstatMiss: (error) => reportMainError("opencode_netstat_miss", error),
       loadSystemPrompt: () =>
         loadConfig.pipe(
           Effect.map((config) => config.systemPrompt),
