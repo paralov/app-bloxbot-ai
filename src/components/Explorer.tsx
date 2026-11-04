@@ -450,7 +450,10 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         const { name } = await desktop.editExplorerObject(studioId, request);
         posthog.capture("object_edited", analyticsProperties("explorer", { action: edit.action }));
         onDone(name);
-        setEditNote(`${EDIT_DONE[edit.action] ?? "Changed"} ${node.name}.`);
+        // What it's called now, except for a delete, where the old name is all there is.
+        setEditNote(
+          `${EDIT_DONE[edit.action] ?? "Changed"} ${edit.action === "delete" ? node.name : name}.`,
+        );
         requestSync({ force: true });
       } catch (error) {
         console.error(`[explorer] couldn't ${edit.action} an object`, error);
@@ -469,6 +472,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const focusRowRef = useRef<(id: string) => void>(() => {});
   // Where focus goes once the next read has brought that row in.
   const pendingFocusRef = useRef<string | null>(null);
+  const focusInTreeRef = useRef(false);
+  const lastFocusIndexRef = useRef(0);
   const [editNote, setEditNote] = useState<string | null>(null);
   const handleRenamed = useCallback(
     (node: ExplorerNode, name: string | null) => {
@@ -563,9 +568,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs as the rows it's waiting for arrive
   useEffect(() => {
     const id = pendingFocusRef.current;
-    if (!id || !rows.some((row) => !row.loading && nodeId(row.node) === id)) return;
-    pendingFocusRef.current = null;
-    focusRowRef.current(id);
+    if (id && rows.some((row) => !row.loading && nodeId(row.node) === id)) {
+      pendingFocusRef.current = null;
+      focusRowRef.current(id);
+      return;
+    }
+    // The agent or a closing place can take the focused row away, and focus shouldn't go with it.
+    if (!focusInTreeRef.current || document.activeElement !== document.body || id) return;
+    const usable = rows.filter((row) => !row.loading);
+    const nearest = usable[Math.min(lastFocusIndexRef.current, usable.length - 1)];
+    if (nearest) focusRowRef.current(nodeId(nearest.node));
   }, [rows]);
   const focusRow = (id: string) => {
     setFocusedId(id);
@@ -758,9 +770,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       <div
         ref={treeRef}
-        className={`min-h-0 flex-1 overflow-y-auto py-1 ${
-          statusNotice && !tree ? "hidden" : waiting ? "opacity-60" : ""
-        }`}
+        className={`min-h-0 flex-1 overflow-y-auto py-1 ${statusNotice && !tree ? "hidden" : ""}`}
         role="tree"
         aria-label="Instance hierarchy"
         onKeyDown={moveThroughTree}
@@ -768,6 +778,14 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           const id = (event.target as HTMLElement).closest<HTMLElement>("[role=treeitem]")?.dataset
             .id;
           if (id) setFocusedId(id);
+          focusInTreeRef.current = true;
+          lastFocusIndexRef.current = rows.findIndex(
+            (row) => !row.loading && nodeId(row.node) === id,
+          );
+        }}
+        onBlur={(event) => {
+          // Going somewhere else, as opposed to its row disappearing under it.
+          if (event.relatedTarget) focusInTreeRef.current = false;
         }}
       >
         {!tree && !statusNotice ? <ExplorerLoading /> : null}

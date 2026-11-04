@@ -132,9 +132,10 @@ function Chat() {
     setSetupSkipped(true);
     void desktop.patchConfig({ studioSetupSkipped: true });
   }, []);
-  // A chat without Studio doesn't check by itself, but setup is waiting on one to appear.
+  // Setup is waiting on a Studio to appear, and nothing else checks with no chat open, or in a
+  // chat working without Studio.
   const discoverStudios = studioTarget?.discover;
-  const setupWatching = showStudioSetup && studioTarget?.withoutStudio === true;
+  const setupWatching = showStudioSetup;
   useEffect(() => {
     if (!setupWatching) return;
     const timer = window.setInterval(() => void discoverStudios?.(), 2_000);
@@ -229,14 +230,16 @@ function Chat() {
     setSetupFromPicker(true);
     setShowStudioSetup(true);
   }, []);
+  const openPickerAfterSetup = useRef(false);
   const handleCloseStudioSetup = useCallback(() => {
     setSetupFromPicker(false);
     setShowStudioSetup(false);
+    // The picker takes focus itself when it's what comes next.
+    if (openPickerAfterSetup.current) return;
     setFocusComposer(true);
     focusWhatsNext();
   }, [focusWhatsNext]);
   // The picker isn't on screen until setup has gone, so asking it to open has to wait until then.
-  const openPickerAfterSetup = useRef(false);
   useEffect(() => {
     if (showStudioSetup || !openPickerAfterSetup.current) return;
     openPickerAfterSetup.current = false;
@@ -348,11 +351,8 @@ function Chat() {
               if (setupFromPicker) void studioTarget?.discover();
             }}
             onContinue={() => {
+              if (needsStudioChoice) openPickerAfterSetup.current = true;
               handleCloseStudioSetup();
-              if (needsStudioChoice) {
-                openPickerAfterSetup.current = true;
-                setFocusComposer(false);
-              }
             }}
             onDismiss={setupFromPicker ? handleCloseStudioSetup : undefined}
             onSkip={setupFromPicker ? undefined : handleSkipSetup}

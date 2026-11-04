@@ -59,6 +59,8 @@ function exclusionHelp() {
 const SERVER_WAIT_MS = 60_000;
 /** Restarting would only start a slow step's wait over, so it isn't offered right away. */
 const TRY_AGAIN_AFTER_MS = 45_000;
+/** Past the port wait, since restarting sooner would stop an older copy from ever being tried. */
+const TRY_AGAIN_WHILE_STARTING_MS = 130_000;
 
 const STARTUP_COPY: Record<Exclude<StartupPhase, "engine">, StartupPresentation> = {
   connection: {
@@ -550,7 +552,10 @@ export function OpenCodeClientProvider({
     setVerySlow(false);
     if (ready || initError) return;
     const timer = window.setTimeout(() => setSlow(true), SLOW_STEP_MS);
-    const later = window.setTimeout(() => setVerySlow(true), TRY_AGAIN_AFTER_MS);
+    const later = window.setTimeout(
+      () => setVerySlow(true),
+      engineProgress.phase === "starting" ? TRY_AGAIN_WHILE_STARTING_MS : TRY_AGAIN_AFTER_MS,
+    );
     return () => {
       window.clearTimeout(timer);
       window.clearTimeout(later);

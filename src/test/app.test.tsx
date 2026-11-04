@@ -375,6 +375,38 @@ describe("User journeys", () => {
     }
   });
 
+  it("finishes first-run setup when a Studio appears, with no chat open", async () => {
+    const discover = vi
+      .spyOn(desktop, "discoverStudioTargets")
+      .mockResolvedValue({ targets: [], selectedKey: null } as never);
+    const client = createClient();
+    const studioStatus = vi
+      .fn()
+      .mockResolvedValue({ data: { "roblox-studio": { status: "failed" } } });
+    client.mcp.status = studioStatus;
+    client.mcp.connect = vi.fn().mockResolvedValue({});
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient);
+
+    try {
+      render(<TestApp client={client} queryClient={queryClient} withStudioTargets />);
+      expect(await screen.findByRole("heading", { name: "Let's connect Studio" })).toBeVisible();
+
+      studioStatus.mockResolvedValue({ data: { "roblox-studio": { status: "connected" } } });
+      discover.mockResolvedValue({
+        targets: [{ key: "studio-1", label: "My Place", detail: "Local place" }],
+        selectedKey: null,
+      } as never);
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+
+      expect(
+        await screen.findByRole("heading", { name: "Studio connected" }, { timeout: 4_000 }),
+      ).toBeVisible();
+    } finally {
+      discover.mockRestore();
+    }
+  });
+
   it("guides the user until Roblox Studio connects", async () => {
     const client = createClient();
     const studioStatus = vi
