@@ -272,6 +272,36 @@ describe("Explorer", () => {
     expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
   });
 
+  it("doesn't say an object is empty when what's inside it is still loading", async () => {
+    mocks.getSnapshot.mockResolvedValue({
+      ...tree,
+      roots: [
+        {
+          ...tree.roots[0],
+          hasChildren: true,
+          children: [
+            {
+              ...tree.roots[0],
+              name: "Big",
+              className: "Folder",
+              path: "game.Workspace.Big",
+              hasChildren: true,
+              pending: true,
+            },
+          ],
+        },
+      ],
+    });
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [] });
+    start();
+    await advance(0);
+
+    fireEvent.contextMenu(screen.getByText("Big"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("everything inside it");
+  });
+
   it("keeps waiting for a read when a later one has nothing to say", async () => {
     let answerRead: (details: unknown) => void = () => {};
     mocks.getSnapshot.mockResolvedValue(tree);

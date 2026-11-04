@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, sep } from "node:path";
 
 import type { InstructionFile } from "../src/types/desktop";
@@ -63,5 +63,13 @@ export async function saveInstructions(globalConfigDirectory: string, text: stri
     return;
   }
   await mkdir(globalConfigDirectory, { recursive: true });
-  await writeFile(path, text);
+  // Replaced in one step, so a write that fails partway leaves the old instructions alone.
+  const draft = `${path}.saving`;
+  try {
+    await writeFile(draft, text);
+    await rename(draft, path);
+  } catch (error) {
+    await rm(draft, { force: true });
+    throw error;
+  }
 }

@@ -138,12 +138,27 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
       selected: { key: "studio-1", label: "My Place", detail: "Local place" },
       verified: true,
     } as never);
-    vi.spyOn(desktop, "syncExplorerTree").mockResolvedValue({
-      changed: false,
-      watching: false,
-      complete: true,
-      truncated: false,
-      slowestReadMs: 0,
+    let sendTreeUpdate: Parameters<typeof desktop.onExplorerTreeUpdate>[0] = () => {};
+    vi.spyOn(desktop, "onExplorerTreeUpdate").mockImplementation((listener) => {
+      sendTreeUpdate = listener;
+      return () => {};
+    });
+    vi.spyOn(desktop, "syncExplorerTree").mockImplementation(async (studioId) => {
+      sendTreeUpdate({
+        studioId,
+        parentId: null,
+        placeName: "My Place",
+        children: [
+          {
+            name: "Workspace",
+            className: "Workspace",
+            path: "game.Workspace",
+            hasChildren: false,
+            children: [],
+          },
+        ],
+      });
+      return { changed: true, watching: false, complete: true, truncated: false, slowestReadMs: 0 };
     });
   });
 

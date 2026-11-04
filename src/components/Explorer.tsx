@@ -677,9 +677,11 @@ function DeleteObjectDialog({
           id="delete-object-description"
           className="mt-1.5 text-xs leading-relaxed text-muted-foreground"
         >
-          {inside > 0
-            ? `This removes it and the ${inside === 1 ? "object" : `${inside} objects`} inside it from your place.`
-            : "This removes it from your place."}
+          {node.pending
+            ? "This removes it and everything inside it from your place."
+            : inside > 0
+              ? `This removes it and the ${inside === 1 ? "object" : `${inside} objects`} inside it from your place.`
+              : "This removes it from your place."}
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <button
