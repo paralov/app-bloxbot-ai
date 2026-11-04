@@ -377,6 +377,30 @@ describe("User journeys", () => {
     }
   });
 
+  it("leaves setup when someone picks a chat from the sidebar", async () => {
+    const session = makeSession("s1", "Older chat");
+    const client = createClient({
+      get: vi.fn().mockResolvedValue({ data: session }),
+      messages: vi.fn().mockResolvedValue({ data: [] }),
+    });
+    client.mcp.status = vi
+      .fn()
+      .mockResolvedValue({ data: { "roblox-studio": { status: "failed" } } });
+    client.mcp.connect = vi.fn().mockResolvedValue({});
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { sessions: [session] });
+
+    render(<TestApp client={client} queryClient={queryClient} />);
+    expect(await screen.findByRole("heading", { name: "Let's connect Studio" })).toBeVisible();
+
+    fireEvent.click(screen.getByText("Older chat"));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Let's connect Studio" })).toBeNull(),
+    );
+    expect(await screen.findByRole("textbox", { name: "Message" })).toBeVisible();
+  });
+
   it("finishes first-run setup when a Studio appears, with no chat open", async () => {
     const discover = vi
       .spyOn(desktop, "discoverStudioTargets")
@@ -399,7 +423,7 @@ describe("User journeys", () => {
         targets: [{ key: "studio-1", label: "My Place", detail: "Local place" }],
         selectedKey: null,
       } as never);
-      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      fireEvent.click(screen.getByRole("button", { name: "Check now" }));
 
       expect(
         await screen.findByRole("heading", { name: "Studio connected" }, { timeout: 4_000 }),
@@ -429,7 +453,7 @@ describe("User journeys", () => {
     studioStatus.mockResolvedValue({
       data: { "roblox-studio": { status: "connected" } },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
 
     expect(await screen.findByRole("heading", { name: "Studio connected" })).toBeVisible();
   });
@@ -474,7 +498,7 @@ describe("User journeys", () => {
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
-      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      fireEvent.click(screen.getByRole("button", { name: "Check now" }));
 
       expect(await screen.findByRole("heading", { name: "Studio connected" })).toBeVisible();
       fireEvent.click(screen.getByRole("button", { name: "Let's build" }));

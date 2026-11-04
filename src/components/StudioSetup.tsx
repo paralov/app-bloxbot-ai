@@ -254,7 +254,7 @@ function StudioSetup({
                       />
                     </svg>
                   )}
-                  {checking ? "Checking..." : "Check again"}
+                  {checking ? "Checking..." : "Check now"}
                 </button>
               )}
             </div>
@@ -304,7 +304,7 @@ function StudioSetup({
               aria-busy={checking}
               className="underline underline-offset-2 hover:text-foreground aria-busy:opacity-60"
             >
-              Check again
+              Check now
             </button>
           ) : null}
         </div>

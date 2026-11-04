@@ -1,4 +1,5 @@
 import { rename, readFile, rm, writeFile } from "node:fs/promises";
+import { isOpenableUrl } from "./openableUrl";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -150,16 +151,26 @@ function parseExternalUrl(rawUrl: string) {
   return Effect.try({
     try: () => new URL(rawUrl),
     catch: (cause) =>
-      new DesktopMainError({ message: "Only web and email links can be opened", cause }),
+      new DesktopMainError({ message: "Only web, email and local file links can be opened", cause }),
   }).pipe(
     Effect.flatMap((url) =>
-      url.protocol === "https:" || url.protocol === "http:" || url.protocol === "mailto:"
+      isOpenableUrl(url)
         ? Effect.succeed(url)
         : Effect.fail(
-            new DesktopMainError({ message: "Only web and email links can be opened" }),
+            new DesktopMainError({ message: "Only web, email and local file links can be opened" }),
           ),
     ),
   );
+}
+
+function openLink(url: URL) {
+  return Effect.tryPromise({
+    try: async () => {
+      if (url.protocol === "file:") shell.showItemInFolder(fileURLToPath(url));
+      else await shell.openExternal(url.href);
+    },
+    catch: (cause) => new DesktopMainError({ message: "Failed to open URL", cause }),
+  });
 }
 
 const loadConfig = Effect.gen(function* () {
@@ -343,12 +354,7 @@ const registerIpcHandlers = Effect.sync(() => {
   ipcMain.handle(channels.openUrl, (_event, rawUrl: string) =>
     runMain(
       parseExternalUrl(rawUrl).pipe(
-        Effect.flatMap((url) =>
-          Effect.tryPromise({
-            try: () => shell.openExternal(url.href),
-            catch: (cause) => new DesktopMainError({ message: "Failed to open URL", cause }),
-          }),
-        ),
+        Effect.flatMap(openLink),
       ),
     ),
   );
@@ -446,13 +452,7 @@ function createWindow(): Effect.Effect<void, DesktopMainError> {
       window.webContents.setWindowOpenHandler(({ url }) => {
         Effect.runFork(
           parseExternalUrl(url).pipe(
-            Effect.flatMap((externalUrl) =>
-              Effect.tryPromise({
-                try: () => shell.openExternal(externalUrl.href),
-                catch: (cause) =>
-                  new DesktopMainError({ message: "Failed to open URL", cause }),
-              }),
-            ),
+            Effect.flatMap(openLink),
             Effect.catchAll(Effect.logWarning),
           ),
         );

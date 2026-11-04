@@ -1,6 +1,7 @@
 import {
   createContext,
   type Dispatch,
+  type MutableRefObject,
   type ReactNode,
   type SetStateAction,
   useCallback,
@@ -37,6 +38,8 @@ interface ExplorerReferenceContextValue {
   consumeFocus: () => void;
 }
 
+const NOTHING_EXPANDED: Set<string> = new Set();
+
 /** What someone has opened and searched for, which outlives the panel being closed. */
 export interface ExplorerView {
   expanded: Set<string>;
@@ -47,6 +50,7 @@ export interface ExplorerView {
   setSearch: Dispatch<SetStateAction<string>>;
   /** Whether this is the first look at a place, when its services open out. */
   firstShowing: (studioId: string | undefined) => boolean;
+  scrollTopRef: MutableRefObject<number>;
 }
 
 const ExplorerViewContext = createContext<ExplorerView | null>(null);
@@ -58,13 +62,27 @@ const ExplorerTreeContext = createContext<ExplorerTreeSync | null>(null);
 
 export function ExplorerReferenceProvider({ children }: { children: ReactNode }) {
   const sync = useExplorerTreeSync();
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  // Per place, so going back to one finds it as it was left.
+  const studioId = useStudioTargetOptional()?.selected?.key;
+  const [expandedByStudio, setExpandedByStudio] = useState<
+    ReadonlyMap<string | undefined, Set<string>>
+  >(() => new Map());
+  const expanded = expandedByStudio.get(studioId) ?? NOTHING_EXPANDED;
+  const setExpanded = useCallback<Dispatch<SetStateAction<Set<string>>>>(
+    (action) =>
+      setExpandedByStudio((all) => {
+        const current = all.get(studioId) ?? NOTHING_EXPANDED;
+        return new Map(all).set(studioId, typeof action === "function" ? action(current) : action);
+      }),
+    [studioId],
+  );
+  const scrollTopRef = useRef(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const shownStudioRef = useRef<string | undefined>(undefined);
+  const shownStudiosRef = useRef(new Set<string | undefined>());
   const firstShowing = useCallback((studioId: string | undefined) => {
-    if (shownStudioRef.current === studioId) return false;
-    shownStudioRef.current = studioId;
+    if (shownStudiosRef.current.has(studioId)) return false;
+    shownStudiosRef.current.add(studioId);
     return true;
   }, []);
   const view = useMemo(
@@ -76,18 +94,19 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
       search,
       setSearch,
       firstShowing,
+      scrollTopRef,
     }),
-    [expanded, selectedId, search, firstShowing],
+    [expanded, setExpanded, selectedId, search, firstShowing],
   );
   // Rows are named by path, so in another place this would silently be a different object. Here, as
   // the panel may be closed when the Studio changes.
-  const studioId = useStudioTargetOptional()?.selected?.key;
   const viewStudioRef = useRef(studioId);
   useEffect(() => {
     if (viewStudioRef.current === studioId) return;
     viewStudioRef.current = studioId;
     setSelectedId(null);
     setSearch("");
+    scrollTopRef.current = 0;
   }, [studioId]);
   const { objects, syncing, syncError, waiting, requestSync } = sync;
   const [pendingReference, setPendingReference] = useState<ExplorerReference | null>(null);

@@ -84,6 +84,8 @@ describe("startup progress", () => {
   it("says out loud when an update check fails, and how far a download has got", async () => {
     checkForUpdate.mockRejectedValue(new Error("offline"));
     const { unmount } = render(<LoadingScreen message="Couldn't start" error onRetry={() => {}} />);
+    // The check it does by itself failing isn't something anyone asked about.
+    fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
     await expect(screen.findByText("Couldn't check for updates")).resolves.toBeInTheDocument();
     unmount();
 
@@ -203,7 +205,7 @@ describe("startup progress", () => {
     } as const;
 
     const moving = getStartupPresentation("engine", downloading);
-    expect(moving.detail).toBe("Future launches will use the saved copy");
+    expect(moving.detail).toBe("It's kept for next time");
     expect(moving.startup.meta).toBe("50% 2.0 KB/s");
 
     const quiet = getStartupPresentation("engine", downloading, true);

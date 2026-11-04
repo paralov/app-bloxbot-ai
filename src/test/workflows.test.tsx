@@ -533,7 +533,7 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
       fireEvent.click(within(setup).getByRole("checkbox"));
       fireEvent.click(within(setup).getByRole("button", { name: "Connect" }));
       await within(setup).findByRole("alert", {}, { timeout: 70_000 });
-      expect(within(setup).getByRole("button", { name: "Check again" })).toBeEnabled();
+      expect(within(setup).getByRole("button", { name: "Check now" })).toBeEnabled();
       expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
     },
   );

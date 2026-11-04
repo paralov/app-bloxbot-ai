@@ -88,7 +88,7 @@ function LoadingScreen({
     if (error) retryRef.current?.focus();
   }, [error]);
 
-  async function handleCheckForUpdates() {
+  async function checkForUpdates(automatic: boolean) {
     setUpdateStatus("checking");
     try {
       const update = await desktop.checkForUpdate();
@@ -101,14 +101,16 @@ function LoadingScreen({
       setUpdateStatus("available");
     } catch (err) {
       console.error("[loading] Failed to check for updates:", err);
-      setUpdateStatus("error");
+      // Nobody asked for the automatic one, so its failure isn't worth a retry of its own.
+      setUpdateStatus(automatic ? "idle" : "error");
     }
   }
+  const handleCheckForUpdates = () => checkForUpdates(false);
 
   // Someone stuck here may already be one update away from the fix, so look without being asked.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once when the error appears
   useEffect(() => {
-    if (error) void handleCheckForUpdates();
+    if (error) void checkForUpdates(true);
   }, [error]);
 
   async function handleInstall() {

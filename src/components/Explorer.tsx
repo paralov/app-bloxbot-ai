@@ -286,8 +286,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, [waiting]);
   // An object each time, so a second click on the same link still scrolls to it.
   const [scrollTarget, setScrollTarget] = useState<{ id: string } | null>(null);
-  const { expanded, setExpanded, selectedId, setSelectedId, search, setSearch, firstShowing } =
-    useExplorerView();
+  const {
+    expanded,
+    setExpanded,
+    selectedId,
+    setSelectedId,
+    search,
+    setSearch,
+    firstShowing,
+    scrollTopRef,
+  } = useExplorerView();
   const [menu, setMenu] = useState<{ node: ExplorerNode; x: number; y: number } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExplorerNode | null>(null);
@@ -340,6 +348,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     const ids = chain.map(nodeId);
     setSelectedId(ids[ids.length - 1]);
     setScrollTarget({ id: ids[ids.length - 1] });
+    // Keyboard users clicked a link to get here, so focus comes too.
+    pendingFocusRef.current = ids[ids.length - 1];
     setExpanded((current) => new Set([...current, ...ids.slice(0, -1)]));
   }, [focusRequest, tree, consumeFocus, setSearch, setSelectedId, setExpanded]);
 
@@ -385,6 +395,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => treeRef.current,
+    initialOffset: scrollTopRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
   });
@@ -797,6 +808,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       <div
         ref={treeRef}
+        onScroll={(event) => {
+          scrollTopRef.current = event.currentTarget.scrollTop;
+        }}
         className={`min-h-0 flex-1 overflow-y-auto py-1 ${statusNotice && !tree ? "hidden" : ""}`}
         role="tree"
         aria-label="Instance hierarchy"

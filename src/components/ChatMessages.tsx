@@ -25,7 +25,7 @@ import {
   useRef,
   useState,
 } from "react";
-import Markdown, { type Components } from "react-markdown";
+import Markdown, { type Components, defaultUrlTransform, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ReferenceChip } from "@/components/ReferenceChip";
 import type { HighlightLanguage } from "@/components/SyntaxHighlightedOutput";
@@ -567,6 +567,10 @@ function InlineCode({ children }: { children?: ReactNode }) {
   );
 }
 
+/** So a reply can point at a file it made. Only links, since a picture would load it. */
+const keepFileLinks: UrlTransform = (url, key) =>
+  key === "href" && url.startsWith("file:") ? url : defaultUrlTransform(url);
+
 const markdownComponents: Components = {
   p({ children }) {
     return <p className="mb-2 last:mb-0">{children}</p>;
@@ -707,7 +711,12 @@ export function MessageText({ text }: { text: string }) {
         fieldKind={part.fieldKind}
       />
     ) : (
-      <Markdown key={index} remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
+      <Markdown
+        key={index}
+        remarkPlugins={REMARK_PLUGINS}
+        components={markdownComponents}
+        urlTransform={keepFileLinks}
+      >
         {part.value}
       </Markdown>
     ),

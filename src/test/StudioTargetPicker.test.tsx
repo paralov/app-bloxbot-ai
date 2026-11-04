@@ -119,6 +119,12 @@ describe("StudioTargetPicker", () => {
     fireEvent.keyDown(lobby, { key: "ArrowDown" });
 
     expect(dungeon).toHaveFocus();
+
+    const menu = screen.getByLabelText("Choose Roblox Studio");
+    const items = [...menu.querySelectorAll<HTMLElement>("button, a[href]")];
+    menu.focus();
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(items[items.length - 1]).toHaveFocus();
   });
 
   it("builds explicit stateless routing guidance for chat", () => {

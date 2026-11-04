@@ -110,7 +110,8 @@ export function moveMenuFocus(event: KeyboardEvent<HTMLElement>, items: readonly
     event.key === "ArrowDown"
       ? items[(at + 1) % items.length]
       : event.key === "ArrowUp"
-        ? items[(at - 1 + items.length) % items.length]
+        ? // Focus starts on the menu itself, where up means the last item.
+          items[at <= 0 ? items.length - 1 : at - 1]
         : event.key === "Home"
           ? items[0]
           : event.key === "End"

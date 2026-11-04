@@ -60,7 +60,7 @@ describe("StudioSetup", () => {
       <StudioSetup connected={false} checking={false} onCheck={onCheck} onContinue={vi.fn()} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
     expect(onCheck).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -108,7 +108,7 @@ describe("StudioSetup", () => {
       problem: "unavailable" as const,
     };
     const { rerender } = render(<StudioSetup {...props} checking={false} />);
-    expect(screen.getByRole("button", { name: "Check again" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Check now" })).toBeVisible();
     rerender(<StudioSetup {...props} checking />);
     rerender(<StudioSetup {...props} checking={false} />);
     expect(screen.getByText("Not found yet.")).toBeVisible();

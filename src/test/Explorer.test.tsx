@@ -495,6 +495,9 @@ describe("Explorer", () => {
       "data-path",
       "game.Workspace.Model.Part",
     );
+    await advance(50);
+    // Someone who followed a link with the keyboard should land on what it opened.
+    expect(screen.getByRole("treeitem", { selected: true })).toHaveFocus();
     expect(screen.getByText("0.3")).toHaveAttribute("title", "0.3");
     expect(screen.getByText("2048, 16.123, 2048")).toBeInTheDocument();
     expect(screen.getByText("Block")).toBeInTheDocument();

@@ -533,7 +533,15 @@ function prepareOpenCode(
     const fileOperation = <A>(message: string, evaluate: () => PromiseLike<A>) =>
       Effect.tryPromise({
         try: evaluate,
-        catch: (cause) => new OpenCodeError({ message, cause }),
+        catch: (cause) =>
+          new OpenCodeError({
+            // The drive being full is something someone can act on, so it's worth naming.
+            message:
+              (cause as NodeJS.ErrnoException)?.code === "ENOSPC"
+                ? `${message} (reason: disk_full)`
+                : message,
+            cause,
+          }),
       });
 
     yield* Effect.all(

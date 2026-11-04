@@ -90,8 +90,8 @@ function getEnginePresentation(progress: OpenCodeStartupProgress): StartupPresen
         : undefined;
     const percentage = fraction === undefined ? null : `${Math.round(fraction * 100)}%`;
     return {
-      message: "Downloading a one-time setup",
-      detail: "Future launches will use the saved copy",
+      message: "Downloading BloxBot's engine",
+      detail: "It's kept for next time",
       startup: {
         step: 1,
         label: "Preparing",
@@ -449,7 +449,12 @@ export function OpenCodeClientProvider({
         system: true,
         action: {
           label: "Reconnect",
-          onClick: () => window.location.reload(),
+          // Reloading only reaches an engine that's still running.
+          onClick: () =>
+            void desktop.getOpenCodeInfo().then(
+              () => window.location.reload(),
+              () => desktop.relaunch(),
+            ),
         },
       });
     }

@@ -98,11 +98,11 @@ function Chat() {
   const [sidePanelExiting, setSidePanelExiting] = useState(false);
   const sidePanelTimerRef = useRef<number | null>(null);
 
-  // Finishing setup for the first time is a decision to start, so it shouldn't need a second click.
+  // Finishing setup is a decision to start, so it shouldn't need a second click.
   const { mutate: createChat } = createSession;
   const startFirstChat = useCallback(() => {
-    if (!activeSessionId && allSessions?.length === 0) createChat();
-  }, [activeSessionId, allSessions, createChat]);
+    if (!activeSessionId) createChat();
+  }, [activeSessionId, createChat]);
   // Studio isn't required: BloxBot is also fine for small websites and the like.
   const [setupSkipped, setSetupSkipped] = useState<boolean | null>(null);
   useEffect(() => {
@@ -121,10 +121,15 @@ function Chat() {
     void desktop.patchConfig({ studioSetupSkipped: true });
   }, [focusWhatsNext, startFirstChat]);
   // Setup is for getting started. Once connected, Studio closing mustn't take over someone's chat.
+  // Going elsewhere from the sidebar leaves setup, until the next launch.
+  const [setupLeft, setSetupLeft] = useState(false);
   const everConnected = useRef(false);
   if (studioConnection.state === "connected") everConnected.current = true;
   const needsSetup =
-    studioConnection.state === "waiting" && setupSkipped !== true && !everConnected.current;
+    studioConnection.state === "waiting" &&
+    setupSkipped !== true &&
+    !everConnected.current &&
+    !setupLeft;
   // Choosing a Studio means they're here for it after all, so the guidance can come back.
   const studioChoices = studioTarget?.studioChoices ?? 0;
   useEffect(() => {
@@ -260,8 +265,19 @@ function Chat() {
       studioTarget?.withoutStudio === true ||
       studioTarget?.unknownPlace === true ||
       (!studioTarget?.selected && (studioTarget?.targets.length ?? 0) > 1));
-  const handleSessionSelect = useCallback(() => setShowSettings(false), []);
-  const handleOpenSettings = useCallback(() => setShowSettings(true), []);
+  const leaveSetup = useCallback(() => {
+    setSetupLeft(true);
+    setSetupFromPicker(false);
+    setShowStudioSetup(false);
+  }, []);
+  const handleSessionSelect = useCallback(() => {
+    setShowSettings(false);
+    leaveSetup();
+  }, [leaveSetup]);
+  const handleOpenSettings = useCallback(() => {
+    setShowSettings(true);
+    leaveSetup();
+  }, [leaveSetup]);
   const handleToggleExplorer = useCallback(() => {
     if (showPlaytest) {
       posthog.capture("playtest_closed", analyticsProperties("playtest"));
