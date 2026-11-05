@@ -224,6 +224,20 @@ const sizeOf = (path: string) =>
     () => 0,
   );
 
+/** Ends early on Stop, so a retry waiting its turn doesn't keep setup going. */
+function waitUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
+
 /**
  * Streams to disk, unlike the engine's download, since holding 400 MB in memory and rewriting it to
  * save progress would be slow. What arrived stays in place, so a later attempt carries on from it.
@@ -285,6 +299,16 @@ export async function downloadPinned(
           new Transform({
             transform(chunk: Buffer, _encoding, done) {
               written += chunk.byteLength;
+              // Checked as it arrives, so a response that never ends can't fill the disk first.
+              if (written > file.bytes) {
+                done(
+                  new BlenderToolsError({
+                    message: `${file.name} was bigger than expected`,
+                    reason: "corrupt",
+                  }),
+                );
+                return;
+              }
               resetStall();
               options.onBytes?.(written);
               done(null, chunk);
@@ -307,7 +331,11 @@ export async function downloadPinned(
     } catch (error) {
       clearTimeout(stall);
       if (options.signal?.aborted) throw new SetupCancelled();
-      if (error instanceof BlenderToolsError) throw error;
+      if (error instanceof BlenderToolsError) {
+        // What came with a damaged response can't be trusted to resume from.
+        if (error.reason === "corrupt") await rm(partial, { force: true });
+        throw error;
+      }
       const reason = classify(error);
       if (reason !== "other") {
         throw new BlenderToolsError({
@@ -326,7 +354,7 @@ export async function downloadPinned(
         });
       }
       const delay = delays[Math.min(failures, delays.length) - 1] ?? 0;
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await waitUnlessStopped(delay, options.signal);
     } finally {
       options.signal?.removeEventListener("abort", cancelAttempt);
     }
@@ -452,6 +480,8 @@ async function installEverything(options: BlenderToolsOptions): Promise<void> {
   // partial files as downloads still running from before.
   const together = new AbortController();
   const stopAll = () => together.abort();
+  // Stop may have come during the checks above, after which its event won't fire again.
+  if (options.signal?.aborted) throw new SetupCancelled();
   options.signal?.addEventListener("abort", stopAll, { once: true });
   const downloaded = await Promise.allSettled(
     pinned.map((file) =>

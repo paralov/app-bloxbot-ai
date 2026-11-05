@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   remove: vi.fn(),
   dispose: vi.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
   listener: null as ((progress: unknown) => void) | null,
 }));
 
@@ -31,6 +33,9 @@ vi.mock("@/lib/desktop", () => ({
       return () => {};
     },
   },
+}));
+vi.mock("@/lib/notifications", () => ({
+  notify: { success: mocks.success, error: mocks.error },
 }));
 vi.mock("@/providers/StudioTargetProvider", () => ({
   useStudioTargetOptional: () => null,
@@ -85,6 +90,20 @@ describe("ThreeDToolsTab", () => {
 
     finish();
     await waitFor(() => expect(mocks.dispose).toHaveBeenCalledOnce());
+  });
+
+  it("doesn't call setup failed when only OpenCode's reload fails", async () => {
+    mocks.getState.mockResolvedValue({ state: "not_installed" });
+    mocks.dispose.mockRejectedValue(new Error("reload failed"));
+    start();
+    fireEvent.click(await screen.findByRole("button", { name: "Set up Blender" }));
+
+    await waitFor(() =>
+      expect(mocks.success).toHaveBeenCalledWith("Blender is ready", {
+        description: "Restart BloxBot so the AI can use it.",
+      }),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("explains a failure and offers another go", async () => {
@@ -145,12 +164,27 @@ describe("ThreeDToolsTab", () => {
 
   it("reloads OpenCode and tries again when Windows holds the server's files", async () => {
     mocks.getState.mockResolvedValue({ state: "ready", running: false });
-    mocks.remove.mockRejectedValueOnce(new Error("EBUSY")).mockResolvedValue(undefined);
+    mocks.remove
+      .mockRejectedValueOnce(new Error("Failed to remove Blender: Couldn't remove Blender"))
+      .mockResolvedValue(undefined);
     start();
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledTimes(2));
     expect(mocks.dispose).toHaveBeenCalled();
+  });
+
+  it("doesn't reload OpenCode when removal fails for another reason", async () => {
+    mocks.getState.mockResolvedValue({ state: "ready", running: false });
+    mocks.remove.mockRejectedValue(new Error("Failed to remove Blender: Close Blender first"));
+    start();
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith("Couldn't remove Blender", expect.anything()),
+    );
+    expect(mocks.remove).toHaveBeenCalledOnce();
+    expect(mocks.dispose).not.toHaveBeenCalled();
   });
 
   it("doesn't offer it where it can't run", async () => {

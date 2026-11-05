@@ -145,6 +145,45 @@ describe("Blender tools", () => {
       expect(fetch).toHaveBeenCalledOnce();
     });
 
+    it("stops a response that's bigger than the file, and removes what came", async () => {
+      const root = await directory();
+      await writeFile(join(root, "file.bin.partial"), CONTENTS.subarray(0, 6));
+      let pulls = 0;
+      // Never ends, as a broken server or proxy might.
+      const endless = new ReadableStream({
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(Buffer.alloc(8, 1));
+        },
+      });
+
+      await expect(
+        downloadPinned(FILE, root, {
+          fetch: async () => new Response(endless, { status: 206 }),
+        }),
+      ).rejects.toMatchObject({ reason: "corrupt", message: "file.bin was bigger than expected" });
+
+      expect(pulls).toBeLessThan(100);
+      expect(await readdir(root)).toEqual([]);
+    });
+
+    it("stops waiting to retry when asked", async () => {
+      const root = await directory();
+      const stop = new AbortController();
+      const fetch = vi.fn(async () => {
+        setTimeout(() => stop.abort(), 10);
+        throw new TypeError("offline");
+      });
+      const started = Date.now();
+
+      await expect(
+        downloadPinned(FILE, root, { fetch, signal: stop.signal, retryDelaysMs: [60_000] }),
+      ).rejects.toThrow();
+
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(fetch).toHaveBeenCalledOnce();
+    });
+
     it("stops when asked", async () => {
       const root = await directory();
       const stop = new AbortController();
@@ -288,6 +327,24 @@ describe("Blender tools", () => {
       expect(Either.isLeft(result)).toBe(true);
       expect(seen).toEqual([stop.signal]);
       await expect(isBlenderInstalled(root)).resolves.toBe(false);
+    });
+
+    it("doesn't start downloading when stopped while checking for room", async () => {
+      const root = await directory();
+      const stop = new AbortController();
+      const download = vi.fn(async (file: { name: string }, dir: string) => join(dir, file.name));
+
+      const result = await install(root, {
+        signal: stop.signal,
+        download,
+        freeBytes: async () => {
+          stop.abort();
+          return 10 * 1024 ** 3;
+        },
+      });
+
+      expect(Either.isLeft(result) && result.left.message).toBe("Setup was stopped");
+      expect(download).not.toHaveBeenCalled();
     });
 
     it("stops between unpacking steps, and hands the one running the signal", async () => {
