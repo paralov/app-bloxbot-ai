@@ -94,7 +94,8 @@ describe("before uploads can run", () => {
     expect(await screen.findByRole("heading", { name: "Crate" })).toBeTruthy();
     expect(screen.getByText("In Studio, open the File menu and choose Import.")).toBeTruthy();
     expect(screen.getByText(/Roblox holds you responsible/)).toBeTruthy();
-    expect(screen.getByText("Preview of Crate")).toBeTruthy();
+    // The preview loads on its own, after the card.
+    expect(await screen.findByText("Preview of Crate")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Upload to Roblox" })).toBeNull();
     expect(screen.queryByText(/API key/i)).toBeNull();
   });
