@@ -246,8 +246,12 @@ function Chat() {
   const handleCloseStudioSetup = useCallback(() => {
     setSetupFromPicker(false);
     setShowStudioSetup(false);
-    // The picker takes focus itself when it's what comes next.
-    if (openPickerAfterSetup.current) return;
+    // The picker takes focus itself when it's what comes next, and an earlier setup's ask to focus
+    // the message box mustn't take it back.
+    if (openPickerAfterSetup.current) {
+      setFocusComposer(false);
+      return;
+    }
     setFocusComposer(true);
     focusWhatsNext();
   }, [focusWhatsNext]);
@@ -280,13 +284,17 @@ function Chat() {
   }, [leaveSetup]);
   // Someone who asked for the panel should land in it, not when it opens by itself.
   const explorerOpenedByHand = useRef(false);
+  // Asked for again while it was still on its way out, it stays without ever having gone, so the
+  // exit stopping counts as arriving too.
   useEffect(() => {
-    if (renderedSidePanel !== "explorer" || !explorerOpenedByHand.current) return;
+    if (renderedSidePanel !== "explorer" || sidePanelExiting || !explorerOpenedByHand.current) {
+      return;
+    }
     explorerOpenedByHand.current = false;
     requestAnimationFrame(() =>
       document.querySelector<HTMLElement>('[aria-label="Search Explorer"]')?.focus(),
     );
-  }, [renderedSidePanel]);
+  }, [renderedSidePanel, sidePanelExiting]);
   const handleToggleExplorer = useCallback(() => {
     if (showPlaytest) {
       posthog.capture("playtest_closed", analyticsProperties("playtest"));
@@ -328,12 +336,21 @@ function Chat() {
   }, [renderedSidePanel, hasStudioTarget, focusWhatsNext]);
 
   // A click on an object in a reply needs the Explorer to be showing.
-  const { focusRequest } = useExplorerReference();
+  const { focusRequest, consumeFocus } = useExplorerReference();
+  // Only when a click asks. setExplorerChoice changes with the chat, and that mustn't open the next
+  // chat's Explorer.
+  const setExplorerChoiceRef = useRef(setExplorerChoice);
+  setExplorerChoiceRef.current = setExplorerChoice;
   useEffect(() => {
     if (!focusRequest) return;
     setShowPlaytest(false);
-    setExplorerChoice(true);
-  }, [focusRequest, setExplorerChoice]);
+    setExplorerChoiceRef.current(true);
+  }, [focusRequest]);
+  // A link still waiting for its object came from the chat being left, not the one coming up.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dropped as the chat changes
+  useEffect(() => {
+    consumeFocus();
+  }, [activeSessionId, consumeFocus]);
 
   // Settings brings its own sidebar, so the chat list steps aside for it.
   if (showSettings && !showStudioSetup && !needsSetup && !connectionPending) {

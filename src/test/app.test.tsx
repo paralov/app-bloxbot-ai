@@ -6,7 +6,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-import { useRef } from "react";
+import { type ReactNode, useRef } from "react";
 import { toast } from "sonner";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -15,7 +15,10 @@ import type { Session } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
 import { type MessagesCache, sseDispatch } from "@/lib/sseDispatch";
 import { ActiveSessionProvider } from "@/providers/ActiveSessionProvider";
-import { ExplorerReferenceProvider } from "@/providers/ExplorerReferenceProvider";
+import {
+  ExplorerReferenceProvider,
+  useExplorerReference,
+} from "@/providers/ExplorerReferenceProvider";
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 import { StudioTargetProvider } from "@/providers/StudioTargetProvider";
@@ -35,6 +38,24 @@ vi.mock("@tanstack/react-virtual", () => ({
     measureElement: () => {},
   }),
 }));
+
+// Lexical moves focus through the selection, which jsdom doesn't follow, so what the message box
+// was asked for as it appeared is recorded instead.
+const composerMounts = vi.hoisted(() => [] as { focusOnMount: boolean }[]);
+vi.mock("@/components/ChatInput", async (importOriginal) => {
+  const { createElement, useEffect } = await import("react");
+  const real = await importOriginal<typeof import("@/components/ChatInput")>();
+  type Props = Parameters<typeof real.default>[0];
+  return {
+    ...real,
+    default: (props: Props) => {
+      useEffect(() => {
+        composerMounts.push({ focusOnMount: props.focusOnMount === true });
+      }, []);
+      return createElement(real.default, props);
+    },
+  };
+});
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -59,10 +80,12 @@ function TestApp({
   client,
   queryClient,
   withStudioTargets = false,
+  children,
 }: {
   client: ReturnType<typeof createClient>;
   queryClient: QueryClient;
   withStudioTargets?: boolean;
+  children?: ReactNode;
 }) {
   const activeSessionIdRef = useRef<string | null>(null);
 
@@ -88,6 +111,7 @@ function TestApp({
                 ) : (
                   <ChatWithSonner />
                 )}
+                {children}
               </ExplorerReferenceProvider>
             </PreferencesProvider>
           </ActiveSessionProvider>
@@ -108,6 +132,54 @@ function ChatWithSonner() {
       <Toaster />
     </>
   );
+}
+
+/** Stands in for a link to an object in a reply. */
+function ObjectLink({ path }: { path: string }) {
+  const { focusObject } = useExplorerReference();
+  return (
+    <button type="button" onClick={() => focusObject(path)}>
+      Show {path}
+    </button>
+  );
+}
+
+/** One Studio open on one place, with a tree, and the titlebar the Explorer and Playtest live in. */
+function openStudio() {
+  const titlebar = document.createElement("div");
+  titlebar.id = "titlebar-actions";
+  document.body.append(titlebar);
+  vi.spyOn(desktop, "discoverStudioTargets").mockResolvedValue({
+    targets: [{ key: "studio-1", label: "My Place", detail: "Local place" }],
+    selectedKey: "studio-1",
+  } as never);
+  const listeners = new Set<(update: unknown) => void>();
+  vi.spyOn(desktop, "onExplorerTreeUpdate").mockImplementation((listener) => {
+    listeners.add(listener as never);
+    return () => listeners.delete(listener as never);
+  });
+  vi.spyOn(desktop, "syncExplorerTree").mockImplementation(async (studioId) => {
+    for (const listener of listeners) {
+      listener({
+        studioId,
+        parentId: null,
+        placeName: "My Place",
+        children: [
+          {
+            name: "Workspace",
+            className: "Workspace",
+            path: "game.Workspace",
+            hasChildren: false,
+            properties: [],
+            attributes: [],
+            children: [],
+          },
+        ],
+      });
+    }
+    return { changed: true, watching: false, complete: true, truncated: false, slowestReadMs: 0 };
+  });
+  return () => titlebar.remove();
 }
 
 function createClient(overrides: Record<string, unknown> = {}) {
@@ -505,6 +577,135 @@ describe("User journeys", () => {
       expect(await screen.findByRole("button", { name: /My Place/ })).toBeVisible();
     } finally {
       discover.mockRestore();
+    }
+  });
+
+  it("leaves focus in the picker when setup hands over to it, after an earlier setup was left", async () => {
+    const discover = vi
+      .spyOn(desktop, "discoverStudioTargets")
+      .mockResolvedValue({ targets: [], selectedKey: null } as never);
+    const session = makeSession("s1", "My Session");
+    const never = new Promise<never>(() => {});
+    const client = createClient({
+      get: vi.fn().mockReturnValue(never),
+      messages: vi.fn().mockReturnValue(never),
+      todo: vi.fn().mockReturnValue(never),
+    });
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { sessions: [session] });
+
+    try {
+      render(<TestApp client={client} queryClient={queryClient} withStudioTargets />);
+      const openSetup = async () => {
+        fireEvent.click(await screen.findByRole("button", { name: /No Studio/ }));
+        fireEvent.click(screen.getAllByRole("button", { name: "Show me how" })[0] as HTMLElement);
+      };
+      fireEvent.click(await screen.findByText("My Session"));
+      await openSetup();
+      // Leaving this one asks for the message box to have focus.
+      fireEvent.click(await screen.findByRole("button", { name: "Back to chat" }));
+      await openSetup();
+
+      // Two Studios and no choice made, so the picker comes next.
+      discover.mockResolvedValue({
+        targets: [
+          { key: "studio-1", label: "My Place", detail: "Local place" },
+          { key: "studio-2", label: "Other Place", detail: "Local place" },
+        ],
+        selectedKey: null,
+      } as never);
+      fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(screen.getByRole("button", { name: "Check now" }));
+      composerMounts.length = 0;
+      fireEvent.click(await screen.findByRole("button", { name: "Choose a place" }));
+
+      await waitFor(() => expect(screen.getByRole("dialog")).toHaveFocus());
+      expect(composerMounts).toEqual([{ focusOnMount: false }]);
+    } finally {
+      discover.mockRestore();
+    }
+  });
+
+  it("lands in the Explorer's search when it's asked for again on its way out", async () => {
+    const closeStudio = openStudio();
+    const session = makeSession("s1", "My Session");
+    const client = createClient({
+      get: vi.fn().mockResolvedValue({ data: session }),
+      messages: vi.fn().mockResolvedValue({ data: [] }),
+    });
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { sessions: [session] });
+
+    try {
+      render(<TestApp client={client} queryClient={queryClient} withStudioTargets />);
+      fireEvent.click(await screen.findByText("My Session"));
+      fireEvent.click(await screen.findByRole("button", { name: "Explorer" }));
+      await screen.findByRole("searchbox", { name: "Search Explorer" });
+      // Done with landing in it the first time.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+      const playtest = screen.getByRole("button", { name: "Playtest" });
+      playtest.focus();
+      fireEvent.click(playtest);
+      // Back before the Explorer has finished leaving.
+      const explorer = screen.getByRole("button", { name: "Explorer" });
+      explorer.focus();
+      fireEvent.click(explorer);
+
+      await waitFor(() =>
+        expect(screen.getByRole("searchbox", { name: "Search Explorer" })).toHaveFocus(),
+      );
+    } finally {
+      closeStudio();
+    }
+  });
+
+  it("doesn't open the Explorer in the next chat for a link left waiting in the last one", async () => {
+    const closeStudio = openStudio();
+    const first = makeSession("s1", "First Session");
+    const second = makeSession("s2", "Second Session");
+    const client = createClient({
+      get: vi
+        .fn()
+        .mockImplementation(({ path }: { path: { id: string } }) =>
+          Promise.resolve({ data: path.id === "s1" ? first : second }),
+        ),
+      messages: vi.fn().mockResolvedValue({ data: [] }),
+    });
+    const queryClient = createQueryClient();
+    seedReadyState(queryClient, { sessions: [first, second] });
+
+    try {
+      render(
+        <TestApp client={client} queryClient={queryClient} withStudioTargets>
+          {/* Not in the tree yet, so the request waits. */}
+          <ObjectLink path="game.Workspace.Door" />
+        </TestApp>,
+      );
+      fireEvent.click(await screen.findByText("First Session"));
+      expect(await screen.findByRole("button", { name: "Explorer" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Show game.Workspace.Door" }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Explorer" })).toHaveAttribute(
+          "aria-pressed",
+          "true",
+        ),
+      );
+
+      fireEvent.click(screen.getByText("Second Session"));
+      expect(await screen.findByRole("heading", { name: "Second Session" })).toBeVisible();
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(await screen.findByRole("button", { name: "Explorer" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    } finally {
+      closeStudio();
     }
   });
 

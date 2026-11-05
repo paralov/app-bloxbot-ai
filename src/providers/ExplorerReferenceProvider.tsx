@@ -63,7 +63,13 @@ const ExplorerTreeContext = createContext<ExplorerTreeSync | null>(null);
 export function ExplorerReferenceProvider({ children }: { children: ReactNode }) {
   const sync = useExplorerTreeSync();
   // Per place, so going back to one finds it as it was left.
-  const studioId = useStudioTargetOptional()?.selected?.key;
+  const selectedStudio = useStudioTargetOptional()?.selected;
+  const studioId = selectedStudio?.key;
+  // Studio can hand the same key to another place, so the key alone doesn't say which place it is.
+  // Unpublished, the name is all there is to tell two apart by.
+  const placeKey = selectedStudio
+    ? JSON.stringify([selectedStudio.key, selectedStudio.placeId ?? null, selectedStudio.label])
+    : undefined;
   const [expandedByStudio, setExpandedByStudio] = useState<
     ReadonlyMap<string | undefined, Set<string>>
   >(() => new Map());
@@ -100,15 +106,15 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
   );
   // Rows are named by path, so in another place this would silently be a different object. Here, as
   // the panel may be closed when the Studio changes.
-  const viewStudioRef = useRef(studioId);
+  const viewPlaceRef = useRef(placeKey);
   useEffect(() => {
     // A chat with no Studio passing through isn't a different place.
-    if (!studioId || viewStudioRef.current === studioId) return;
-    viewStudioRef.current = studioId;
+    if (!placeKey || viewPlaceRef.current === placeKey) return;
+    viewPlaceRef.current = placeKey;
     setSelectedId(null);
     setSearch("");
     scrollTopRef.current = 0;
-  }, [studioId]);
+  }, [placeKey]);
   const { objects, syncing, syncError, waiting, requestSync } = sync;
   const [pendingReference, setPendingReference] = useState<ExplorerReference | null>(null);
   const referenceObject = useCallback(

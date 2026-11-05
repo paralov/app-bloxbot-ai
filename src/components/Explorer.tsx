@@ -66,6 +66,8 @@ import {
 import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ROW_HEIGHT = 28;
+// How long a row that was scrolled to gets to show up before focus stops waiting for it.
+const FOCUS_ROW_FRAMES = 10;
 const EDIT_DONE: Record<string, string> = {
   rename: "Renamed",
   duplicate: "Duplicated",
@@ -362,6 +364,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     setRenamingId(null);
     setMenu(null);
     setDeleteTarget(null);
+    pendingFocusRef.current = null;
   }, [studioId]);
 
   const selected = selectedId ? (tree?.byId.get(selectedId) ?? null) : null;
@@ -471,7 +474,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       try {
         const { name } = await desktop.editExplorerObject(studioId, request);
         posthog.capture("object_edited", analyticsProperties("explorer", { action: edit.action }));
-        onDone(name);
+        // The rows are another place's by now, where the same path is a different object.
+        if (selectionStudioRef.current === studioId) onDone(name);
         // What it's called now, except for a delete, where the old name is all there is.
         setEditNote(
           `${EDIT_DONE[edit.action] ?? "Changed"} ${edit.action === "delete" ? node.name : name}.`,
@@ -494,6 +498,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const focusRowRef = useRef<(id: string) => void>(() => {});
   // Where focus goes once the next read has brought that row in.
   const pendingFocusRef = useRef<string | null>(null);
+  // The row focus is on its way to, so an older row still being waited for gives way to it.
+  const focusTargetRef = useRef<string | null>(null);
   const focusInTreeRef = useRef(false);
   const lastFocusIndexRef = useRef(0);
   const [editNote, setEditNote] = useState<string | null>(null);
@@ -619,14 +625,21 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   }, [rows]);
   const focusRow = (id: string) => {
     setFocusedId(id);
+    focusTargetRef.current = id;
     const index = rows.findIndex((row) => !row.loading && nodeId(row.node) === id);
     if (index >= 0) virtualizer.scrollToIndex(index);
-    requestAnimationFrame(() => {
+    // A row scrolled to from far off is only drawn once the list catches up, which can take a few
+    // frames. Not forever, though, and not once another row has been asked for.
+    let frames = 0;
+    const attempt = () => {
+      if (focusTargetRef.current !== id) return;
       const element = [
         ...(treeRef.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? []),
       ].find((item) => item.dataset.id === id);
-      element?.focus();
-    });
+      if (element) element.focus();
+      else if (++frames < FOCUS_ROW_FRAMES) requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
   };
 
   // One Tab stop for the whole tree and arrow keys inside it, as a tree is expected to work.
@@ -826,7 +839,18 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }}
         onBlur={(event) => {
           // Going somewhere else, as opposed to its row disappearing under it.
-          if (event.relatedTarget) focusInTreeRef.current = false;
+          if (event.relatedTarget) {
+            focusInTreeRef.current = false;
+            return;
+          }
+          // Nothing to go to happens for a click on nothing in particular too, but a row that's
+          // still there afterwards wasn't taken away.
+          const left = event.target;
+          queueMicrotask(() => {
+            if (left.isConnected && !treeRef.current?.contains(document.activeElement)) {
+              focusInTreeRef.current = false;
+            }
+          });
         }}
       >
         {!tree && !statusNotice ? <ExplorerLoading /> : null}
