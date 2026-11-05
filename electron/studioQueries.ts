@@ -117,6 +117,10 @@ export async function readStudioAccount(callTool: CallStudioTool, studioId: stri
   return id;
 }
 
+/** Studio's answer when Edit is asked for during a playtest. */
+const IN_PLAYTEST = /not available in \w+ mode/i;
+export const STOP_PLAYTEST = "Stop the playtest first";
+
 /** Puts an uploaded model in the place, and returns where it went. */
 export async function insertUploadedModel(
   callTool: CallStudioTool,
@@ -140,7 +144,8 @@ end
 return "none"`,
   });
   const lookupError = mcpError(leftover);
-  if (lookupError) throw new Error(lookupError);
+  // A playtest's place is a copy that's thrown away, so the model waits for the real one.
+  if (lookupError) throw new Error(IN_PLAYTEST.test(lookupError) ? STOP_PLAYTEST : lookupError);
   const found = mcpData(leftover);
   if (typeof found === "string" && found.startsWith("game.")) return found;
   // Only a clear "nothing there" adds one. Anything else could be a model already in the place.
@@ -1048,7 +1053,7 @@ return game:GetService("HttpService"):JSONEncode({ name = name })`,
   });
   const error = mcpError(result);
   if (error) {
-    throw new Error(/not available in \w+ mode/i.test(error) ? "Stop the playtest first" : error);
+    throw new Error(IN_PLAYTEST.test(error) ? STOP_PLAYTEST : error);
   }
   const name = mcpData(result)?.name;
   if (typeof name !== "string") throw new Error("Studio returned an unreadable answer");

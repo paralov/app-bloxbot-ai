@@ -8,7 +8,12 @@ import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
-import type { ModelUploadFailure, ModelUploadResult, ModelUploadStep } from "@/types/desktop";
+import type {
+  ModelUploadFailure,
+  ModelUploadResult,
+  ModelUploadStep,
+  NotAddedReason,
+} from "@/types/desktop";
 
 const ModelPreview = lazy(() => import("@/components/ModelPreview"));
 
@@ -28,7 +33,15 @@ const FAILURES: Record<ModelUploadFailure, string> = {
   refused: "Roblox refused this from Studio. You can still import it yourself below.",
   rate_limited: "Roblox asked BloxBot to slow down. Try again in a minute.",
   file_rejected: "Roblox refused the file. Ask for it to be exported again.",
+  folder_unwritable:
+    "BloxBot can't save in this file's folder, so nothing was uploaded. Allow changes to the folder, then try again.",
   studio_error: "Studio didn't answer. Make sure this place is open, then try again.",
+};
+
+const NOT_ADDED: Record<NotAddedReason, string> = {
+  place_changed:
+    "Your place changed, so it wasn't added. Add it from here when that place is open again.",
+  playtest: "Studio is playtesting, so it wasn't added. Stop the playtest, then add it again.",
 };
 
 const secondary = "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-accent";
@@ -278,9 +291,11 @@ export function ModelCard({ url }: { url: string }) {
       return (
         <>
           <p className="text-xs leading-relaxed">
-            {result
-              ? "Roblox approved it, but Studio couldn't add it."
-              : "Already on Roblox, so there's nothing to upload."}{" "}
+            {result?.status === "not_added" && result.reason
+              ? NOT_ADDED[result.reason]
+              : result
+                ? "Roblox approved it, but Studio couldn't add it."
+                : "Already on Roblox, so there's nothing to upload."}{" "}
             Asset {assetId}.
           </p>
           <div className="flex flex-wrap gap-1.5">{uploadButton("Add it to your place")}</div>

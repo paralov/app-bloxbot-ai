@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getUploadAccess,
+  isNetworkPath,
   MAX_MODEL_BYTES,
   modelDisplayName,
   modelFolder,
@@ -20,6 +22,21 @@ import {
 import type { CallStudioTool } from "../../electron/studioQueries";
 
 const STUDIO = "studio-1";
+
+/** Windows only makes links with Developer Mode or as an administrator. */
+const canLink = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "model-link-"));
+  try {
+    symlinkSync(join(probe, "target"), join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
+/** Root can write anywhere, so a read-only folder only stops everyone else. */
+const canLockFolder = process.platform !== "win32" && process.getuid?.() !== 0;
 const text = (value: unknown) => ({
   content: [
     { type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value) },
@@ -38,7 +55,13 @@ interface ToolArgs {
 type Handler = (args: ToolArgs) => unknown;
 
 function studio(
-  handlers: { invoke?: Handler; luau?: Handler; insert?: Handler; list?: Handler } = {},
+  handlers: {
+    invoke?: Handler;
+    luau?: Handler;
+    insert?: Handler;
+    list?: Handler;
+    lookup?: Handler;
+  } = {},
 ) {
   const calls: { name: string; args: ToolArgs }[] = [];
   const callTool = (async (name: string, args: ToolArgs) => {
@@ -64,7 +87,7 @@ function studio(
       );
     }
     // A place with nothing an earlier insert left behind.
-    if (String(args.code).includes("PackageId")) return text("none");
+    if (String(args.code).includes("PackageId")) return handlers.lookup?.(args) ?? text("none");
     return (
       handlers.luau?.(args) ??
       text({ placeId: 123, creatorId: 9, creatorType: "Enum.CreatorType.User" })
@@ -160,9 +183,12 @@ describe("what this place can do", () => {
     expect(await readdir(dir)).toEqual(["Crate.fbx"]);
   });
 
-  it("says yes when it can't write the check file, and leaves it to the upload", async () => {
-    const { callTool } = studio(scopeGate([], false));
-    expect((await getUploadAccess(callTool, STUDIO, join(dir, "missing"))).state).toBe("ready");
+  it("isn't ready when it can't write the check file, since the upload's copy can't go there either", async () => {
+    const { callTool, uploads } = studio(scopeGate([]));
+    expect((await getUploadAccess(callTool, STUDIO, join(dir, "missing"))).state).toBe(
+      "folder_unwritable",
+    );
+    expect(uploads()).toEqual([]);
   });
 
   it("asks to reopen a Studio from before Roblox's update, as it really answers", async () => {
@@ -323,6 +349,43 @@ describe("reading a model", () => {
     await writeFile(join(dir, "Huge.glb"), Buffer.alloc(MAX_MODEL_BYTES + 1));
     expect(await readModelFile(pathToFileURL(join(dir, "Huge.glb")).href)).toBeNull();
   });
+
+  it("knows a network share however Windows spells it", () => {
+    for (const share of [
+      "\\\\server\\share\\Crate.fbx",
+      "//server/share/Crate.fbx",
+      "\\\\?\\UNC\\server\\share\\Crate.fbx",
+    ]) {
+      expect(isNetworkPath(share)).toBe(true);
+    }
+    for (const local of ["C:\\Users\\me\\Crate.fbx", "/Users/me/Crate.fbx"]) {
+      expect(isNetworkPath(local)).toBe(false);
+    }
+  });
+
+  it.runIf(canLink)("reads a model through a link to a file on this computer", async () => {
+    await mkdir(join(dir, "real"));
+    await writeFile(join(dir, "real", "Crate.fbx"), "model bytes");
+    await symlink(join(dir, "real", "Crate.fbx"), join(dir, "Linked.fbx"));
+    expect(await readModelFile(pathToFileURL(join(dir, "Linked.fbx")).href)).toMatchObject({
+      name: "Linked",
+      hash,
+    });
+  });
+
+  // Elsewhere "//" is just the root, so these links reach a real file unless they're refused first.
+  it.runIf(canLink && process.platform !== "win32")(
+    "won't follow a link to a network share, to the file or its folder",
+    async () => {
+      const real = join(dir, "real");
+      await mkdir(real);
+      await writeFile(join(real, "Crate.fbx"), "model bytes");
+      await symlink(`/${join(real, "Crate.fbx")}`, join(dir, "Share.fbx"));
+      await symlink(`/${real}`, join(dir, "share"));
+      expect(await readModelFile(pathToFileURL(join(dir, "Share.fbx")).href)).toBeNull();
+      expect(await readModelFile(pathToFileURL(join(dir, "share", "Crate.fbx")).href)).toBeNull();
+    },
+  );
 
   it("makes a name Roblox will take from a file name", () => {
     expect(modelDisplayName("/a/My_Crate (v2)!.fbx")).toBe("My_Crate v2");
@@ -595,6 +658,150 @@ describe("from the click to the place", () => {
     });
     await sendModelToPlace(modelUrl, deps(callTool));
     expect(uploads()).toHaveLength(1);
+  });
+
+  it("keeps a finished upload with no operation, even when the moderation check fails", async () => {
+    let online = false;
+    const { callTool, uploads } = studio({
+      invoke: (args) =>
+        args.method === "POST"
+          ? text({
+              done: true,
+              response: { assetId: "6", moderationResult: { moderationState: "Reviewing" } },
+            })
+          : online
+            ? text({ moderationResult: { moderationState: "Approved" } })
+            : error("HTTP 503"),
+    });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toEqual({
+      status: "failed",
+      reason: "studio_error",
+    });
+    expect(await readSentModel(sentFile, hash)).toMatchObject({ assetId: "6" });
+    online = true;
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toMatchObject({
+      status: "added",
+      assetId: "6",
+    });
+    expect(uploads()).toHaveLength(1);
+  });
+
+  it("sends the same bytes once when two links and two Studios ask at the same time", async () => {
+    await writeFile(join(dir, "Copy.fbx"), "model bytes");
+    const { callTool, uploads, calls } = studio({
+      list: () => ({
+        studios: [
+          { id: STUDIO, name: "Game (placeId: 123)" },
+          { id: "studio-2", name: "Other (placeId: 456)" },
+        ],
+      }),
+    });
+    const results = await Promise.all([
+      sendModelToPlace(modelUrl, deps(callTool)),
+      sendModelToPlace(
+        pathToFileURL(join(dir, "Copy.fbx")).href,
+        deps(callTool, { studioId: "studio-2" }),
+      ),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(["added", "added"]);
+    expect(uploads()).toHaveLength(1);
+    // Each Studio still gets the model in its own place.
+    expect(calls.filter((c) => c.name === "insert_asset").map((c) => c.args.studio_id)).toEqual(
+      expect.arrayContaining([STUDIO, "studio-2"]),
+    );
+  });
+
+  it.runIf(canLockFolder)(
+    "says the folder can't take the upload's copy, and sends nothing",
+    async () => {
+      const { callTool, uploads } = studio();
+      await chmod(dir, 0o555);
+      try {
+        expect(await sendModelToPlace(modelUrl, deps(callTool))).toEqual({
+          status: "failed",
+          reason: "folder_unwritable",
+        });
+      } finally {
+        await chmod(dir, 0o755);
+      }
+      expect(uploads()).toEqual([]);
+    },
+  );
+
+  it("gives each game owner their own asset, and reuses each one's", async () => {
+    let owner = { creatorId: 9, creatorType: "Enum.CreatorType.User" };
+    let next = 1;
+    const { callTool, uploads, calls } = studio({
+      luau: () => text({ placeId: 123, ...owner }),
+      invoke: () =>
+        text({
+          done: true,
+          response: {
+            assetId: String(next++),
+            moderationResult: { moderationState: "Approved" },
+          },
+        }),
+    });
+    const inserted = () =>
+      calls.filter((c) => c.name === "insert_asset").map((c) => c.args.assetId);
+    await sendModelToPlace(modelUrl, deps(callTool));
+    owner = { creatorId: 77, creatorType: "Enum.CreatorType.Group" };
+    await sendModelToPlace(modelUrl, deps(callTool));
+    expect(JSON.parse(uploads()[1]?.args.body ?? "{}").request.creationContext.creator).toEqual({
+      groupId: "77",
+    });
+    owner = { creatorId: 9, creatorType: "Enum.CreatorType.User" };
+    await sendModelToPlace(modelUrl, deps(callTool));
+    expect(uploads()).toHaveLength(2);
+    expect(inserted()).toEqual(["1", "2", "1"]);
+  });
+
+  it("uses a record from before owners were kept, as it always did", async () => {
+    await recordSentModel(sentFile, hash, { assetId: "4", moderation: "approved" });
+    const { callTool, uploads, calls } = studio({
+      luau: () => text({ placeId: 1, creatorId: 77, creatorType: "Enum.CreatorType.Group" }),
+    });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toMatchObject({
+      status: "added",
+      assetId: "4",
+    });
+    expect(uploads()).toEqual([]);
+    expect(calls.some((c) => String(c.args.code).includes("CreatorId"))).toBe(false);
+  });
+
+  it("doesn't add it to another place the same Studio opened while Roblox checked", async () => {
+    let place = "Game (placeId: 123)";
+    const { callTool, calls } = studio({
+      list: () => ({ studios: [{ id: STUDIO, name: place }] }),
+      invoke: () => {
+        place = "Another game (placeId: 456)";
+        return text({
+          done: true,
+          response: { assetId: "555", moderationResult: { moderationState: "Approved" } },
+        });
+      },
+    });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toEqual({
+      status: "not_added",
+      assetId: "555",
+      reason: "place_changed",
+    });
+    expect(calls.some((c) => c.name === "insert_asset")).toBe(false);
+  });
+
+  it("says to stop a playtest when that's why it wasn't added", async () => {
+    const { callTool, calls } = studio({
+      lookup: (args) =>
+        args.datamodel_type === "Edit"
+          ? error("Edit data model is not available in Play mode")
+          : text("none"),
+    });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toEqual({
+      status: "not_added",
+      assetId: "555",
+      reason: "playtest",
+    });
+    expect(calls.some((c) => c.name === "insert_asset")).toBe(false);
   });
 
   it("does nothing without a file", async () => {

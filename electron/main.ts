@@ -528,7 +528,10 @@ const registerIpcHandlers = Effect.sync(() => {
     ),
   );
   const sentModels = () => sentModelsFile(app.getPath("userData"));
-  const uploadsInFlight = new Map<string, Promise<ModelUploadResult>>();
+  const uploadsInFlight = new Map<
+    string,
+    { result: Promise<ModelUploadResult>; urls: Set<string> }
+  >();
   ipcMain.handle(channels.getUploadAccess, async (_event, studioKey: unknown, modelUrl: unknown) => {
     const modelsFolder = join(app.getPath("home"), "BloxBot", "Models");
     await mkdir(modelsFolder, { recursive: true }).catch(() => {});
@@ -561,24 +564,29 @@ const registerIpcHandlers = Effect.sync(() => {
       const decodedUrl = await Schema.decodeUnknownPromise(Schema.String)(url);
       const studioId = await Schema.decodeUnknownPromise(StudioKeySchema)(studioKey);
       const expectedHash = await Schema.decodeUnknownPromise(Schema.String)(hash);
-      // A second click, or a second card for the same file, joins the upload that's running.
-      const running = uploadsInFlight.get(decodedUrl);
-      if (running) return running;
-      const upload = queryStudio((callTool) =>
+      // A second click, or a second card with the same bytes, joins the upload that's running for
+      // this Studio. Another Studio gets its own, since the model has to go in its place too.
+      const key = `${studioId}\n${expectedHash}`;
+      const running = uploadsInFlight.get(key);
+      if (running) {
+        running.urls.add(decodedUrl);
+        return running.result;
+      }
+      const urls = new Set([decodedUrl]);
+      const result = queryStudio((callTool) =>
         sendModelToPlace(decodedUrl, {
           callTool,
           studioId,
           sentFile: sentModels(),
           expectedHash,
           onStep: (step) => {
-            if (!event.sender.isDestroyed()) {
-              event.sender.send(channels.modelUploadStep, decodedUrl, step);
-            }
+            if (event.sender.isDestroyed()) return;
+            for (const each of urls) event.sender.send(channels.modelUploadStep, each, step);
           },
         }),
-      ).finally(() => uploadsInFlight.delete(decodedUrl));
-      uploadsInFlight.set(decodedUrl, upload);
-      return upload;
+      ).finally(() => uploadsInFlight.delete(key));
+      uploadsInFlight.set(key, { result, urls });
+      return result;
     },
   );
   ipcMain.handle(channels.relaunch, () =>

@@ -130,17 +130,24 @@ export function buildUploadSteps(access: UploadAccess, folderRefused = false): S
         </>
       ),
     },
-    {
-      id: "folder",
-      title: "Approve the models folder",
-      done: state === "ready" && !folderRefused,
-      how: (
-        <>
-          Further down <Strong>MCP Permissions</Strong>, under <Strong>Upload folders</Strong>, add
-          this folder:
-        </>
-      ),
-    },
+    state === "folder_unwritable"
+      ? {
+          id: "folder",
+          title: "Let BloxBot save in the models folder",
+          done: false,
+          how: "Uploads send a copy saved next to the model, and BloxBot can't save in this folder. Allow changes to it:",
+        }
+      : {
+          id: "folder",
+          title: "Approve the models folder",
+          done: state === "ready" && !folderRefused,
+          how: (
+            <>
+              Further down <Strong>MCP Permissions</Strong>, under <Strong>Upload folders</Strong>,
+              add this folder:
+            </>
+          ),
+        },
   ];
 }
 
