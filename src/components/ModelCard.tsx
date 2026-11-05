@@ -64,6 +64,8 @@ export function ModelCard({ url }: { url: string }) {
   const [previewFailed, setPreviewFailed] = useState(false);
   const failPreview = useCallback(() => setPreviewFailed(true), []);
   const [drawn, setDrawn] = useState<Uint8Array | null>(null);
+  // Without a preview, someone has to say they looked at the file. A new version needs another look.
+  const [checkedByHand, setCheckedByHand] = useState<Uint8Array | null>(null);
   // The fix has to reach the place this went to, even if someone has since chosen another.
   const uploadedTo = useRef<string | null>(null);
 
@@ -124,7 +126,7 @@ export function ModelCard({ url }: { url: string }) {
   if (!file) return null;
 
   // Upload sends this file's hash, so it waits until this same file is the one on screen.
-  const previewed = previewFailed || drawn === file.data;
+  const previewed = drawn === file.data || (previewFailed && checkedByHand === file.data);
   const start = studioKey && previewed ? () => upload.mutate(studioKey) : undefined;
   const sent = result ? null : file.sent;
   const rejected = result?.status === "rejected" || sent?.moderation === "rejected";
@@ -133,6 +135,25 @@ export function ModelCard({ url }: { url: string }) {
   // A sent model's card can come back in a chat with no place chosen, where there's nowhere to send it.
   const uploadButton = (label: string) => (
     <>
+      {previewFailed ? (
+        <div className="flex basis-full flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            className={secondary}
+            onClick={() => desktop.openUrl(url).catch(() => {})}
+          >
+            Show file
+          </button>
+          <label className="flex items-center gap-1.5 text-xs">
+            <input
+              type="checkbox"
+              checked={checkedByHand === file.data}
+              onChange={(event) => setCheckedByHand(event.target.checked ? file.data : null)}
+            />
+            I opened it and checked it
+          </label>
+        </div>
+      ) : null}
       <button
         type="button"
         className={`${primary} disabled:opacity-50`}

@@ -19,6 +19,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const WIDTH = 148;
 const HEIGHT = 124;
+// The chat scrolls in its own box, so the margin has to apply there as well as to the window.
+const NEAR = { rootMargin: "400px", scrollMargin: "400px" };
 // White, so a model whose texture isn't in its file still shows its own color.
 const BLANK_TEXTURE =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=";
@@ -75,16 +77,29 @@ export default function ModelPreview({
   /** Says which data is on screen, since Upload sends that file and nothing older. */
   onDrawn: (data: Uint8Array) => void;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const holderRef = useRef<HTMLDivElement>(null);
   const turnRef = useRef<(yaw: number, pitch: number) => void>(() => {});
   const draggingRef = useRef(false);
   const [ready, setReady] = useState(false);
+  // Chromium only allows a few WebGL contexts at once, so only cards near the screen hold one.
+  const [near, setNear] = useState(typeof IntersectionObserver === "undefined");
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const holder = holderRef.current;
+    if (!holder || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry) setNear(entry.isIntersecting);
+    }, NEAR);
+    observer.observe(holder);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const holder = holderRef.current;
+    if (!holder) return;
     // A new file isn't the one on screen until it's drawn.
     setReady(false);
+    if (!near) return;
     let cancelled = false;
     let frame = 0;
     let renderer: WebGLRenderer | null = null;
@@ -94,9 +109,15 @@ export default function ModelPreview({
       try {
         model = await parseModel(data, kind, () => draw());
         if (cancelled) return;
-        renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true });
+        // A canvas can't get another context once its own is released, so each draw has a new one.
+        renderer = new WebGLRenderer({ alpha: true, antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(WIDTH, HEIGHT, false);
+        renderer.setSize(WIDTH, HEIGHT);
+        renderer.domElement.style.display = "block";
+        renderer.domElement.addEventListener("webglcontextlost", () => {
+          if (!cancelled) onFailed();
+        });
+        holder.append(renderer.domElement);
 
         const box = new Box3().setFromObject(model);
         const size = box.getSize(new Vector3()).length() || 1;
@@ -141,21 +162,21 @@ export default function ModelPreview({
       draw = () => {};
       turnRef.current = () => {};
       if (model) disposeModel(model);
-      // Otherwise the last frame stays on the canvas while the next file is read.
-      renderer?.clear();
       renderer?.dispose();
+      // Disposing alone keeps the context until the canvas is collected, which may be never.
+      renderer?.forceContextLoss();
+      // Otherwise the last frame stays on screen while the next file is read.
+      renderer?.domElement.remove();
     };
-  }, [data, kind, onFailed, onDrawn]);
+  }, [data, kind, near, onFailed, onDrawn]);
 
   return (
-    <canvas
-      ref={canvasRef}
+    <div
+      ref={holderRef}
       tabIndex={ready ? 0 : -1}
       role="img"
       aria-label={`Preview of ${name}. Drag or use the arrow keys to turn it.`}
-      width={WIDTH}
-      height={HEIGHT}
-      className="block h-[124px] w-[148px] cursor-grab touch-none rounded-md bg-muted active:cursor-grabbing"
+      className="h-[124px] w-[148px] cursor-grab touch-none overflow-hidden rounded-md bg-muted active:cursor-grabbing"
       onPointerDown={(event) => {
         draggingRef.current = true;
         event.currentTarget.setPointerCapture(event.pointerId);

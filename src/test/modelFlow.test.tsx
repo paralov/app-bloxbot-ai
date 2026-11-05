@@ -18,8 +18,8 @@ import type {
   UploadAccessState,
 } from "@/types/desktop";
 
-/** Draws as soon as it's shown, unless a test holds it back to draw by hand. */
-const preview = vi.hoisted(() => ({ auto: true, draw: () => {} }));
+/** Draws as soon as it's shown, unless a test holds it back to draw by hand or makes it fail. */
+const preview = vi.hoisted(() => ({ auto: true, fail: false, draw: () => {} }));
 vi.mock("@/components/ModelPreview", async () => {
   const { useEffect } = await import("react");
   return {
@@ -27,15 +27,18 @@ vi.mock("@/components/ModelPreview", async () => {
       name,
       data,
       onDrawn,
+      onFailed,
     }: {
       name: string;
       data: Uint8Array;
       onDrawn: (data: Uint8Array) => void;
+      onFailed: () => void;
     }) {
       useEffect(() => {
         preview.draw = () => onDrawn?.(data);
-        if (preview.auto) onDrawn?.(data);
-      }, [data, onDrawn]);
+        if (preview.fail) onFailed();
+        else if (preview.auto) onDrawn?.(data);
+      }, [data, onDrawn, onFailed]);
       return <div>Preview of {name}</div>;
     },
   };
@@ -100,6 +103,7 @@ beforeEach(() => {
   studio.selected = { key: "studio-1" };
   studio.targets = [];
   preview.auto = true;
+  preview.fail = false;
   sendMessage.mockClear();
 });
 afterEach(() => {
@@ -134,6 +138,36 @@ describe("finding models in a reply", () => {
         ].join("\n"),
       ),
     ).toEqual(["file:///a/Crate.fbx", "file:///a/Bare.glb"]);
+  });
+
+  it("leaves indented code alone, but not indented text in a list or paragraph", () => {
+    expect(
+      modelLinksIn(
+        [
+          "    file:///a/AtStart.fbx",
+          "",
+          "Run this:",
+          "",
+          "    open file:///a/Indented.fbx",
+          "",
+          "\tfile:///a/Tabbed.glb",
+          "Then:",
+          "    file:///a/Paragraph.glb",
+          "",
+          "1. Export it.",
+          "",
+          "    Then open file:///a/ListItem.fbx",
+        ].join("\n"),
+      ),
+    ).toEqual(["file:///a/Paragraph.glb", "file:///a/ListItem.fbx"]);
+  });
+
+  it("finds paths with brackets in them, without taking a link's closing bracket", () => {
+    expect(
+      modelLinksIn(
+        "See [crate](file:///m/Crate%20(1).fbx) and file:///m/Box%20(2).glb (or file:///m/C.fbx).",
+      ),
+    ).toEqual(["file:///m/Crate%20(1).fbx", "file:///m/Box%20(2).glb", "file:///m/C.fbx"]);
   });
 });
 
@@ -381,6 +415,28 @@ describe("the upload click", () => {
     act(() => preview.draw());
     fireEvent.click(await uploadButton());
     await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "new-hash"));
+  });
+
+  it("won't upload a file it couldn't draw until someone says they checked it", async () => {
+    preview.fail = true;
+    setUp("ready");
+    const open = vi.spyOn(desktop, "openUrl").mockResolvedValue();
+    const upload = vi
+      .spyOn(desktop, "uploadModelToPlace")
+      .mockResolvedValue({ status: "rejected", assetId: "9" });
+    render(wrap(<ModelCard url={URL_A} />));
+    expect(await screen.findByText(/Couldn't draw a preview/)).toBeTruthy();
+    const button = screen.getByRole("button", { name: "Upload to Roblox" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(upload).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show file" }));
+    expect(open).toHaveBeenCalledWith(URL_A);
+    fireEvent.click(screen.getByRole("checkbox", { name: "I opened it and checked it" }));
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "previewed-hash"));
   });
 
   it("does nothing until it's pressed, and says uploads are permanent", async () => {
