@@ -381,6 +381,47 @@ describe("OpenCode binary releases", () => {
     expect(entries.some((entry) => entry.startsWith(".download-"))).toBe(false);
   });
 
+  it("leaves no folder for another launch to sweep while the download runs", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("verified archive");
+    const digest = createHash("sha256").update(archive).digest("hex");
+    const assetName = "opencode-darwin-arm64.zip";
+    const releases = [release("v2.2.2", assetName, `sha256:${digest}`)];
+    let finishDownload: ((response: Response) => void) | undefined;
+    let markDownloadStarted: (() => void) | undefined;
+    const downloadStarted = new Promise<void>((resolve) => {
+      markDownloadStarted = resolve;
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(releases))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishDownload = resolve;
+            markDownloadStarted?.();
+          }),
+      );
+    const running = Effect.runPromise(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "darwin",
+        arch: "arm64",
+        fetch,
+        extractArchive: writeExecutable("opencode"),
+        delays: { verifyMs: 0 },
+      }),
+    );
+
+    await downloadStarted;
+    // An hour into a slow download, the folder another launch sweeps by age mustn't exist yet.
+    const entries = await readdir(join(cacheDirectory, "darwin-arm64"));
+    expect(entries.some((entry) => entry.startsWith(".download-"))).toBe(false);
+
+    finishDownload?.(new Response(archive));
+    await expect(running).resolves.toMatchObject({ version: "2.2.2" });
+  });
+
   it("waits for non-cancellable extraction before cleaning up on interruption", async () => {
     const cacheDirectory = await makeTemporaryDirectory();
     const archive = Buffer.from("verified archive");
@@ -1386,6 +1427,131 @@ describe("OpenCode downloads on a poor connection", () => {
       const left = await readdir(platformDirectory);
       expect(left).not.toContain(".download-old");
       expect(left).toContain(".download-new");
+    });
+
+    it("keeps every version distrusted at the same moment, as two BloxBots could", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const platformDirectory = join(cacheDirectory, "darwin-arm64");
+      await mkdir(platformDirectory, { recursive: true });
+      const options = { cacheDirectory, platform: "darwin" as const, arch: "arm64" };
+      const versions = ["2.2.1", "2.2.2", "2.2.3", "2.2.4"];
+
+      await Promise.all(
+        versions.map((version) => Effect.runPromise(distrustOpenCodeVersion(options, version))),
+      );
+
+      const notes = JSON.parse(await readFile(join(platformDirectory, "cache-notes.json"), "utf8"));
+      expect([...notes.distrusted].sort()).toEqual(versions);
+      expect(await readdir(platformDirectory)).toEqual(["cache-notes.json"]);
+    });
+
+    it("takes over a lock left by a BloxBot that quit while changing the notes", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const platformDirectory = join(cacheDirectory, "darwin-arm64");
+      await mkdir(platformDirectory, { recursive: true });
+      const lock = join(platformDirectory, "cache-notes.json.lock");
+      await writeFile(lock, "12345");
+      const longAgo = new Date(Date.now() - 60 * 1000);
+      await utimes(lock, longAgo, longAgo);
+
+      await Effect.runPromise(
+        distrustOpenCodeVersion({ cacheDirectory, platform: "darwin", arch: "arm64" }, "2.2.2"),
+      );
+
+      const notes = await readFile(join(platformDirectory, "cache-notes.json"), "utf8");
+      expect(JSON.parse(notes).distrusted).toEqual(["2.2.2"]);
+      expect(existsSync(lock)).toBe(false);
+    });
+
+    it("installs the newest release that hasn't already failed here", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const platformDirectory = join(cacheDirectory, "darwin-arm64");
+      await mkdir(platformDirectory, { recursive: true });
+      await writeFile(
+        join(platformDirectory, "cache-notes.json"),
+        JSON.stringify({ distrusted: ["2.2.2"] }),
+      );
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json([
+            release("v2.2.2", ASSET_NAME, `sha256:${digest}`),
+            release("v2.2.1", ASSET_NAME, `sha256:${digest}`),
+          ]),
+        )
+        .mockResolvedValueOnce(new Response(archive));
+
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch,
+          extractArchive: writeExecutable("opencode"),
+          delays: { verifyMs: 0 },
+        }),
+      );
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.1" } });
+      expect(String(fetch.mock.calls[1]?.[0])).toContain("/v2.2.1/");
+    });
+
+    it("doesn't fall back to a pinned release that has already failed here", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const platformDirectory = join(cacheDirectory, "darwin-arm64");
+      await mkdir(platformDirectory, { recursive: true });
+      await writeFile(
+        join(platformDirectory, "cache-notes.json"),
+        JSON.stringify({ distrusted: ["2.2.3"] }),
+      );
+      const fetch = vi.fn(async (url: string) =>
+        url.includes("api.github.com") ? rateLimited() : new Response(archive),
+      );
+
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch,
+          extractArchive: writeExecutable("opencode"),
+          pinnedRelease: pinnedFor("darwin-arm64", ASSET_NAME, archive),
+          delays: { verifyMs: 0 },
+        }),
+      );
+
+      expect(result).toMatchObject({
+        _tag: "Left",
+        left: { message: expect.stringContaining("already failed to run on this computer") },
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the copy startup falls back to when an update lands in the background", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const platformDirectory = join(cacheDirectory, "darwin-arm64");
+      await installTwoVersions(cacheDirectory);
+
+      // 2.2.2 opens while 2.2.3 comes down. If 2.2.2 won't start, 2.2.1 is what's left to try.
+      const running = await launch(
+        cacheDirectory,
+        vi
+          .fn()
+          .mockResolvedValueOnce(Response.json([release("v2.2.3", ASSET_NAME, `sha256:${digest}`)]))
+          .mockResolvedValueOnce(new Response(archive)),
+      );
+      expect(running.version).toBe("2.2.2");
+      const saved = join(cacheDirectory, "partial", `${ASSET_NAME}.${digest}.partial`);
+      await vi.waitFor(async () => {
+        expect(await readdir(platformDirectory)).toContain("2.2.3");
+        expect(existsSync(saved)).toBe(false);
+      });
+      // Pruning comes right after the saved download is cleared.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      expect(await readdir(platformDirectory)).toEqual(
+        expect.arrayContaining(["2.2.1", "2.2.2", "2.2.3"]),
+      );
     });
 
     it("keeps a saved download when falling back to the pinned release fails too", async () => {

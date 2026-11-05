@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
   chmod,
@@ -574,11 +574,12 @@ export function getOpenCodeAssetSpec(
 export function selectCompatibleRelease(
   releases: GitHubRelease[],
   archiveName: string,
+  avoid: readonly string[] = [],
 ): CompatibleRelease | null {
   const candidates = releases.flatMap((release): CompatibleRelease[] => {
     if (release.draft || release.prerelease) return [];
     const version = parseVersion(release.tag_name);
-    if (!version) return [];
+    if (!version || avoid.includes(version.value)) return [];
 
     const asset = release.assets.find((candidate) => candidate.name === archiveName);
     const digest = asset?.digest?.match(/^sha256:([a-f\d]{64})$/i)?.[1]?.toLowerCase();
@@ -638,7 +639,7 @@ const tryNetwork = <A>(
  * Makes exactly one request to GitHub's release API. Unauthenticated, that API allows 60
  * requests an hour per IP, so a failure here must never block a cached or pinned copy.
  */
-function findCompatibleRelease(fetchFn: Fetch, archiveName: string) {
+function findCompatibleRelease(fetchFn: Fetch, archiveName: string, avoid?: readonly string[]) {
   return Effect.gen(function* () {
     const { releasesJson, response } = yield* tryNetwork(
       "GitHub release lookup failed",
@@ -673,7 +674,7 @@ function findCompatibleRelease(fetchFn: Fetch, archiveName: string) {
       ),
     );
 
-    const release = selectCompatibleRelease(releases, archiveName);
+    const release = selectCompatibleRelease(releases, archiveName, avoid);
     if (release) return release;
     return yield* fail(
       `No stable OpenCode ${SUPPORTED_MAJOR}.${SUPPORTED_MINOR}.x release is available for ${archiveName}`,
@@ -768,6 +769,9 @@ function readValidCachedBinary(
 }
 
 const CACHE_NOTES_FILE = "cache-notes.json";
+/** Far longer than a change holds the lock, which is a read and a write of a few bytes. */
+const CACHE_NOTES_LOCK_STALE_MS = 10_000;
+const CACHE_NOTES_LOCK_RETRY_MS = 20;
 
 /** What's learned about versions between launches. None of it is needed to work, just to choose well. */
 interface CacheNotes {
@@ -789,12 +793,49 @@ async function readCacheNotes(platformDirectory: string): Promise<CacheNotes> {
   }
 }
 
+/** Takes the notes' lock file, or says it couldn't. It's held only for one read and one write. */
+async function lockCacheNotes(lock: string): Promise<boolean> {
+  const deadline = Date.now() + CACHE_NOTES_LOCK_STALE_MS * 2;
+  while (Date.now() < deadline) {
+    try {
+      await writeFile(lock, String(process.pid), { flag: "wx" });
+      return true;
+    } catch (cause) {
+      if (errorCode(cause) !== "EEXIST") return false;
+    }
+    // A BloxBot that quit while holding the lock would otherwise block every change after it.
+    const held = await stat(lock).then(
+      ({ mtimeMs }) => Date.now() - mtimeMs,
+      () => 0,
+    );
+    if (held > CACHE_NOTES_LOCK_STALE_MS) await rm(lock, { force: true }).catch(() => {});
+    else await new Promise((resolve) => setTimeout(resolve, CACHE_NOTES_LOCK_RETRY_MS));
+  }
+  return false;
+}
+
+/**
+ * Another running BloxBot can change the notes at the same moment, so a change reads and writes
+ * under a lock file, or a stale read could drop a version the other one just distrusted. The new
+ * notes land through a rename, so a read without the lock never sees half a file.
+ */
 async function updateCacheNotes(
   platformDirectory: string,
   change: (notes: CacheNotes) => CacheNotes,
 ): Promise<void> {
-  const notes = change(await readCacheNotes(platformDirectory));
-  await writeFile(join(platformDirectory, CACHE_NOTES_FILE), JSON.stringify(notes)).catch(() => {});
+  const path = join(platformDirectory, CACHE_NOTES_FILE);
+  const lock = `${path}.lock`;
+  if (!(await lockCacheNotes(lock))) return;
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    const notes = change(await readCacheNotes(platformDirectory));
+    await writeFile(temporary, JSON.stringify(notes));
+    await rename(temporary, path);
+  } catch {
+    await rm(temporary, { force: true }).catch(() => {});
+  } finally {
+    await rm(lock, { force: true }).catch(() => {});
+  }
 }
 
 /** Quitting during a background install leaves its folder behind. An hour is well past any in use. */
@@ -1103,74 +1144,72 @@ function installRelease(
   release: CompatibleRelease,
 ): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
   const { platformDirectory, platform, arch, spec, downloadFetch, reportProgress } = context;
-  return Effect.acquireUseRelease(
-    tryPromise(
-      "Failed to create a temporary OpenCode directory",
-      () => mkdtemp(join(platformDirectory, ".download-")),
-    ),
-    (temporaryDirectory) => {
-      const archivePath = join(temporaryDirectory, spec.archiveName);
-      const versionDirectory = join(platformDirectory, release.version.value);
-      // Named by its checksum, so it can only ever be picked up for this exact file.
-      const savedDownload = join(
-        context.partialDirectory,
-        `${spec.archiveName}.${release.archiveSha256}.partial`,
-      );
+  const versionDirectory = join(platformDirectory, release.version.value);
+  // Named by its checksum, so it can only ever be picked up for this exact file.
+  const savedDownload = join(
+    context.partialDirectory,
+    `${spec.archiveName}.${release.archiveSha256}.partial`,
+  );
 
-      return Effect.gen(function* () {
-        yield* requireFreeSpace(context);
-        // Setup can stop after the download, as when antivirus blocks unpacking. A complete, verified
-        // copy from then means trying again doesn't have to fetch it.
-        const savedArchive = yield* Effect.promise(() => readFile(savedDownload).catch(() => null));
-        const alreadyVerified =
-          savedArchive &&
-          createHash("sha256").update(savedArchive).digest("hex") === release.archiveSha256
-            ? savedArchive
-            : null;
-        const { archiveBuffer, response } = alreadyVerified
-          ? { archiveBuffer: alreadyVerified, response: new Response() }
-          : yield* tryNetwork(
-          "OpenCode download failed",
-          DOWNLOAD_STALL_TIMEOUT_MS,
-          (signal) =>
-            downloadWithResume(
-              release.asset.browser_download_url,
-              downloadFetch,
-              signal,
-              savedDownload,
-              context.delays.resumeMs,
-              reportProgress,
-            ),
+  return Effect.gen(function* () {
+    yield* requireFreeSpace(context);
+    // Setup can stop after the download, as when antivirus blocks unpacking. A complete, verified
+    // copy from then means trying again doesn't have to fetch it.
+    const savedArchive = yield* Effect.promise(() => readFile(savedDownload).catch(() => null));
+    const alreadyVerified =
+      savedArchive &&
+      createHash("sha256").update(savedArchive).digest("hex") === release.archiveSha256
+        ? savedArchive
+        : null;
+    const { archiveBuffer, response } = alreadyVerified
+      ? { archiveBuffer: alreadyVerified, response: new Response() }
+      : yield* tryNetwork("OpenCode download failed", DOWNLOAD_STALL_TIMEOUT_MS, (signal) =>
+          downloadWithResume(
+            release.asset.browser_download_url,
+            downloadFetch,
+            signal,
+            savedDownload,
+            context.delays.resumeMs,
+            reportProgress,
+          ),
         );
-        if (!response.ok) {
-          return yield* fail(
-            `OpenCode download failed with ${describeHttpFailure(response)}`,
-            undefined,
-            "network",
-          );
-        }
-        if (archiveBuffer === undefined) {
-          return yield* fail("OpenCode returned an unreadable download", undefined, "network");
-        }
+    if (!response.ok) {
+      return yield* fail(
+        `OpenCode download failed with ${describeHttpFailure(response)}`,
+        undefined,
+        "network",
+      );
+    }
+    if (archiveBuffer === undefined) {
+      return yield* fail("OpenCode returned an unreadable download", undefined, "network");
+    }
 
-        const archive = Buffer.from(archiveBuffer);
-        reportProgress?.({ phase: "verifying" });
-        const archiveSha256 = createHash("sha256").update(archive).digest("hex");
-        if (archiveSha256 !== release.archiveSha256) {
-          yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
-          return yield* fail(
-            "The downloaded OpenCode archive failed SHA-256 verification",
-            undefined,
-            "network",
-          );
-        }
-        if (!alreadyVerified) yield* Effect.promise(() => saveDownload(savedDownload, archive));
+    const archive = Buffer.from(archiveBuffer);
+    reportProgress?.({ phase: "verifying" });
+    const archiveSha256 = createHash("sha256").update(archive).digest("hex");
+    if (archiveSha256 !== release.archiveSha256) {
+      yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
+      return yield* fail(
+        "The downloaded OpenCode archive failed SHA-256 verification",
+        undefined,
+        "network",
+      );
+    }
+    if (!alreadyVerified) yield* Effect.promise(() => saveDownload(savedDownload, archive));
 
-        // Node filesystem and archive APIs do not accept AbortSignal. Mask this
-        // publish phase so interruption cannot race cleanup against in-flight writes.
-        reportProgress?.({ phase: "installing" });
-        const installed = yield* Effect.uninterruptible(
+    reportProgress?.({ phase: "installing" });
+    // Made only now: a slow download can outlast the hour after which another launch sweeps
+    // the folder away, and nothing goes in it until the download is done.
+    const installed = yield* Effect.acquireUseRelease(
+      tryPromise("Failed to create a temporary OpenCode directory", () =>
+        mkdtemp(join(platformDirectory, ".download-")),
+      ),
+      // Node filesystem and archive APIs do not accept AbortSignal. Mask this
+      // publish phase so interruption cannot race cleanup against in-flight writes.
+      (temporaryDirectory) =>
+        Effect.uninterruptible(
           Effect.gen(function* () {
+            const archivePath = join(temporaryDirectory, spec.archiveName);
             yield* tryPromise("Failed to write the OpenCode archive", () =>
               writeFile(archivePath, archive),
             );
@@ -1197,10 +1236,7 @@ function installRelease(
               binarySha256: yield* sha256File(executable),
             };
             yield* tryPromise("Failed to write OpenCode cache metadata", () =>
-              writeFile(
-                join(installDirectory, "metadata.json"),
-                JSON.stringify(metadata, null, 2),
-              ),
+              writeFile(join(installDirectory, "metadata.json"), JSON.stringify(metadata, null, 2)),
             );
             const findPublished = readValidCachedBinary(
               versionDirectory,
@@ -1222,24 +1258,21 @@ function installRelease(
               version: release.version.value,
             };
           }),
-        );
-        yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
-        // Only now, since a failed lookup can land here on an older release while a newer one's
-        // download is still worth resuming.
-        yield* Effect.promise(() =>
-          removeOtherSavedDownloads(savedDownload, spec.archiveName),
-        );
-        return installed;
-      });
-    },
-    (temporaryDirectory) =>
-      tryPromise("Failed to remove the temporary OpenCode directory", () =>
-        rm(temporaryDirectory, { recursive: true, force: true }),
-      ).pipe(Effect.catchAll((error) => Effect.logWarning(error.message, error.cause))),
-  );
+        ),
+      (temporaryDirectory) =>
+        tryPromise("Failed to remove the temporary OpenCode directory", () =>
+          rm(temporaryDirectory, { recursive: true, force: true }),
+        ).pipe(Effect.catchAll((error) => Effect.logWarning(error.message, error.cause))),
+    );
+    yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
+    // Only now, since a failed lookup can land here on an older release while a newer one's
+    // download is still worth resuming.
+    yield* Effect.promise(() => removeOtherSavedDownloads(savedDownload, spec.archiveName));
+    return installed;
+  });
 }
 
-function pruneCache(platformDirectory: string, inUse?: string, keep = 2) {
+function pruneCache(platformDirectory: string, inUse: readonly string[] = [], keep = 2) {
   return Effect.gen(function* () {
     const entries = yield* tryPromise("Failed to inspect the OpenCode cache", () =>
       readdir(platformDirectory, { withFileTypes: true }),
@@ -1251,7 +1284,7 @@ function pruneCache(platformDirectory: string, inUse?: string, keep = 2) {
       .sort((left, right) => compareVersions(right, left));
 
     yield* Effect.all(
-      versions.slice(keep).filter((version) => version.value !== inUse).map((version) =>
+      versions.slice(keep).filter((version) => !inUse.includes(version.value)).map((version) =>
         tryPromise(`Failed to prune cached OpenCode v${version.value}`, () =>
           rm(join(platformDirectory, version.value), { recursive: true, force: true }),
         ),
@@ -1387,9 +1420,22 @@ export function ensureOpenCodeBinary(
             Effect.flatMap((cached) =>
               cached
                 ? Effect.void
-                : installRelease({ ...context, reportProgress: undefined }, release).pipe(
-                    Effect.andThen(pruneCache(platformDirectory, working.version)),
-                  ),
+                : Effect.gen(function* () {
+                    // If the working copy won't start, startup falls back to this one, which may
+                    // be looking it up while this install runs. Pruning mustn't take it away.
+                    const fallback = yield* findNewestCachedBinary(
+                      platformDirectory,
+                      platform,
+                      arch,
+                      spec,
+                      [working.version],
+                    );
+                    yield* installRelease({ ...context, reportProgress: undefined }, release);
+                    yield* pruneCache(
+                      platformDirectory,
+                      fallback ? [working.version, fallback.version] : [working.version],
+                    );
+                  }),
             ),
           ),
         ),
@@ -1402,9 +1448,12 @@ export function ensureOpenCodeBinary(
     }
 
     // Newer releases come from the API. When it fails (rate limit, timeout, DNS), the pinned release
-    // keeps BloxBot working.
+    // keeps BloxBot working. One that has already refused to run here is passed over for the newest
+    // that hasn't.
     const updated = yield* Effect.either(
-      findCompatibleRelease(fetchFn, spec.archiveName).pipe(Effect.flatMap(install)),
+      findCompatibleRelease(fetchFn, spec.archiveName, notes.distrusted).pipe(
+        Effect.flatMap(install),
+      ),
     );
     if (Either.isRight(updated)) return updated.right;
     const updateError = updated.left;
@@ -1424,7 +1473,11 @@ export function ensureOpenCodeBinary(
 
     const pinned = pinnedCompatibleRelease(pinnedRelease, platform, arch, spec);
     const pinnedResult = yield* Effect.either(
-      pinned ? install(pinned) : fail(`No pinned OpenCode release for ${platform}/${arch}`),
+      !pinned
+        ? fail(`No pinned OpenCode release for ${platform}/${arch}`)
+        : notes.distrusted.includes(pinned.version.value)
+          ? fail("it has already failed to run on this computer")
+          : install(pinned),
     );
     if (Either.isRight(pinnedResult)) {
       yield* Effect.logWarning(
