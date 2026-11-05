@@ -63,6 +63,8 @@ function studio(
         text({ insertedInstances: [{ fullPath: "game.Workspace.Crate" }] })
       );
     }
+    // A place with nothing an earlier insert left behind.
+    if (String(args.code).includes("PackageId")) return text("none");
     return (
       handlers.luau?.(args) ??
       text({ placeId: 123, creatorId: 9, creatorType: "Enum.CreatorType.User" })

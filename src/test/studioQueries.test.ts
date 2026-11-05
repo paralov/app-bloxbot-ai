@@ -696,12 +696,14 @@ describe("Studio targets", () => {
 });
 
 describe("adding an uploaded model", () => {
-  const answers = (inserted: unknown) => {
+  const answers = (inserted: unknown, leftover: unknown = "none") => {
     const calls: { name: string; args: Record<string, unknown> }[] = [];
     const callTool = async (name: string, args: Record<string, unknown>) => {
       calls.push({ name, args });
+      // One script looks for a model an earlier insert left behind.
+      const answer = String(args.code ?? "").includes("PackageId") ? leftover : inserted;
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(inserted) }],
+        content: [{ type: "text" as const, text: JSON.stringify(answer) }],
       };
     };
     return { calls, callTool };
@@ -726,12 +728,27 @@ describe("adding an uploaded model", () => {
   });
 
   it("uses the model an unanswered insert left, instead of adding a second", async () => {
-    const { calls, callTool } = answers("game.Workspace.My_Crate");
+    const { calls, callTool } = answers(null, "game.Workspace.My_Crate");
     const path = await insertUploadedModel(callTool as never, "studio-1", "555", "My_Crate");
 
     expect(path).toBe("game.Workspace.My_Crate");
     expect(calls.map((call) => call.name)).toEqual(["execute_luau"]);
     expect(String(calls[0]?.args.code)).toContain('== "555"');
+  });
+
+  it("adds nothing when it can't tell whether the place already has the model", async () => {
+    const inserted = { insertedInstances: [{ fullPath: "game.Workspace.My_Crate" }] };
+    for (const leftover of [{ unexpected: true }, null, ""]) {
+      const { calls, callTool } = answers(inserted, leftover);
+      await expect(
+        insertUploadedModel(callTool as never, "studio-1", "555", "My_Crate"),
+      ).rejects.toThrow();
+      expect(calls.map((call) => call.name)).not.toContain("insert_asset");
+    }
+    const failing = async () => failure("Studio is busy");
+    await expect(
+      insertUploadedModel(failing as never, "studio-1", "555", "My_Crate"),
+    ).rejects.toThrow("Studio is busy");
   });
 
   it("reads who's signed in, and refuses an answer that isn't a person", async () => {

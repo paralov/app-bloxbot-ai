@@ -137,10 +137,14 @@ export async function insertUploadedModel(
     return "game." .. child:GetFullName()
   end
 end
-return ""`,
-  }).catch(() => null);
-  const found = leftover && !mcpError(leftover) ? mcpData(leftover) : null;
+return "none"`,
+  });
+  const lookupError = mcpError(leftover);
+  if (lookupError) throw new Error(lookupError);
+  const found = mcpData(leftover);
   if (typeof found === "string" && found.startsWith("game.")) return found;
+  // Only a clear "nothing there" adds one. Anything else could be a model already in the place.
+  if (found !== "none") throw new Error("Studio couldn't say what the place already has");
   const result = await callTool("insert_asset", {
     studio_id: studioId,
     assetId,
