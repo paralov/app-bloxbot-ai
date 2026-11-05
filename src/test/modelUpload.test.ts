@@ -776,19 +776,6 @@ describe("from the click to the place", () => {
     expect(calls.filter((c) => c.name === "insert_asset")).toHaveLength(1);
   });
 
-  it("uses a record from before owners were kept, as it always did", async () => {
-    await recordSentModel(sentFile, hash, { assetId: "4", moderation: "approved" });
-    const { callTool, uploads, calls } = studio({
-      luau: () => text({ placeId: 1, creatorId: 77, creatorType: "Enum.CreatorType.Group" }),
-    });
-    expect(await sendModelToPlace(modelUrl, deps(callTool))).toMatchObject({
-      status: "added",
-      assetId: "4",
-    });
-    expect(uploads()).toEqual([]);
-    expect(calls.some((c) => String(c.args.code).includes("CreatorId"))).toBe(false);
-  });
-
   it("doesn't add it to another place the same Studio opened while Roblox checked", async () => {
     let place = "Game (placeId: 123)";
     const { callTool, calls } = studio({
@@ -838,7 +825,11 @@ describe("from the click to the place", () => {
   });
 
   it("adds an asset once when two cards add it to the same Studio at once", async () => {
-    await recordSentModel(sentFile, hash, { assetId: "4", moderation: "approved" });
+    await recordSentModel(sentFile, hash, {
+      assetId: "4",
+      moderation: "approved",
+      owner: "user:9",
+    });
     // Studio takes a moment to insert, which is when the second card's add arrives.
     const { callTool, calls } = studio({
       insert: () =>

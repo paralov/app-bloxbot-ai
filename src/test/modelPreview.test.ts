@@ -36,7 +36,6 @@ vi.mock("three", async (importOriginal) => ({
 
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
   parses.length = 0;
   renderers.length = 0;
 });
@@ -91,48 +90,7 @@ describe("a file that changes while it's shown", () => {
   });
 });
 
-describe("keeping WebGL contexts few", () => {
-  it("hands its context back when the card goes", async () => {
-    const { unmount } = render(preview(new Uint8Array([1])));
-    await act(async () => parses[0]?.(new Group()));
-    expect(renderers[0]?.domElement.isConnected).toBe(true);
-
-    unmount();
-
-    expectReleased(renderers[0]);
-  });
-
-  it("only holds a context while it's near the screen", async () => {
-    let report = (_near: boolean) => {};
-    vi.stubGlobal(
-      "IntersectionObserver",
-      class {
-        constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
-          report = (near) => callback([{ isIntersecting: near }]);
-        }
-        observe() {}
-        disconnect() {}
-      },
-    );
-    const onDrawn = vi.fn();
-    render(preview(new Uint8Array([1]), vi.fn(), onDrawn));
-    expect(parses).toHaveLength(0);
-
-    act(() => report(true));
-    await act(async () => parses[0]?.(new Group()));
-    expect(renderers).toHaveLength(1);
-    expect(onDrawn).toHaveBeenCalledTimes(1);
-
-    act(() => report(false));
-    expectReleased(renderers[0]);
-    expect(screen.getByRole("img").tabIndex).toBe(-1);
-
-    act(() => report(true));
-    await act(async () => parses[1]?.(new Group()));
-    expect(renderers).toHaveLength(2);
-    expect(renderers[1]?.domElement.isConnected).toBe(true);
-  });
-
+describe("losing the WebGL context", () => {
   it("says it failed when the browser takes its context away", async () => {
     const onFailed = vi.fn();
     render(preview(new Uint8Array([1]), onFailed));

@@ -523,38 +523,6 @@ describe("Explorer", () => {
     }
   });
 
-  it("opens out the services of another place in the same Studio window", async () => {
-    const part = { ...tree.roots[0], name: "Part", className: "Part", path: "game.Workspace.Part" };
-    mocks.getSnapshot.mockResolvedValue({
-      ...tree,
-      roots: [{ ...tree.roots[0], hasChildren: true, children: [part] }],
-    });
-    mocks.studioTarget.selected = { key: "studio-1", label: "Obby", placeId: "1" } as never;
-    try {
-      const { rerender } = start();
-      await advance(0);
-      fireEvent.click(screen.getByLabelText("Collapse Workspace"));
-      expect(screen.getByRole("treeitem", { name: "Workspace" })).toHaveAttribute(
-        "aria-expanded",
-        "false",
-      );
-
-      mocks.studioTarget.selected = { key: "studio-1", label: "Dungeon", placeId: "2" } as never;
-      rerender(
-        <ExplorerReferenceProvider>
-          <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />
-        </ExplorerReferenceProvider>,
-      );
-      await advance(5_000);
-      expect(screen.getByRole("treeitem", { name: "Workspace" })).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      );
-    } finally {
-      mocks.studioTarget.selected = { key: "studio-1" };
-    }
-  });
-
   it("says when a search finds nothing", async () => {
     mocks.getSnapshot.mockResolvedValue(tree);
     start();

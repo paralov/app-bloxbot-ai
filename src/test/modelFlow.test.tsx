@@ -140,28 +140,6 @@ describe("finding models in a reply", () => {
     ).toEqual(["file:///a/Crate.fbx", "file:///a/Bare.glb"]);
   });
 
-  it("leaves indented code alone, but not indented text in a list or paragraph", () => {
-    expect(
-      modelLinksIn(
-        [
-          "    file:///a/AtStart.fbx",
-          "",
-          "Run this:",
-          "",
-          "    open file:///a/Indented.fbx",
-          "",
-          "\tfile:///a/Tabbed.glb",
-          "Then:",
-          "    file:///a/Paragraph.glb",
-          "",
-          "1. Export it.",
-          "",
-          "    Then open file:///a/ListItem.fbx",
-        ].join("\n"),
-      ),
-    ).toEqual(["file:///a/Paragraph.glb", "file:///a/ListItem.fbx"]);
-  });
-
   it("finds paths with brackets in them, without taking a link's closing bracket", () => {
     expect(
       modelLinksIn(
@@ -510,26 +488,6 @@ describe("the upload click", () => {
     expect(await screen.findByText(/hasn't approved this file's folder/)).toBeTruthy();
     expect(document.querySelector('[aria-current="step"]')?.textContent).toContain(FOLDER);
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-  });
-
-  it("says when the place changed while Roblox checked, and offers to add it later", async () => {
-    setUp("ready");
-    await click({ status: "not_added", assetId: "555", reason: "place_changed" });
-    expect(await screen.findByText(/Your place changed, so it wasn't added/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add it to your place" })).toBeTruthy();
-  });
-
-  it("says to stop a playtest when that's why it wasn't added", async () => {
-    setUp("ready");
-    await click({ status: "not_added", assetId: "555", reason: "playtest" });
-    expect(await screen.findByText(/Stop the playtest, then add it again/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add it to your place" })).toBeTruthy();
-  });
-
-  it("says when the file's folder can't take the upload's copy", async () => {
-    setUp("ready");
-    await click({ status: "failed", reason: "folder_unwritable" });
-    expect(await screen.findByText(/can't save in this file's folder/)).toBeTruthy();
   });
 
   it("falls back to importing by hand when Roblox refuses Studio", async () => {

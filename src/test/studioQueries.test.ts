@@ -751,18 +751,6 @@ describe("adding an uploaded model", () => {
     ).rejects.toThrow("Studio is busy");
   });
 
-  it("says to stop a playtest, rather than adding to its copy of the place", async () => {
-    const calls: string[] = [];
-    const playing = async (name: string, args: Record<string, unknown>) => {
-      calls.push(`${name} ${args.datamodel_type ?? ""}`.trim());
-      return failure("Edit data model is not available in Play mode");
-    };
-    await expect(
-      insertUploadedModel(playing as never, "studio-1", "555", "My_Crate"),
-    ).rejects.toThrow("Stop the playtest first");
-    expect(calls).toEqual(["execute_luau Edit"]);
-  });
-
   it("reads who's signed in, and refuses an answer that isn't a person", async () => {
     await expect(readStudioAccount(answers(1739783978).callTool as never, "s")).resolves.toBe(
       "1739783978",

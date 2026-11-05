@@ -19,8 +19,6 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const WIDTH = 148;
 const HEIGHT = 124;
-// The chat scrolls in its own box, so the margin has to apply there as well as to the window.
-const NEAR = { rootMargin: "400px", scrollMargin: "400px" };
 // White, so a model whose texture isn't in its file still shows its own color.
 const BLANK_TEXTURE =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=";
@@ -81,25 +79,12 @@ export default function ModelPreview({
   const turnRef = useRef<(yaw: number, pitch: number) => void>(() => {});
   const draggingRef = useRef(false);
   const [ready, setReady] = useState(false);
-  // Chromium only allows a few WebGL contexts at once, so only cards near the screen hold one.
-  const [near, setNear] = useState(typeof IntersectionObserver === "undefined");
-
-  useEffect(() => {
-    const holder = holderRef.current;
-    if (!holder || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry) setNear(entry.isIntersecting);
-    }, NEAR);
-    observer.observe(holder);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     const holder = holderRef.current;
     if (!holder) return;
     // A new file isn't the one on screen until it's drawn.
     setReady(false);
-    if (!near) return;
     let cancelled = false;
     let frame = 0;
     let renderer: WebGLRenderer | null = null;
@@ -163,12 +148,13 @@ export default function ModelPreview({
       turnRef.current = () => {};
       if (model) disposeModel(model);
       renderer?.dispose();
-      // Disposing alone keeps the context until the canvas is collected, which may be never.
+      // Chromium allows only a few WebGL contexts at once, and disposing alone keeps this one until
+      // the canvas is collected. The chat unmounts cards scrolled far away, which lets theirs go.
       renderer?.forceContextLoss();
       // Otherwise the last frame stays on screen while the next file is read.
       renderer?.domElement.remove();
     };
-  }, [data, kind, near, onFailed, onDrawn]);
+  }, [data, kind, onFailed, onDrawn]);
 
   return (
     <div

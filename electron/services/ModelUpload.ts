@@ -396,7 +396,7 @@ export interface SentModel {
   assetId: string | null;
   moderation: Moderation;
   operationId?: string;
-  /** The game owner it was made for, like "user:1" or "group:2". Older records don't say. */
+  /** The game owner it was made for, like "user:1" or "group:2". */
   owner?: string;
 }
 
@@ -407,8 +407,8 @@ export const sentModelsFile = (root: string) => join(root, "roblox-sent-models.j
 const ownedKey = (hash: string, owner: string) => `${hash}/${owner}`;
 
 /**
- * The latest record for these bytes. With an owner, only one made for that owner, or an older one
- * that didn't say, since an asset belongs to the owner it was made for.
+ * The latest record for these bytes. With an owner, only one made for that owner, since an asset
+ * belongs to the owner it was made for.
  */
 export async function readSentModel(
   file: string,
@@ -417,9 +417,7 @@ export async function readSentModel(
 ): Promise<SentModel | null> {
   try {
     const all = JSON.parse(await readFile(file, "utf8")) as Record<string, SentModel>;
-    const latest = all[hash] ?? null;
-    if (owner === undefined || !latest) return latest;
-    return all[ownedKey(hash, owner)] ?? (latest.owner ? null : latest);
+    return (owner === undefined ? all[hash] : all[ownedKey(hash, owner)]) ?? null;
   } catch {
     return null;
   }
@@ -549,9 +547,6 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
 
   /** Finds what was already sent for this game's owner, or sends it and records Roblox's answer. */
   const findOrSend = async (): Promise<ModelUploadResult | { sent: SentModel; first?: unknown }> => {
-    const latest = await readSentModel(deps.sentFile, file.hash);
-    // Older records don't say who they're for, so they're used as they always were.
-    if (latest && !latest.owner) return { sent: latest };
     const creator = await readGameOwner(callTool, studioId).catch(() => null);
     if (creator === "unpublished") return { status: "needs_setup", access: "not_published" };
     if (!creator) return { status: "failed", reason: "studio_error" };

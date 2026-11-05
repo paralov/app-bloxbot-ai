@@ -458,8 +458,6 @@ async function downloadWithResume(
   // Any new data starts the count over, so only a connection that's really gone runs it out.
   let resumes = 0;
   let bytesAtLastFailure = partial.bytes;
-  // Whether what's held so far came in one response from the start of the file.
-  let partialFromStart = false;
   for (;;) {
     const stall = watchForStall(DOWNLOAD_STALL_TIMEOUT_MS, () => partial.bytes);
     // Said before the first byte, because that wait can be the long one.
@@ -501,13 +499,8 @@ async function downloadWithResume(
           if (resumes++ < DOWNLOAD_RESUMES) continue;
           throw new Error("the server sent the wrong part of the file");
         }
-        // The server ignored the range and is sending the whole file again. Bytes that were saved
-        // or resumed say nothing about how far that gets, so what arrives now is progress. Against
-        // an earlier whole-file try, a server that always drops at the same point still runs out.
-        if (!partialFromStart) bytesAtLastFailure = 0;
         partial = emptyDownload();
       }
-      partialFromStart = partial.bytes === 0;
       return {
         archiveBuffer: await readDownload(
           response,

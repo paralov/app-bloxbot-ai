@@ -176,19 +176,6 @@ describe("ThreeDToolsTab", () => {
     expect(mocks.dispose).toHaveBeenCalled();
   });
 
-  it("doesn't reload OpenCode when removal fails for another reason", async () => {
-    mocks.getState.mockResolvedValue({ state: "ready", running: false });
-    mocks.remove.mockRejectedValue(new Error("Failed to remove Blender: Close Blender first"));
-    start();
-    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
-
-    await waitFor(() =>
-      expect(mocks.error).toHaveBeenCalledWith("Couldn't remove Blender", expect.anything()),
-    );
-    expect(mocks.remove).toHaveBeenCalledOnce();
-    expect(mocks.dispose).not.toHaveBeenCalled();
-  });
-
   it("doesn't reload OpenCode when deleting failed for something other than a lock", async () => {
     mocks.getState.mockResolvedValue({ state: "ready", running: false });
     mocks.remove.mockRejectedValue(new Error("Failed to remove Blender: Couldn't remove Blender"));

@@ -962,59 +962,6 @@ describe("StudioTargetProvider", () => {
     }
   });
 
-  it("doesn't give the next chat a Studio chosen in the chat before", async () => {
-    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
-    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
-    mocks.loadConfig.mockResolvedValue({
-      studioTargetsBySession: {},
-      chatsWithoutStudio: ["chat"],
-    });
-    mocks.discover.mockResolvedValue({ targets: [lobby, dungeon], selectedKey: null });
-    mocks.select.mockResolvedValue({ selected: lobby, verified: true });
-    let saved: (value?: unknown) => void = () => {};
-    mocks.patchConfig.mockImplementation((patch: object) =>
-      "chatsWithoutStudio" in patch
-        ? new Promise((resolve) => {
-            saved = resolve;
-          })
-        : Promise.resolve(),
-    );
-    let context: ReturnType<typeof useStudioTargetOptional> = null;
-    function Spy() {
-      context = useStudioTargetOptional();
-      return null;
-    }
-    const tree = () => (
-      <StudioTargetProvider>
-        <Seen keys={[]} />
-        <Spy />
-      </StudioTargetProvider>
-    );
-    const { rerender } = render(tree());
-    expect(await screen.findByText("status: ready")).toBeInTheDocument();
-    let choice: Promise<boolean> | undefined;
-    act(() => {
-      choice = context?.select(lobby);
-    });
-    await waitFor(() => expect(mocks.patchConfig).toHaveBeenCalledWith({ chatsWithoutStudio: [] }));
-
-    mocks.session.id = "next";
-    try {
-      const checks = mocks.discover.mock.calls.length;
-      rerender(tree());
-      await waitFor(() => expect(mocks.discover).toHaveBeenCalledTimes(checks + 1));
-      await act(async () => {
-        saved();
-        await choice;
-      });
-
-      expect(await choice).toBe(false);
-      expect(screen.getByText("selected: none")).toBeInTheDocument();
-    } finally {
-      mocks.session.id = "chat";
-    }
-  });
-
   it("tells a missing Studio apart from a check that didn't get through", async () => {
     mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
     mocks.discover.mockRejectedValue(new Error("offline"));

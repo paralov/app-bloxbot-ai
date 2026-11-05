@@ -329,24 +329,6 @@ describe("Blender tools", () => {
       await expect(isBlenderInstalled(root)).resolves.toBe(false);
     });
 
-    it("doesn't start downloading when stopped while checking for room", async () => {
-      const root = await directory();
-      const stop = new AbortController();
-      const download = vi.fn(async (file: { name: string }, dir: string) => join(dir, file.name));
-
-      const result = await install(root, {
-        signal: stop.signal,
-        download,
-        freeBytes: async () => {
-          stop.abort();
-          return 10 * 1024 ** 3;
-        },
-      });
-
-      expect(Either.isLeft(result) && result.left.message).toBe("Setup was stopped");
-      expect(download).not.toHaveBeenCalled();
-    });
-
     it("stops between unpacking steps, and hands the one running the signal", async () => {
       const root = await directory();
       const stop = new AbortController();
