@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Effect, Either } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -169,6 +169,14 @@ describe("Blender tools", () => {
   });
 
   describe("setup", () => {
+    const blenderApp = (root: string) =>
+      join(root, "blender-5.2.3", "Blender.app", "Contents", "MacOS", "Blender");
+    const serverApp = (root: string) =>
+      join(root, "mcp-server-1.0.3", ".venv", "bin", "blender-mcp");
+    const touch = async (path: string) => {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, "");
+    };
     const install = (root: string, overrides = {}) =>
       Effect.runPromise(
         Effect.either(
@@ -180,11 +188,9 @@ describe("Blender tools", () => {
             freeBytes: async () => 10 * 1024 ** 3,
             download: async (file, directory) => join(directory, file.name),
             unpack: {
-              blender: async (_archive, destination) => {
-                await mkdir(destination, { recursive: true });
-              },
+              blender: () => touch(blenderApp(root)),
               uv: async () => "/uv",
-              server: async () => {},
+              server: () => touch(serverApp(root)),
             },
             runCommand: async () => {},
             ...overrides,
@@ -216,7 +222,7 @@ describe("Blender tools", () => {
       expect(commands[0]).toContain("/uv sync --frozen");
       expect(commands[1]).toContain("extension install-file -r user_default -e");
       expect(commands[2]).toContain(`preferences.port = ${BLENDER_MCP_PORT}`);
-      await expect(isBlenderInstalled(root)).resolves.toBe(true);
+      await expect(isBlenderInstalled(root, "darwin")).resolves.toBe(true);
       // Python's dependencies come from the lock shipped with BloxBot, not whatever's newest.
       const server = join(root, "mcp-server-1.0.3");
       expect(await readFile(join(server, "uv.lock"), "utf8")).toContain('name = "mcp"');
@@ -280,6 +286,48 @@ describe("Blender tools", () => {
       expect(Either.isLeft(result)).toBe(true);
       expect(seen).toEqual([stop.signal]);
       await expect(isBlenderInstalled(root)).resolves.toBe(false);
+    });
+
+    it("stops between unpacking steps, and hands the one running the signal", async () => {
+      const root = await directory();
+      const stop = new AbortController();
+      const seen: (AbortSignal | undefined)[] = [];
+      const later = vi.fn(async () => "/uv");
+      const runCommand = vi.fn(async () => {});
+      const result = await install(root, {
+        signal: stop.signal,
+        runCommand,
+        unpack: {
+          blender: async (_archive: string, _destination: string, signal?: AbortSignal) => {
+            seen.push(signal);
+            await touch(blenderApp(root));
+            stop.abort();
+          },
+          uv: later,
+          server: later,
+        },
+      });
+
+      expect(Either.isLeft(result) && result.left.message).toBe("Setup was stopped");
+      expect(seen).toEqual([stop.signal]);
+      expect(later).not.toHaveBeenCalled();
+      expect(runCommand).not.toHaveBeenCalled();
+      await expect(stat(join(root, "installed.json"))).rejects.toThrow();
+    });
+
+    it("needs setting up again once Blender or its server has gone", async () => {
+      for (const removed of [blenderApp, serverApp]) {
+        const root = await directory();
+        expect(Either.isRight(await install(root))).toBe(true);
+        await expect(isBlenderInstalled(root, "darwin")).resolves.toBe(true);
+
+        await rm(removed(root));
+
+        await expect(isBlenderInstalled(root, "darwin")).resolves.toBe(false);
+        await expect(getBlenderToolsState(root, "darwin", "arm64")).resolves.toEqual({
+          state: "not_installed",
+        });
+      }
     });
 
     it("reports a Blender that won't start, instead of crashing the app", async () => {

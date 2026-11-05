@@ -140,10 +140,10 @@ export interface BlenderToolsOptions {
   /** Swapped in tests, since the real ones need the real files. */
   download?: typeof downloadPinned;
   unpack?: {
-    blender(archive: string, destination: string): Promise<void>;
+    blender(archive: string, destination: string, signal?: AbortSignal): Promise<void>;
     /** Gives back where uv ended up. */
-    uv(archive: string, destination: string): Promise<string>;
-    server(archive: string, destination: string): Promise<void>;
+    uv(archive: string, destination: string, signal?: AbortSignal): Promise<string>;
+    server(archive: string, destination: string, signal?: AbortSignal): Promise<void>;
   };
   runCommand?: (
     command: string,
@@ -333,31 +333,46 @@ export async function downloadPinned(
   }
 }
 
+/** Stops between files once Stop is pressed, since Blender's zip takes a while to unpack. */
+function unzip(archive: string, destination: string, signal?: AbortSignal): Promise<void> {
+  return extractZip(archive, {
+    dir: destination,
+    onEntry: () => {
+      if (signal?.aborted) throw new SetupCancelled();
+    },
+  });
+}
+
 /** The .dmg has to be mounted to get at it, which needs nothing more than the system's own tool. */
-async function unpackDmg(archive: string, destination: string): Promise<void> {
+async function unpackDmg(archive: string, destination: string, signal?: AbortSignal): Promise<void> {
   await mkdir(destination, { recursive: true });
   const mountPoint = await mkdtemp(join(destination, ".mount-"));
-  await run("hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mountPoint, archive]);
   try {
-    await run("ditto", [join(mountPoint, "Blender.app"), join(destination, "Blender.app")]);
+    // Inside the try, so a mount stopped halfway is still detached and its folder removed.
+    await run("hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mountPoint, archive], { signal });
+    await run("ditto", [join(mountPoint, "Blender.app"), join(destination, "Blender.app")], { signal });
   } finally {
     await run("hdiutil", ["detach", "-quiet", mountPoint]).catch(() => {});
     await rm(mountPoint, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-async function defaultUnpackBlender(archive: string, destination: string): Promise<void> {
+async function defaultUnpackBlender(
+  archive: string,
+  destination: string,
+  signal?: AbortSignal,
+): Promise<void> {
   await mkdir(destination, { recursive: true });
-  if (archive.endsWith(".dmg")) return unpackDmg(archive, destination);
-  if (archive.endsWith(".zip")) return extractZip(archive, { dir: destination });
+  if (archive.endsWith(".dmg")) return unpackDmg(archive, destination, signal);
+  if (archive.endsWith(".zip")) return unzip(archive, destination, signal);
   // tar on its own can't read .xz, but every Linux desktop has the system's.
-  await run("tar", ["-xJf", archive, "-C", destination]);
+  await run("tar", ["-xJf", archive, "-C", destination], { signal });
 }
 
-async function unpackUv(archive: string, destination: string): Promise<string> {
+async function unpackUv(archive: string, destination: string, signal?: AbortSignal): Promise<string> {
   await mkdir(destination, { recursive: true });
   if (archive.endsWith(".zip")) {
-    await extractZip(archive, { dir: destination });
+    await unzip(archive, destination, signal);
     return join(destination, "uv.exe");
   }
   await extractTar({ file: archive, cwd: destination, strip: 1 });
@@ -369,7 +384,7 @@ async function unpackUv(archive: string, destination: string): Promise<string> {
 const DEFAULT_UNPACK = {
   blender: defaultUnpackBlender,
   uv: unpackUv,
-  server: (archive: string, destination: string) => extractZip(archive, { dir: destination }),
+  server: unzip,
 };
 
 /** Runs inside Blender: turns the add-on on and has it listen whenever Blender opens. */
@@ -459,16 +474,26 @@ async function installEverything(options: BlenderToolsOptions): Promise<void> {
 
   if (options.signal?.aborted) throw new SetupCancelled();
   report("unpacking");
+  // Like the commands below, so Stop lands between unpacks and ends one that's running.
+  const unpacking = async <T>(step: (signal?: AbortSignal) => Promise<T>): Promise<T> => {
+    if (options.signal?.aborted) throw new SetupCancelled();
+    try {
+      return await step(options.signal);
+    } catch (error) {
+      if (options.signal?.aborted) throw new SetupCancelled();
+      throw error;
+    }
+  };
   const blenderHome = blenderDirectory(root);
   await rm(blenderHome, { recursive: true, force: true });
   const unpack = options.unpack ?? DEFAULT_UNPACK;
-  await unpack.blender(blenderArchive, blenderHome);
-  const uvExecutable = await unpack.uv(uvArchive, join(root, "uv"));
+  await unpacking((signal) => unpack.blender(blenderArchive, blenderHome, signal));
+  const uvExecutable = await unpacking((signal) => unpack.uv(uvArchive, join(root, "uv"), signal));
 
   const serverHome = serverDirectory(root);
   await rm(serverHome, { recursive: true, force: true });
   await mkdir(serverHome, { recursive: true });
-  await unpack.server(server, serverHome);
+  await unpacking((signal) => unpack.server(server, serverHome, signal));
   // The bundle pins nothing itself, so what it runs on is decided here rather than on the day.
   await writeFile(join(serverHome, "uv.lock"), uvLock);
   await writeFile(join(serverHome, ".python-version"), `${PYTHON_VERSION}\n`);
@@ -554,9 +579,18 @@ function isBlenderListening(): Promise<boolean> {
   });
 }
 
-export function isBlenderInstalled(root: string): Promise<boolean> {
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
+
+export async function isBlenderInstalled(
+  root: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<boolean> {
   // A marker cut short counts as not installed, so it can never stop OpenCode starting.
-  return readFile(markerPath(root), "utf8").then(
+  const marked = await readFile(markerPath(root), "utf8").then(
     (contents) => {
       try {
         return JSON.parse(contents).blender === BLENDER_VERSION;
@@ -566,6 +600,13 @@ export function isBlenderInstalled(root: string): Promise<boolean> {
     },
     () => false,
   );
+  if (!marked) return false;
+  // Security software can remove either one after setup, and setting up again puts it back.
+  const found = await Promise.all([
+    exists(blenderExecutable(root, platform)),
+    exists(serverExecutable(root, platform)),
+  ]);
+  return found.every(Boolean);
 }
 
 export async function getBlenderToolsState(
@@ -574,7 +615,7 @@ export async function getBlenderToolsState(
   arch: string = process.arch,
 ): Promise<BlenderToolsState> {
   if (!filesFor(platform, arch)) return { state: "unsupported" };
-  if (!(await isBlenderInstalled(root))) return { state: "not_installed" };
+  if (!(await isBlenderInstalled(root, platform))) return { state: "not_installed" };
   return { state: "ready", running: await isBlenderListening() };
 }
 

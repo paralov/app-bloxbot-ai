@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelCard } from "@/components/ModelCard";
@@ -9,6 +9,7 @@ import { buildUploadSteps } from "@/components/UploadChecklist";
 import { desktop } from "@/lib/desktop";
 import { modelLinksIn } from "@/lib/modelLinks";
 import { notify } from "@/lib/notifications";
+import { qk } from "@/lib/queryKeys";
 import type {
   ModelFileInfo,
   ModelUploadResult,
@@ -16,9 +17,28 @@ import type {
   UploadAccessState,
 } from "@/types/desktop";
 
-vi.mock("@/components/ModelPreview", () => ({
-  default: ({ name }: { name: string }) => <div>Preview of {name}</div>,
-}));
+/** Draws as soon as it's shown, unless a test holds it back to draw by hand. */
+const preview = vi.hoisted(() => ({ auto: true, draw: () => {} }));
+vi.mock("@/components/ModelPreview", async () => {
+  const { useEffect } = await import("react");
+  return {
+    default: function Preview({
+      name,
+      data,
+      onDrawn,
+    }: {
+      name: string;
+      data: Uint8Array;
+      onDrawn: (data: Uint8Array) => void;
+    }) {
+      useEffect(() => {
+        preview.draw = () => onDrawn?.(data);
+        if (preview.auto) onDrawn?.(data);
+      }, [data, onDrawn]);
+      return <div>Preview of {name}</div>;
+    },
+  };
+});
 const sendMessage = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/mutations/useSendMessage", () => ({
   useSendMessage: () => ({ mutate: sendMessage }),
@@ -68,9 +88,17 @@ function setUp(access: UploadAccessState, model: ModelFileInfo | null = file) {
   vi.spyOn(desktop, "onModelUploadStep").mockReturnValue(() => {});
 }
 
+/** Upload only works once the preview has drawn, which comes a moment after the card. */
+async function uploadButton() {
+  const button = await screen.findByRole("button", { name: "Upload to Roblox" });
+  await waitFor(() => expect(button.getAttribute("aria-disabled")).toBe("false"));
+  return button;
+}
+
 beforeEach(() => {
   studio.selected = { key: "studio-1" };
   studio.targets = [];
+  preview.auto = true;
   sendMessage.mockClear();
 });
 afterEach(() => {
@@ -85,6 +113,26 @@ describe("finding models in a reply", () => {
         "Here: [crate](file:///a/Crate.fbx), again file:///a/Crate.fbx and [b](file:///a/B.GLB). Not [c](file:///a/c.txt) or https://x.test/d.fbx",
       ),
     ).toEqual(["file:///a/Crate.fbx", "file:///a/B.GLB"]);
+  });
+
+  it("leaves paths shown as code alone, but still finds real links around them", () => {
+    expect(
+      modelLinksIn(
+        [
+          "Export with:",
+          "```python",
+          'path = "file:///a/Fenced.fbx"',
+          "```",
+          "Then open [`Crate.fbx`](file:///a/Crate.fbx), not `file:///a/Inline.glb`.",
+          "~~~",
+          "file:///a/Tilde.glb",
+          "~~~",
+          "Also file:///a/Bare.glb",
+          "```",
+          "file:///a/Unclosed.fbx",
+        ].join("\n"),
+      ),
+    ).toEqual(["file:///a/Crate.fbx", "file:///a/Bare.glb"]);
   });
 });
 
@@ -219,7 +267,7 @@ describe("before uploads can run", () => {
         <ModelCard url={URL_A} />
       </QueryClientProvider>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Upload to Roblox" }));
+    fireEvent.click(await uploadButton());
     expect(await screen.findByText(/hasn't approved this file's folder/)).toBeTruthy();
     studio.selected = { key: "studio-2" };
     rerender(
@@ -296,11 +344,41 @@ describe("the upload click", () => {
   const click = async (result: ModelUploadResult) => {
     vi.spyOn(desktop, "uploadModelToPlace").mockResolvedValue(result);
     render(wrap(<ModelCard url={URL_A} />));
-    fireEvent.click(await screen.findByRole("button", { name: "Upload to Roblox" }));
+    fireEvent.click(await uploadButton());
     await waitFor(() =>
       expect(desktop.uploadModelToPlace).toHaveBeenCalledWith(URL_A, "studio-1", "previewed-hash"),
     );
   };
+
+  it("won't send a new version of the file until that version is the one on screen", async () => {
+    setUp("ready");
+    const upload = vi
+      .spyOn(desktop, "uploadModelToPlace")
+      .mockResolvedValue({ status: "rejected", assetId: "9" });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ModelCard url={URL_A} />
+      </QueryClientProvider>,
+    );
+    await uploadButton();
+    preview.auto = false;
+    vi.spyOn(desktop, "readModelFile").mockResolvedValue({
+      ...file,
+      data: new Uint8Array([2]),
+      hash: "new-hash",
+    });
+    await act(() => client.invalidateQueries({ queryKey: qk.modelFile(URL_A) }));
+
+    const button = screen.getByRole("button", { name: "Upload to Roblox" });
+    await waitFor(() => expect(button.getAttribute("aria-disabled")).toBe("true"));
+    fireEvent.click(button);
+    expect(upload).not.toHaveBeenCalled();
+
+    act(() => preview.draw());
+    fireEvent.click(await uploadButton());
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "new-hash"));
+  });
 
   it("does nothing until it's pressed, and says uploads are permanent", async () => {
     setUp("ready");

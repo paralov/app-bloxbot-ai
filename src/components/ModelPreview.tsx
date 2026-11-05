@@ -66,11 +66,14 @@ export default function ModelPreview({
   kind,
   name,
   onFailed,
+  onDrawn,
 }: {
   data: Uint8Array;
   kind: "fbx" | "glb";
   name: string;
   onFailed: () => void;
+  /** Says which data is on screen, since Upload sends that file and nothing older. */
+  onDrawn: (data: Uint8Array) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const turnRef = useRef<(yaw: number, pitch: number) => void>(() => {});
@@ -80,6 +83,8 @@ export default function ModelPreview({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // A new file isn't the one on screen until it's drawn.
+    setReady(false);
     let cancelled = false;
     let frame = 0;
     let renderer: WebGLRenderer | null = null;
@@ -116,6 +121,7 @@ export default function ModelPreview({
         };
         draw();
         setReady(true);
+        onDrawn(data);
 
         if (!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
           const spin = () => {
@@ -131,10 +137,15 @@ export default function ModelPreview({
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      // A drag or a late texture would otherwise draw the old model again.
+      draw = () => {};
+      turnRef.current = () => {};
       if (model) disposeModel(model);
+      // Otherwise the last frame stays on the canvas while the next file is read.
+      renderer?.clear();
       renderer?.dispose();
     };
-  }, [data, kind, onFailed]);
+  }, [data, kind, onFailed, onDrawn]);
 
   return (
     <canvas

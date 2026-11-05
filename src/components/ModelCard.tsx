@@ -63,6 +63,7 @@ export function ModelCard({ url }: { url: string }) {
   const [result, setResult] = useState<ModelUploadResult | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
   const failPreview = useCallback(() => setPreviewFailed(true), []);
+  const [drawn, setDrawn] = useState<Uint8Array | null>(null);
   // The fix has to reach the place this went to, even if someone has since chosen another.
   const uploadedTo = useRef<string | null>(null);
 
@@ -118,7 +119,9 @@ export function ModelCard({ url }: { url: string }) {
 
   if (!file) return null;
 
-  const start = studioKey ? () => upload.mutate(studioKey) : undefined;
+  // Upload sends this file's hash, so it waits until this same file is the one on screen.
+  const previewed = previewFailed || drawn === file.data;
+  const start = studioKey && previewed ? () => upload.mutate(studioKey) : undefined;
   const sent = result ? null : file.sent;
   const rejected = result?.status === "rejected" || sent?.moderation === "rejected";
   const assetId = result && "assetId" in result ? result.assetId : sent?.assetId;
@@ -332,6 +335,7 @@ export function ModelCard({ url }: { url: string }) {
               kind={file.kind}
               name={file.name}
               onFailed={failPreview}
+              onDrawn={setDrawn}
             />
           </Suspense>
         )}
