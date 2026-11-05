@@ -19,7 +19,8 @@ let cached: { at: number; letters: Promise<Set<string>> } | null = null;
  */
 export function networkDriveLetters(
   platform: NodeJS.Platform = process.platform,
-  now = Date.now(),
+  // Monotonic, so a clock set back can't keep an old list for longer than this.
+  now = performance.now(),
 ): Promise<Set<string>> {
   if (platform !== "win32") return Promise.resolve(new Set());
   if (cached && now - cached.at < FRESH_FOR_MS) return cached.letters;
