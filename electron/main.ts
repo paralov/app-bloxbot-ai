@@ -522,7 +522,15 @@ const registerIpcHandlers = Effect.sync(() => {
         yield* applyBlenderToConfig(null);
         yield* Effect.tryPromise({
           try: () => removeBlenderTools(blenderToolsRoot()),
-          catch: (cause) => new DesktopMainError({ message: "Couldn't remove Blender", cause }),
+          // The page reloads OpenCode only for a lock, which is the one thing that fixes.
+          catch: (cause) => {
+            const code = (cause as { code?: unknown } | null)?.code;
+            const locked = code === "EBUSY" || code === "EPERM" || code === "EACCES";
+            return new DesktopMainError({
+              message: `Couldn't remove Blender${locked ? " (locked)" : ""}`,
+              cause,
+            });
+          },
         });
       }),
     ),
@@ -560,13 +568,14 @@ const registerIpcHandlers = Effect.sync(() => {
   });
   ipcMain.handle(
     channels.uploadModelToPlace,
-    async (event, url: unknown, studioKey: unknown, hash: unknown) => {
+    async (event, url: unknown, studioKey: unknown, hash: unknown, addOnly: unknown) => {
       const decodedUrl = await Schema.decodeUnknownPromise(Schema.String)(url);
       const studioId = await Schema.decodeUnknownPromise(StudioKeySchema)(studioKey);
       const expectedHash = await Schema.decodeUnknownPromise(Schema.String)(hash);
       // A second click, or a second card with the same bytes, joins the upload that's running for
       // this Studio. Another Studio gets its own, since the model has to go in its place too.
-      const key = `${studioId}\n${expectedHash}`;
+      const onlyAdd = addOnly === true;
+      const key = `${studioId}\n${expectedHash}\n${onlyAdd}`;
       const running = uploadsInFlight.get(key);
       if (running) {
         running.urls.add(decodedUrl);
@@ -579,6 +588,7 @@ const registerIpcHandlers = Effect.sync(() => {
           studioId,
           sentFile: sentModels(),
           expectedHash,
+          addOnly: onlyAdd,
           onStep: (step) => {
             if (event.sender.isDestroyed()) return;
             for (const each of urls) event.sender.send(channels.modelUploadStep, each, step);

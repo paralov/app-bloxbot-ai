@@ -396,7 +396,12 @@ describe("the upload click", () => {
     render(wrap(<ModelCard url={URL_A} />));
     fireEvent.click(await uploadButton());
     await waitFor(() =>
-      expect(desktop.uploadModelToPlace).toHaveBeenCalledWith(URL_A, "studio-1", "previewed-hash"),
+      expect(desktop.uploadModelToPlace).toHaveBeenCalledWith(
+        URL_A,
+        "studio-1",
+        "previewed-hash",
+        false,
+      ),
     );
   };
 
@@ -427,7 +432,7 @@ describe("the upload click", () => {
 
     act(() => preview.draw());
     fireEvent.click(await uploadButton());
-    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "new-hash"));
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "new-hash", false));
   });
 
   it("won't upload a file it couldn't draw until someone says they checked it", async () => {
@@ -449,7 +454,9 @@ describe("the upload click", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "I opened it and checked it" }));
     expect(button).toBeEnabled();
     fireEvent.click(button);
-    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "previewed-hash"));
+    await waitFor(() =>
+      expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "previewed-hash", false),
+    );
   });
 
   it("does nothing until it's pressed, and says uploads are permanent", async () => {
@@ -583,6 +590,38 @@ describe("the upload click", () => {
     render(wrap(<ModelCard url={URL_A} />));
     expect(await screen.findByRole("button", { name: "Add it to your place" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Upload to Roblox" })).toBeNull();
+  });
+
+  it("only adds from a card that's already on Roblox, and asks before a new upload", async () => {
+    setUp("ready", { ...file, sent: { assetId: "5", moderation: "approved" } });
+    const upload = vi
+      .spyOn(desktop, "uploadModelToPlace")
+      .mockResolvedValueOnce({ status: "failed", reason: "other_owner" })
+      .mockResolvedValueOnce({ status: "added", assetId: "6", path: "game.Workspace.Crate" });
+    render(wrap(<ModelCard url={URL_A} />));
+    const add = await screen.findByRole("button", { name: "Add it to your place" });
+    await waitFor(() => expect(add).toBeEnabled());
+    fireEvent.click(add);
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", file.hash, true));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Upload it for this game" }));
+    await waitFor(() =>
+      expect(upload).toHaveBeenLastCalledWith(URL_A, "studio-1", file.hash, false),
+    );
+  });
+
+  it("keeps a retry after a failed add to adding only", async () => {
+    setUp("ready", { ...file, sent: { assetId: "5", moderation: "approved" } });
+    const upload = vi
+      .spyOn(desktop, "uploadModelToPlace")
+      .mockResolvedValue({ status: "failed", reason: "studio_error" });
+    render(wrap(<ModelCard url={URL_A} />));
+    const add = await screen.findByRole("button", { name: "Add it to your place" });
+    await waitFor(() => expect(add).toBeEnabled());
+    fireEvent.click(add);
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+    expect(upload).toHaveBeenLastCalledWith(URL_A, "studio-1", file.hash, true);
   });
 });
 

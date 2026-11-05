@@ -466,6 +466,8 @@ export interface SendModelDeps {
   sentFile: string;
   /** The bytes the person looked at. Anything else in the file by now hasn't been checked. */
   expectedHash: string;
+  /** From a card that says nothing will be uploaded: it may add what's on Roblox, never send more. */
+  addOnly?: boolean;
   sleep?: (ms: number) => Promise<void>;
   onStep?: (step: ModelUploadStep) => void;
 }
@@ -541,6 +543,9 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
     const owner = "groupId" in creator ? `group:${creator.groupId}` : `user:${creator.userId}`;
     const sent = await readSentModel(deps.sentFile, file.hash, owner);
     if (sent) return { sent };
+    // Sent before, but for another owner's game, which can't use it. Uploading again is a new
+    // permanent asset, so it takes its own click.
+    if (deps.addOnly) return { status: "failed", reason: "other_owner" };
     onStep?.("uploading");
     // Studio reads the file itself, and the model's own file can change before it does. So it gets a
     // copy of the checked bytes, in the same folder because that's the one Studio approved. Each

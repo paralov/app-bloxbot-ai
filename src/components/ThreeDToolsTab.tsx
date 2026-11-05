@@ -21,8 +21,8 @@ const FAILURES: Record<BlenderFailureReason, string> = {
   other: "Blender couldn't be set up. Try again, or email support@bloxbot.ai if it keeps failing.",
 };
 
-/** What the main process says when deleting the files failed, rather than an earlier check. */
-const DELETE_FAILED = "Couldn't remove Blender";
+/** What the main process says when a file it had to delete was still in use. */
+const DELETE_LOCKED = "Couldn't remove Blender (locked)";
 
 function failureReason(error: Error): BlenderFailureReason {
   const reason = /\(reason: ([a-z_]+)\)/.exec(error.message)?.[1];
@@ -154,7 +154,7 @@ function BlenderRow() {
         // Windows won't delete Blender's server while OpenCode is still running it. Blender is out
         // of the config by now, so reloading stops the server. Anything else, like Blender being
         // open, a reload won't fix.
-        if (!(error instanceof Error && error.message.includes(DELETE_FAILED))) throw error;
+        if (!(error instanceof Error && error.message.includes(DELETE_LOCKED))) throw error;
         await client?.instance.dispose({}, { throwOnError: true });
         await desktop.removeBlenderTools();
       }

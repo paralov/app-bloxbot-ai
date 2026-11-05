@@ -165,7 +165,9 @@ describe("ThreeDToolsTab", () => {
   it("reloads OpenCode and tries again when Windows holds the server's files", async () => {
     mocks.getState.mockResolvedValue({ state: "ready", running: false });
     mocks.remove
-      .mockRejectedValueOnce(new Error("Failed to remove Blender: Couldn't remove Blender"))
+      .mockRejectedValueOnce(
+        new Error("Failed to remove Blender: Couldn't remove Blender (locked)"),
+      )
       .mockResolvedValue(undefined);
     start();
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
@@ -177,6 +179,19 @@ describe("ThreeDToolsTab", () => {
   it("doesn't reload OpenCode when removal fails for another reason", async () => {
     mocks.getState.mockResolvedValue({ state: "ready", running: false });
     mocks.remove.mockRejectedValue(new Error("Failed to remove Blender: Close Blender first"));
+    start();
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith("Couldn't remove Blender", expect.anything()),
+    );
+    expect(mocks.remove).toHaveBeenCalledOnce();
+    expect(mocks.dispose).not.toHaveBeenCalled();
+  });
+
+  it("doesn't reload OpenCode when deleting failed for something other than a lock", async () => {
+    mocks.getState.mockResolvedValue({ state: "ready", running: false });
+    mocks.remove.mockRejectedValue(new Error("Failed to remove Blender: Couldn't remove Blender"));
     start();
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 

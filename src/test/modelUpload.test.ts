@@ -756,6 +756,21 @@ describe("from the click to the place", () => {
     expect(inserted()).toEqual(["1", "2", "1"]);
   });
 
+  it("never uploads from a card that only adds, even for a game with another owner", async () => {
+    let owner = { creatorId: 9, creatorType: "Enum.CreatorType.User" };
+    const { callTool, uploads, calls } = studio({
+      luau: () => text({ placeId: 123, ...owner }),
+    });
+    await sendModelToPlace(modelUrl, deps(callTool));
+    owner = { creatorId: 77, creatorType: "Enum.CreatorType.Group" };
+
+    const result = await sendModelToPlace(modelUrl, { ...deps(callTool), addOnly: true });
+
+    expect(result).toEqual({ status: "failed", reason: "other_owner" });
+    expect(uploads()).toHaveLength(1);
+    expect(calls.filter((c) => c.name === "insert_asset")).toHaveLength(1);
+  });
+
   it("uses a record from before owners were kept, as it always did", async () => {
     await recordSentModel(sentFile, hash, { assetId: "4", moderation: "approved" });
     const { callTool, uploads, calls } = studio({
