@@ -37,6 +37,8 @@ const FAILURES: Record<ModelUploadFailure, string> = {
     "BloxBot can't save in this file's folder, so nothing was uploaded. Allow changes to the folder, then try again.",
   other_owner:
     "This game has a different owner, and its upload isn't on Roblox for them yet, so nothing was added. Uploading it for this game makes a new asset.",
+  place_changed:
+    "Your place changed while this waited, so nothing was uploaded. Open the place you want it in, then try again.",
   studio_error: "Studio didn't answer. Make sure this place is open, then try again.",
 };
 

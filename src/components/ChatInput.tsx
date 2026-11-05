@@ -306,9 +306,15 @@ function isKeptDraft(value: unknown): value is [string, Draft] {
     isRecord(draft) &&
     typeof draft.text === "string" &&
     Array.isArray(draft.attachments) &&
-    draft.attachments.every(isAttachment) &&
-    (draft.editorState === undefined || isEditorState(draft.editorState))
+    draft.attachments.every(isAttachment)
   );
+}
+
+/** A draft's text is worth keeping even when its editor state isn't, which then restores as text. */
+function keptDraft([id, draft]: [string, Draft]): [string, Draft] {
+  if (draft.editorState === undefined || isEditorState(draft.editorState)) return [id, draft];
+  const { editorState: _unreadable, ...rest } = draft;
+  return [id, rest];
 }
 
 /** Reconnecting reloads the page or restarts the app, neither of which should take a draft with it. */
@@ -317,7 +323,7 @@ export function takeKeptDrafts(): [string, Draft][] {
     const stored = localStorage.getItem(KEPT_DRAFTS_KEY);
     localStorage.removeItem(KEPT_DRAFTS_KEY);
     const parsed: unknown = stored ? JSON.parse(stored) : [];
-    return Array.isArray(parsed) ? parsed.filter(isKeptDraft) : [];
+    return Array.isArray(parsed) ? parsed.filter(isKeptDraft).map(keptDraft) : [];
   } catch {
     return [];
   }

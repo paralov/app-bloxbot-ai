@@ -257,6 +257,7 @@ export type ModelUploadFailure =
   | "file_rejected"
   | "folder_unwritable"
   | "other_owner"
+  | "place_changed"
   | "studio_error";
 
 /** Why an approved model wasn't put in the place, when BloxBot can tell. */

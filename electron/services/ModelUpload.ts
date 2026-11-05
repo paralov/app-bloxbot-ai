@@ -18,6 +18,7 @@ import {
   insertUploadedModel,
   mcpData,
   mcpError,
+  PLACE_CHANGED,
   runScript,
   STOP_PLAYTEST,
 } from "../studioQueries";
@@ -315,7 +316,8 @@ export function modelFolder(url: string): string | null {
 }
 
 /** "\\server\share", "//server/share" or "\\?\UNC\server\share". Windows sends its sign-in to a share it reads. */
-export const isNetworkPath = (path: string) => /^[\\/]{2}/.test(path);
+export const isNetworkPath = (path: string) =>
+  /^[\\/]{2}/.test(path) && !/^[\\/]{2}[?.][\\/](?!UNC[\\/])/i.test(path);
 
 /**
  * Where a path really leads, following each link by hand. realpath would already have reached a
@@ -447,6 +449,8 @@ export function recordSentModel(file: string, hash: string, sent: SentModel): Pr
 const sending = new Map<string, Promise<void>>();
 
 /** Runs one at a time for each key, in the order they were asked. */
+const adding = new Map<string, Promise<ModelUploadResult>>();
+
 function oneAtATime<T>(key: string, run: () => Promise<T>): Promise<T> {
   const turn = (sending.get(key) ?? Promise.resolve()).then(run);
   const done = turn.then(
@@ -494,11 +498,22 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
       reason ? { status: "not_added", assetId, reason } : { status: "not_added", assetId };
     try {
       if ((await placeIn(callTool, studioId)) !== place) return notAdded("place_changed");
-      const path = await insertUploadedModel(callTool, studioId, assetId, file.name);
+      const path = await insertUploadedModel(
+        callTool,
+        studioId,
+        assetId,
+        file.name,
+        /^\d+$/.test(place) ? place : undefined,
+      );
       return { status: "added", assetId, path };
     } catch (error) {
+      const message = error instanceof Error ? error.message : "";
       return notAdded(
-        error instanceof Error && error.message === STOP_PLAYTEST ? "playtest" : undefined,
+        message === STOP_PLAYTEST
+          ? "playtest"
+          : message === PLACE_CHANGED
+            ? "place_changed"
+            : undefined,
       );
     }
   };
@@ -540,6 +555,11 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
     const creator = await readGameOwner(callTool, studioId).catch(() => null);
     if (creator === "unpublished") return { status: "needs_setup", access: "not_published" };
     if (!creator) return { status: "failed", reason: "studio_error" };
+    // A turn spent waiting behind another upload of these bytes can end in a different place. The
+    // owner just read has to be the pinned place's, since the asset will be theirs for good.
+    if ((await placeIn(callTool, studioId).catch(() => null)) !== place) {
+      return { status: "failed", reason: "place_changed" };
+    }
     const owner = "groupId" in creator ? `group:${creator.groupId}` : `user:${creator.userId}`;
     const sent = await readSentModel(deps.sentFile, file.hash, owner);
     if (sent) return { sent };
@@ -609,7 +629,14 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
     await recordSentModel(deps.sentFile, file.hash, sent);
     if (sent.moderation === "rejected") return { status: "rejected", assetId: sent.assetId };
     if (sent.moderation === "checking") return { status: "checking", assetId: sent.assetId };
-    return await addToPlace(sent.assetId);
+    // Two cards for the same bytes could otherwise both find nothing in the place and both add it,
+    // so an add already running for this asset and Studio is the answer for both.
+    const key = `${studioId}\n${sent.assetId}`;
+    const running = adding.get(key);
+    if (running) return await running;
+    const added = addToPlace(sent.assetId).finally(() => adding.delete(key));
+    adding.set(key, added);
+    return await added;
   } catch (error) {
     if (!(error instanceof OpenCloudError)) throw error;
     if (error.reason === "reopen_studio" || error.reason === "needs_permission") {

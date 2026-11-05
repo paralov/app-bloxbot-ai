@@ -358,7 +358,12 @@ describe("reading a model", () => {
     ]) {
       expect(isNetworkPath(share)).toBe(true);
     }
-    for (const local of ["C:\\Users\\me\\Crate.fbx", "/Users/me/Crate.fbx"]) {
+    for (const local of [
+      "C:\\Users\\me\\Crate.fbx",
+      "/Users/me/Crate.fbx",
+      "\\\\?\\C:\\Models\\Crate.fbx",
+      "\\\\.\\C:\\Models\\Crate.fbx",
+    ]) {
       expect(isNetworkPath(local)).toBe(false);
     }
   });
@@ -802,6 +807,54 @@ describe("from the click to the place", () => {
       reason: "place_changed",
     });
     expect(calls.some((c) => c.name === "insert_asset")).toBe(false);
+  });
+
+  it("won't upload for an owner read after the place changed", async () => {
+    let place = "Game (placeId: 123)";
+    const { callTool, uploads } = studio({
+      list: () => ({ studios: [{ id: STUDIO, name: place }] }),
+      luau: () => {
+        place = "Another game (placeId: 456)";
+        return text({ placeId: 456, creatorId: 77, creatorType: "Enum.CreatorType.Group" });
+      },
+    });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toEqual({
+      status: "failed",
+      reason: "place_changed",
+    });
+    expect(uploads()).toEqual([]);
+  });
+
+  it("checks the place in the same script that looks for an earlier insert", async () => {
+    const { callTool, calls } = studio({ lookup: () => text("moved") });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toEqual({
+      status: "not_added",
+      assetId: "555",
+      reason: "place_changed",
+    });
+    const lookup = calls.find((c) => String(c.args.code).includes("PackageId"));
+    expect(String(lookup?.args.code)).toContain("game.PlaceId ~= 123");
+    expect(calls.some((c) => c.name === "insert_asset")).toBe(false);
+  });
+
+  it("adds an asset once when two cards add it to the same Studio at once", async () => {
+    await recordSentModel(sentFile, hash, { assetId: "4", moderation: "approved" });
+    // Studio takes a moment to insert, which is when the second card's add arrives.
+    const { callTool, calls } = studio({
+      insert: () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () => resolve(text({ insertedInstances: [{ fullPath: "game.Workspace.Crate" }] })),
+            50,
+          ),
+        ) as never,
+    });
+    const [first, second] = await Promise.all([
+      sendModelToPlace(modelUrl, deps(callTool)),
+      sendModelToPlace(modelUrl, { ...deps(callTool), addOnly: true }),
+    ]);
+    expect(first).toEqual(second);
+    expect(calls.filter((c) => c.name === "insert_asset")).toHaveLength(1);
   });
 
   it("says to stop a playtest when that's why it wasn't added", async () => {

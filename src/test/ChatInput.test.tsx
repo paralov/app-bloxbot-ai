@@ -661,7 +661,12 @@ describe("ChatInput", () => {
         ["s6", { ...draft, editorState: { root: { type: "paragraph", children: [] } } }],
       ]),
     );
-    expect(takeKeptDrafts()).toEqual([["s1", draft]]);
+    // A bad editor state costs only the formatting: the text comes back.
+    expect(takeKeptDrafts()).toEqual([
+      ["s1", draft],
+      ["s5", draft],
+      ["s6", draft],
+    ]);
 
     for (const stored of ["{}", "null", "7", '"text"']) {
       localStorage.setItem("bloxbot-kept-drafts", stored);

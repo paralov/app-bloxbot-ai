@@ -122,11 +122,16 @@ const IN_PLAYTEST = /not available in \w+ mode/i;
 export const STOP_PLAYTEST = "Stop the playtest first";
 
 /** Puts an uploaded model in the place, and returns where it went. */
+/** Thrown when the Studio has another place open than the one the model is for. */
+export const PLACE_CHANGED = "The place changed";
+
 export async function insertUploadedModel(
   callTool: CallStudioTool,
   studioId: string,
   assetId: string,
   name: string,
+  /** The published place it's for. Checked in the same script that looks, so a switch can't slip in. */
+  placeId?: string,
 ): Promise<string> {
   const assetName = name.replace(/[^\p{L}\p{N}_]+/gu, "");
   // An insert whose answer never came back still leaves its model, linked to the asset until the
@@ -134,7 +139,7 @@ export async function insertUploadedModel(
   const leftover = await callTool("execute_luau", {
     studio_id: studioId,
     datamodel_type: "Edit",
-    code: `for _, child in workspace:GetChildren() do
+    code: `${placeId ? `if game.PlaceId ~= ${Number(placeId)} then return "moved" end\n` : ""}for _, child in workspace:GetChildren() do
   local link = child:FindFirstChildOfClass("PackageLink")
   if link and string.match(link.PackageId, "%d+$") == ${JSON.stringify(assetId)} then
     link:Destroy()
@@ -147,6 +152,7 @@ return "none"`,
   // A playtest's place is a copy that's thrown away, so the model waits for the real one.
   if (lookupError) throw new Error(IN_PLAYTEST.test(lookupError) ? STOP_PLAYTEST : lookupError);
   const found = mcpData(leftover);
+  if (found === "moved") throw new Error(PLACE_CHANGED);
   if (typeof found === "string" && found.startsWith("game.")) return found;
   // Only a clear "nothing there" adds one. Anything else could be a model already in the place.
   if (found !== "none") throw new Error("Studio couldn't say what the place already has");
