@@ -19,12 +19,15 @@ vi.mock("@/lib/desktop", () => ({
     cancelBlenderTools: mocks.cancel,
     openBlender: mocks.open,
     removeBlenderTools: mocks.remove,
-    getRobloxUploadState: async () => ({ state: "off" }),
+    getUploadAccess: async () => ({ state: "no_studio", modelsFolder: "/home/BloxBot/Models" }),
     onBlenderSetupProgress: (listener: (progress: unknown) => void) => {
       mocks.listener = listener;
       return () => {};
     },
   },
+}));
+vi.mock("@/providers/StudioTargetProvider", () => ({
+  useStudioTargetOptional: () => null,
 }));
 vi.mock("@/providers/OpenCodeClientProvider", () => ({
   useOpenCodeClient: () => ({ client: { instance: { dispose: mocks.dispose } } }),

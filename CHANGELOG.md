@@ -11,7 +11,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Set up Blender from Settings, 3D tools, with one click. It's free and stays in BloxBot's own folder, away from any Blender you already use, and the agent can then make 3D models in it. You import what it makes through Studio yourself.
 - A reply that links to an FBX or GLB model now shows it, with a preview you can turn and the steps to import it through Studio
-- Optional uploads: after a guided Roblox key setup, one click sends a model you've checked to your account, waits for moderation and adds it to your place. BloxBot won't send a rejected file again, and it stops if the key and Studio are on different accounts
+- One click uploads a model you've checked and adds it to your place, using Studio's own Open Cloud access, so there's no API key to make. You choose what's allowed in Studio's MCP Permissions. BloxBot won't send the same file twice, and a model stays out of your place until Roblox approves it
 
 ### Removed
 
@@ -19,7 +19,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
-- BloxBot asks before Studio's `upload_image` tool sends images to your Roblox account, because Roblox holds you responsible for them
+- BloxBot asks before Studio's `upload_image` and `open_cloud_invoke` tools act on your Roblox account, because Roblox holds you responsible for what they do
 - BloxBot works without Studio, for things like small websites. Skip setup the first time, or choose Work without Studio in any chat.
 - A chat is tied to a place once the agent has used it. If that place closes while another is open, BloxBot asks before going on, so the agent can't change the wrong one. It picks the place back up when it reopens, and commands like `/new` and `/model` always run.
 - A Studio with the same name as a chat's unpublished place is offered with one click rather than taken, since every new template is a Baseplate.

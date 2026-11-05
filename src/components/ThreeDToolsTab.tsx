@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Box, type LucideIcon, Upload } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { RobloxKeyWizard } from "@/components/RobloxKeyWizard";
+import { UploadSetup } from "@/components/UploadSetup";
 import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { notify } from "@/lib/notifications";
 import { qk } from "@/lib/queryKeys";
 import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 import type { BlenderFailureReason, BlenderSetupProgress } from "@/types/desktop";
 
 const FAILURES: Record<BlenderFailureReason, string> = {
@@ -260,82 +261,56 @@ function BlenderRow() {
   );
 }
 
-function UploadsRow({ onSetUp }: { onSetUp: () => void }) {
-  const queryClient = useQueryClient();
-  const { data: uploads } = useQuery({
-    queryKey: qk.robloxUpload,
-    queryFn: () => desktop.getRobloxUploadState(),
-  });
-  const turnOff = useMutation<void, Error>({
-    mutationFn: () => desktop.forgetRobloxKey(),
-    onSuccess: () => {
-      posthog.capture("roblox_uploads_turned_off", analyticsProperties("three_d_tools"));
-      notify.success("Uploads are off", {
-        description: "BloxBot forgot the key. Delete it on Roblox too.",
-      });
-      void queryClient.invalidateQueries({ queryKey: qk.robloxUpload });
-    },
-    onError: () => notify.error("Couldn't forget the key", { description: "Try again." }),
-  });
-  if (!uploads) return null;
+const UPLOAD_STATES = {
+  ready: {
+    pill: "On",
+    text: "Upload appears on each model a reply links to. You choose what's allowed in Studio's MCP Permissions, with no key to make.",
+  },
+  needs_permission: {
+    pill: "Off",
+    text: "Add models to your place with one click, after you check each one. Studio handles the sign-in, so there's no key to make.",
+  },
+  reopen_studio: {
+    pill: "Reopen Studio",
+    text: "Close and reopen your place in Studio to turn this on. It was open before Roblox's latest update.",
+  },
+  not_published: {
+    pill: "Publish first",
+    text: "Studio saves these permissions per game, so publish your place to turn this on. Until then, import models through Studio.",
+  },
+  no_studio: {
+    pill: "Open a place",
+    text: "Open your place in Studio to see whether uploads are on. Until then, import models through Studio.",
+  },
+} as const;
 
-  if (uploads.state === "unavailable") {
-    return (
-      <ToolRow icon={Upload} name="Upload to Roblox">
-        <p>This computer can't store a key safely, so import models through Studio instead.</p>
-      </ToolRow>
-    );
-  }
-  if (uploads.state === "on") {
-    return (
-      <ToolRow
-        icon={Upload}
-        name="Upload to Roblox"
-        state={<StatePill on>On</StatePill>}
-        actions={
-          <button type="button" className={quiet} onClick={() => turnOff.mutate()}>
-            Turn off and forget the key
-          </button>
-        }
-      >
-        <p>
-          Models go to {uploads.ownerName ?? `account ${uploads.ownerId}`} after you click Upload on
-          each one.
-        </p>
-      </ToolRow>
-    );
-  }
+function UploadsRow() {
+  const studioKey = useStudioTargetOptional()?.selected?.key ?? null;
+  const { data: access } = useQuery({
+    queryKey: qk.uploadAccess(studioKey),
+    queryFn: () => desktop.getUploadAccess(studioKey),
+    // Only Studio can change this, so the row follows along while someone's over there.
+    refetchInterval: 4_000,
+  });
+  if (!access) return null;
+  const { pill, text } = UPLOAD_STATES[access.state];
   return (
     <ToolRow
       icon={Upload}
       name="Upload to Roblox"
-      state={<StatePill>Off</StatePill>}
-      actions={
-        <button
-          type="button"
-          className="whitespace-nowrap rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-accent"
-          onClick={onSetUp}
-        >
-          Set up uploads
-        </button>
-      }
+      state={<StatePill on={access.state === "ready"}>{pill}</StatePill>}
     >
-      <p>
-        You import models through Studio. Turn this on to add them with one click, after you check
-        each one.
-      </p>
+      <p>{text}</p>
+      {access.state === "needs_permission" ? (
+        <div className="pt-2 text-foreground">
+          <UploadSetup folder={access.modelsFolder} />
+        </div>
+      ) : null}
     </ToolRow>
   );
 }
 
-export function ThreeDToolsTab({ openUploads = false }: { openUploads?: boolean }) {
-  const [connecting, setConnecting] = useState(openUploads);
-  useEffect(() => {
-    if (openUploads) setConnecting(true);
-  }, [openUploads]);
-
-  if (connecting) return <RobloxKeyWizard onClose={() => setConnecting(false)} />;
-
+export function ThreeDToolsTab() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 @xl:px-6 @xl:py-8">
       <h4 className="text-lg font-medium text-foreground">3D tools</h4>
@@ -344,11 +319,11 @@ export function ThreeDToolsTab({ openUploads = false }: { openUploads?: boolean 
       </p>
       <div className="mt-6 divide-y rounded-lg border bg-card">
         <BlenderRow />
-        <UploadsRow onSetUp={() => setConnecting(true)} />
+        <UploadsRow />
       </div>
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        Everything you add goes on your own Roblox account. Roblox moderates every upload and bans
-        accounts for what breaks its rules, so check a model before it goes up.
+        Uploads are permanent and go on the account that owns the game. Roblox moderates each one
+        and bans accounts for what breaks its rules, so check a model before it goes up.
       </p>
     </div>
   );

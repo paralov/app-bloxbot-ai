@@ -1,4 +1,13 @@
-import { Box, FileText, Globe, type LucideIcon, Pencil, Terminal, Upload } from "lucide-react";
+import {
+  Box,
+  Cloud,
+  FileText,
+  Globe,
+  type LucideIcon,
+  Pencil,
+  Terminal,
+  Upload,
+} from "lucide-react";
 import { memo } from "react";
 import type { PermissionRequest } from "@/lib/opencode/types";
 import { STUDIO_MCP_SERVER_NAME } from "@/lib/studioMcp";
@@ -35,6 +44,15 @@ export function describePermission(permission: string): Description {
       everyTime: true,
       allow: "Upload",
       deny: "Don't upload",
+    };
+  }
+  if (permission.endsWith("open_cloud_invoke")) {
+    return {
+      title: "Let BloxBot change things on Roblox?",
+      detail:
+        "This uses Open Cloud, within what you've turned on in Studio's MCP Permissions. It can reach your game beyond this place, and uploads are permanent.",
+      icon: Cloud,
+      everyTime: true,
     };
   }
   const builtIn = BUILT_IN[permission];

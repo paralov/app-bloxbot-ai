@@ -68,7 +68,7 @@ describe("system prompt", () => {
       const config = createOpenCodeConfig(broker, "Be brief.", server);
       expect(config.mcp.servers).toHaveProperty("blender", server);
       expect(config.agents.studio.system).toMatch(/^Be brief\./);
-      expect(config.agents.studio.system).toMatch(/Never upload it/);
+      expect(config.agents.studio.system).toMatch(/don't upload it yourself/);
       expect(config.agents.studio.system).toMatch(/refuse extremist/);
     });
 
@@ -77,7 +77,7 @@ describe("system prompt", () => {
 
       const added = JSON.parse(withBlender(written, server, "Be brief."));
       expect(added.mcp.servers.blender).toEqual(server);
-      expect(added.agents.studio.system).toMatch(/Never upload it/);
+      expect(added.agents.studio.system).toMatch(/don't upload it yourself/);
 
       const removed = JSON.parse(withBlender(JSON.stringify(added), null, "Be brief."));
       expect(removed.mcp.servers).not.toHaveProperty("blender");
@@ -88,13 +88,13 @@ describe("system prompt", () => {
       const written = JSON.stringify(createOpenCodeConfig(broker, null, server));
       const changed = JSON.parse(withSystemPrompt(written, "Be brief."));
       expect(changed.agents.studio.system).toMatch(/^Be brief\./);
-      expect(changed.agents.studio.system).toMatch(/Never upload it/);
+      expect(changed.agents.studio.system).toMatch(/don't upload it yourself/);
     });
   });
 });
 
 describe("uploads the AI can't make by itself", () => {
-  it("asks before Studio's upload_image tool sends anything to Roblox, with or without Blender", () => {
+  it("asks before Studio's tools act on someone's Roblox account, with or without Blender", () => {
     for (const blender of [
       null,
       { type: "local" as const, command: ["blender-mcp"], environment: {} },
@@ -104,17 +104,20 @@ describe("uploads the AI can't make by itself", () => {
         expect.arrayContaining([
           { action: "roblox-studio_upload_image", resource: "*", effect: "ask" },
           { action: "roblox_studio_upload_image", resource: "*", effect: "ask" },
+          { action: "roblox-studio_open_cloud_invoke", resource: "*", effect: "ask" },
+          { action: "roblox_studio_open_cloud_invoke", resource: "*", effect: "ask" },
         ]),
       );
     }
   });
 
-  it("tells the AI to use FBX and never to handle a key", () => {
+  it("tells the AI to export for the upload button, and not to upload by itself", () => {
     const blender = { type: "local" as const, command: ["blender-mcp"], environment: {} };
     const { system } = createOpenCodeConfig({ url: "http://127.0.0.1:1" }, null, blender).agents
       .studio;
-    expect(system).toContain("export FBX");
-    expect(system).not.toContain("GLB");
-    expect(system).toContain("never ask for a Roblox API key");
+    expect(system).toContain("export GLB");
+    expect(system).toContain("the Models folder");
+    expect(system).toContain("don't upload it yourself");
+    expect(system).not.toContain("API key");
   });
 });

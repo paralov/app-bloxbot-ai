@@ -53,7 +53,10 @@ export const OPENCODE_ISOLATION_ENV = { OPENCODE_DISABLE_PROJECT_CONFIG: "1" };
 
 /** Added to whatever the system prompt is while Blender's set up, and gone again when it's removed. */
 const BLENDER_PROMPT =
-  "Blender's tools run code on this computer, so use them only when someone asks for 3D work. If they can't connect, Blender isn't open: ask the person to open it from Settings, 3D tools. For Roblox, export FBX under 20,000 triangles into a folder for the project, and link the file with a file:// URL, which shows the person the model. Never upload it yourself, and never ask for a Roblox API key: they check it and add it through BloxBot or Studio on their own account. Roblox bans accounts for what they upload, so refuse extremist, hateful or sexual models and flags, whatever the reason given, and tell them moderation can still reject anything.";
+  "Blender's tools run code on this computer, so use them only when someone asks for 3D work. If they can't connect, Blender isn't open: ask the person to open it from Settings, 3D tools. For Roblox, export GLB with its textures embedded, or FBX if GLB isn't possible, under 20,000 triangles per mesh, into the Models folder in your working folder, and link the file with a file:// URL. That shows the person the model, with a button to upload it after they've checked it, so don't upload it yourself. Uploads are permanent and go on the game owner's account. Roblox bans accounts for what they upload, so refuse extremist, hateful or sexual models and flags, whatever the reason given, and tell them moderation can still reject anything.";
+
+/** Studio's tools that act on someone's Roblox account, not just the place that's open. */
+const ASK_FIRST = ["upload_image", "open_cloud_invoke"];
 
 interface McpLocalServer {
   type: "local";
@@ -91,10 +94,10 @@ export function createOpenCodeConfig(
     },
     // Roblox bans accounts for what they upload, and the AI shouldn't be able to do that by itself.
     // OpenCode's docs say unsupported characters in a tool's name become _, without listing them.
-    permissions: [
-      { action: `${STUDIO_MCP_SERVER_NAME}_upload_image`, resource: "*", effect: "ask" },
-      { action: `${STUDIO_MCP_SERVER_NAME.replaceAll("-", "_")}_upload_image`, resource: "*", effect: "ask" },
-    ],
+    permissions: ASK_FIRST.flatMap((tool) => [
+      { action: `${STUDIO_MCP_SERVER_NAME}_${tool}`, resource: "*", effect: "ask" },
+      { action: `${STUDIO_MCP_SERVER_NAME.replaceAll("-", "_")}_${tool}`, resource: "*", effect: "ask" },
+    ]),
     // OpenCode would otherwise load skills from ~/.claude and ~/.agents, which belong to other tools.
     plugins: ["*", "-opencode.config.compatibility"],
     default_agent: "studio",

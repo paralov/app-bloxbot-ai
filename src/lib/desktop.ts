@@ -24,13 +24,12 @@ import {
   type OpenCodeInfo,
   OpenCodeInfoSchema,
   type OpenCodeStartupProgress,
-  type RobloxKeyCheck,
-  type RobloxUploadState,
   type StudioMcpStatus,
   StudioMcpStatusSchema,
   type SystemNotification,
   type UpdateInfo,
   UpdateInfoSchema,
+  type UploadAccess,
 } from "@/types/desktop";
 import {
   type StudioTargetDiscovery,
@@ -80,13 +79,7 @@ interface DesktopEffects {
   readonly cancelBlenderTools: Effect.Effect<void, DesktopError>;
   readonly openBlender: Effect.Effect<void, DesktopError>;
   readonly removeBlenderTools: Effect.Effect<void, DesktopError>;
-  readonly getRobloxUploadState: Effect.Effect<RobloxUploadState, DesktopError>;
-  readonly checkRobloxKey: (
-    key: string,
-    studioKey: string | null,
-  ) => Effect.Effect<RobloxKeyCheck, DesktopError>;
-  readonly saveRobloxKey: (key: string) => Effect.Effect<void, DesktopError>;
-  readonly forgetRobloxKey: Effect.Effect<void, DesktopError>;
+  readonly getUploadAccess: (studioKey: string | null) => Effect.Effect<UploadAccess, DesktopError>;
   readonly readModelFile: (url: string) => Effect.Effect<ModelFileInfo | null, DesktopError>;
   readonly uploadModelToPlace: (
     url: string,
@@ -170,13 +163,9 @@ const browserEffects: DesktopEffects = {
     new DesktopError({ message: "Blender can only be opened from the desktop app." }),
   ),
   removeBlenderTools: Effect.void,
-  getRobloxUploadState: Effect.succeed({ state: "unavailable" }),
-  checkRobloxKey: () => Effect.succeed({ result: "unreachable" }),
-  saveRobloxKey: () =>
-    Effect.fail(new DesktopError({ message: "Keys can only be saved in the desktop app." })),
-  forgetRobloxKey: Effect.void,
+  getUploadAccess: () => Effect.succeed({ state: "no_studio", modelsFolder: "" }),
   readModelFile: () => Effect.succeed(null),
-  uploadModelToPlace: () => Effect.succeed({ status: "failed", reason: "no_key" }),
+  uploadModelToPlace: () => Effect.succeed({ status: "needs_setup", access: "no_studio" }),
   discoverStudioTargets: Effect.fail(
     new DesktopError({ message: "Studio targets are only available in the desktop app." }),
   ),
@@ -258,11 +247,8 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     cancelBlenderTools: invoke("Failed to stop setting up Blender", () => api.cancelBlenderTools()),
     openBlender: invoke("Failed to open Blender", () => api.openBlender()),
     removeBlenderTools: invoke("Failed to remove Blender", () => api.removeBlenderTools()),
-    getRobloxUploadState: invoke("Failed to check uploads", () => api.getRobloxUploadState()),
-    checkRobloxKey: (key, studioKey) =>
-      invoke("Failed to check the key", () => api.checkRobloxKey(key, studioKey)),
-    saveRobloxKey: (key) => invoke("Failed to save the key", () => api.saveRobloxKey(key)),
-    forgetRobloxKey: invoke("Failed to forget the key", () => api.forgetRobloxKey()),
+    getUploadAccess: (studioKey) =>
+      invoke("Failed to check uploads", () => api.getUploadAccess(studioKey)),
     readModelFile: (url) => invoke("Failed to read the model", () => api.readModelFile(url)),
     uploadModelToPlace: (url, studioKey, hash) =>
       invoke("Failed to upload the model", () => api.uploadModelToPlace(url, studioKey, hash)),
@@ -319,10 +305,7 @@ export const desktop: DesktopApi = {
   cancelBlenderTools: () => runPromise(desktopEffects.cancelBlenderTools),
   openBlender: () => runPromise(desktopEffects.openBlender),
   removeBlenderTools: () => runPromise(desktopEffects.removeBlenderTools),
-  getRobloxUploadState: () => runPromise(desktopEffects.getRobloxUploadState),
-  checkRobloxKey: (key, studioKey) => runPromise(desktopEffects.checkRobloxKey(key, studioKey)),
-  saveRobloxKey: (key) => runPromise(desktopEffects.saveRobloxKey(key)),
-  forgetRobloxKey: () => runPromise(desktopEffects.forgetRobloxKey),
+  getUploadAccess: (studioKey) => runPromise(desktopEffects.getUploadAccess(studioKey)),
   readModelFile: (url) => runPromise(desktopEffects.readModelFile(url)),
   uploadModelToPlace: (url, studioKey, hash) =>
     runPromise(desktopEffects.uploadModelToPlace(url, studioKey, hash)),

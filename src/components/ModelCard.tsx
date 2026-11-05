@@ -1,19 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { UploadSetup } from "@/components/UploadSetup";
+import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
-import { ROBLOX_API_KEYS_URL } from "@/lib/robloxKeys";
-import { requestSettings } from "@/lib/settingsRequest";
-import { offerUploadsOnce } from "@/lib/uploadOffer";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 import type { ModelUploadFailure, ModelUploadResult, ModelUploadStep } from "@/types/desktop";
 
 const ModelPreview = lazy(() => import("@/components/ModelPreview"));
 
 const RESPONSIBLE =
-  "This uploads it to your Roblox account, and Roblox holds you responsible for it. Check it first.";
+  "Uploads are permanent and go on the account that owns this game. Roblox holds you responsible for them, so check it first.";
 
 const STEP_TEXT: Record<ModelUploadStep, string> = {
   uploading: "Uploading to Roblox",
@@ -25,58 +24,39 @@ const FAILURES: Record<ModelUploadFailure, string> = {
   no_file: "The file has moved. Ask for it to be exported again.",
   file_changed:
     "The file changed after this preview, so nothing was uploaded. Check the new version first.",
-  no_key: "Uploads are off. Turn them on in Settings, 3D tools.",
-  no_studio: "Studio didn't answer. Open this place in Studio, then try again.",
-  key_off:
-    "Roblox turned your key off, usually because it went unused for 60 days. On Roblox, click Edit on the key and switch Enable Key off and back on.",
-  key_rejected:
-    "Roblox refused your key. Turn uploads off in Settings, 3D tools, and add a new one.",
+  refused: "Roblox refused this from Studio. You can still import it yourself below.",
   rate_limited: "Roblox asked BloxBot to slow down. Try again in a minute.",
-  file_rejected: "Roblox refused the file. Ask for it to be exported again as FBX.",
-  network: "Couldn't reach Roblox. Check your connection, then try again.",
+  file_rejected: "Roblox refused the file. Ask for it to be exported again.",
+  studio_error: "Studio didn't answer. Make sure this place is open, then try again.",
 };
 
-const buttonClass = "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-accent";
-const primaryClass =
+const secondary = "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-accent";
+const primary =
   "rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90";
 
-function HandSteps({ fileName }: { fileName: string }) {
+function ImportByHand({ fileName, open }: { fileName: string; open?: boolean }) {
   return (
-    <>
-      <p className="text-xs">To add it to your place:</p>
-      <ol className="list-decimal space-y-0.5 pl-4 text-xs">
+    <details open={open} className="text-xs">
+      <summary className="cursor-pointer text-muted-foreground transition-colors hover:text-foreground">
+        Import it yourself
+      </summary>
+      <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 leading-relaxed">
         <li>In Studio, open the File menu and choose Import.</li>
         <li>Pick {fileName}.</li>
         <li>Check the settings, then click Import.</li>
       </ol>
-      <p className="text-xs text-muted-foreground">{RESPONSIBLE}</p>
-    </>
-  );
-}
-
-function CopyPath({ path }: { path: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className="rounded border px-1.5 py-0.5 font-sans text-[11px] transition-colors hover:bg-accent"
-      onClick={() => {
-        navigator.clipboard
-          ?.writeText(path)
-          .then(() => setCopied(true))
-          .catch(() => {});
-      }}
-    >
-      {copied ? "Copied" : "Copy path"}
-    </button>
+    </details>
   );
 }
 
 /** Shown under a reply that links to a model. Nothing leaves the computer until Upload is pressed. */
 export function ModelCard({ url }: { url: string }) {
   const queryClient = useQueryClient();
-  const studioKey = useStudioTargetOptional()?.selected?.key ?? null;
+  const studio = useStudioTargetOptional();
+  const studioKey = studio?.selected?.key ?? null;
+  const sendMessage = useSendMessage();
   const [declined, setDeclined] = useState(false);
+  const [askedToFix, setAskedToFix] = useState(false);
   const [step, setStep] = useState<ModelUploadStep | null>(null);
   const [result, setResult] = useState<ModelUploadResult | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
@@ -88,12 +68,15 @@ export function ModelCard({ url }: { url: string }) {
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 0,
   });
-  const { data: uploads } = useQuery({
-    queryKey: qk.robloxUpload,
-    queryFn: () => desktop.getRobloxUploadState(),
+  const { data: access } = useQuery({
+    queryKey: qk.uploadAccess(studioKey),
+    queryFn: () => desktop.getUploadAccess(studioKey),
+    enabled: !!file && !!studioKey,
+    // Only Studio can change these, so the card moves on by itself once someone has.
+    refetchInterval: (query) => (query.state.data?.state === "ready" ? false : 4_000),
+    refetchOnWindowFocus: true,
   });
-  const uploadsOn = uploads?.state === "on";
-  const shown = !!file;
+  const accessState = studioKey ? access?.state : "no_studio";
 
   useEffect(
     () =>
@@ -102,19 +85,19 @@ export function ModelCard({ url }: { url: string }) {
       }),
     [url],
   );
-  useEffect(() => {
-    if (shown && uploads?.state === "off") offerUploadsOnce(url).catch(() => {});
-  }, [shown, uploads?.state, url]);
+
+  const refreshAccess = () =>
+    queryClient.invalidateQueries({ queryKey: qk.uploadAccess(studioKey) });
 
   const upload = useMutation<ModelUploadResult, Error, string>({
-    mutationFn: (studio) => desktop.uploadModelToPlace(url, studio, file?.hash ?? ""),
+    mutationFn: (key) => desktop.uploadModelToPlace(url, key, file?.hash ?? ""),
     onMutate: () => {
       setResult(null);
       setStep("uploading");
       posthog.capture("model_upload_started", analyticsProperties("model_card"));
     },
     onSuccess: (next) => {
-      setResult(next);
+      setResult(next.status === "needs_setup" ? null : next);
       posthog.capture(
         "model_upload_finished",
         analyticsProperties("model_card", {
@@ -123,8 +106,9 @@ export function ModelCard({ url }: { url: string }) {
         }),
       );
       void queryClient.invalidateQueries({ queryKey: qk.modelFile(url) });
+      void refreshAccess();
     },
-    onError: () => setResult({ status: "failed", reason: "network" }),
+    onError: () => setResult({ status: "failed", reason: "studio_error" }),
     onSettled: () => setStep(null),
   });
 
@@ -133,11 +117,10 @@ export function ModelCard({ url }: { url: string }) {
   const start = studioKey ? () => upload.mutate(studioKey) : undefined;
   const sent = result ? null : file.sent;
   const rejected = result?.status === "rejected" || sent?.moderation === "rejected";
-  const added = result?.status === "added";
   const assetId = result && "assetId" in result ? result.assetId : sent?.assetId;
 
   const uploadButton = (label: string) => (
-    <button type="button" className={primaryClass} aria-disabled={!start} onClick={start}>
+    <button type="button" className={primary} aria-disabled={!start} onClick={start}>
       {label}
     </button>
   );
@@ -152,44 +135,64 @@ export function ModelCard({ url }: { url: string }) {
             aria-label={STEP_TEXT[step ?? "uploading"]}
             className="h-1 overflow-hidden rounded-full bg-muted"
           >
-            <div className="h-full w-full animate-pulse bg-foreground/70" />
+            <div className="h-full w-full animate-pulse rounded-full bg-foreground/70" />
           </div>
         </>
       );
     }
-    if (added) {
+    if (result?.status === "added") {
       return (
         <>
-          <output className="block text-xs font-medium text-success">
-            Uploaded and added to your place
+          <output className="block text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            Added to your place
           </output>
-          <p className="text-xs">
-            It's in Workspace, and it's on your Roblox account as asset {assetId}.
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            It's at {result.path.replace(/^game\./, "")}. Imports often arrive the wrong size,
+            unanchored and away from where you want them.
           </p>
+          {askedToFix ? (
+            <p className="text-xs text-muted-foreground">Asked BloxBot to fix it.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                className={primary}
+                onClick={() => {
+                  setAskedToFix(true);
+                  posthog.capture("model_fix_requested", analyticsProperties("model_card"));
+                  sendMessage.mutate({
+                    text: `I just added ${file.name} to this place at ${result.path}, as asset ${result.assetId}, from ${file.path}. Follow steps 5 to 7 of the rbx-import-asset skill: compare it with the source file, then fix its scale, rotation, textures, colours, anchoring and placement. It's already uploaded, so don't upload the model again.`,
+                    studioTargetReference: studio?.promptReference ?? null,
+                  });
+                }}
+              >
+                Fix size and placement
+              </button>
+            </div>
+          )}
         </>
       );
     }
     if (rejected) {
       return (
         <>
-          <p role="alert" className="text-xs font-medium text-destructive">
+          <p role="alert" className="text-xs font-medium text-red-600 dark:text-red-400">
             Roblox rejected it
           </p>
-          <p className="text-xs">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             It wasn't added to your place, and BloxBot won't send this file again. Roblox may also
             warn your account, so check your Roblox messages.
           </p>
         </>
       );
     }
-    if (result?.status === "wrong_account") {
+    if (result?.status === "needs_folder") {
       return (
         <>
           <p role="alert" className="text-xs">
-            Your key belongs to {result.keyOwner}, but Studio is signed in to {result.studio}.
-            Nothing was uploaded, because Studio couldn't load it. Switch Studio to{" "}
-            {result.keyOwner}, or make a key on {result.studio}.
+            Nothing was uploaded, because Studio hasn't approved this file's folder.
           </p>
+          <UploadSetup folder={result.folder} onlyFolder />
           <div className="flex flex-wrap gap-1.5">{uploadButton("Try again")}</div>
         </>
       );
@@ -197,43 +200,26 @@ export function ModelCard({ url }: { url: string }) {
     if (result?.status === "failed") {
       return (
         <>
-          <p role="alert" className="text-xs">
+          <p role="alert" className="text-xs leading-relaxed">
             {FAILURES[result.reason]}
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {result.reason === "key_off" ? (
-              <button
-                type="button"
-                className={buttonClass}
-                onClick={() => desktop.openUrl(ROBLOX_API_KEYS_URL).catch(() => {})}
-              >
-                Open API Keys page
-              </button>
-            ) : null}
-            {result.reason === "no_key" || result.reason === "key_rejected" ? (
-              <button
-                type="button"
-                className={buttonClass}
-                onClick={() => requestSettings("uploads")}
-              >
-                Open Settings
-              </button>
-            ) : null}
             {result.reason === "file_changed" ? (
-              <button type="button" className={primaryClass} onClick={() => setResult(null)}>
+              <button type="button" className={primary} onClick={() => setResult(null)}>
                 Check the new version
               </button>
-            ) : result.reason !== "no_file" ? (
+            ) : result.reason !== "no_file" && result.reason !== "refused" ? (
               uploadButton("Try again")
             ) : null}
           </div>
+          {result.reason === "refused" ? <ImportByHand fileName={file.fileName} open /> : null}
         </>
       );
     }
     if (result?.status === "checking" || sent?.moderation === "checking") {
       return (
         <>
-          <p className="text-xs">
+          <p className="text-xs leading-relaxed">
             Roblox is still checking it. It stays out of your place until Roblox approves it.
           </p>
           <div className="flex flex-wrap gap-1.5">{uploadButton("Check again")}</div>
@@ -243,25 +229,56 @@ export function ModelCard({ url }: { url: string }) {
     if (result?.status === "not_added" || sent?.moderation === "approved") {
       return (
         <>
-          <p className="text-xs">
+          <p className="text-xs leading-relaxed">
             {result
               ? "Roblox approved it, but Studio couldn't add it."
-              : "Already on your Roblox account."}{" "}
+              : "Already on Roblox, so there's nothing to upload."}{" "}
             Asset {assetId}.
           </p>
           <div className="flex flex-wrap gap-1.5">{uploadButton("Add it to your place")}</div>
         </>
       );
     }
-    if (!uploadsOn) return <HandSteps fileName={file.fileName} />;
+    if (accessState === "needs_permission") {
+      return (
+        <>
+          <p className="text-xs font-medium">Turn on uploads in Studio</p>
+          <UploadSetup folder={file.folder} />
+          <output className="block text-xs text-muted-foreground">
+            This moves on by itself once they're on.
+          </output>
+          <ImportByHand fileName={file.fileName} />
+        </>
+      );
+    }
+    if (accessState !== "ready") {
+      return (
+        <>
+          {accessState === "reopen_studio" ? (
+            <p className="text-xs leading-relaxed">
+              Close and reopen this place in Studio to upload with one click. It was open before
+              Roblox's latest update.
+            </p>
+          ) : accessState === "not_published" ? (
+            <p className="text-xs leading-relaxed">
+              Publish this place to upload with one click. Until then, import it yourself.
+            </p>
+          ) : null}
+          <ImportByHand fileName={file.fileName} open />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Importing uploads it too, and Roblox holds you responsible for it. Check it first.
+          </p>
+        </>
+      );
+    }
     if (declined) {
       return (
         <>
-          <p className="text-xs">
+          <p className="text-xs leading-relaxed">
             Not uploaded. Nothing went to Roblox, and the file stays in its folder.
           </p>
           <div className="flex flex-wrap gap-1.5">
-            <button type="button" className={buttonClass} onClick={() => setDeclined(false)}>
+            <button type="button" className={secondary} onClick={() => setDeclined(false)}>
               Upload after all
             </button>
           </div>
@@ -270,13 +287,10 @@ export function ModelCard({ url }: { url: string }) {
     }
     return (
       <>
-        <p className="text-xs">{RESPONSIBLE}</p>
-        {start ? null : (
-          <p className="text-xs text-muted-foreground">Open your place in Studio to upload this.</p>
-        )}
+        <p className="text-xs leading-relaxed text-muted-foreground">{RESPONSIBLE}</p>
         <div className="flex flex-wrap gap-1.5">
           {uploadButton("Upload to Roblox")}
-          <button type="button" className={buttonClass} onClick={() => setDeclined(true)}>
+          <button type="button" className={secondary} onClick={() => setDeclined(true)}>
             Don't upload
           </button>
         </div>
@@ -306,12 +320,11 @@ export function ModelCard({ url }: { url: string }) {
         )}
       </div>
       <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-2">
-        <h3 className="text-sm font-medium">{file.name}</h3>
-        <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
-          <span className="break-all">
+        <div>
+          <h3 className="text-sm font-medium">{file.name}</h3>
+          <p className="break-all text-xs text-muted-foreground">
             {file.fileName}, {Math.max(1, Math.round(file.sizeBytes / 1024))} KB
-          </span>
-          <CopyPath path={file.path} />
+          </p>
         </div>
         {body()}
       </div>

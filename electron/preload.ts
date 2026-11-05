@@ -35,10 +35,7 @@ const api: DesktopApi = {
   cancelBlenderTools: () => ipcRenderer.invoke(channels.cancelBlenderTools),
   openBlender: () => ipcRenderer.invoke(channels.openBlender),
   removeBlenderTools: () => ipcRenderer.invoke(channels.removeBlenderTools),
-  getRobloxUploadState: () => ipcRenderer.invoke(channels.getRobloxUploadState),
-  checkRobloxKey: (key, studioKey) => ipcRenderer.invoke(channels.checkRobloxKey, key, studioKey),
-  saveRobloxKey: (key) => ipcRenderer.invoke(channels.saveRobloxKey, key),
-  forgetRobloxKey: () => ipcRenderer.invoke(channels.forgetRobloxKey),
+  getUploadAccess: (studioKey) => ipcRenderer.invoke(channels.getUploadAccess, studioKey),
   readModelFile: (url) => ipcRenderer.invoke(channels.readModelFile, url),
   uploadModelToPlace: (url, studioKey, hash) =>
     ipcRenderer.invoke(channels.uploadModelToPlace, url, studioKey, hash),
