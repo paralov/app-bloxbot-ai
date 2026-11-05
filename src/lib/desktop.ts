@@ -79,7 +79,10 @@ interface DesktopEffects {
   readonly cancelBlenderTools: Effect.Effect<void, DesktopError>;
   readonly openBlender: Effect.Effect<void, DesktopError>;
   readonly removeBlenderTools: Effect.Effect<void, DesktopError>;
-  readonly getUploadAccess: (studioKey: string | null) => Effect.Effect<UploadAccess, DesktopError>;
+  readonly getUploadAccess: (
+    studioKey: string | null,
+    modelUrl: string | null,
+  ) => Effect.Effect<UploadAccess, DesktopError>;
   readonly readModelFile: (url: string) => Effect.Effect<ModelFileInfo | null, DesktopError>;
   readonly uploadModelToPlace: (
     url: string,
@@ -163,7 +166,14 @@ const browserEffects: DesktopEffects = {
     new DesktopError({ message: "Blender can only be opened from the desktop app." }),
   ),
   removeBlenderTools: Effect.void,
-  getUploadAccess: () => Effect.succeed({ state: "no_studio", modelsFolder: "" }),
+  getUploadAccess: () =>
+    Effect.succeed({
+      state: "no_studio",
+      readOn: false,
+      writeOn: false,
+      folder: "",
+      folderUrl: "",
+    }),
   readModelFile: () => Effect.succeed(null),
   uploadModelToPlace: () => Effect.succeed({ status: "needs_setup", access: "no_studio" }),
   discoverStudioTargets: Effect.fail(
@@ -247,8 +257,8 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     cancelBlenderTools: invoke("Failed to stop setting up Blender", () => api.cancelBlenderTools()),
     openBlender: invoke("Failed to open Blender", () => api.openBlender()),
     removeBlenderTools: invoke("Failed to remove Blender", () => api.removeBlenderTools()),
-    getUploadAccess: (studioKey) =>
-      invoke("Failed to check uploads", () => api.getUploadAccess(studioKey)),
+    getUploadAccess: (studioKey, modelUrl) =>
+      invoke("Failed to check uploads", () => api.getUploadAccess(studioKey, modelUrl)),
     readModelFile: (url) => invoke("Failed to read the model", () => api.readModelFile(url)),
     uploadModelToPlace: (url, studioKey, hash) =>
       invoke("Failed to upload the model", () => api.uploadModelToPlace(url, studioKey, hash)),
@@ -305,7 +315,8 @@ export const desktop: DesktopApi = {
   cancelBlenderTools: () => runPromise(desktopEffects.cancelBlenderTools),
   openBlender: () => runPromise(desktopEffects.openBlender),
   removeBlenderTools: () => runPromise(desktopEffects.removeBlenderTools),
-  getUploadAccess: (studioKey) => runPromise(desktopEffects.getUploadAccess(studioKey)),
+  getUploadAccess: (studioKey, modelUrl) =>
+    runPromise(desktopEffects.getUploadAccess(studioKey, modelUrl)),
   readModelFile: (url) => runPromise(desktopEffects.readModelFile(url)),
   uploadModelToPlace: (url, studioKey, hash) =>
     runPromise(desktopEffects.uploadModelToPlace(url, studioKey, hash)),

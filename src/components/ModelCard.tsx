@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import posthog from "posthog-js/dist/module.full.no-external.js";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { UploadSetup } from "@/components/UploadSetup";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { UploadChecklist } from "@/components/UploadChecklist";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
+import { useUploadAccess } from "@/hooks/useUploadAccess";
 import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
@@ -61,6 +62,8 @@ export function ModelCard({ url }: { url: string }) {
   const [result, setResult] = useState<ModelUploadResult | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
   const failPreview = useCallback(() => setPreviewFailed(true), []);
+  // The fix has to reach the place this went to, even if someone has since chosen another.
+  const uploadedTo = useRef<string | null>(null);
 
   const { data: file } = useQuery({
     queryKey: qk.modelFile(url),
@@ -68,14 +71,7 @@ export function ModelCard({ url }: { url: string }) {
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 0,
   });
-  const { data: access } = useQuery({
-    queryKey: qk.uploadAccess(studioKey),
-    queryFn: () => desktop.getUploadAccess(studioKey),
-    enabled: !!file && !!studioKey,
-    // Only Studio can change these, so the card moves on by itself once someone has.
-    refetchInterval: (query) => (query.state.data?.state === "ready" ? false : 4_000),
-    refetchOnWindowFocus: true,
-  });
+  const { data: access } = useUploadAccess(studioKey, url, !!file && !!studioKey);
   const accessState = studioKey ? access?.state : "no_studio";
 
   useEffect(
@@ -87,11 +83,12 @@ export function ModelCard({ url }: { url: string }) {
   );
 
   const refreshAccess = () =>
-    queryClient.invalidateQueries({ queryKey: qk.uploadAccess(studioKey) });
+    queryClient.invalidateQueries({ queryKey: qk.uploadAccess(studioKey, url) });
 
   const upload = useMutation<ModelUploadResult, Error, string>({
     mutationFn: (key) => desktop.uploadModelToPlace(url, key, file?.hash ?? ""),
     onMutate: () => {
+      uploadedTo.current = studio?.promptReference ?? null;
       setResult(null);
       setStep("uploading");
       posthog.capture("model_upload_started", analyticsProperties("model_card"));
@@ -162,7 +159,7 @@ export function ModelCard({ url }: { url: string }) {
                   posthog.capture("model_fix_requested", analyticsProperties("model_card"));
                   sendMessage.mutate({
                     text: `I just added ${file.name} to this place at ${result.path}, as asset ${result.assetId}, from ${file.path}. Follow steps 5 to 7 of the rbx-import-asset skill: compare it with the source file, then fix its scale, rotation, textures, colours, anchoring and placement. It's already uploaded, so don't upload the model again.`,
-                    studioTargetReference: studio?.promptReference ?? null,
+                    studioTargetReference: uploadedTo.current,
                   });
                 }}
               >
@@ -186,13 +183,13 @@ export function ModelCard({ url }: { url: string }) {
         </>
       );
     }
-    if (result?.status === "needs_folder") {
+    if (result?.status === "needs_folder" && access) {
       return (
         <>
           <p role="alert" className="text-xs">
             Nothing was uploaded, because Studio hasn't approved this file's folder.
           </p>
-          <UploadSetup folder={result.folder} onlyFolder />
+          <UploadChecklist access={access} folderRefused />
           <div className="flex flex-wrap gap-1.5">{uploadButton("Try again")}</div>
         </>
       );
@@ -239,14 +236,11 @@ export function ModelCard({ url }: { url: string }) {
         </>
       );
     }
-    if (accessState === "needs_permission") {
+    if (access && accessState !== "ready" && studioKey) {
       return (
         <>
-          <p className="text-xs font-medium">Turn on uploads in Studio</p>
-          <UploadSetup folder={file.folder} />
-          <output className="block text-xs text-muted-foreground">
-            This moves on by itself once they're on.
-          </output>
+          <p className="text-xs font-medium">Turn on one-click uploads</p>
+          <UploadChecklist access={access} />
           <ImportByHand fileName={file.fileName} />
         </>
       );
@@ -254,16 +248,6 @@ export function ModelCard({ url }: { url: string }) {
     if (accessState !== "ready") {
       return (
         <>
-          {accessState === "reopen_studio" ? (
-            <p className="text-xs leading-relaxed">
-              Close and reopen this place in Studio to upload with one click. It was open before
-              Roblox's latest update.
-            </p>
-          ) : accessState === "not_published" ? (
-            <p className="text-xs leading-relaxed">
-              Publish this place to upload with one click. Until then, import it yourself.
-            </p>
-          ) : null}
           <ImportByHand fileName={file.fileName} open />
           <p className="text-xs leading-relaxed text-muted-foreground">
             Importing uploads it too, and Roblox holds you responsible for it. Check it first.

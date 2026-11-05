@@ -188,8 +188,8 @@ export interface DesktopApi {
   openBlender(): Promise<void>;
   removeBlenderTools(): Promise<void>;
   onBlenderSetupProgress(listener: (progress: BlenderSetupProgress) => void): () => void;
-  /** Whether this Studio can upload. Runs no script, so it can be asked in the background. */
-  getUploadAccess(studioKey: string | null): Promise<UploadAccess>;
+  /** What this Studio can do about uploads. Runs no script, so it can be asked in the background. */
+  getUploadAccess(studioKey: string | null, modelUrl: string | null): Promise<UploadAccess>;
   /** Null when the link isn't a model file BloxBot can read. */
   readModelFile(url: string): Promise<ModelFileInfo | null>;
   /** `hash` is the file the person looked at, and nothing else gets sent. */
@@ -209,12 +209,17 @@ export type UploadAccessState =
   /** Permissions are per game, so a place that isn't published can't have any. */
   | "not_published"
   | "needs_permission"
+  /** Studio only uploads from folders someone has approved. */
+  | "needs_folder"
   | "ready";
 
 export interface UploadAccess {
   state: UploadAccessState;
-  /** Where the AI exports models, and so the folder to approve in Studio. */
-  modelsFolder: string;
+  readOn: boolean;
+  writeOn: boolean;
+  /** The folder to approve in Studio: where this model is, or where the AI exports models. */
+  folder: string;
+  folderUrl: string;
 }
 
 export interface ModelFileInfo {

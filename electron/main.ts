@@ -2,6 +2,7 @@ import { mkdir, rename, readFile, rm, writeFile } from "node:fs/promises";
 import { isOpenableUrl } from "./openableUrl";
 import {
   getUploadAccess,
+  modelFolder,
   readModelFile,
   readSentModel,
   sendModelToPlace,
@@ -17,7 +18,7 @@ import {
 } from "./services/BlenderTools";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { app, BrowserWindow, ipcMain, Menu, net, Notification, shell } from "electron";
 import { autoUpdater } from "electron-updater";
@@ -516,13 +517,14 @@ const registerIpcHandlers = Effect.sync(() => {
   );
   const sentModels = () => sentModelsFile(app.getPath("userData"));
   const uploadsInFlight = new Map<string, Promise<ModelUploadResult>>();
-  ipcMain.handle(channels.getUploadAccess, async (_event, studioKey: unknown) => {
+  ipcMain.handle(channels.getUploadAccess, async (_event, studioKey: unknown, modelUrl: unknown) => {
     const modelsFolder = join(app.getPath("home"), "BloxBot", "Models");
     await mkdir(modelsFolder, { recursive: true }).catch(() => {});
-    const state = await queryStudio((callTool) =>
-      getUploadAccess(callTool, typeof studioKey === "string" ? studioKey : null),
-    ).catch(() => "no_studio" as const);
-    return { state, modelsFolder };
+    const folder = (typeof modelUrl === "string" ? modelFolder(modelUrl) : null) ?? modelsFolder;
+    const details = await queryStudio((callTool) =>
+      getUploadAccess(callTool, typeof studioKey === "string" ? studioKey : null, folder),
+    ).catch(() => ({ state: "no_studio" as const, readOn: false, writeOn: false }));
+    return { ...details, folder, folderUrl: pathToFileURL(folder).href };
   });
   ipcMain.handle(channels.readModelFile, async (_event, url: unknown) => {
     const file = await readModelFile(await Schema.decodeUnknownPromise(Schema.String)(url));

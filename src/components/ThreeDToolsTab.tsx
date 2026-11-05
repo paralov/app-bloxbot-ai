@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Box, type LucideIcon, Upload } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { UploadSetup } from "@/components/UploadSetup";
+import { UploadChecklist } from "@/components/UploadChecklist";
+import { useUploadAccess } from "@/hooks/useUploadAccess";
 import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { notify } from "@/lib/notifications";
@@ -261,51 +262,27 @@ function BlenderRow() {
   );
 }
 
-const UPLOAD_STATES = {
-  ready: {
-    pill: "On",
-    text: "Upload appears on each model a reply links to. You choose what's allowed in Studio's MCP Permissions, with no key to make.",
-  },
-  needs_permission: {
-    pill: "Off",
-    text: "Add models to your place with one click, after you check each one. Studio handles the sign-in, so there's no key to make.",
-  },
-  reopen_studio: {
-    pill: "Reopen Studio",
-    text: "Close and reopen your place in Studio to turn this on. It was open before Roblox's latest update.",
-  },
-  not_published: {
-    pill: "Publish first",
-    text: "Studio saves these permissions per game, so publish your place to turn this on. Until then, import models through Studio.",
-  },
-  no_studio: {
-    pill: "Open a place",
-    text: "Open your place in Studio to see whether uploads are on. Until then, import models through Studio.",
-  },
-} as const;
-
 function UploadsRow() {
   const studioKey = useStudioTargetOptional()?.selected?.key ?? null;
-  const { data: access } = useQuery({
-    queryKey: qk.uploadAccess(studioKey),
-    queryFn: () => desktop.getUploadAccess(studioKey),
-    // Only Studio can change this, so the row follows along while someone's over there.
-    refetchInterval: 4_000,
-  });
+  const { data: access } = useUploadAccess(studioKey, null);
   if (!access) return null;
-  const { pill, text } = UPLOAD_STATES[access.state];
+  const ready = access.state === "ready";
   return (
     <ToolRow
       icon={Upload}
       name="Upload to Roblox"
-      state={<StatePill on={access.state === "ready"}>{pill}</StatePill>}
+      state={<StatePill on={ready}>{ready ? "On" : "Off"}</StatePill>}
     >
-      <p>{text}</p>
-      {access.state === "needs_permission" ? (
-        <div className="pt-2 text-foreground">
-          <UploadSetup folder={access.modelsFolder} />
+      <p>
+        {ready
+          ? "Upload appears on each model a reply links to. You choose what's allowed in Studio's MCP Permissions."
+          : "Add models to your place with one click, after you check each one. Studio handles the sign-in, so there's no key to make."}
+      </p>
+      {ready ? null : (
+        <div className="pt-2">
+          <UploadChecklist access={access} />
         </div>
-      ) : null}
+      )}
     </ToolRow>
   );
 }

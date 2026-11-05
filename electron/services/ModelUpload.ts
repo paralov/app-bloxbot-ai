@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -129,40 +129,105 @@ async function callOpenCloud(
 const isPublished = (target: StudioTarget) =>
   !!target.placeId || /\(placeId:\s*[1-9]\d*\)\s*$/.test(target.label);
 
+export interface UploadAccessDetails {
+  state: UploadAccessState;
+  readOn: boolean;
+  writeOn: boolean;
+}
+
+/** Whether Studio will give a token for this scope. It says no before anything is sent. */
+async function scopeIsOn(
+  callTool: CallStudioTool,
+  studioId: string,
+  scope: string,
+): Promise<boolean> {
+  try {
+    await callOpenCloud(callTool, studioId, {
+      method: "GET",
+      endpoint: "/assets/v1/assets/1",
+      scopes: [scope],
+    });
+  } catch (error) {
+    if (error instanceof OpenCloudError) {
+      if (error.reason === "needs_permission") return false;
+      if (error.reason === "reopen_studio" || error.reason === "studio_error") throw error;
+    }
+  }
+  return true;
+}
+
 /**
- * Safe to run in the background. It runs no script, which would clear Studio's redo history. Asking
- * for the scopes fails before anything is sent if one is off, and this ID is never read for anything.
+ * Roblox has no way to ask which folders are approved, but Studio refuses a file from anywhere else.
+ * So this offers a tiny blank file to an address that doesn't exist. Nothing can be created, and the
+ * file is deleted again. When it can't tell, it says yes and lets the real upload report the problem.
+ */
+async function folderIsApproved(
+  callTool: CallStudioTool,
+  studioId: string,
+  folder: string,
+): Promise<boolean> {
+  const probe = join(folder, `.bloxbot-folder-check-${randomUUID()}.glb`);
+  try {
+    await writeFile(probe, "glTF");
+  } catch {
+    return true;
+  }
+  try {
+    await callOpenCloud(callTool, studioId, {
+      method: "POST",
+      endpoint: "/assets/v1/bloxbot-folder-check",
+      body: "{}",
+      files: [{ name: "fileContent", path: probe }],
+      scopes: ["asset:write"],
+    });
+    return true;
+  } catch (error) {
+    return !(error instanceof OpenCloudError && error.reason === "needs_folder");
+  } finally {
+    await rm(probe, { force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Safe to run in the background. It runs no script, which would clear Studio's redo history, and
+ * each scope is asked for alone, because Studio stops at the first one that's off.
  */
 export async function getUploadAccess(
   callTool: CallStudioTool,
   studioKey: string | null,
-): Promise<UploadAccessState> {
+  folder: string,
+): Promise<UploadAccessDetails> {
+  const none = (state: UploadAccessState): UploadAccessDetails => ({
+    state,
+    readOn: false,
+    writeOn: false,
+  });
   let targets: readonly StudioTarget[];
   try {
     targets = (await discoverStudioTargets(callTool)).targets;
   } catch {
-    return "no_studio";
+    return none("no_studio");
   }
   const target = studioKey
     ? targets.find((candidate) => candidate.key === studioKey)
     : targets.length === 1
       ? targets[0]
       : undefined;
-  if (!target) return "no_studio";
-  if (!isPublished(target)) return "not_published";
+  if (!target) return none("no_studio");
+  if (!isPublished(target)) return none("not_published");
   try {
-    await callOpenCloud(callTool, target.key, {
-      method: "GET",
-      endpoint: "/assets/v1/assets/1",
-      scopes: UPLOAD_SCOPES,
-    });
+    const readOn = await scopeIsOn(callTool, target.key, "asset:read");
+    const writeOn = await scopeIsOn(callTool, target.key, "asset:write");
+    if (!readOn || !writeOn) return { state: "needs_permission", readOn, writeOn };
+    const approved = await folderIsApproved(callTool, target.key, folder);
+    return { state: approved ? "ready" : "needs_folder", readOn, writeOn };
   } catch (error) {
-    if (error instanceof OpenCloudError) {
-      if (error.reason === "reopen_studio" || error.reason === "needs_permission") return error.reason;
-      if (error.reason === "studio_error") return "no_studio";
-    }
+    return none(
+      error instanceof OpenCloudError && error.reason === "reopen_studio"
+        ? "reopen_studio"
+        : "no_studio",
+    );
   }
-  return "ready";
 }
 
 /** Who a new asset belongs to, which Roblox says must be the game's owner. Only runs after a click. */
@@ -201,6 +266,18 @@ export function modelDisplayName(fileName: string): string {
     .slice(0, MAX_NAME_LENGTH)
     .trim();
   return name || "Model";
+}
+
+/** The folder a linked model is in, so its file doesn't have to be read every time this is asked. */
+export function modelFolder(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "file:" || !isOpenableUrl(parsed)) return null;
+    const path = fileURLToPath(parsed);
+    return MODEL_EXTENSIONS.has(extname(path).toLowerCase()) ? dirname(path) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Reads a model a reply linked to. Null for anything else, so a link can't reach other files. */

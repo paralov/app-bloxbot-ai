@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -8,6 +8,7 @@ import {
   getUploadAccess,
   MAX_MODEL_BYTES,
   modelDisplayName,
+  modelFolder,
   moderationOf,
   openCloudFailure,
   openCloudResponse,
@@ -94,45 +95,89 @@ beforeEach(async () => {
 });
 afterEach(() => rm(dir, { recursive: true, force: true }));
 
-describe("whether this place can upload", () => {
-  it("is ready once Studio can get a token, and runs no script", async () => {
-    const { callTool, calls } = studio();
-    expect(await getUploadAccess(callTool, STUDIO)).toBe("ready");
+describe("what this place can do", () => {
+  const access = (callTool: CallStudioTool, key: string | null = STUDIO) =>
+    getUploadAccess(callTool, key, dir);
+  const off = (scope: string) =>
+    error(
+      `Could not acquire an Open Cloud access token: Scope '${scope}' has not been granted. Ask the creator to grant the required scope in the Assistant MCP Permissions settings, then retry.`,
+    );
+  const scopeGate = (offScopes: string[], folderApproved = true) => ({
+    invoke: (args: ToolArgs) => {
+      const missing = (args.scopes as string[]).find((scope) => offScopes.includes(scope));
+      if (missing) return off(missing);
+      if (args.files && !folderApproved) return error("File not in an approved upload directory");
+      return text({ status: 404, body: "{}" });
+    },
+  });
+
+  it("is ready when everything's on, and runs no script", async () => {
+    const { callTool, calls, uploads } = studio(scopeGate([]));
+    expect(await access(callTool)).toEqual({ state: "ready", readOn: true, writeOn: true });
     expect(calls.some((c) => c.name === "execute_luau")).toBe(false);
-    expect(calls.at(-1)?.args).toMatchObject({
-      studio_id: STUDIO,
-      method: "GET",
-      scopes: ["asset:read", "asset:write"],
+    // Only the folder check posts, to an address that can't create anything.
+    expect(uploads().map((c) => c.args.endpoint)).toEqual(["/assets/v1/bloxbot-folder-check"]);
+  });
+
+  it("tells each permission apart, since Studio stops at the first one that's off", async () => {
+    expect(await access(studio(scopeGate(["asset:read", "asset:write"])).callTool)).toEqual({
+      state: "needs_permission",
+      readOn: false,
+      writeOn: false,
+    });
+    expect(await access(studio(scopeGate(["asset:read"])).callTool)).toEqual({
+      state: "needs_permission",
+      readOn: false,
+      writeOn: true,
+    });
+    expect(await access(studio(scopeGate(["asset:write"])).callTool)).toEqual({
+      state: "needs_permission",
+      readOn: true,
+      writeOn: false,
     });
   });
 
-  it("counts a probe Roblox answers with an error as ready, because the token came through", async () => {
-    const { callTool } = studio({ invoke: () => text({ status: 404, body: "{}" }) });
-    expect(await getUploadAccess(callTool, STUDIO)).toBe("ready");
+  it("doesn't check the folder until the scopes are on", async () => {
+    const { callTool, uploads } = studio(scopeGate(["asset:write"]));
+    await access(callTool);
+    expect(uploads()).toEqual([]);
   });
 
-  it("names a permission that's off, as Studio really words it", async () => {
-    const { callTool } = studio({ invoke: () => error(NOT_GRANTED) });
-    expect(await getUploadAccess(callTool, STUDIO)).toBe("needs_permission");
+  it("finds an unapproved folder, and cleans up its check file", async () => {
+    const { callTool, uploads } = studio(scopeGate([], false));
+    expect(await access(callTool)).toEqual({
+      state: "needs_folder",
+      readOn: true,
+      writeOn: true,
+    });
+    const path = String((uploads()[0]?.args.files as { path: string }[])[0]?.path);
+    expect(dirname(path)).toBe(dir);
+    expect(path).toMatch(/\.glb$/);
+    expect(await readdir(dir)).toEqual(["Crate.fbx"]);
+  });
+
+  it("says yes when it can't write the check file, and leaves it to the upload", async () => {
+    const { callTool } = studio(scopeGate([], false));
+    expect((await getUploadAccess(callTool, STUDIO, join(dir, "missing"))).state).toBe("ready");
   });
 
   it("asks to reopen a Studio from before Roblox's update, as it really answers", async () => {
     const { callTool } = studio({
       invoke: () => error("Tool handler not found: open_cloud_invoke"),
     });
-    expect(await getUploadAccess(callTool, STUDIO)).toBe("reopen_studio");
+    expect((await access(callTool)).state).toBe("reopen_studio");
   });
 
   it("knows a local place can't have permissions, without asking Open Cloud", async () => {
     const { callTool, calls } = studio({
       list: () => ({ studios: [{ id: STUDIO, name: "BloxBotScratch.rbxlx" }] }),
     });
-    expect(await getUploadAccess(callTool, STUDIO)).toBe("not_published");
+    expect((await access(callTool)).state).toBe("not_published");
     expect(calls.some((c) => c.name === "open_cloud_invoke")).toBe(false);
   });
 
   it("finds the only open Studio for Settings, and won't guess between several", async () => {
-    expect(await getUploadAccess(studio().callTool, null)).toBe("ready");
+    expect((await access(studio().callTool, null)).state).toBe("ready");
     const several = studio({
       list: () => ({
         studios: [
@@ -141,15 +186,22 @@ describe("whether this place can upload", () => {
         ],
       }),
     });
-    expect(await getUploadAccess(several.callTool, null)).toBe("no_studio");
-    expect(await getUploadAccess(studio().callTool, "gone")).toBe("no_studio");
+    expect((await access(several.callTool, null)).state).toBe("no_studio");
+    expect((await access(studio().callTool, "gone")).state).toBe("no_studio");
   });
 
   it("says no Studio when Studio can't be reached", async () => {
     const callTool = (async () => {
       throw new Error("not connected");
     }) as unknown as CallStudioTool;
-    expect(await getUploadAccess(callTool, STUDIO)).toBe("no_studio");
+    expect((await access(callTool)).state).toBe("no_studio");
+  });
+
+  it("finds a linked model's folder without reading it, and only for a model", () => {
+    expect(modelFolder(modelUrl)).toBe(dir);
+    expect(modelFolder(pathToFileURL(join(dir, "notes.txt")).href)).toBeNull();
+    expect(modelFolder("https://example.com/Crate.fbx")).toBeNull();
+    expect(modelFolder("file://attacker.example/share/Crate.fbx")).toBeNull();
   });
 });
 

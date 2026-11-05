@@ -13,7 +13,8 @@ export const qk = {
   config: ["config"] as const,
   instructions: ["instructions"] as const,
   studioConnection: ["studio-connection"] as const,
-  uploadAccess: (studioKey: string | null) => ["uploadAccess", studioKey] as const,
+  uploadAccess: (studioKey: string | null, modelUrl: string | null) =>
+    ["uploadAccess", studioKey, modelUrl] as const,
   modelFile: (url: string) => ["modelFile", url] as const,
   blenderTools: ["blender-tools"] as const,
   studioMcpStatus: ["studio-mcp-status"] as const,

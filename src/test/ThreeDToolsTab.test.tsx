@@ -19,7 +19,13 @@ vi.mock("@/lib/desktop", () => ({
     cancelBlenderTools: mocks.cancel,
     openBlender: mocks.open,
     removeBlenderTools: mocks.remove,
-    getUploadAccess: async () => ({ state: "no_studio", modelsFolder: "/home/BloxBot/Models" }),
+    getUploadAccess: async () => ({
+      state: "no_studio",
+      readOn: false,
+      writeOn: false,
+      folder: "/home/BloxBot/Models",
+      folderUrl: "file:///home/BloxBot/Models",
+    }),
     onBlenderSetupProgress: (listener: (progress: unknown) => void) => {
       mocks.listener = listener;
       return () => {};

@@ -35,7 +35,8 @@ const api: DesktopApi = {
   cancelBlenderTools: () => ipcRenderer.invoke(channels.cancelBlenderTools),
   openBlender: () => ipcRenderer.invoke(channels.openBlender),
   removeBlenderTools: () => ipcRenderer.invoke(channels.removeBlenderTools),
-  getUploadAccess: (studioKey) => ipcRenderer.invoke(channels.getUploadAccess, studioKey),
+  getUploadAccess: (studioKey, modelUrl) =>
+    ipcRenderer.invoke(channels.getUploadAccess, studioKey, modelUrl),
   readModelFile: (url) => ipcRenderer.invoke(channels.readModelFile, url),
   uploadModelToPlace: (url, studioKey, hash) =>
     ipcRenderer.invoke(channels.uploadModelToPlace, url, studioKey, hash),

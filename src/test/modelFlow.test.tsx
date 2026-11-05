@@ -5,9 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelCard } from "@/components/ModelCard";
 import { describePermission } from "@/components/PermissionPrompt";
 import { ThreeDToolsTab } from "@/components/ThreeDToolsTab";
+import { buildUploadSteps } from "@/components/UploadChecklist";
 import { desktop } from "@/lib/desktop";
 import { modelLinksIn } from "@/lib/modelLinks";
-import type { ModelFileInfo, ModelUploadResult, UploadAccessState } from "@/types/desktop";
+import { notify } from "@/lib/notifications";
+import type {
+  ModelFileInfo,
+  ModelUploadResult,
+  UploadAccess,
+  UploadAccessState,
+} from "@/types/desktop";
 
 vi.mock("@/components/ModelPreview", () => ({
   default: ({ name }: { name: string }) => <div>Preview of {name}</div>,
@@ -46,9 +53,17 @@ function wrap(children: ReactNode) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
+const accessOf = (state: UploadAccessState, readOn = false, writeOn = false): UploadAccess => ({
+  state,
+  readOn,
+  writeOn,
+  folder: FOLDER,
+  folderUrl: `file://${FOLDER}`,
+});
+
 function setUp(access: UploadAccessState, model: ModelFileInfo | null = file) {
   vi.spyOn(desktop, "readModelFile").mockResolvedValue(model);
-  vi.spyOn(desktop, "getUploadAccess").mockResolvedValue({ state: access, modelsFolder: FOLDER });
+  vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf(access));
   vi.spyOn(desktop, "onModelUploadStep").mockReturnValue(() => {});
 }
 
@@ -91,41 +106,99 @@ describe("before uploads can run", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("walks through Studio's permissions, using this file's folder", async () => {
+  it("shows the very next thing to click, and ticks off what's done", async () => {
     setUp("needs_permission");
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(
+      accessOf("needs_permission", true, false),
+    );
     render(wrap(<ModelCard url={URL_A} />));
-    expect(await screen.findByText("Turn on uploads in Studio")).toBeTruthy();
-    expect(screen.getByText("MCP Permissions")).toBeTruthy();
-    expect(screen.getByText("Publish & manage assets")).toBeTruthy();
-    expect(screen.getByText("asset:write")).toBeTruthy();
-    expect(screen.getByText(FOLDER)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Copy path" })).toBeTruthy();
+    expect(await screen.findByText("Turn on one-click uploads")).toBeTruthy();
+    const current = document.querySelector('[aria-current="step"]');
+    expect(current?.textContent).toContain("Allow asset:write");
+    expect(current?.textContent).toContain("Just below it");
+    expect(screen.getByText(/Allow asset:read/).textContent).toContain("(done)");
+    expect(screen.getByText(/Watching Studio/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Upload to Roblox" })).toBeNull();
+    expect(desktop.getUploadAccess).toHaveBeenCalledWith("studio-1", URL_A);
   });
 
-  it("moves on by itself once Studio's permissions are on", async () => {
-    setUp("needs_permission");
+  it("names the folder last, ready to copy or show", async () => {
+    setUp("needs_folder");
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf("needs_folder", true, true));
+    const open = vi.spyOn(desktop, "openUrl").mockResolvedValue();
     render(wrap(<ModelCard url={URL_A} />));
-    await screen.findByText("Turn on uploads in Studio");
-    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue({
-      state: "ready",
-      modelsFolder: FOLDER,
-    });
+    expect(await screen.findByText(FOLDER)).toBeTruthy();
+    expect(screen.getByText("Upload folders")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy path" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show folder" }));
+    expect(open).toHaveBeenCalledWith(`file://${FOLDER}`);
+  });
+
+  it("moves on by itself, and says so wherever someone is", async () => {
+    setUp("needs_permission");
+    const success = vi.spyOn(notify, "success").mockReturnValue("id");
+    render(wrap(<ModelCard url={URL_A} />));
+    await screen.findByText("Turn on one-click uploads");
+    expect(success).not.toHaveBeenCalled();
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf("ready", true, true));
     expect(
       await screen.findByRole("button", { name: "Upload to Roblox" }, { timeout: 6000 }),
     ).toBeTruthy();
+    expect(success).toHaveBeenCalledTimes(1);
+    expect(success.mock.calls[0]?.[1]).toMatchObject({ system: expect.anything() });
   }, 8000);
 
-  it("explains an old Studio window and an unpublished place", async () => {
+  it("doesn't announce uploads that were already on", async () => {
+    setUp("ready");
+    const success = vi.spyOn(notify, "success").mockReturnValue("id");
+    render(wrap(<ModelCard url={URL_A} />));
+    await screen.findByRole("button", { name: "Upload to Roblox" });
+    expect(success).not.toHaveBeenCalled();
+  });
+
+  it("starts from the first thing that's wrong", () => {
+    const currentOf = (access: UploadAccess) =>
+      buildUploadSteps(access).find((step) => !step.done)?.id;
+    expect(currentOf(accessOf("no_studio"))).toBe("studio");
+    expect(currentOf(accessOf("not_published"))).toBe("published");
+    expect(currentOf(accessOf("reopen_studio"))).toBe("reopen");
+    expect(currentOf(accessOf("needs_permission"))).toBe("read");
+    expect(currentOf(accessOf("needs_permission", true))).toBe("write");
+    expect(currentOf(accessOf("needs_permission", false, true))).toBe("read");
+    expect(currentOf(accessOf("needs_folder", true, true))).toBe("folder");
+    expect(currentOf(accessOf("ready", true, true))).toBeUndefined();
+    expect(buildUploadSteps(accessOf("no_studio")).some((step) => step.id === "reopen")).toBe(
+      false,
+    );
+  });
+
+  it("guides an old Studio window and an unpublished place, and always offers importing", async () => {
     setUp("reopen_studio");
     render(wrap(<ModelCard url={URL_A} />));
-    expect(await screen.findByText(/Close and reopen this place/)).toBeTruthy();
+    expect(await screen.findByText(/Close this place in Studio and open it again/)).toBeTruthy();
+    expect(screen.getByText("Import it yourself")).toBeTruthy();
     cleanup();
     setUp("not_published");
     render(wrap(<ModelCard url={URL_A} />));
-    expect(await screen.findByText(/Publish this place/)).toBeTruthy();
-    expect(screen.getByText("In Studio, open the File menu and choose Import.")).toBeTruthy();
+    expect(await screen.findByText("Publish to Roblox")).toBeTruthy();
+    expect(screen.getByText("Import it yourself")).toBeTruthy();
   });
+});
+
+describe("watching Studio", () => {
+  it("keeps watching while BloxBot's window is hidden behind Studio", async () => {
+    setUp("needs_permission");
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    render(wrap(<ModelCard url={URL_A} />));
+    await screen.findByText("Turn on one-click uploads");
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf("ready", true, true));
+    expect(
+      await screen.findByRole("button", { name: "Upload to Roblox" }, { timeout: 6000 }),
+    ).toBeTruthy();
+    hidden.mockRestore();
+    visibility.mockRestore();
+  }, 8000);
 });
 
 describe("the upload click", () => {
@@ -163,6 +236,17 @@ describe("the upload click", () => {
     expect(screen.getByText("Asked BloxBot to fix it.")).toBeTruthy();
   });
 
+  it("sends the fix to the place it uploaded to, even if another's chosen since", async () => {
+    setUp("ready");
+    await click({ status: "added", assetId: "555", path: "game.Workspace.Crate" });
+    await screen.findByText("Added to your place");
+    studio.promptReference = "another place";
+    fireEvent.click(screen.getByRole("button", { name: "Fix size and placement" }));
+    const sent = sendMessage.mock.calls[0]?.[0] as { studioTargetReference: string };
+    expect(sent.studioTargetReference).toBe("route it here");
+    studio.promptReference = "route it here";
+  });
+
   it("explains a rejection, and offers no way to resend", async () => {
     setUp("ready");
     await click({ status: "rejected", assetId: "9" });
@@ -173,11 +257,11 @@ describe("the upload click", () => {
 
   it("asks for just the folder when that's all that's missing", async () => {
     setUp("ready");
-    await click({ status: "needs_folder", folder: "/elsewhere" });
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf("ready", true, true));
+    await click({ status: "needs_folder", folder: FOLDER });
     expect(await screen.findByText(/hasn't approved this file's folder/)).toBeTruthy();
-    expect(screen.getByText("/elsewhere")).toBeTruthy();
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toContain(FOLDER);
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-    expect(screen.queryByText("Publish & manage assets")).toBeNull();
   });
 
   it("falls back to importing by hand when Roblox refuses Studio", async () => {
@@ -251,30 +335,21 @@ describe("the 3D tools page", () => {
     render(wrap(<ThreeDToolsTab />));
   };
 
-  it("has no key to make, and walks through Studio when uploads are off", async () => {
+  it("has no key to make, and shows the same live checklist as the card", async () => {
     open("needs_permission");
     expect(await screen.findByText("Off")).toBeTruthy();
     expect(screen.getByText(/no key to make/)).toBeTruthy();
-    expect(screen.getByText("Publish & manage assets")).toBeTruthy();
-    expect(screen.getByText(FOLDER)).toBeTruthy();
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toContain(
+      "Allow asset:read",
+    );
+    expect(screen.getByText(/Watching Studio/)).toBeTruthy();
     expect(screen.queryByLabelText(/API key/i)).toBeNull();
+    expect(desktop.getUploadAccess).toHaveBeenCalledWith("studio-1", null);
   });
 
   it("says when uploads are on, and hides the steps", async () => {
     open("ready");
     expect(await screen.findByText("On")).toBeTruthy();
-    expect(screen.queryByText("Publish & manage assets")).toBeNull();
-  });
-
-  it("explains each other state", async () => {
-    for (const [access, pill] of [
-      ["reopen_studio", "Reopen Studio"],
-      ["not_published", "Publish first"],
-      ["no_studio", "Open a place"],
-    ] as const) {
-      open(access);
-      expect(await screen.findByText(pill)).toBeTruthy();
-      cleanup();
-    }
+    expect(screen.queryByText(/Watching Studio/)).toBeNull();
   });
 });
