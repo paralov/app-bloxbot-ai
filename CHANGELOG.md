@@ -7,11 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-05
+
 ### Added
 
 - Set up Blender from Settings, 3D tools, with one click. It's free and stays in BloxBot's own folder, away from any Blender you already use, and the agent can then make 3D models in it. You import what it makes through Studio yourself.
-- A reply that links to an FBX or GLB model now shows it, with a preview you can turn and the steps to import it through Studio
-- One click uploads a model you've checked and adds it to your place, using Studio's own Open Cloud access, so there's no API key to make. You choose what's allowed in Studio's MCP Permissions. BloxBot won't send the same file twice, and a model stays out of your place until Roblox approves it
+- A reply that links to an FBX or GLB model now shows it, with a preview you can turn and the steps to import it through Studio.
+- One click uploads a model you've checked and adds it to your place, using Studio's own Open Cloud access, so there's no API key to make. You choose what's allowed in Studio's MCP Permissions. BloxBot won't send the same file twice, and a model stays out of your place until Roblox approves it.
 
 ### Removed
 
@@ -19,7 +21,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
-- BloxBot asks before Studio's `upload_image` and `open_cloud_invoke` tools act on your Roblox account, because Roblox holds you responsible for what they do
+- BloxBot asks before Studio's `upload_image` and `open_cloud_invoke` tools act on your Roblox account, because Roblox holds you responsible for what they do.
 - BloxBot works without Studio, for things like small websites. Skip setup the first time, or choose Work without Studio in any chat.
 - A chat is tied to a place once the agent has used it. If that place closes while another is open, BloxBot asks before going on, so the agent can't change the wrong one. It picks the place back up when it reopens, and commands like `/new` and `/model` always run.
 - A Studio with the same name as a chat's unpublished place is offered with one click rather than taken, since every new template is a Baseplate.
@@ -30,7 +32,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- On Windows, replacing a broken copy of BloxBot's engine waits for antivirus to let go of it, instead of failing with EPERM
+- On Windows, replacing a broken copy of BloxBot's engine waits for antivirus to let go of it, instead of failing with EPERM.
 - Windows: BloxBot now reads OpenCode's port from its output, for machines stuck at startup on "OpenCode did not open a listening port".
 - Slow connections can finish downloading OpenCode. A download now stops only after 60 seconds with no data, and carries on from where it stopped, even after a restart.
 - BloxBot opens straight away when a working engine is installed, and any newer version downloads in the background for next launch.
@@ -384,7 +386,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.7...v0.14.0
 [0.13.7]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.5...v0.13.6
