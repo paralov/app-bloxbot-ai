@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getUploadAccess,
   isNetworkPath,
+  localTarget,
   MAX_MODEL_BYTES,
   modelDisplayName,
   modelFolder,
@@ -366,6 +367,12 @@ describe("reading a model", () => {
     ]) {
       expect(isNetworkPath(local)).toBe(false);
     }
+  });
+
+  it("won't read from a drive letter Windows maps to a network share", async () => {
+    const mapped = async () => new Set(["Z"]);
+    expect(await localTarget("Z:\\Models\\Crate.fbx", mapped)).toBeNull();
+    expect(await localTarget("z:/Models/Crate.fbx", mapped)).toBeNull();
   });
 
   it.runIf(canLink)("reads a model through a link to a file on this computer", async () => {

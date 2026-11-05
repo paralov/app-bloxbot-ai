@@ -1,4 +1,5 @@
 import { mkdir, rename, readFile, rm, writeFile } from "node:fs/promises";
+import { networkDriveLetters, onNetworkDrive } from "./networkDrives";
 import { isOpenableUrl } from "./openableUrl";
 import {
   getUploadAccess,
@@ -189,8 +190,16 @@ function parseExternalUrl(rawUrl: string) {
 function openLink(url: URL) {
   return Effect.tryPromise({
     try: async () => {
-      if (url.protocol === "file:") shell.showItemInFolder(fileURLToPath(url));
-      else await shell.openExternal(url.href);
+      if (url.protocol === "file:") {
+        const path = fileURLToPath(url);
+        // Showing it opens Explorer on the share, which sends the person's sign-in there.
+        if (onNetworkDrive(path, await networkDriveLetters())) {
+          throw new Error("Files on network drives can't be opened from a link");
+        }
+        shell.showItemInFolder(path);
+        return;
+      }
+      await shell.openExternal(url.href);
     },
     catch: (cause) => new DesktopMainError({ message: "Failed to open URL", cause }),
   });
