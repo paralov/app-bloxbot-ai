@@ -133,11 +133,16 @@ describe("finding models in a reply", () => {
           "file:///a/Tilde.glb",
           "~~~",
           "Also file:///a/Bare.glb",
+          "",
+          "    file:///a/Indented.fbx",
+          "",
+          "- Exported:",
+          "    - [Nested](file:///a/Nested.glb)",
           "```",
           "file:///a/Unclosed.fbx",
         ].join("\n"),
       ),
-    ).toEqual(["file:///a/Crate.fbx", "file:///a/Bare.glb"]);
+    ).toEqual(["file:///a/Crate.fbx", "file:///a/Bare.glb", "file:///a/Nested.glb"]);
   });
 
   it("finds paths with brackets in them, without taking a link's closing bracket", () => {

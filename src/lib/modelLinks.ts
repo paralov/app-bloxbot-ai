@@ -1,10 +1,28 @@
+import { fromMarkdown } from "mdast-util-from-markdown";
+
 // A path can hold balanced brackets, like Crate (1), but a link's closing bracket isn't part of it.
 const MODEL_LINK = /file:\/\/(?:[^\s()\]>"'`]|\([^\s()\]>"'`]*\))+\.(?:fbx|glb)\b/gi;
-/** A fenced block, to its closing fence or the end of the reply, or a run of inline code. */
-const CODE =
-  /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[`~]*[ \t]*$|(?![\s\S]))|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\2(?!`)/gm;
 
-/** The model files a reply links to, each once and in order. A path shown as code isn't a link. */
+interface MarkdownNode {
+  type: string;
+  value?: string;
+  url?: string;
+  children?: MarkdownNode[];
+}
+
+/**
+ * The model files a reply links to, each once and in order. The reply is read the way the chat
+ * shows it, so a path in any kind of code (fenced, indented or inline) or in raw HTML isn't a link.
+ */
 export function modelLinksIn(text: string): string[] {
-  return [...new Set(text.replace(CODE, " ").match(MODEL_LINK) ?? [])];
+  const found: string[] = [];
+  const visit = (node: MarkdownNode) => {
+    if (node.type === "code" || node.type === "inlineCode" || node.type === "html") return;
+    if (node.type === "text" && node.value) found.push(...(node.value.match(MODEL_LINK) ?? []));
+    // A link's label comes before its target in the reply.
+    node.children?.forEach(visit);
+    if (node.type === "link" && node.url) found.push(...(node.url.match(MODEL_LINK) ?? []));
+  };
+  visit(fromMarkdown(text) as MarkdownNode);
+  return [...new Set(found)];
 }
