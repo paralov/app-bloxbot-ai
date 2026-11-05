@@ -58,8 +58,9 @@ const failureFromStatus = (status: number): OpenCloudFailure => {
 export function openCloudFailure(text: string): OpenCloudFailure {
   if (/Tool handler not found|unknown tool/i.test(text)) return "reopen_studio";
   if (/has not been granted/i.test(text)) return "needs_permission";
-  if (/approved upload|upload director/i.test(text)) return "needs_folder";
-  const status = /\b([45]\d\d)\b/.exec(text)?.[1];
+  if (/approved for uploads|approved upload|upload director/i.test(text)) return "needs_folder";
+  // Roblox's answers read "GET https://... -> 404 Not Found", and a URL can have any number in it.
+  const status = /->\s*(\d{3})\b/.exec(text)?.[1] ?? /\b([45]\d\d)\b/.exec(text)?.[1];
   return status ? failureFromStatus(Number(status)) : "studio_error";
 }
 
@@ -68,7 +69,7 @@ const httpStatus = (value: unknown) => {
   return Number.isInteger(status) && status >= 100 && status < 600 ? status : null;
 };
 
-/** The tool says it returns a status and a body, so this takes either a wrapper or the body alone. */
+/** Roblox's answers read "GET https://... -> 200 OK", then the body. This also takes a wrapper, in case that changes. */
 export function openCloudResponse(result: Parameters<typeof mcpData>[0]): {
   status: number;
   body: any;
@@ -77,6 +78,7 @@ export function openCloudResponse(result: Parameters<typeof mcpData>[0]): {
   const text = (result.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join(" ");
   const status =
     httpStatus(data?.status ?? data?.statusCode ?? data?.status_code) ??
+    httpStatus(/->\s*(\d{3})\b/.exec(text)?.[1]) ??
     httpStatus(/\b(?:status(?:\s*code)?|HTTP)\D{0,5}(\d{3})\b/i.exec(text)?.[1]) ??
     200;
   let body = data?.body ?? data?.responseBody ?? data?.response_body ?? data;
@@ -214,6 +216,8 @@ export async function getUploadAccess(
       ? targets[0]
       : undefined;
   if (!target) return none("no_studio");
+  // A place that's still loading has no name yet, which says nothing about whether it's published.
+  if (target.label === target.key) return none("no_studio");
   if (!isPublished(target)) return none("not_published");
   try {
     const readOn = await scopeIsOn(callTool, target.key, "asset:read");

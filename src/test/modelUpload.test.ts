@@ -106,7 +106,9 @@ describe("what this place can do", () => {
     invoke: (args: ToolArgs) => {
       const missing = (args.scopes as string[]).find((scope) => offScopes.includes(scope));
       if (missing) return off(missing);
-      if (args.files && !folderApproved) return error("File not in an approved upload directory");
+      if (args.files && !folderApproved) {
+        return error("/tmp/check.glb is not inside a directory approved for uploads.");
+      }
       return text({ status: 404, body: "{}" });
     },
   });
@@ -168,6 +170,11 @@ describe("what this place can do", () => {
     expect((await access(callTool)).state).toBe("reopen_studio");
   });
 
+  it("doesn't call a place unpublished while it's still loading and has no name", async () => {
+    const { callTool } = studio({ list: () => ({ studios: [{ id: STUDIO, name: null }] }) });
+    expect((await access(callTool)).state).toBe("no_studio");
+  });
+
   it("knows a local place can't have permissions, without asking Open Cloud", async () => {
     const { callTool, calls } = studio({
       list: () => ({ studios: [{ id: STUDIO, name: "BloxBotScratch.rbxlx" }] }),
@@ -206,6 +213,41 @@ describe("what this place can do", () => {
 });
 
 describe("reading Open Cloud's answers", () => {
+  it("reads Roblox's real answers, copied from a live Studio", () => {
+    const ok = {
+      ...text(
+        'GET https://apis.roblox.com/assets/v1/assets/93335532265442 -> 200 OK\n\n{"assetId":"93335532265442","moderationResult":{"moderationState":"Approved"}}',
+      ),
+      isError: false,
+    };
+    const answer = openCloudResponse(ok);
+    expect(answer.status).toBe(200);
+    expect(answer.body.assetId).toBe("93335532265442");
+    expect(moderationOf(answer.body)).toBe("approved");
+
+    expect(
+      openCloudFailure(
+        'GET https://apis.roblox.com/assets/v1/assets/1 -> 404 Not Found\n\n{\n  "code": "NOT_FOUND"\n}',
+      ),
+    ).toBe("file_rejected");
+    expect(
+      openCloudFailure(
+        "/var/folders/T/check.glb is not inside a directory approved for uploads. Ask the creator to add the file's directory to the approved upload directories in Assistant Settings -> MCP Permissions, then retry. Do not copy or move the file to work around this.",
+      ),
+    ).toBe("needs_folder");
+  });
+
+  it("isn't fooled by a number in a URL", () => {
+    expect(
+      openCloudFailure("GET https://apis.roblox.com/assets/v1/assets/403 -> 429 Too Many"),
+    ).toBe("rate_limited");
+    expect(
+      openCloudResponse(
+        text('GET https://apis.roblox.com/assets/v1/assets/500 -> 200 OK\n\n{"a":1}'),
+      ),
+    ).toEqual({ status: 200, body: { a: 1 } });
+  });
+
   it("recognizes each failure Studio's docs list", () => {
     expect(openCloudFailure(NOT_GRANTED)).toBe("needs_permission");
     expect(openCloudFailure("File not in an approved upload directory")).toBe("needs_folder");
