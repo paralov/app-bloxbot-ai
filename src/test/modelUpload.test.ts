@@ -208,8 +208,19 @@ describe("what this place can do", () => {
         ],
       }),
     });
-    expect((await access(several.callTool, null)).state).toBe("no_studio");
+    expect((await access(several.callTool, null)).state).toBe("choose_studio");
     expect((await access(studio().callTool, "gone")).state).toBe("no_studio");
+  });
+
+  it("doesn't call a check Roblox throttled ready, so it asks again", async () => {
+    const throttled = studio({
+      invoke: () => error("GET https://apis.roblox.com/x -> 429 Too Many"),
+    });
+    expect((await access(throttled.callTool)).state).toBe("rate_limited");
+    const folderThrottled = studio({
+      invoke: (args) => (args.files ? error("HTTP 429") : text({ status: 404, body: "{}" })),
+    });
+    expect((await access(folderThrottled.callTool)).state).toBe("rate_limited");
   });
 
   it("says no Studio when Studio can't be reached", async () => {
@@ -330,9 +341,11 @@ describe("from the click to the place", () => {
     expect(upload?.args).toMatchObject({
       studio_id: STUDIO,
       endpoint: "/assets/v1/assets",
-      files: [{ name: "fileContent", path: join(dir, "Crate.fbx") }],
+      files: [{ name: "fileContent", path: expect.stringMatching(/\.bloxbot-upload-.+\.fbx$/) }],
       scopes: ["asset:read", "asset:write"],
     });
+    // A copy in the model's own folder, which is the one Studio approved.
+    expect(dirname(String((upload?.args.files as { path: string }[])[0]?.path))).toBe(dir);
     expect(JSON.parse(upload?.args.body ?? "{}")).toMatchObject({
       request: {
         assetType: "Model",
@@ -364,6 +377,49 @@ describe("from the click to the place", () => {
       reason: "file_changed",
     });
     expect(calls).toEqual([]);
+  });
+
+  it("sends the bytes that were checked, even if the file changes before Studio reads it", async () => {
+    let sentBytes = "";
+    const { callTool, uploads } = studio({
+      // Another export lands while the owner is read, after the check.
+      luau: async () => {
+        await writeFile(join(dir, "Crate.fbx"), "replaced bytes");
+        return text({ placeId: 123, creatorId: 9, creatorType: "Enum.CreatorType.User" });
+      },
+      invoke: (args) => {
+        if (args.method === "POST") {
+          const [sent] = args.files as { path: string }[];
+          return readFile(String(sent?.path), "utf8").then((bytes) => {
+            sentBytes = bytes;
+            return text({
+              done: true,
+              response: { assetId: "555", moderationResult: { moderationState: "Approved" } },
+            });
+          });
+        }
+        return undefined;
+      },
+    });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toMatchObject({ status: "added" });
+    expect(uploads()).toHaveLength(1);
+    expect(sentBytes).toBe("model bytes");
+    // The copy goes once Studio has it.
+    expect((await readdir(dir)).sort()).toEqual(["Crate.fbx", "sent.json"]);
+  });
+
+  it("reads the game's owner during a playtest, when Studio refuses Edit", async () => {
+    const { callTool, calls, uploads } = studio({
+      luau: (args) =>
+        args.datamodel_type === "Edit"
+          ? error("Edit data model is not available in Play mode")
+          : text({ placeId: 123, creatorId: 9, creatorType: "Enum.CreatorType.User" }),
+    });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toMatchObject({ status: "added" });
+    expect(uploads()).toHaveLength(1);
+    expect(
+      calls.filter((c) => c.name === "execute_luau").map((c) => c.args.datamodel_type),
+    ).toEqual(expect.arrayContaining(["Edit", "Server"]));
   });
 
   it("sends nothing from a place that isn't published", async () => {

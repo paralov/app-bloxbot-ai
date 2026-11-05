@@ -524,7 +524,9 @@ const registerIpcHandlers = Effect.sync(() => {
     const details = await queryStudio((callTool) =>
       getUploadAccess(callTool, typeof studioKey === "string" ? studioKey : null, folder),
     ).catch(() => ({ state: "no_studio" as const, readOn: false, writeOn: false }));
-    return { ...details, folder, folderUrl: pathToFileURL(folder).href };
+    // Failing keeps the last answer on screen, and the checklist asks again on its next check.
+    if (details.state === "rate_limited") throw new Error("Roblox asked BloxBot to slow down");
+    return { ...details, state: details.state, folder, folderUrl: pathToFileURL(folder).href };
   });
   ipcMain.handle(channels.readModelFile, async (_event, url: unknown) => {
     const file = await readModelFile(await Schema.decodeUnknownPromise(Schema.String)(url));

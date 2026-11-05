@@ -54,7 +54,8 @@ function ImportByHand({ fileName, open }: { fileName: string; open?: boolean }) 
 export function ModelCard({ url }: { url: string }) {
   const queryClient = useQueryClient();
   const studio = useStudioTargetOptional();
-  const studioKey = studio?.selected?.key ?? null;
+  const selected = studio?.selected ?? null;
+  const studioKey = selected?.key ?? null;
   const sendMessage = useSendMessage();
   const [declined, setDeclined] = useState(false);
   const [askedToFix, setAskedToFix] = useState(false);
@@ -71,7 +72,7 @@ export function ModelCard({ url }: { url: string }) {
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 0,
   });
-  const { data: access } = useUploadAccess(studioKey, url, !!file && !!studioKey);
+  const { data: access } = useUploadAccess(selected, url, !!file && !!studioKey);
   const accessState = studioKey ? access?.state : "no_studio";
 
   // A folder refusal came from the Studio the upload went to, so it doesn't apply to another one.
@@ -89,7 +90,7 @@ export function ModelCard({ url }: { url: string }) {
   );
 
   const refreshAccess = () =>
-    queryClient.invalidateQueries({ queryKey: qk.uploadAccess(studioKey, url) });
+    queryClient.invalidateQueries({ queryKey: qk.uploadAccess(selected, url) });
 
   const upload = useMutation<ModelUploadResult, Error, string>({
     mutationFn: (key) => desktop.uploadModelToPlace(url, key, file?.hash ?? ""),
@@ -122,10 +123,25 @@ export function ModelCard({ url }: { url: string }) {
   const rejected = result?.status === "rejected" || sent?.moderation === "rejected";
   const assetId = result && "assetId" in result ? result.assetId : sent?.assetId;
 
+  // A sent model's card can come back in a chat with no place chosen, where there's nowhere to send it.
   const uploadButton = (label: string) => (
-    <button type="button" className={primary} aria-disabled={!start} onClick={start}>
-      {label}
-    </button>
+    <>
+      <button
+        type="button"
+        className={`${primary} disabled:opacity-50`}
+        disabled={!start}
+        onClick={start}
+      >
+        {label}
+      </button>
+      {start ? null : (
+        <span className="self-center text-xs text-muted-foreground">
+          {studio?.targets.length
+            ? "Choose your place in the Studio picker first."
+            : "Open your place in Studio first."}
+        </span>
+      )}
+    </>
   );
 
   const body = () => {

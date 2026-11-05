@@ -82,6 +82,27 @@ export async function discoverStudioTargets(
   return { targets: await listStudios(callTool), selectedKey: null };
 }
 
+/**
+ * Runs a script in whichever data model is open. Studio rejects "Edit" during a playtest, which may not
+ * have a server either. Returns the first answer, or the last error when none would run it.
+ */
+export async function runScript(
+  callTool: CallStudioTool,
+  studioId: string,
+  code: string,
+): Promise<CallToolResult> {
+  let response: CallToolResult = { content: [] };
+  for (const datamodelType of ["Edit", "Server", "Client"]) {
+    response = await callTool("execute_luau", {
+      studio_id: studioId,
+      datamodel_type: datamodelType,
+      code,
+    });
+    if (!mcpError(response)) break;
+  }
+  return response;
+}
+
 /** The account signed in to this Studio, which is what decides which uploads it can load. */
 export async function readStudioAccount(callTool: CallStudioTool, studioId: string): Promise<string> {
   const result = await callTool("execute_luau", {
@@ -388,23 +409,10 @@ async function readReflection(callTool: CallStudioTool, studioId: string): Promi
     if (start !== 1 && (await readHistoryState(callTool, studioId)).redo === "can-redo") {
       throw new Error("Studio has something to redo");
     }
-    let page: any = null;
-    let lastError = "";
-    // Like every script, this can't use "Edit" during a playtest.
-    for (const datamodelType of ["Edit", "Server", "Client"]) {
-      const response = await callTool("execute_luau", {
-        studio_id: studioId,
-        datamodel_type: datamodelType,
-        code: reflectionPageLuau(start),
-      });
-      const error = mcpError(response);
-      if (!error) {
-        page = mcpData(response);
-        break;
-      }
-      lastError = error;
-    }
-    if (!page?.classes) throw new Error(lastError || "Studio returned unreadable class data");
+    const response = await runScript(callTool, studioId, reflectionPageLuau(start));
+    const error = mcpError(response);
+    const page = error ? null : mcpData(response);
+    if (!page?.classes) throw new Error(error || "Studio returned unreadable class data");
     Object.assign(result.classes, page.classes);
     Object.assign(result.enums, page.enums);
     result.brickColors.push(...(page.brickColors ?? []));
@@ -704,27 +712,16 @@ async function readDetailsWithScript(
   data: Reflection,
   request: ExplorerDetailsRequest,
 ): Promise<ExplorerNodeDetails> {
-  let lastError = "";
-  // As with the tree, a playtest rejects "Edit" and may not have a server.
-  for (const datamodelType of ["Edit", "Server", "Client"]) {
-    const scripted = await callTool("execute_luau", {
-      studio_id: studioId,
-      datamodel_type: datamodelType,
-      code: readDetailsLuau(request),
-    });
-    const scriptError = mcpError(scripted);
-    if (!scriptError) {
-      const details = mcpData(scripted);
-      return {
-        properties: brickColorFields(data, toFields(details?.properties)),
-        attributes: brickColorFields(data, toFields(details?.attributes)),
-        tags: sortedStrings(details?.tags),
-        placeTags: sortedStrings(details?.placeTags),
-      };
-    }
-    lastError = scriptError;
-  }
-  throw new Error(lastError);
+  const scripted = await runScript(callTool, studioId, readDetailsLuau(request));
+  const scriptError = mcpError(scripted);
+  if (scriptError) throw new Error(scriptError);
+  const details = mcpData(scripted);
+  return {
+    properties: brickColorFields(data, toFields(details?.properties)),
+    attributes: brickColorFields(data, toFields(details?.attributes)),
+    tags: sortedStrings(details?.tags),
+    placeTags: sortedStrings(details?.placeTags),
+  };
 }
 
 /**

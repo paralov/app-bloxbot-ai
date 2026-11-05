@@ -27,7 +27,8 @@ vi.mock("@/providers/OpenCodeClientProvider", () => ({
   useOpenCodeClient: () => ({ client: null }),
 }));
 const studio = vi.hoisted(() => ({
-  selected: { key: "studio-1" } as { key: string } | null,
+  selected: { key: "studio-1" } as { key: string; label?: string; placeId?: string } | null,
+  targets: [] as unknown[],
   promptReference: "route it here",
 }));
 vi.mock("@/providers/StudioTargetProvider", () => ({
@@ -69,6 +70,7 @@ function setUp(access: UploadAccessState, model: ModelFileInfo | null = file) {
 
 beforeEach(() => {
   studio.selected = { key: "studio-1" };
+  studio.targets = [];
   sendMessage.mockClear();
 });
 afterEach(() => {
@@ -173,6 +175,37 @@ describe("before uploads can run", () => {
     expect(success).not.toHaveBeenCalled();
   });
 
+  it("checks again when the same Studio opens another place", async () => {
+    setUp("ready");
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf("ready", true, true));
+    studio.selected = { key: "studio-1", label: "Obby", placeId: "1" };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = () => (
+      <QueryClientProvider client={client}>
+        <ModelCard url={URL_A} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view());
+    await screen.findByRole("button", { name: "Upload to Roblox" });
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf("needs_permission"));
+    studio.selected = { key: "studio-1", label: "Tycoon", placeId: "2" };
+    rerender(view());
+    expect(await screen.findByText("Turn on one-click uploads")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Upload to Roblox" })).toBeNull();
+  });
+
+  it("keeps watching when Roblox asks it to slow down", async () => {
+    setUp("needs_permission");
+    vi.spyOn(desktop, "getUploadAccess")
+      .mockRejectedValueOnce(new Error("Roblox asked BloxBot to slow down"))
+      .mockResolvedValue(accessOf("needs_permission"));
+    render(wrap(<ModelCard url={URL_A} />));
+    expect(
+      await screen.findByText("Turn on one-click uploads", undefined, { timeout: 6000 }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Upload to Roblox" })).toBeNull();
+  }, 8000);
+
   it("drops a folder refusal when another Studio is chosen", async () => {
     setUp("ready");
     vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf("ready", true, true));
@@ -227,6 +260,7 @@ describe("before uploads can run", () => {
     expect(buildUploadSteps(accessOf("no_studio")).some((step) => step.id === "reopen")).toBe(
       false,
     );
+    expect(currentOf(accessOf("choose_studio"))).toBe("choose");
   });
 
   it("guides an old Studio window and an unpublished place, and always offers importing", async () => {
@@ -352,6 +386,20 @@ describe("the upload click", () => {
     expect(await screen.findByText("Roblox rejected it")).toBeTruthy();
   });
 
+  it("says what to do, rather than offering a dead button, when no place is chosen", async () => {
+    setUp("no_studio", { ...file, sent: { assetId: "5", moderation: "approved" } });
+    studio.selected = null;
+    render(wrap(<ModelCard url={URL_A} />));
+    expect(await screen.findByRole("button", { name: "Add it to your place" })).toBeDisabled();
+    expect(screen.getByText("Open your place in Studio first.")).toBeTruthy();
+    cleanup();
+    studio.targets = [{ key: "a" }, { key: "b" }];
+    setUp("no_studio", { ...file, sent: { assetId: "5", moderation: "checking" } });
+    render(wrap(<ModelCard url={URL_A} />));
+    expect(await screen.findByRole("button", { name: "Check again" })).toBeDisabled();
+    expect(screen.getByText("Choose your place in the Studio picker first.")).toBeTruthy();
+  });
+
   it("offers to add a file that's already on Roblox, whatever Studio's permissions", async () => {
     setUp("needs_permission", { ...file, sent: { assetId: "5", moderation: "approved" } });
     render(wrap(<ModelCard url={URL_A} />));
@@ -402,6 +450,13 @@ describe("the 3D tools page", () => {
     expect(screen.getByText(/Watching Studio/)).toBeTruthy();
     expect(screen.queryByLabelText(/API key/i)).toBeNull();
     expect(desktop.getUploadAccess).toHaveBeenCalledWith("studio-1", null);
+  });
+
+  it("asks for a place to be chosen when several are open, rather than opened", async () => {
+    studio.selected = null;
+    open("choose_studio");
+    expect(await screen.findByText(/Choose yours in the Studio picker/)).toBeTruthy();
+    expect(screen.queryByText(/Open the place you're building/)).toBeNull();
   });
 
   it("says when uploads are on, and hides the steps", async () => {

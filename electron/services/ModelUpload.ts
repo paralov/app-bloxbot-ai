@@ -17,6 +17,7 @@ import {
   insertUploadedModel,
   mcpData,
   mcpError,
+  runScript,
 } from "../studioQueries";
 
 /** Roblox's limit for one file through open_cloud_invoke. */
@@ -132,7 +133,8 @@ const isPublished = (target: StudioTarget) =>
   !!target.placeId || /\(placeId:\s*[1-9]\d*\)\s*$/.test(target.label);
 
 export interface UploadAccessDetails {
-  state: UploadAccessState;
+  /** "rate_limited" means Roblox didn't answer this time, so the last answer still stands. */
+  state: UploadAccessState | "rate_limited";
   readOn: boolean;
   writeOn: boolean;
 }
@@ -150,12 +152,11 @@ async function scopeIsOn(
       scopes: [scope],
     });
   } catch (error) {
-    if (error instanceof OpenCloudError) {
-      if (error.reason === "needs_permission") return false;
-      if (error.reason === "reopen_studio" || error.reason === "studio_error") throw error;
-      // Studio couldn't get a token it can use, which no permission fixes.
-      if (error.reason === "refused") throw error;
-    }
+    if (error instanceof OpenCloudError && error.reason === "needs_permission") return false;
+    // Roblox answered about the asset itself, so Studio had a token for the scope.
+    if (error instanceof OpenCloudError && error.reason === "file_rejected") return true;
+    // Anything else, like being told to slow down, says nothing about the permission.
+    throw error;
   }
   return true;
 }
@@ -186,6 +187,8 @@ async function folderIsApproved(
     });
     return true;
   } catch (error) {
+    // Being told to slow down isn't an answer, and the next check can ask again.
+    if (error instanceof OpenCloudError && error.reason === "rate_limited") throw error;
     return !(error instanceof OpenCloudError && error.reason === "needs_folder");
   } finally {
     await rm(probe, { force: true }).catch(() => {});
@@ -201,7 +204,7 @@ export async function getUploadAccess(
   studioKey: string | null,
   folder: string,
 ): Promise<UploadAccessDetails> {
-  const none = (state: UploadAccessState): UploadAccessDetails => ({
+  const none = (state: UploadAccessDetails["state"]): UploadAccessDetails => ({
     state,
     readOn: false,
     writeOn: false,
@@ -217,7 +220,8 @@ export async function getUploadAccess(
     : targets.length === 1
       ? targets[0]
       : undefined;
-  if (!target) return none("no_studio");
+  // Several are open and this chat hasn't picked one, which opening another place wouldn't fix.
+  if (!target) return none(!studioKey && targets.length > 1 ? "choose_studio" : "no_studio");
   // A place that's still loading has no name yet, which says nothing about whether it's published.
   if (!target.placeId && target.label === target.key) return none("no_studio");
   if (!isPublished(target)) return none("not_published");
@@ -228,8 +232,11 @@ export async function getUploadAccess(
     const approved = await folderIsApproved(callTool, target.key, folder);
     return { state: approved ? "ready" : "needs_folder", readOn, writeOn };
   } catch (error) {
-    if (error instanceof OpenCloudError && error.reason === "reopen_studio") {
-      return none("reopen_studio");
+    if (
+      error instanceof OpenCloudError &&
+      (error.reason === "reopen_studio" || error.reason === "rate_limited")
+    ) {
+      return none(error.reason);
     }
     return none(error instanceof OpenCloudError && error.reason === "refused" ? "refused" : "no_studio");
   }
@@ -243,11 +250,12 @@ async function readGameOwner(
   callTool: CallStudioTool,
   studioId: string,
 ): Promise<{ userId: string } | { groupId: string } | "unpublished" | null> {
-  const result = await callTool("execute_luau", {
-    studio_id: studioId,
-    datamodel_type: "Edit",
-    code: `return game:GetService("HttpService"):JSONEncode({ placeId = game.PlaceId, creatorId = game.CreatorId, creatorType = tostring(game.CreatorType) })`,
-  });
+  // The game's owner is the same in a playtest, so this can be read there too.
+  const result = await runScript(
+    callTool,
+    studioId,
+    `return game:GetService("HttpService"):JSONEncode({ placeId = game.PlaceId, creatorId = game.CreatorId, creatorType = tostring(game.CreatorType) })`,
+  );
   if (mcpError(result)) return null;
   const data = mcpData(result);
   if (data?.placeId === 0) return "unpublished";
@@ -444,20 +452,30 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
       if (creator === "unpublished") return { status: "needs_setup", access: "not_published" };
       if (!creator) return { status: "failed", reason: "studio_error" };
       onStep?.("uploading");
-      const operation = await callOpenCloud(callTool, studioId, {
-        method: "POST",
-        endpoint: "/assets/v1/assets",
-        body: JSON.stringify({
-          request: {
-            assetType: "Model",
-            displayName: file.name,
-            description: "Made with BloxBot",
-            creationContext: { creator },
-          },
-        }),
-        files: [{ name: "fileContent", path: file.path }],
-        scopes: UPLOAD_SCOPES,
-      });
+      // Studio reads the file itself, and the model's own file can change before it does. So it gets a
+      // copy of the checked bytes, in the same folder because that's the one Studio approved. Each
+      // upload gets its own, since two links can have the same bytes.
+      const snapshot = join(file.folder, `.bloxbot-upload-${randomUUID()}.${file.kind}`);
+      let operation: any;
+      try {
+        await writeFile(snapshot, file.bytes);
+        operation = await callOpenCloud(callTool, studioId, {
+          method: "POST",
+          endpoint: "/assets/v1/assets",
+          body: JSON.stringify({
+            request: {
+              assetType: "Model",
+              displayName: file.name,
+              description: "Made with BloxBot",
+              creationContext: { creator },
+            },
+          }),
+          files: [{ name: "fileContent", path: snapshot }],
+          scopes: UPLOAD_SCOPES,
+        });
+      } finally {
+        await rm(snapshot, { force: true }).catch(() => {});
+      }
       // Roblox has it from here on, so a failure after this has to resume rather than send it again.
       const operationId: string | undefined =
         operation?.operationId ?? (String(operation?.path ?? "").split("/").at(-1) || undefined);

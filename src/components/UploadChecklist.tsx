@@ -62,16 +62,23 @@ interface Step {
 /** Only what's still to do has instructions, and the first of those is the one to do now. */
 export function buildUploadSteps(access: UploadAccess, folderRefused = false): Step[] {
   const { state } = access;
-  const hasStudio = state !== "no_studio";
+  const hasStudio = state !== "no_studio" && state !== "choose_studio";
   const published = hasStudio && state !== "not_published";
   const upToDate = published && state !== "reopen_studio";
   return [
-    {
-      id: "studio",
-      title: "Open your place in Studio",
-      done: hasStudio,
-      how: "Open the place you're building, and BloxBot will find it.",
-    },
+    state === "choose_studio"
+      ? {
+          id: "choose",
+          title: "Choose your place",
+          done: false,
+          how: "More than one place is open. Choose yours in the Studio picker at the top of the chat.",
+        }
+      : {
+          id: "studio",
+          title: "Open your place in Studio",
+          done: hasStudio,
+          how: "Open the place you're building, and BloxBot will find it.",
+        },
     {
       id: "published",
       title: "Publish your place",

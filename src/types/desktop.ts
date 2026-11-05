@@ -204,6 +204,8 @@ export interface DesktopApi {
 
 export type UploadAccessState =
   | "no_studio"
+  /** Several Studios are open and this chat hasn't picked one. */
+  | "choose_studio"
   /** This Studio was open before Roblox's update, and doesn't have Open Cloud until it's reopened. */
   | "reopen_studio"
   /** Permissions are per game, so a place that isn't published can't have any. */

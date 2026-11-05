@@ -263,8 +263,7 @@ function BlenderRow() {
 }
 
 function UploadsRow() {
-  const studioKey = useStudioTargetOptional()?.selected?.key ?? null;
-  const { data: access } = useUploadAccess(studioKey, null);
+  const { data: access } = useUploadAccess(useStudioTargetOptional()?.selected ?? null, null);
   if (!access) return null;
   const ready = access.state === "ready";
   return (
