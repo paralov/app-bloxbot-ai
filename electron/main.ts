@@ -1,9 +1,10 @@
 import { rename, readFile, rm, writeFile } from "node:fs/promises";
+import { isOpenableUrl } from "./openableUrl";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, ipcMain, Menu, Notification, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, net, Notification, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { Cause, Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
@@ -117,7 +118,10 @@ const openCodeBinaryDirectory = join(app.getPath("userData"), "opencode");
 const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
       binaryCacheDirectory: openCodeBinaryDirectory,
+      // Chromium's network stack, which trusts the certificates installed on the system.
+      fetchWithSystemCertificates: (url, init) => net.fetch(url, init),
       workspace: join(app.getPath("home"), "BloxBot"),
+      onNetstatMiss: (error) => reportMainError("opencode_netstat_miss", error),
       loadSystemPrompt: () =>
         loadConfig.pipe(
           Effect.map((config) => config.systemPrompt),
@@ -147,16 +151,26 @@ function parseExternalUrl(rawUrl: string) {
   return Effect.try({
     try: () => new URL(rawUrl),
     catch: (cause) =>
-      new DesktopMainError({ message: "Only HTTP and HTTPS links can be opened", cause }),
+      new DesktopMainError({ message: "Only web, email and local file links can be opened", cause }),
   }).pipe(
     Effect.flatMap((url) =>
-      url.protocol === "https:" || url.protocol === "http:"
+      isOpenableUrl(url)
         ? Effect.succeed(url)
         : Effect.fail(
-            new DesktopMainError({ message: "Only HTTP and HTTPS links can be opened" }),
+            new DesktopMainError({ message: "Only web, email and local file links can be opened" }),
           ),
     ),
   );
+}
+
+function openLink(url: URL) {
+  return Effect.tryPromise({
+    try: async () => {
+      if (url.protocol === "file:") shell.showItemInFolder(fileURLToPath(url));
+      else await shell.openExternal(url.href);
+    },
+    catch: (cause) => new DesktopMainError({ message: "Failed to open URL", cause }),
+  });
 }
 
 const loadConfig = Effect.gen(function* () {
@@ -340,12 +354,7 @@ const registerIpcHandlers = Effect.sync(() => {
   ipcMain.handle(channels.openUrl, (_event, rawUrl: string) =>
     runMain(
       parseExternalUrl(rawUrl).pipe(
-        Effect.flatMap((url) =>
-          Effect.tryPromise({
-            try: () => shell.openExternal(url.href),
-            catch: (cause) => new DesktopMainError({ message: "Failed to open URL", cause }),
-          }),
-        ),
+        Effect.flatMap(openLink),
       ),
     ),
   );
@@ -443,13 +452,7 @@ function createWindow(): Effect.Effect<void, DesktopMainError> {
       window.webContents.setWindowOpenHandler(({ url }) => {
         Effect.runFork(
           parseExternalUrl(url).pipe(
-            Effect.flatMap((externalUrl) =>
-              Effect.tryPromise({
-                try: () => shell.openExternal(externalUrl.href),
-                catch: (cause) =>
-                  new DesktopMainError({ message: "Failed to open URL", cause }),
-              }),
-            ),
+            Effect.flatMap(openLink),
             Effect.catchAll(Effect.logWarning),
           ),
         );

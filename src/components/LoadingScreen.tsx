@@ -1,14 +1,19 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { appLink } from "@/lib/appLink";
 import { desktop } from "@/lib/desktop";
+import { scrubErrorMessage } from "@/lib/errorReporting";
 import type { UpdateInfo } from "@/types/desktop";
+
+// Windows limits how long a link can be, and encoding can triple this.
+const REPORT_DETAIL_MAX_CHARS = 600;
 
 interface LoadingScreenProps {
   message?: string;
   detail?: string;
-  /** A folder path shown under the detail, selectable so it can be copied. */
+  /** A folder path shown under the detail, with a button to copy it. */
   detailPath?: string;
+  /** Where to learn how to do what the detail asks. */
+  helpLink?: { label: string; href: string };
   /** Full diagnostic text, hidden behind a disclosure in the error state. */
   technicalDetail?: string;
   animation?: StartupAnimation;
@@ -30,7 +35,22 @@ export interface StartupProgress {
   meta?: string;
 }
 
-type UpdateCheckStatus = "idle" | "checking" | "available" | "downloading" | "up-to-date" | "error";
+/** Opens an email to support with what happened filled in, to check before sending. */
+function reportLink(message: string, technicalDetail?: string): string {
+  const detail = technicalDetail
+    ? `\n\nWhat happened:\n${scrubErrorMessage(technicalDetail).slice(0, REPORT_DETAIL_MAX_CHARS)}`
+    : "";
+  return `mailto:support@bloxbot.ai?subject=${encodeURIComponent(message)}&body=${encodeURIComponent(detail)}`;
+}
+
+type UpdateCheckStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "up-to-date"
+  | "error"
+  | "install-error";
 
 /**
  * Full-screen loading state featuring the animated BloxBot face.
@@ -43,6 +63,7 @@ function LoadingScreen({
   message = "Starting up...",
   detail,
   detailPath,
+  helpLink,
   technicalDetail,
   animation,
   startup,
@@ -53,34 +74,62 @@ function LoadingScreen({
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>("idle");
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [folderCopied, setFolderCopied] = useState<"idle" | "copied" | "error">("idle");
+  const [restarting, setRestarting] = useState(false);
+  const busyRestarting = retrying || restarting;
+  // Each quarter is enough to follow along, and any more would talk over everything else.
+  const fraction = startup?.progress;
+  const quarter = fraction === undefined ? 0 : Math.floor(fraction * 4) * 25;
+  const downloadedBucket = quarter > 0 && quarter < 100 ? quarter : null;
   const updateRef = useRef<UpdateInfo | null>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: moves focus once, when the error appears
+  useEffect(() => {
+    if (error) retryRef.current?.focus();
+  }, [error]);
 
-  async function handleCheckForUpdates() {
-    setUpdateStatus("checking");
+  // An older copy result would talk over this, and the newest news is what should be heard.
+  function showUpdateStatus(status: UpdateCheckStatus) {
+    setUpdateStatus(status);
+    if (status === "idle") return;
+    setCopyStatus("idle");
+    setFolderCopied("idle");
+  }
+
+  async function checkForUpdates(automatic: boolean) {
+    showUpdateStatus("checking");
     try {
       const update = await desktop.checkForUpdate();
       if (!update) {
-        setUpdateStatus("up-to-date");
+        showUpdateStatus("up-to-date");
         return;
       }
       updateRef.current = update;
       setUpdateVersion(update.version);
-      setUpdateStatus("available");
+      showUpdateStatus("available");
     } catch (err) {
       console.error("[loading] Failed to check for updates:", err);
-      setUpdateStatus("error");
+      // Nobody asked for the automatic one, so its failure isn't worth a retry of its own.
+      showUpdateStatus(automatic ? "idle" : "error");
     }
   }
+  const handleCheckForUpdates = () => checkForUpdates(false);
+
+  // Someone stuck here may already be one update away from the fix, so look without being asked.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once when the error appears
+  useEffect(() => {
+    if (error) void checkForUpdates(true);
+  }, [error]);
 
   async function handleInstall() {
     const update = updateRef.current;
     if (!update) return;
     try {
-      setUpdateStatus("downloading");
+      showUpdateStatus("downloading");
       await desktop.installUpdate();
     } catch (err) {
       console.error("[loading] Failed to install update:", err);
-      setUpdateStatus("error");
+      showUpdateStatus("install-error");
     }
   }
 
@@ -95,12 +144,8 @@ function LoadingScreen({
   }
 
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center overflow-y-auto px-6 py-10">
-      <div
-        className="animate-fade-in flex w-full max-w-sm flex-col items-center"
-        role={error ? "alert" : undefined}
-        aria-live={error ? "assertive" : undefined}
-      >
+    <div className="flex h-full w-full overflow-y-auto px-6 py-10">
+      <div className="animate-fade-in m-auto flex w-full max-w-sm flex-col items-center">
         {/* BloxBot face  - inline SVG so we can animate individual parts */}
         <svg
           width="80"
@@ -163,32 +208,116 @@ function LoadingScreen({
         </svg>
 
         {/* Status text */}
-        <h1 className="mt-5 text-base font-medium text-foreground">{message}</h1>
+        <div
+          className="flex flex-col items-center"
+          role={error ? "alert" : undefined}
+          aria-live={error ? undefined : "polite"}
+        >
+          <h1 className="mt-5 text-center text-base font-medium text-foreground">{message}</h1>
 
-        {detail && (
-          <p className="mt-2 max-w-sm text-center text-xs leading-relaxed text-muted-foreground">
-            {detail}
-          </p>
+          {detail && (
+            <p className="mt-2 max-w-sm text-center text-xs leading-relaxed text-muted-foreground">
+              {detail}
+            </p>
+          )}
+
+          {detailPath && (
+            <code className="mt-2 max-w-sm select-all break-all rounded-md border bg-card px-2 py-1 text-center font-mono text-xs text-foreground">
+              {detailPath}
+            </code>
+          )}
+        </div>
+
+        {(detailPath || helpLink) && (
+          <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+            {detailPath && (
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(detailPath).then(
+                    () => setFolderCopied("copied"),
+                    () => setFolderCopied("error"),
+                  );
+                }}
+                className="underline transition-colors hover:text-foreground"
+              >
+                {folderCopied === "copied"
+                  ? "Copied"
+                  : folderCopied === "error"
+                    ? "Couldn't copy"
+                    : "Copy folder"}
+              </button>
+            )}
+            {helpLink && (
+              <a
+                href={helpLink.href}
+                target="_blank"
+                rel="noreferrer"
+                className="underline transition-colors hover:text-foreground"
+              >
+                {helpLink.label}
+              </a>
+            )}
+          </div>
         )}
 
-        {detailPath && (
-          <code className="mt-2 max-w-sm select-all break-all rounded-md border bg-card px-2 py-1 text-center font-mono text-xs text-foreground">
-            {detailPath}
-          </code>
-        )}
+        {/* Always in the page, so a screen reader announces it when the words arrive. */}
+        <output className="sr-only">
+          {copyStatus === "copied" || folderCopied === "copied"
+            ? "Copied"
+            : copyStatus === "error" || folderCopied === "error"
+              ? "Couldn't copy"
+              : updateStatus === "available" && updateVersion
+                ? `Update available: v${updateVersion}`
+                : updateStatus === "up-to-date"
+                  ? "Up to date"
+                  : updateStatus === "downloading"
+                    ? "Installing the update"
+                    : updateStatus === "install-error"
+                      ? "Couldn't install the update"
+                      : updateStatus === "error"
+                        ? "Couldn't check for updates"
+                        : downloadedBucket
+                          ? `Downloaded ${downloadedBucket}%`
+                          : null}
+        </output>
 
         {/* Error state: help actions */}
         {error ? (
           <div className="mt-5 flex flex-col items-center gap-3">
+            {(updateStatus === "available" || updateStatus === "downloading") && updateVersion && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (updateStatus === "available") void handleInstall();
+                }}
+                aria-busy={updateStatus === "downloading"}
+                className="inline-flex h-9 items-center rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90 aria-busy:opacity-60"
+              >
+                {updateStatus === "downloading"
+                  ? "Installing..."
+                  : `Install v${updateVersion} & restart`}
+              </button>
+            )}
+
             {/* Retry button */}
             {onRetry && (
               <button
+                ref={retryRef}
+                data-startup-retry="true"
                 type="button"
-                onClick={onRetry}
-                disabled={retrying}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+                onClick={() => {
+                  setRestarting(true);
+                  onRetry();
+                }}
+                disabled={busyRestarting}
+                className={`inline-flex h-9 items-center gap-2 rounded-lg px-5 text-sm font-medium transition-opacity disabled:opacity-60 ${
+                  updateStatus === "available"
+                    ? "border text-foreground hover:bg-muted"
+                    : "bg-foreground text-background hover:opacity-90"
+                }`}
               >
-                {retrying ? (
+                {busyRestarting ? (
                   <>
                     <svg
                       className="h-3.5 w-3.5 animate-spin"
@@ -218,7 +347,7 @@ function LoadingScreen({
                       <path d="M3 22v-6h6" />
                       <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
                     </svg>
-                    Restart setup
+                    Try again
                   </>
                 )}
               </button>
@@ -252,32 +381,17 @@ function LoadingScreen({
               )}
 
               {updateStatus === "up-to-date" && (
-                <span className="text-emerald-600">Up to date</span>
+                <span className="text-emerald-700 dark:text-emerald-400">Up to date</span>
               )}
 
-              {updateStatus === "available" && updateVersion && (
+              {updateStatus === "install-error" && (
                 <button
                   type="button"
                   onClick={handleInstall}
                   className="underline transition-colors hover:text-foreground"
                 >
-                  Install v{updateVersion} &amp; restart
+                  Retry the update
                 </button>
-              )}
-
-              {updateStatus === "downloading" && (
-                <span className="flex items-center gap-1.5">
-                  <svg
-                    className="h-3 w-3 animate-spin"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                  </svg>
-                  Installing...
-                </span>
               )}
 
               {updateStatus === "error" && (
@@ -290,15 +404,13 @@ function LoadingScreen({
                 </button>
               )}
 
-              <span className="text-muted-foreground/40">|</span>
-
               <a
-                href={appLink("https://bloxbot.ai", "loading")}
+                href={reportLink(message, technicalDetail)}
                 target="_blank"
                 rel="noreferrer"
                 className="underline transition-colors hover:text-foreground"
               >
-                Get help
+                Email support@bloxbot.ai
               </a>
             </div>
 
@@ -309,7 +421,8 @@ function LoadingScreen({
                 </summary>
                 <div className="border-t px-3 py-3">
                   <p className="leading-relaxed">
-                    Share these details if support asks for them. They may include local file paths.
+                    The email link fills these in. They may include local file paths, so check
+                    before sending.
                   </p>
                   <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs leading-relaxed text-foreground/70">
                     {technicalDetail}
@@ -330,7 +443,24 @@ function LoadingScreen({
             )}
           </div>
         ) : startup ? (
-          <StartupProgressGraphic startup={startup} />
+          <>
+            <StartupProgressGraphic startup={startup} />
+            {onRetry && (
+              <button
+                // So it isn't taken away while focused when things start moving again.
+                data-startup-retry="true"
+                type="button"
+                onClick={() => {
+                  setRestarting(true);
+                  onRetry();
+                }}
+                disabled={busyRestarting}
+                className="mt-3 text-xs text-muted-foreground underline transition-colors hover:text-foreground disabled:no-underline"
+              >
+                {busyRestarting ? "Restarting..." : "Try again"}
+              </button>
+            )}
+          </>
         ) : animation ? (
           <StartupAnimationGraphic animation={animation} />
         ) : (

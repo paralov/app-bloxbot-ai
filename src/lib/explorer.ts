@@ -146,6 +146,29 @@ export const ExplorerSyncRequestSchema = Schema.Struct({
 
 export type ExplorerSyncRequest = typeof ExplorerSyncRequestSchema.Type;
 
+/** Studio's own state keeping the tree from being read, which clears up without anything failing. */
+export const ExplorerWaitSchema = Schema.Literal(
+  "studio_closed",
+  "no_place",
+  "mode_changed",
+  "place_loading",
+);
+
+export type ExplorerWait = typeof ExplorerWaitSchema.Type;
+
+export const EXPLORER_WAIT_NOTICES: Record<ExplorerWait, string> = {
+  studio_closed: "Studio closed. Reopen it to continue.",
+  no_place: "No place open. Open one in Studio.",
+  mode_changed: "Playtest starting or stopping. Back in a moment.",
+  place_loading: "Place still loading. Back in a moment.",
+};
+
+/** For when "back in a moment" has stopped being true. */
+export const EXPLORER_LONG_WAIT_NOTICES: Partial<Record<ExplorerWait, string>> = {
+  mode_changed: "Can't read Studio during this playtest. Stop it to see objects.",
+  place_loading: "This place is slow to load. Still trying.",
+};
+
 export const ExplorerSyncResultSchema = Schema.Struct({
   changed: Schema.Boolean,
   /** Studio says when the tree changes, so there's no need to read it until it does. */
@@ -153,6 +176,7 @@ export const ExplorerSyncResultSchema = Schema.Struct({
   complete: Schema.Boolean,
   truncated: Schema.Boolean,
   slowestReadMs: Schema.Number,
+  waiting: Schema.optional(ExplorerWaitSchema),
 });
 
 export type ExplorerSyncResult = typeof ExplorerSyncResultSchema.Type;

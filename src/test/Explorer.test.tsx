@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   getSnapshot: vi.fn(),
   treeListeners: new Set<(update: unknown) => void>(),
   scrollToIndex: vi.fn(),
+  // How many rows the list has drawn, when not all of them, and a way to have it draw again.
+  drawnRows: null as number | null,
+  redraw: () => {},
   getDetails: vi.fn(),
   editObject: vi.fn(),
   notifyError: vi.fn(),
@@ -33,6 +36,16 @@ vi.mock("@/lib/desktop", () => ({
     syncExplorerTree: async (studioId: string) => {
       const { sortExplorerNodes } = await import("@/lib/explorer");
       const snapshot = await mocks.getSnapshot(studioId);
+      if (snapshot.waiting) {
+        return {
+          changed: false,
+          watching: false,
+          complete: false,
+          truncated: false,
+          slowestReadMs: 0,
+          waiting: snapshot.waiting,
+        };
+      }
       for (const listener of mocks.treeListeners) {
         listener({
           studioId,
@@ -60,6 +73,7 @@ vi.mock("@/providers/OpenCodeClientProvider", () => ({
   useOpenCodeClient: () => ({ client: mocks.client }),
 }));
 vi.mock("@/providers/StudioTargetProvider", () => ({
+  placeName: (label: string) => label.replace(/\s*\(placeId:[^)]*\)$/, ""),
   useStudioTargetOptional: () => mocks.studioTarget,
 }));
 // The real provider runs the sync. Only what Explorer asks of the rest of the app is replaced.
@@ -71,14 +85,22 @@ vi.mock("@/providers/ExplorerReferenceProvider", async (importOriginal) => {
   };
 });
 // Renders every row, because jsdom has no sizes to measure.
-vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, index) => ({ index, key: index, start: index * 28 })),
-    getTotalSize: () => count * 28,
-    scrollToIndex: mocks.scrollToIndex,
-  }),
-}));
+vi.mock("@tanstack/react-virtual", async () => {
+  const { useReducer } = await import("react");
+  return {
+    useVirtualizer: ({ count }: { count: number }) => {
+      const [, redraw] = useReducer((n: number) => n + 1, 0);
+      mocks.redraw = redraw;
+      const drawn = Math.min(count, mocks.drawnRows ?? count);
+      return {
+        getVirtualItems: () =>
+          Array.from({ length: drawn }, (_, index) => ({ index, key: index, start: index * 28 })),
+        getTotalSize: () => count * 28,
+        scrollToIndex: mocks.scrollToIndex,
+      };
+    },
+  };
+});
 
 import Explorer from "@/components/Explorer";
 import { indexExplorerObjects, OBJECT_DRAG_TYPE } from "@/lib/explorer";
@@ -123,6 +145,8 @@ describe("Explorer", () => {
 
   afterEach(() => {
     mocks.reference.focusRequest = null;
+    mocks.drawnRows = null;
+    mocks.scrollToIndex.mockReset();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -133,11 +157,11 @@ describe("Explorer", () => {
 
     start();
     await advance(0);
-    expect(screen.getByText(/Trying again shortly/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/If it keeps failing, restart Studio/);
 
     await advance(10_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
   });
 
   it("treats an empty first tree as not ready yet", async () => {
@@ -146,7 +170,7 @@ describe("Explorer", () => {
 
     start();
     await advance(0);
-    expect(screen.getByText(/Trying again shortly/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/If it keeps failing, restart Studio/);
 
     await advance(10_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
@@ -162,11 +186,394 @@ describe("Explorer", () => {
     mocks.getSnapshot.mockRejectedValueOnce(new Error("Studio went away"));
     await advance(5_000);
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByText(/Trying again shortly/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/If it keeps failing, restart Studio/);
 
     mocks.getSnapshot.mockResolvedValue(tree);
     await advance(10_000);
-    expect(screen.queryByText(/Trying again shortly/)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
+  });
+
+  it("says calmly what Studio is doing instead of a failure or a skeleton", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce({ waiting: "no_place" });
+    mocks.getSnapshot.mockResolvedValue(tree);
+
+    const { container } = start();
+    await advance(0);
+    expect(screen.getByRole("status")).toHaveTextContent("No place open. Open one in Studio.");
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+
+    await advance(5_000);
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
+  });
+
+  it("keeps the tree on screen through a playtest starting or stopping", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce(tree);
+
+    start();
+    await advance(0);
+    mocks.getSnapshot.mockResolvedValueOnce({ waiting: "mode_changed" });
+    await advance(5_000);
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Playtest starting or stopping");
+
+    mocks.getSnapshot.mockResolvedValue(tree);
+    await advance(5_000);
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
+  });
+
+  it("keeps Check now in place through a retry, and hides what can't be used without a tree", async () => {
+    mocks.getSnapshot.mockRejectedValue(new Error("Studio is busy"));
+
+    const { container } = start();
+    await advance(0);
+    const checkNow = screen.getByRole("button", { name: "Check now" });
+    expect(screen.queryByRole("searchbox", { name: "Search Explorer" })).toBeNull();
+    expect(screen.queryByText(/Select an object/)).toBeNull();
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+
+    fireEvent.click(checkNow);
+    expect(checkNow).toBeInTheDocument();
+    await advance(0);
+    expect(screen.getByRole("button", { name: "Check now" })).toBe(checkNow);
+  });
+
+  it("stops promising a moment once a wait has gone on, and can check on request", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce(tree);
+    mocks.getSnapshot.mockResolvedValue({ waiting: "mode_changed" });
+
+    start();
+    await advance(0);
+    await advance(5_000);
+    expect(screen.getByRole("status")).toHaveTextContent("Back in a moment");
+
+    await advance(30_000);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Can't read Studio during this playtest. Stop it to see objects.",
+    );
+
+    mocks.getSnapshot.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
+    await advance(0);
+    expect(mocks.getSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it("says when this chat's place is closed, with nothing to retry", async () => {
+    mocks.studioTarget.selected = null as never;
+    Object.assign(mocks.studioTarget, {
+      status: "ready",
+      missing: { key: "gone", label: "Dungeon (placeId: 1)" },
+    });
+    try {
+      start();
+      await advance(0);
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Dungeon isn't open. Reopen it to see its objects.",
+      );
+      expect(screen.queryByRole("button", { name: "Check now" })).toBeNull();
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+      Object.assign(mocks.studioTarget, { status: undefined, missing: undefined });
+    }
+  });
+
+  it("says when it's back, and moves focus off a Check now that has gone", async () => {
+    mocks.getSnapshot.mockRejectedValueOnce(new Error("Studio is busy"));
+    mocks.getSnapshot.mockResolvedValue(tree);
+    start();
+    await advance(0);
+    const checkNow = screen.getByRole("button", { name: "Check now" });
+    checkNow.focus();
+    fireEvent.click(checkNow);
+    await advance(0);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Explorer is back.");
+    expect(screen.getByRole("searchbox", { name: "Search Explorer" })).toHaveFocus();
+  });
+
+  it("says it couldn't reach Studio rather than calling a chat's place closed", async () => {
+    mocks.studioTarget.selected = null as never;
+    Object.assign(mocks.studioTarget, {
+      status: "error",
+      missing: { key: "gone", label: "Dungeon (placeId: 1)" },
+    });
+    try {
+      start();
+      await advance(0);
+      expect(screen.getByRole("status")).toHaveTextContent("Couldn't reach Studio.");
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+      Object.assign(mocks.studioTarget, { status: undefined, missing: undefined });
+    }
+  });
+
+  it("moves through the tree with the arrow keys, with one Tab stop", async () => {
+    const lighting = {
+      ...tree.roots[0],
+      name: "Lighting",
+      className: "Lighting",
+      path: "game.Lighting",
+    };
+    mocks.getSnapshot.mockResolvedValue({ ...tree, roots: [lighting, ...tree.roots] });
+    start();
+    await advance(0);
+    const rows = screen.getAllByRole("treeitem");
+    expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
+    expect(rows[0]?.tabIndex).toBe(0);
+
+    rows[0]?.focus();
+    fireEvent.keyDown(rows[0] as HTMLElement, { key: "ArrowDown" });
+    await advance(50);
+    expect(document.activeElement).toBe(screen.getAllByRole("treeitem")[1]);
+  });
+
+  it("waits for a row the arrow keys scrolled to before moving focus to it", async () => {
+    const lighting = {
+      ...tree.roots[0],
+      name: "Lighting",
+      className: "Lighting",
+      path: "game.Lighting",
+    };
+    mocks.getSnapshot.mockResolvedValue({ ...tree, roots: [lighting, ...tree.roots] });
+    // Only the first row is drawn, and the next one a few frames after scrolling to it.
+    mocks.drawnRows = 1;
+    mocks.scrollToIndex.mockImplementation(() => {
+      setTimeout(() => {
+        mocks.drawnRows = null;
+        mocks.redraw();
+      }, 100);
+    });
+    start();
+    await advance(0);
+    const [first] = screen.getAllByRole("treeitem") as [HTMLElement];
+    expect(screen.getAllByRole("treeitem")).toHaveLength(1);
+
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    await advance(100);
+    await advance(50);
+    expect(screen.getAllByRole("treeitem")[1]).toHaveFocus();
+  });
+
+  it("doesn't move focus to a row drawn after the user has gone elsewhere", async () => {
+    const lighting = {
+      ...tree.roots[0],
+      name: "Lighting",
+      className: "Lighting",
+      path: "game.Lighting",
+    };
+    mocks.getSnapshot.mockResolvedValue({ ...tree, roots: [lighting, ...tree.roots] });
+    mocks.drawnRows = 1;
+    mocks.scrollToIndex.mockImplementation(() => {
+      setTimeout(() => {
+        mocks.drawnRows = null;
+        mocks.redraw();
+      }, 100);
+    });
+    const elsewhere = document.createElement("button");
+    document.body.append(elsewhere);
+    start();
+    await advance(0);
+    const [first] = screen.getAllByRole("treeitem") as [HTMLElement];
+
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    // Tabbed away before the row came in.
+    elsewhere.focus();
+    await advance(100);
+    await advance(50);
+    expect(elsewhere).toHaveFocus();
+    elsewhere.remove();
+  });
+
+  it("doesn't pull focus back into the tree after it left for nothing in particular", async () => {
+    const lighting = {
+      ...tree.roots[0],
+      name: "Lighting",
+      className: "Lighting",
+      path: "game.Lighting",
+    };
+    mocks.getSnapshot.mockResolvedValue(tree);
+    start();
+    await advance(0);
+    const row = screen.getByRole("treeitem", { name: "Workspace" });
+    row.focus();
+    // A click on something that can't take focus, with the row still there.
+    act(() => row.blur());
+    await advance(0);
+
+    mocks.getSnapshot.mockResolvedValue({ ...tree, roots: [lighting, ...tree.roots] });
+    await advance(5_000);
+    await advance(50);
+    expect(screen.getByRole("treeitem", { name: "Lighting" })).toBeInTheDocument();
+    expect(document.body).toHaveFocus();
+  });
+
+  it("opens the actions menu from the keyboard, with focus on its first item", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    start();
+    await advance(0);
+    const row = screen.getByRole("treeitem", { name: "Workspace" });
+
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+    await advance(0);
+
+    const items = screen.getAllByRole("menuitem");
+    expect(items[0]).toHaveFocus();
+    fireEvent.keyDown(items[0] as HTMLElement, { key: "ArrowDown" });
+    expect(items[1]).toHaveFocus();
+
+    fireEvent.keyDown(items[1] as HTMLElement, { key: "Tab" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("doesn't carry a selection over to another place, where it'd be a different object", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    const { rerender } = start();
+    await advance(0);
+    fireEvent.click(screen.getByText("Workspace"));
+    await advance(0);
+    expect(screen.getByRole("treeitem", { selected: true })).toHaveTextContent("Workspace");
+
+    mocks.studioTarget.selected = { key: "studio-2" };
+    try {
+      rerender(
+        <ExplorerReferenceProvider>
+          <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />
+        </ExplorerReferenceProvider>,
+      );
+      await advance(0);
+      expect(screen.queryByRole("treeitem", { selected: true })).toBeNull();
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+    }
+  });
+
+  it("doesn't carry a selection over when Studio gives its key to another place", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    mocks.studioTarget.selected = { key: "studio-1", label: "Obby", placeId: "1" } as never;
+    try {
+      const { rerender } = start();
+      await advance(0);
+      fireEvent.click(screen.getByText("Workspace"));
+      await advance(0);
+      expect(screen.getByRole("treeitem", { selected: true })).toHaveTextContent("Workspace");
+
+      mocks.studioTarget.selected = { key: "studio-1", label: "Dungeon", placeId: "2" } as never;
+      rerender(
+        <ExplorerReferenceProvider>
+          <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />
+        </ExplorerReferenceProvider>,
+      );
+      await advance(0);
+      expect(screen.queryByRole("treeitem", { selected: true })).toBeNull();
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+    }
+  });
+
+  it("says when a search finds nothing", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    start();
+    await advance(0);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search Explorer" }), {
+      target: { value: "nothing like this" },
+    });
+    await advance(0);
+    expect(screen.getByRole("status")).toHaveTextContent("No matches.");
+  });
+
+  it("keeps what was open and searched when the panel closes and comes back", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    const panel = (open: boolean) => (
+      <ExplorerReferenceProvider>
+        {open ? <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} /> : null}
+      </ExplorerReferenceProvider>
+    );
+    const { rerender } = render(panel(true));
+    await advance(0);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search Explorer" }), {
+      target: { value: "Work" },
+    });
+
+    rerender(panel(false));
+    await advance(0);
+    rerender(panel(true));
+    await advance(0);
+
+    expect(screen.getByRole("searchbox", { name: "Search Explorer" })).toHaveValue("Work");
+  });
+
+  it("picks up at the selected row when the panel comes back", async () => {
+    const part = { ...tree.roots[0], name: "Part", className: "Part", path: "game.Workspace.Part" };
+    mocks.getSnapshot.mockResolvedValue({
+      ...tree,
+      roots: [{ ...tree.roots[0], hasChildren: true, children: [part] }],
+    });
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    const panel = (open: boolean) => (
+      <ExplorerReferenceProvider>
+        {open ? <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} /> : null}
+      </ExplorerReferenceProvider>
+    );
+    const { rerender } = render(panel(true));
+    await advance(0);
+    fireEvent.click(screen.getByRole("treeitem", { name: "Part" }));
+
+    rerender(panel(false));
+    await advance(0);
+    rerender(panel(true));
+    await advance(0);
+
+    expect(screen.getByRole("treeitem", { name: "Part" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("treeitem", { name: "Workspace" })).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("keeps focus inside the delete dialog while the tree keeps updating", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    const part = { ...tree.roots[0], name: "Part", className: "Part", path: "game.Workspace.Part" };
+    mocks.getSnapshot.mockResolvedValue({
+      ...tree,
+      roots: [{ ...tree.roots[0], hasChildren: true, children: [part] }],
+    });
+    start();
+    await advance(0);
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "Part" }), { key: "Delete" });
+    const dialog = screen.getByRole("alertdialog");
+    const confirm = screen.getByRole("button", { name: "Delete" });
+    confirm.focus();
+
+    await advance(10_000);
+
+    expect(dialog).toBeInTheDocument();
+    expect(confirm).toHaveFocus();
+  });
+
+  it("announces that objects are loading", async () => {
+    mocks.getSnapshot.mockReturnValueOnce(new Promise(() => {}));
+    start();
+    await advance(0);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading objects.");
+  });
+
+  it("doesn't offer edits while the tree on screen can't be trusted", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce(tree);
+    mocks.getSnapshot.mockResolvedValue({ waiting: "studio_closed" });
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+
+    start();
+    await advance(0);
+    await advance(5_000);
+    fireEvent.contextMenu(screen.getByText("Workspace"));
+    await advance(0);
+
+    expect(screen.getByRole("menuitem", { name: "Copy path" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
+    expect(mocks.getDetails).not.toHaveBeenCalled();
   });
 
   it("opens the object a reply links to and shows readable properties", async () => {
@@ -207,6 +614,9 @@ describe("Explorer", () => {
       "data-path",
       "game.Workspace.Model.Part",
     );
+    await advance(50);
+    // Someone who followed a link with the keyboard should land on what it opened.
+    expect(screen.getByRole("treeitem", { selected: true })).toHaveFocus();
     expect(screen.getByText("0.3")).toHaveAttribute("title", "0.3");
     expect(screen.getByText("2048, 16.123, 2048")).toBeInTheDocument();
     expect(screen.getByText("Block")).toBeInTheDocument();
@@ -423,9 +833,22 @@ describe("Explorer", () => {
         ],
         attributes: [{ name: "Team", value: "Lobby", type: "string", writable: true }],
       });
-      start();
+      const view = start();
       await advance(0);
+      return view;
     };
+
+    it("renames and deletes from the keyboard where editing is allowed", async () => {
+      await startWithPart();
+      const row = screen.getByRole("treeitem", { name: "Part" });
+
+      fireEvent.keyDown(row, { key: "Delete" });
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      fireEvent.keyDown(screen.getByRole("treeitem", { name: "Part" }), { key: "F2" });
+      expect(screen.getByRole("textbox", { name: "Rename Part" })).toBeInTheDocument();
+    });
 
     it("lists the name and path as properties and keeps attributes on their own tab", async () => {
       await startWithPart();
@@ -1042,6 +1465,43 @@ describe("Explorer", () => {
         "data-path",
         "game.Workspace.Door",
       );
+    });
+
+    it("doesn't send focus after a renamed row into another place that has one at that path", async () => {
+      const { rerender } = await startWithPart();
+      mocks.editObject.mockResolvedValue({ name: "Door" });
+      openMenuOn("Part");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+      const input = screen.getByRole("textbox", { name: "Rename Part" });
+      fireEvent.change(input, { target: { value: "Door" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await advance(0);
+      // Focus has moved on before the renamed row came back.
+      const search = screen.getByRole("searchbox", { name: "Search Explorer" });
+      search.focus();
+
+      mocks.studioTarget.selected = { key: "studio-2" };
+      mocks.getSnapshot.mockResolvedValue({
+        ...withPart,
+        roots: [
+          {
+            ...withPart.roots[0],
+            children: [{ ...part, name: "Door", path: "game.Workspace.Door" }],
+          },
+        ],
+      });
+      try {
+        rerender(
+          <ExplorerReferenceProvider>
+            <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />
+          </ExplorerReferenceProvider>,
+        );
+        await advance(0);
+        await advance(50);
+        expect(screen.getByRole("treeitem", { name: "Door" })).not.toHaveFocus();
+      } finally {
+        mocks.studioTarget.selected = { key: "studio-1" };
+      }
     });
 
     it("cancels a rename on Escape or when nothing changed", async () => {

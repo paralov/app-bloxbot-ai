@@ -1,5 +1,6 @@
 import {
   type ComponentProps,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
   useEffect,
@@ -7,13 +8,13 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { MENU_ITEM, MENU_SURFACE } from "@/components/ui/menu";
+import { MENU_ITEM, MENU_SURFACE, moveMenuFocus } from "@/components/ui/menu";
 
 // Wide and tall enough to keep the menu on screen near the window's edge.
 const MENU_WIDTH = 176;
 const MENU_HEIGHT = 160;
 
-export function menuPosition(event: MouseEvent) {
+export function menuPosition(event: { clientX: number; clientY: number }) {
   return {
     x: Math.min(event.clientX, window.innerWidth - MENU_WIDTH),
     y: Math.min(event.clientY, window.innerHeight - MENU_HEIGHT),
@@ -87,8 +88,29 @@ export function ContextMenu({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const openedFrom = useRef<Element | null>(null);
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
+    openedFrom.current = document.activeElement;
+    menuRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+    return () => {
+      // Back to the row it came from, if nothing else has taken focus since.
+      const current = document.activeElement;
+      if (!current || current === document.body)
+        (openedFrom.current as HTMLElement | null)?.focus();
+    };
+  }, []);
+  const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    // A menu closes when focus leaves it, rather than staying open behind where it went.
+    if (event.key === "Tab") {
+      onClose();
+      return;
+    }
+    const items = [...(menuRef.current?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? [])];
+    moveMenuFocus(event, items);
+  };
+  useEffect(() => {
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("pointerdown", onClose);
@@ -103,8 +125,10 @@ export function ContextMenu({
 
   return createPortal(
     <div
+      ref={menuRef}
       role="menu"
       aria-label={label}
+      onKeyDown={moveFocus}
       className={`fixed z-[200] ${MENU_SURFACE}`}
       style={{ left: x, top: y, width: MENU_WIDTH }}
       onPointerDown={(event) => event.stopPropagation()}

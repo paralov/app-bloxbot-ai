@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ChatInput from "@/components/ChatInput";
+import ChatInput, { savedDrafts, takeKeptDrafts } from "@/components/ChatInput";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { desktop } from "@/lib/desktop";
@@ -25,7 +25,12 @@ import {
 import { OpenCodeClientContext } from "@/providers/OpenCodeClientProvider";
 import { PreferencesProvider } from "@/providers/PreferencesProvider";
 
-const studio = vi.hoisted(() => ({ selected: null as { key: string } | null }));
+const studio = vi.hoisted(() => ({
+  selected: null as { key: string } | null,
+  sendBlock: null as string | null,
+  targets: [] as unknown[],
+  noteRouted: vi.fn(),
+}));
 vi.mock("@/providers/StudioTargetProvider", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/providers/StudioTargetProvider")>()),
   useStudioTargetOptional: () => studio,
@@ -223,6 +228,8 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("ChatInput", () => {
+  beforeEach(() => savedDrafts.clear());
+
   it("sends a text message on submit", async () => {
     const client = createClient();
     const qc = createQueryClient();
@@ -244,6 +251,37 @@ describe("ChatInput", () => {
     const args = client.session.promptAsync.mock.calls[0][0];
     expect(args.parts[0].text).toBe("Build a game");
     expect(args.sessionID).toBe("s1");
+  });
+
+  it("notes the Studio a message went to, but not for a command that runs here", async () => {
+    const onOpenSettings = vi.fn();
+    const client = createClient();
+    render(
+      <TestChatInput
+        client={client}
+        queryClient={createQueryClient()}
+        onOpenSettings={onOpenSettings}
+      />,
+    );
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "/connect" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+    expect(onOpenSettings).toHaveBeenCalled();
+    expect(studio.noteRouted).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "Build a game" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+    expect(client.session.promptAsync).toHaveBeenCalled();
+    expect(studio.noteRouted).toHaveBeenCalledOnce();
   });
 
   it("offers a way to add providers and models from the model picker", async () => {
@@ -488,6 +526,143 @@ describe("ChatInput", () => {
       expect(qc.getQueryData<Record<string, SessionStatus>>(qk.statuses)?.s1.type).toBe("idle");
     });
     expect(client.session.abort).toHaveBeenCalledWith({ sessionID: "s1" }, { throwOnError: true });
+  });
+
+  it("won't send while this chat's place is closed, keeping what was typed", async () => {
+    studio.sendBlock = "Dungeon isn't open. Reopen it, choose another, or work without Studio.";
+    try {
+      const client = createClient();
+      render(<TestChatInput client={client} queryClient={createQueryClient()} />);
+      const textarea = await screen.findByRole("textbox", { name: "Message" });
+
+      await act(async () => {
+        fireEvent.input(textarea, { target: { textContent: "Delete everything" } });
+      });
+      expect(
+        screen.getByTitle("Dungeon isn't open. Reopen it, choose another, or work without Studio."),
+      ).toHaveAttribute("aria-disabled", "true");
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+      });
+
+      expect(client.session.promptAsync).not.toHaveBeenCalled();
+      expect(textarea).toHaveTextContent("Delete everything");
+
+      // Commands that don't set the agent to work still run.
+      await act(async () => {
+        fireEvent.input(textarea, { target: { textContent: "/connect" } });
+      });
+      expect(screen.getByTitle("Send")).toBeEnabled();
+    } finally {
+      studio.sendBlock = null;
+    }
+  });
+
+  it("keeps what was typed when something else takes over the screen for a while", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    const { unmount } = render(<TestChatInput client={client} queryClient={qc} />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "Build a lobby" } });
+    });
+    unmount();
+
+    render(<TestChatInput client={client} queryClient={createQueryClient()} />);
+    expect(await screen.findByRole("textbox", { name: "Message" })).toHaveTextContent(
+      "Build a lobby",
+    );
+  });
+
+  it("keeps a draft when switching chats, and brings it back on return", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    const view = render(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "Half a thought" } });
+    });
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s2" />);
+    });
+    expect(textarea).not.toHaveTextContent("Half a thought");
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    });
+    expect(textarea).toHaveTextContent("Half a thought");
+  });
+
+  it("brings a saved draft back when its chat is opened again", async () => {
+    savedDrafts.set("s2", { text: "Saved for later", attachments: [] });
+    const client = createClient();
+    const qc = createQueryClient();
+    const view = render(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    expect(textarea).not.toHaveTextContent("Saved for later");
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s2" />);
+    });
+
+    expect(textarea).toHaveTextContent("Saved for later");
+    expect(savedDrafts.has("s2")).toBe(false);
+  });
+
+  it("keeps drafts through a reload or restart", async () => {
+    const client = createClient();
+    render(<TestChatInput client={client} queryClient={createQueryClient()} sessionId="s1" />);
+    await screen.findByRole("textbox", { name: "Message" });
+    fireEvent.click(screen.getByRole("button", { name: "Reference Part" }));
+    await screen.findByText("@Part");
+
+    window.dispatchEvent(new Event("beforeunload"));
+
+    const [[sessionId, draft]] = takeKeptDrafts();
+    expect(sessionId).toBe("s1");
+    expect(draft.editorState).toBeDefined();
+    expect(takeKeptDrafts()).toEqual([]);
+  });
+
+  it("skips kept drafts that aren't drafts", () => {
+    const draft = { text: "Still here", attachments: [] };
+    localStorage.setItem(
+      "bloxbot-kept-drafts",
+      JSON.stringify([
+        ["s1", draft],
+        ["s2", { text: 5 }],
+        "s3",
+        ["s4", { ...draft, attachments: [{}] }],
+      ]),
+    );
+    expect(takeKeptDrafts()).toEqual([["s1", draft]]);
+
+    for (const stored of ["{}", "null", "7", '"text"']) {
+      localStorage.setItem("bloxbot-kept-drafts", stored);
+      expect(takeKeptDrafts()).toEqual([]);
+    }
+  });
+
+  it("keeps an object's chip in a draft across chats", async () => {
+    const client = createClient();
+    const qc = createQueryClient();
+    const view = render(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+    fireEvent.click(screen.getByRole("button", { name: "Reference Part" }));
+    await screen.findByText("@Part");
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s2" />);
+    });
+    expect(textarea).not.toHaveTextContent("@Part");
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    });
+
+    expect(await screen.findByText("@Part")).toBeInTheDocument();
+    expect(textarea).not.toHaveTextContent("<Instance");
   });
 
   it("does not send when session is busy", async () => {

@@ -1,6 +1,24 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import {
+  createContext,
+  type Dispatch,
+  type MutableRefObject,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { type ExplorerTreeSync, useExplorerTreeSync } from "@/hooks/useExplorerTreeSync";
-import { type ExplorerNode, type ExplorerReference, indexExplorerObjects } from "@/lib/explorer";
+import {
+  type ExplorerNode,
+  type ExplorerReference,
+  type ExplorerWait,
+  indexExplorerObjects,
+} from "@/lib/explorer";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 interface ExplorerReferenceContextValue {
   pendingReference: ExplorerReference | null;
@@ -8,6 +26,8 @@ interface ExplorerReferenceContextValue {
   /** Nothing to offer yet, because the first read is running or failed. */
   objectsLoading: boolean;
   objectsFailed: boolean;
+  /** Why objects can't be read yet, when that's only Studio's state and clears up on its own. */
+  objectsWaiting: ExplorerWait | null;
   requestSync: ExplorerTreeSync["requestSync"];
   referenceObject: (reference: ExplorerReference) => void;
   consumeReference: () => void;
@@ -18,6 +38,23 @@ interface ExplorerReferenceContextValue {
   consumeFocus: () => void;
 }
 
+const NOTHING_EXPANDED: Set<string> = new Set();
+
+/** What someone has opened and searched for, which outlives the panel being closed. */
+export interface ExplorerView {
+  expanded: Set<string>;
+  setExpanded: Dispatch<SetStateAction<Set<string>>>;
+  selectedId: string | null;
+  setSelectedId: Dispatch<SetStateAction<string | null>>;
+  search: string;
+  setSearch: Dispatch<SetStateAction<string>>;
+  /** Whether this is the first look at a place, when its services open out. */
+  firstShowing: (studioId: string | undefined) => boolean;
+  scrollTopRef: MutableRefObject<number>;
+}
+
+const ExplorerViewContext = createContext<ExplorerView | null>(null);
+
 const ExplorerReferenceContext = createContext<ExplorerReferenceContextValue | null>(null);
 // Its own context because it changes many times a second while a big place loads, which only the
 // Explorer panel needs to hear about.
@@ -25,7 +62,60 @@ const ExplorerTreeContext = createContext<ExplorerTreeSync | null>(null);
 
 export function ExplorerReferenceProvider({ children }: { children: ReactNode }) {
   const sync = useExplorerTreeSync();
-  const { objects, syncing, syncError, requestSync } = sync;
+  // Per place, so going back to one finds it as it was left.
+  const selectedStudio = useStudioTargetOptional()?.selected;
+  const studioId = selectedStudio?.key;
+  // Studio can hand the same key to another place, so the key alone doesn't say which place it is.
+  // Unpublished, the name is all there is to tell two apart by.
+  const placeKey = selectedStudio
+    ? JSON.stringify([selectedStudio.key, selectedStudio.placeId ?? null, selectedStudio.label])
+    : undefined;
+  const [expandedByStudio, setExpandedByStudio] = useState<
+    ReadonlyMap<string | undefined, Set<string>>
+  >(() => new Map());
+  const expanded = expandedByStudio.get(studioId) ?? NOTHING_EXPANDED;
+  const setExpanded = useCallback<Dispatch<SetStateAction<Set<string>>>>(
+    (action) =>
+      setExpandedByStudio((all) => {
+        const current = all.get(studioId) ?? NOTHING_EXPANDED;
+        return new Map(all).set(studioId, typeof action === "function" ? action(current) : action);
+      }),
+    [studioId],
+  );
+  const scrollTopRef = useRef(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const shownStudiosRef = useRef(new Set<string | undefined>());
+  const firstShowing = useCallback((studioId: string | undefined) => {
+    if (shownStudiosRef.current.has(studioId)) return false;
+    shownStudiosRef.current.add(studioId);
+    return true;
+  }, []);
+  const view = useMemo(
+    () => ({
+      expanded,
+      setExpanded,
+      selectedId,
+      setSelectedId,
+      search,
+      setSearch,
+      firstShowing,
+      scrollTopRef,
+    }),
+    [expanded, setExpanded, selectedId, search, firstShowing],
+  );
+  // Rows are named by path, so in another place this would silently be a different object. Here, as
+  // the panel may be closed when the Studio changes.
+  const viewPlaceRef = useRef(placeKey);
+  useEffect(() => {
+    // A chat with no Studio passing through isn't a different place.
+    if (!placeKey || viewPlaceRef.current === placeKey) return;
+    viewPlaceRef.current = placeKey;
+    setSelectedId(null);
+    setSearch("");
+    scrollTopRef.current = 0;
+  }, [placeKey]);
+  const { objects, syncing, syncError, waiting, requestSync } = sync;
   const [pendingReference, setPendingReference] = useState<ExplorerReference | null>(null);
   const referenceObject = useCallback(
     (reference: ExplorerReference) => setPendingReference(reference),
@@ -36,6 +126,7 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
   const consumeFocus = useCallback(() => setFocusRequest(null), []);
   const objectsLoading = syncing && objects.length === 0;
   const objectsFailed = syncError !== null && objects.length === 0;
+  const objectsWaiting = objects.length === 0 ? waiting : null;
   const objectIndex = useMemo(() => indexExplorerObjects(objects), [objects]);
   const value = useMemo(
     () => ({
@@ -43,6 +134,7 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
       objects,
       objectsLoading,
       objectsFailed,
+      objectsWaiting,
       requestSync,
       referenceObject,
       consumeReference,
@@ -56,6 +148,7 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
       objects,
       objectsLoading,
       objectsFailed,
+      objectsWaiting,
       requestSync,
       referenceObject,
       consumeReference,
@@ -67,9 +160,11 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
 
   return (
     <ExplorerTreeContext.Provider value={sync}>
-      <ExplorerReferenceContext.Provider value={value}>
-        {children}
-      </ExplorerReferenceContext.Provider>
+      <ExplorerViewContext.Provider value={view}>
+        <ExplorerReferenceContext.Provider value={value}>
+          {children}
+        </ExplorerReferenceContext.Provider>
+      </ExplorerViewContext.Provider>
     </ExplorerTreeContext.Provider>
   );
 }
@@ -77,6 +172,12 @@ export function ExplorerReferenceProvider({ children }: { children: ReactNode })
 export function useExplorerReference() {
   const value = useContext(ExplorerReferenceContext);
   if (!value) throw new Error("useExplorerReference must be used inside ExplorerReferenceProvider");
+  return value;
+}
+
+export function useExplorerView() {
+  const value = useContext(ExplorerViewContext);
+  if (!value) throw new Error("useExplorerView must be used inside ExplorerReferenceProvider");
   return value;
 }
 

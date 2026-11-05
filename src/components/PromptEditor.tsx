@@ -17,6 +17,7 @@ import {
   type EditorConfig,
   type LexicalEditor,
   type NodeKey,
+  type SerializedEditorState,
   type SerializedLexicalNode,
 } from "lexical";
 import { type LucideIcon, SquareSlash } from "lucide-react";
@@ -290,6 +291,7 @@ function TypeaheadPlugin({
   commands = EMPTY_COMMANDS,
   objectsLoading = false,
   objectsUnavailable = null,
+  noStudio = false,
   onOpen,
   onSubmit,
 }: {
@@ -297,6 +299,7 @@ function TypeaheadPlugin({
   objectIndex: readonly SearchableObject[];
   commands?: readonly Command[];
   objectsLoading?: boolean;
+  noStudio?: boolean;
   /** Why there are no objects to offer, such as no Studio being open. */
   objectsUnavailable?: string | null;
   onOpen?: () => void;
@@ -337,6 +340,8 @@ function TypeaheadPlugin({
     if (kind === "command") return search ? null : "No commands available.";
     if (objectIndex.length === 0) {
       if (objectsLoading) return "Reading your place in Studio";
+      // With no Studio in play, "@media" is just something someone typed.
+      if (noStudio && search) return null;
       return objectsUnavailable ?? "Nothing to reference in this place yet.";
     }
     return `No objects match "${search}".`;
@@ -447,6 +452,8 @@ export interface PromptEditorHandle {
   focus(): void;
   getText(): string;
   insertText(text: string): void;
+  /** Puts back what was written, chips and all, from what {@link PromptEditorProps.onChange} gave. */
+  restore(state: SerializedEditorState): void;
   /** Adds the same chip as picking the object from the @ list, after what's already written. */
   insertObject(reference: ExplorerReference): void;
 }
@@ -457,9 +464,10 @@ interface PromptEditorProps {
   placeholder: string;
   objectsLoading?: boolean;
   objectsUnavailable?: string | null;
+  noStudio?: boolean;
   /** Typing "@" asks for a fresh copy of the place's objects. */
   onObjectsWanted?: () => void;
-  onChange(text: string): void;
+  onChange(text: string, state: SerializedEditorState): void;
   onSubmit(): void;
   onPaste?: ClipboardEventHandler<HTMLDivElement>;
 }
@@ -471,6 +479,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
     placeholder,
     objectsLoading,
     objectsUnavailable,
+    noStudio,
     onObjectsWanted,
     onChange,
     onSubmit,
@@ -493,6 +502,12 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
     },
     getText() {
       return editorRef.current?.getEditorState().read(() => $getRoot().getTextContent()) ?? "";
+    },
+    restore(state) {
+      const editor = editorRef.current;
+      if (!editor) return;
+      editor.setEditorState(editor.parseEditorState(state));
+      editor.update(() => $getRoot().selectEnd());
     },
     insertText(text: string) {
       editorRef.current?.update(() => {
@@ -567,7 +582,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
               const text = $getRoot().getTextContent();
               const root = editor.getRootElement() as (HTMLDivElement & { value?: string }) | null;
               if (root) root.value = text;
-              onChange(text);
+              onChange(text, state.toJSON());
             })
           }
         />
@@ -577,6 +592,7 @@ export default forwardRef<PromptEditorHandle, PromptEditorProps>(function Prompt
           objectIndex={objectIndex}
           objectsLoading={objectsLoading}
           objectsUnavailable={objectsUnavailable}
+          noStudio={noStudio}
           onOpen={onObjectsWanted}
         />
         <TypeaheadPlugin

@@ -19,6 +19,7 @@ import {
 } from "@/lib/playtestPlan";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { usePreferences } from "@/providers/PreferencesProvider";
+import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 function generationErrorCategory(error: unknown): string {
   if (!(error instanceof Error)) return "unknown";
@@ -82,6 +83,7 @@ function ListEditor({
 
 export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
   const generate = useGeneratePlaytestPlan();
+  const studioTarget = useStudioTargetOptional();
   const sendMessage = useSendMessage();
   const { selectedModel } = usePreferences();
   const [plan, setPlan] = useState<PlaytestPlan | null>(null);
@@ -162,6 +164,10 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
       notify.error("Complete every playtest field before running it.");
       return;
     }
+    if (studioTarget && !studioTarget.selected) {
+      notify.error(studioTarget.sendBlock ?? "Choose a Studio first.");
+      return;
+    }
     posthog.capture(
       "playtest_started",
       analyticsProperties(
@@ -175,8 +181,12 @@ export default function PlaytestPanel({ onClose }: { onClose: () => void }) {
         }),
       ),
     );
+    studioTarget?.noteRouted?.();
     sendMessage.mutate(
-      { text: formatPlaytestPrompt(plan) },
+      {
+        text: formatPlaytestPrompt(plan),
+        studioTargetReference: studioTarget?.promptReference ?? null,
+      },
       {
         onSuccess: onClose,
         onError: (error) => notify.error("Playtest not started", { description: error.message }),

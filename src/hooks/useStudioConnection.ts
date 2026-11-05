@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { desktop } from "@/lib/desktop";
 import type { OpencodeClient } from "@/lib/opencode/client";
 import { qk } from "@/lib/queryKeys";
@@ -7,6 +8,7 @@ import { useOpenCodeClient } from "@/providers/OpenCodeClientProvider";
 import type { StudioMcpStatus } from "@/types/desktop";
 
 const STUDIO_MCP_NAME = STUDIO_MCP_SERVER_NAME;
+const CONNECT_WAIT_MS = 10_000;
 
 export type StudioConnectionState = "checking" | "connected" | "waiting";
 
@@ -17,7 +19,7 @@ export function studioMcpProblem(status: StudioMcpStatus | undefined): StudioMcp
   return status?.state === "not_installed" || status?.state === "unavailable" ? status.state : null;
 }
 
-export async function checkStudioConnection(
+async function attemptStudioConnection(
   client: Pick<OpencodeClient, "mcp">,
 ): Promise<Exclude<StudioConnectionState, "checking">> {
   try {
@@ -30,6 +32,16 @@ export async function checkStudioConnection(
   } catch {
     return "waiting";
   }
+}
+
+/** Any of it can hang, and the app waits on this to get past "Finding Roblox Studio". */
+export function checkStudioConnection(
+  client: Pick<OpencodeClient, "mcp">,
+): Promise<Exclude<StudioConnectionState, "checking">> {
+  return Promise.race([
+    attemptStudioConnection(client),
+    new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), CONNECT_WAIT_MS)),
+  ]);
 }
 
 export function useStudioConnection() {
@@ -55,10 +67,21 @@ export function useStudioConnection() {
     retry: false,
   });
 
+  // The background checks every few seconds aren't news to anyone, and shouldn't move their focus.
+  const [checking, setChecking] = useState(false);
+  const checkAgain = async () => {
+    setChecking(true);
+    try {
+      await query.refetch();
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return {
     state: query.isPending ? ("checking" as const) : (query.data ?? "waiting"),
-    checking: query.isFetching,
-    checkAgain: query.refetch,
+    checking,
+    checkAgain,
     problem: waiting ? studioMcpProblem(studioMcp.data) : null,
   };
 }

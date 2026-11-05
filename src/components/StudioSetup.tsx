@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import findMcpImage from "@/assets/studio-setup/find-mcp.jpg";
 import flipSwitchImage from "@/assets/studio-setup/flip-switch.jpg";
@@ -6,7 +6,7 @@ import openAssistantImage from "@/assets/studio-setup/open-assistant.jpg";
 import openPlaceImage from "@/assets/studio-setup/open-place.jpg";
 import type { StudioMcpProblem } from "@/hooks/useStudioConnection";
 
-const STEPS = [
+export const STUDIO_SETUP_STEPS = [
   {
     title: "Open a place",
     description: "Open any place in Roblox Studio.",
@@ -35,9 +35,9 @@ const STEPS = [
 
 const PROBLEM_COPY: Record<StudioMcpProblem, string> = {
   not_installed:
-    "BloxBot can't find Roblox Studio's MCP helper. Install or update Roblox Studio, open it, turn on the MCP server in Assistant settings, then check again.",
+    "BloxBot can't find Roblox Studio. Install or update it, then follow the steps above.",
   unavailable:
-    "Studio's MCP helper stopped right after it started. Open Roblox Studio so it can finish any update, then check again. If this keeps happening, reinstall Studio.",
+    "Roblox Studio stopped responding. Open it so it can finish updating, or reinstall it if this keeps happening.",
 };
 
 interface StudioSetupProps {
@@ -47,11 +47,51 @@ interface StudioSetupProps {
   problem?: StudioMcpProblem | null;
   onCheck: () => void;
   onContinue: () => void;
+  /** Offered when this was opened by choice, so there's a way back without connecting. */
+  onDismiss?: () => void;
+  /** Offered the first time, for people who aren't here to use Studio at all. */
+  onSkip?: () => void;
+  /** Connected, but this chat's own place isn't open, so it needs someone to pick one. */
+  needsChoice?: boolean;
 }
 
-function StudioSetup({ connected, checking, problem, onCheck, onContinue }: StudioSetupProps) {
+function StudioSetup({
+  connected,
+  checking,
+  problem,
+  onCheck,
+  onContinue,
+  onDismiss,
+  onSkip,
+  needsChoice = false,
+}: StudioSetupProps) {
   const [stepIndex, setStepIndex] = useState(0);
-  const step = STEPS[stepIndex];
+  const step = STUDIO_SETUP_STEPS[stepIndex];
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [notFound, setNotFound] = useState(false);
+  const wasChecking = useRef(false);
+
+  // A check that finds nothing looks like nothing happened unless something says so.
+  useEffect(() => {
+    if (checking) setNotFound(false);
+    else if (wasChecking.current && !connected) setNotFound(true);
+    wasChecking.current = checking;
+  }, [checking, connected]);
+
+  const continueRef = useRef<HTMLButtonElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
+
+  // A whole new screen, so keyboard and screen reader users start at its top.
+  useEffect(() => {
+    if (connected) continueRef.current?.focus();
+    else headingRef.current?.focus();
+  }, [connected]);
+
+  // Back goes away on the first step, and focus must not go with it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the step changes
+  useEffect(() => {
+    if (document.activeElement === document.body) nextRef.current?.focus();
+  }, [stepIndex]);
 
   if (connected) {
     return (
@@ -72,16 +112,21 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
               <path d="m5 12 4 4L19 6" />
             </svg>
           </div>
-          <h1 className="mt-5 text-lg font-medium">Studio connected</h1>
+          <output className="mt-5 block">
+            <h1 className="text-lg font-medium">Studio connected</h1>
+          </output>
           <p className="mt-2 text-sm text-muted-foreground">
-            BloxBot is in the driver&apos;s seat. You&apos;re ready to build.
+            {needsChoice
+              ? "Choose which place this chat should work in."
+              : "BloxBot is in the driver's seat. You're ready to build."}
           </p>
           <button
+            ref={continueRef}
             type="button"
             onClick={onContinue}
             className="mt-6 inline-flex h-10 items-center rounded-lg bg-foreground px-6 text-sm font-medium text-background transition-opacity hover:opacity-90"
           >
-            Let&apos;s build
+            {needsChoice ? "Choose a place" : "Let's build"}
           </button>
         </section>
       </div>
@@ -89,28 +134,59 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
   }
 
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-5">
-      <section className="animate-fade-in-up w-full max-w-2xl" aria-labelledby="studio-setup-title">
+    <div className="flex min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      {/* m-auto, because centering with flex would cut the top off in a short window. Width sets the
+          screenshot's height, so this keeps the whole step in view without scrolling. */}
+      <section
+        className="animate-fade-in-up m-auto w-full"
+        style={{ maxWidth: "max(24rem, min(42rem, calc((100vh - 21rem) * 16 / 9)))" }}
+        aria-labelledby="studio-setup-title"
+      >
         <header className="flex items-center gap-4">
           <BloxBotFace />
-          <div>
+          <div className="flex-1">
             <p className="text-xs font-medium text-muted-foreground">One tiny setup</p>
-            <h1 id="studio-setup-title" className="text-lg font-medium">
+            <h1
+              ref={headingRef}
+              id="studio-setup-title"
+              tabIndex={-1}
+              className="text-lg font-medium outline-none"
+            >
               Let&apos;s connect Studio
             </h1>
           </div>
+          {onDismiss ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="h-9 shrink-0 rounded-lg border px-4 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              Back to chat
+            </button>
+          ) : onSkip ? (
+            <button
+              type="button"
+              onClick={onSkip}
+              className="h-9 shrink-0 rounded-lg border px-4 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              Skip for now
+            </button>
+          ) : null}
         </header>
 
         <div className="mt-4 overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-5 py-3">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Step {stepIndex + 1} of {STEPS.length}
+              <output className="sr-only">
+                Step {stepIndex + 1} of {STUDIO_SETUP_STEPS.length}. {step.description}
+              </output>
+              <p aria-hidden="true" className="text-xs font-medium text-muted-foreground">
+                Step {stepIndex + 1} of {STUDIO_SETUP_STEPS.length}
               </p>
               <h2 className="mt-0.5 text-base font-medium">{step.title}</h2>
             </div>
             <div className="flex gap-1.5" aria-hidden="true">
-              {STEPS.map((item, index) => (
+              {STUDIO_SETUP_STEPS.map((item, index) => (
                 <span
                   key={item.title}
                   className={`h-1.5 rounded-full transition-all ${
@@ -137,8 +213,9 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
                   Back
                 </button>
               )}
-              {stepIndex < STEPS.length - 1 ? (
+              {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
                 <button
+                  ref={nextRef}
                   type="button"
                   onClick={() => setStepIndex((current) => current + 1)}
                   className="h-9 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90"
@@ -148,10 +225,12 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
               ) : (
                 <button
                   type="button"
-                  onClick={onCheck}
-                  disabled={checking}
+                  onClick={() => {
+                    if (!checking) onCheck();
+                  }}
+                  aria-disabled={checking}
                   aria-busy={checking}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90 aria-disabled:opacity-60"
                 >
                   {checking && (
                     <svg
@@ -175,24 +254,60 @@ function StudioSetup({ connected, checking, problem, onCheck, onContinue }: Stud
                       />
                     </svg>
                   )}
-                  {checking ? "Checking..." : "Check again"}
+                  {checking ? "Checking..." : "Check now"}
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        {problem ? (
-          <output className="mx-auto mt-3 flex max-w-lg items-start justify-center gap-2 text-center text-xs leading-relaxed text-muted-foreground">
-            <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
-            {PROBLEM_COPY[problem]}
+        <div className="mt-3 flex flex-col items-center gap-1 text-center text-xs leading-relaxed text-muted-foreground">
+          {problem ? (
+            <output className="flex max-w-lg items-start justify-center gap-2">
+              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+              <span>
+                {PROBLEM_COPY[problem]}
+                {problem === "not_installed" ? (
+                  <>
+                    {" "}
+                    <a
+                      href="https://create.roblox.com/docs/studio/setup"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-foreground"
+                    >
+                      Get Roblox Studio
+                    </a>
+                  </>
+                ) : null}
+              </span>
+            </output>
+          ) : notFound ? null : (
+            <p className="flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+              Looking for Roblox Studio
+            </p>
+          )}
+          <output>
+            {notFound && !problem
+              ? "Not found yet. Check these steps, then restart Studio."
+              : notFound
+                ? "Not found yet."
+                : null}
           </output>
-        ) : (
-          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
-            Looking for Roblox Studio
-          </div>
-        )}
+          {stepIndex < STUDIO_SETUP_STEPS.length - 1 ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (!checking) onCheck();
+              }}
+              aria-busy={checking}
+              className="underline underline-offset-2 hover:text-foreground aria-busy:opacity-60"
+            >
+              Check now
+            </button>
+          ) : null}
+        </div>
       </section>
     </div>
   );

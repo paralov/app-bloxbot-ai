@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import type * as React from "react";
+import type { KeyboardEvent } from "react";
 
 import { PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -8,9 +9,9 @@ import { cn } from "@/lib/utils";
 export const MENU_SURFACE =
   "rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg outline-hidden";
 export const MENU_ITEM =
-  "flex min-h-7 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent disabled:opacity-60";
+  "flex min-h-7 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 aria-disabled:cursor-default aria-disabled:opacity-60 aria-disabled:hover:bg-transparent";
 export const MENU_TRIGGER =
-  "flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-pressed:bg-accent aria-pressed:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50";
+  "flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-accent aria-pressed:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50";
 
 export const MENU_LABEL = "px-2 py-1.5 text-xs text-muted-foreground";
 
@@ -100,4 +101,23 @@ export function MenuSearch({
       ) : null}
     </div>
   );
+}
+
+/** Arrow keys, Home and End between a menu's items, wrapping at the ends. */
+export function moveMenuFocus(event: KeyboardEvent<HTMLElement>, items: readonly HTMLElement[]) {
+  const at = items.indexOf(document.activeElement as HTMLElement);
+  const to =
+    event.key === "ArrowDown"
+      ? items[(at + 1) % items.length]
+      : event.key === "ArrowUp"
+        ? // Focus starts on the menu itself, where up means the last item.
+          items[at <= 0 ? items.length - 1 : at - 1]
+        : event.key === "Home"
+          ? items[0]
+          : event.key === "End"
+            ? items[items.length - 1]
+            : undefined;
+  if (!to) return;
+  event.preventDefault();
+  to.focus();
 }

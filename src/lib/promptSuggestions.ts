@@ -61,6 +61,19 @@ function clientCommand(name: string, description: string): Command {
 }
 
 /** OpenCode's desktop commands that act on the app, not on the model. */
+/**
+ * Whether this text would set the agent to work, which needs a Studio to work in. Commands that run
+ * here, and stopping a goal, don't.
+ */
+export function needsStudio(text: string): boolean {
+  const parsed = parseSlashCommand(text);
+  if (!parsed) return true;
+  if (CLIENT_COMMANDS.some(({ name }) => name === parsed.name)) return false;
+  if (parsed.name !== "goal") return true;
+  const argument = parsed.input.trim().toLowerCase();
+  return argument !== "pause" && argument !== "clear";
+}
+
 export const CLIENT_COMMANDS: readonly Command[] = [
   clientCommand("new", "start a new chat"),
   clientCommand("undo", "take back the last message and put it in the box"),

@@ -5,8 +5,8 @@ const REPOSITORY_URL = "https://github.com/paralov/app-bloxbot-ai";
 
 export function releaseAssetNames(version: string): string[] {
   return [
-    `BloxBot-${version}-mac.dmg`,
-    `BloxBot-${version}-mac.zip`,
+    `BloxBot-${version}-arm64-mac.dmg`,
+    `BloxBot-${version}-arm64-mac.zip`,
     `BloxBot-Setup-${version}.exe`,
     `BloxBot-${version}-linux-amd64.deb`,
     "latest-mac.yml",
@@ -35,7 +35,7 @@ export function releaseNotes(changelog: string, version: string): string {
   return [
     "## Download BloxBot",
     "",
-    `- [macOS (.dmg)](${download}/${dmg})`,
+    `- [macOS, Apple Silicon (.dmg)](${download}/${dmg})`,
     `- [Windows (.exe)](${download}/${exe})`,
     `- [Debian / Ubuntu (.deb)](${download}/${deb})`,
     "",
