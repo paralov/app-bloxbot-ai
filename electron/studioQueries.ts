@@ -55,7 +55,9 @@ function identifier(value: unknown): string | null {
 function toTarget(studio: any): StudioTarget | null {
   const key = identifier(studio?.studio_id ?? studio?.studioId ?? studio?.id);
   if (!key) return null;
-  const placeId = identifier(studio?.place_id ?? studio?.placeId);
+  // Studio can report 0 for a place that was never published, which says nothing about which one.
+  const reportedPlaceId = identifier(studio?.place_id ?? studio?.placeId);
+  const placeId = reportedPlaceId === "0" ? null : reportedPlaceId;
   const label = studio?.name ?? studio?.place_name ?? studio?.placeName;
   return {
     key,
@@ -78,6 +80,107 @@ export async function discoverStudioTargets(
   callTool: CallStudioTool,
 ): Promise<StudioTargetDiscovery> {
   return { targets: await listStudios(callTool), selectedKey: null };
+}
+
+/**
+ * Runs a script in whichever data model is open. Studio rejects "Edit" during a playtest, which may not
+ * have a server either. Returns the first answer, or the last error when none would run it.
+ */
+export async function runScript(
+  callTool: CallStudioTool,
+  studioId: string,
+  code: string,
+): Promise<CallToolResult> {
+  let response: CallToolResult = { content: [] };
+  for (const datamodelType of ["Edit", "Server", "Client"]) {
+    response = await callTool("execute_luau", {
+      studio_id: studioId,
+      datamodel_type: datamodelType,
+      code,
+    });
+    if (!mcpError(response)) break;
+  }
+  return response;
+}
+
+/** The account signed in to this Studio, which is what decides which uploads it can load. */
+export async function readStudioAccount(callTool: CallStudioTool, studioId: string): Promise<string> {
+  const result = await callTool("execute_luau", {
+    studio_id: studioId,
+    datamodel_type: "Edit",
+    code: `return tostring(game:GetService("StudioService"):GetUserId())`,
+  });
+  const error = mcpError(result);
+  if (error) throw new Error(error);
+  const id = String(mcpData(result) ?? "").trim();
+  if (!/^[1-9]\d*$/.test(id)) throw new Error("Studio isn't signed in");
+  return id;
+}
+
+/** Studio's answer when Edit is asked for during a playtest. */
+const IN_PLAYTEST = /not available in \w+ mode/i;
+export const STOP_PLAYTEST = "Stop the playtest first";
+
+/** Puts an uploaded model in the place, and returns where it went. */
+/** Thrown when the Studio has another place open than the one the model is for. */
+export const PLACE_CHANGED = "The place changed";
+
+export async function insertUploadedModel(
+  callTool: CallStudioTool,
+  studioId: string,
+  assetId: string,
+  name: string,
+  /** The published place it's for. Checked in the same script that looks, so a switch can't slip in. */
+  placeId?: string,
+): Promise<string> {
+  const assetName = name.replace(/[^\p{L}\p{N}_]+/gu, "");
+  // An insert whose answer never came back still leaves its model, linked to the asset until the
+  // cleanup below runs. Finding one means that model is the answer, not a second copy.
+  const leftover = await callTool("execute_luau", {
+    studio_id: studioId,
+    datamodel_type: "Edit",
+    code: `${placeId ? `if game.PlaceId ~= ${Number(placeId)} then return "moved" end\n` : ""}for _, child in workspace:GetChildren() do
+  local link = child:FindFirstChildOfClass("PackageLink")
+  if link and string.match(link.PackageId, "%d+$") == ${JSON.stringify(assetId)} then
+    link:Destroy()
+    return "game." .. child:GetFullName()
+  end
+end
+return "none"`,
+  });
+  const lookupError = mcpError(leftover);
+  // A playtest's place is a copy that's thrown away, so the model waits for the real one.
+  if (lookupError) throw new Error(IN_PLAYTEST.test(lookupError) ? STOP_PLAYTEST : lookupError);
+  const found = mcpData(leftover);
+  if (found === "moved") throw new Error(PLACE_CHANGED);
+  if (typeof found === "string" && found.startsWith("game.")) return found;
+  // Only a clear "nothing there" adds one. Anything else could be a model already in the place.
+  if (found !== "none") throw new Error("Studio couldn't say what the place already has");
+  const result = await callTool("insert_asset", {
+    studio_id: studioId,
+    assetId,
+    assetName: assetName || "Model",
+    assetType: "Model",
+  });
+  const error = mcpError(result);
+  if (error) throw new Error(error);
+  const inserted = mcpData(result)?.insertedInstances?.[0]?.fullPath;
+  if (typeof inserted !== "string") throw new Error("Studio returned an unreadable answer");
+  // insert_asset marks anything from Open Cloud as a package, which this isn't. Only the newest match
+  // is the new model, since the place may have its own package with this name.
+  await callTool("execute_luau", {
+    studio_id: studioId,
+    datamodel_type: "Edit",
+    code: `local children = workspace:GetChildren()
+for index = #children, 1, -1 do
+  if children[index].Name == ${JSON.stringify(assetName || "Model")} then
+    local link = children[index]:FindFirstChildOfClass("PackageLink")
+    if link then link:Destroy() end
+    break
+  end
+end`,
+  }).catch(() => {});
+  return inserted;
 }
 
 export async function selectStudioTarget(
@@ -337,23 +440,10 @@ async function readReflection(callTool: CallStudioTool, studioId: string): Promi
     if (start !== 1 && (await readHistoryState(callTool, studioId)).redo === "can-redo") {
       throw new Error("Studio has something to redo");
     }
-    let page: any = null;
-    let lastError = "";
-    // Like every script, this can't use "Edit" during a playtest.
-    for (const datamodelType of ["Edit", "Server", "Client"]) {
-      const response = await callTool("execute_luau", {
-        studio_id: studioId,
-        datamodel_type: datamodelType,
-        code: reflectionPageLuau(start),
-      });
-      const error = mcpError(response);
-      if (!error) {
-        page = mcpData(response);
-        break;
-      }
-      lastError = error;
-    }
-    if (!page?.classes) throw new Error(lastError || "Studio returned unreadable class data");
+    const response = await runScript(callTool, studioId, reflectionPageLuau(start));
+    const error = mcpError(response);
+    const page = error ? null : mcpData(response);
+    if (!page?.classes) throw new Error(error || "Studio returned unreadable class data");
     Object.assign(result.classes, page.classes);
     Object.assign(result.enums, page.enums);
     result.brickColors.push(...(page.brickColors ?? []));
@@ -653,27 +743,16 @@ async function readDetailsWithScript(
   data: Reflection,
   request: ExplorerDetailsRequest,
 ): Promise<ExplorerNodeDetails> {
-  let lastError = "";
-  // As with the tree, a playtest rejects "Edit" and may not have a server.
-  for (const datamodelType of ["Edit", "Server", "Client"]) {
-    const scripted = await callTool("execute_luau", {
-      studio_id: studioId,
-      datamodel_type: datamodelType,
-      code: readDetailsLuau(request),
-    });
-    const scriptError = mcpError(scripted);
-    if (!scriptError) {
-      const details = mcpData(scripted);
-      return {
-        properties: brickColorFields(data, toFields(details?.properties)),
-        attributes: brickColorFields(data, toFields(details?.attributes)),
-        tags: sortedStrings(details?.tags),
-        placeTags: sortedStrings(details?.placeTags),
-      };
-    }
-    lastError = scriptError;
-  }
-  throw new Error(lastError);
+  const scripted = await runScript(callTool, studioId, readDetailsLuau(request));
+  const scriptError = mcpError(scripted);
+  if (scriptError) throw new Error(scriptError);
+  const details = mcpData(scripted);
+  return {
+    properties: brickColorFields(data, toFields(details?.properties)),
+    attributes: brickColorFields(data, toFields(details?.attributes)),
+    tags: sortedStrings(details?.tags),
+    placeTags: sortedStrings(details?.placeTags),
+  };
 }
 
 /**
@@ -980,7 +1059,7 @@ return game:GetService("HttpService"):JSONEncode({ name = name })`,
   });
   const error = mcpError(result);
   if (error) {
-    throw new Error(/not available in \w+ mode/i.test(error) ? "Stop the playtest first" : error);
+    throw new Error(IN_PLAYTEST.test(error) ? STOP_PLAYTEST : error);
   }
   const name = mcpData(result)?.name;
   if (typeof name !== "string") throw new Error("Studio returned an unreadable answer");

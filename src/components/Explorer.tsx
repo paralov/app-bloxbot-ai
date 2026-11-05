@@ -22,6 +22,7 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import {
   type MouseEvent,
   memo,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -45,6 +46,8 @@ import {
 import { desktop } from "@/lib/desktop";
 import {
   canEditObject,
+  EXPLORER_LONG_WAIT_NOTICES,
+  EXPLORER_WAIT_NOTICES,
   type ExplorerEdit,
   type ExplorerNode,
   explorerRows,
@@ -55,10 +58,24 @@ import {
   siblingPath,
 } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
-import { useExplorerReference, useExplorerTree } from "@/providers/ExplorerReferenceProvider";
-import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
+import {
+  explorerPlaceKey,
+  useExplorerReference,
+  useExplorerTree,
+  useExplorerView,
+} from "@/providers/ExplorerReferenceProvider";
+import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
 
 const ROW_HEIGHT = 28;
+// How long a row that was scrolled to gets to show up before focus stops waiting for it.
+const FOCUS_ROW_FRAMES = 10;
+const EDIT_DONE: Record<string, string> = {
+  rename: "Renamed",
+  duplicate: "Duplicated",
+  delete: "Deleted",
+};
+
+const LONG_WAIT_MS = 30_000;
 
 interface ExplorerProps {
   collapsed: boolean;
@@ -75,9 +92,11 @@ interface TreeRowProps {
   isExpanded: boolean;
   isSelected: boolean;
   isRenaming: boolean;
+  isTabStop: boolean;
   onToggle: (path: string) => void;
   onSelect: (node: ExplorerNode) => void;
   onOpenMenu: (event: MouseEvent, node: ExplorerNode) => void;
+  onOpenMenuAt: (x: number, y: number, node: ExplorerNode) => void;
   onRenamed: (node: ExplorerNode, name: string | null) => void;
   onDroppedInChat: (node: ExplorerNode) => void;
 }
@@ -112,9 +131,11 @@ const TreeRow = memo(function TreeRow({
   isExpanded,
   isSelected,
   isRenaming,
+  isTabStop,
   onToggle,
   onSelect,
   onOpenMenu,
+  onOpenMenuAt,
   onRenamed,
   onDroppedInChat,
 }: TreeRowProps) {
@@ -127,7 +148,9 @@ const TreeRow = memo(function TreeRow({
       role="treeitem"
       data-path={node.path}
       data-id={id}
-      tabIndex={0}
+      aria-label={node.name}
+      aria-keyshortcuts="Shift+F10 F2 Delete"
+      tabIndex={isTabStop ? 0 : -1}
       draggable={!isRenaming}
       onDragStart={(event) => {
         event.dataTransfer.setData(OBJECT_DRAG_TYPE, node.path);
@@ -150,6 +173,11 @@ const TreeRow = memo(function TreeRow({
           event.preventDefault();
           onSelect(node);
         }
+        if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+          event.preventDefault();
+          const { left, top } = event.currentTarget.getBoundingClientRect();
+          onOpenMenuAt(left + 24, top + ROW_HEIGHT, node);
+        }
       }}
       className={`group absolute top-0 left-0 flex h-7 w-full cursor-default items-center rounded-md pr-2 text-sm ${isSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
       style={{ paddingLeft: `${8 + depth * 14}px`, transform: `translateY(${start}px)` }}
@@ -158,6 +186,8 @@ const TreeRow = memo(function TreeRow({
       <button
         type="button"
         aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`}
+        aria-hidden="true"
+        tabIndex={-1}
         disabled={!canExpand}
         onClick={(event) => {
           event.stopPropagation();
@@ -246,18 +276,34 @@ function editErrorMessage(error: unknown): string {
 export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerProps) {
   const studioTarget = useStudioTargetOptional();
   const { referenceObject, focusRequest, focusObject, consumeFocus } = useExplorerReference();
-  const { tree, truncated, syncing, syncError, setDemand, requestSync } = useExplorerTree();
+  const { tree, truncated, syncing, syncError, waiting, setDemand, requestSync } =
+    useExplorerTree();
   const treeRef = useRef<HTMLDivElement>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [waitingLong, setWaitingLong] = useState(false);
+  useEffect(() => {
+    setWaitingLong(false);
+    if (!waiting) return;
+    const timer = window.setTimeout(() => setWaitingLong(true), LONG_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [waiting]);
   // An object each time, so a second click on the same link still scrolls to it.
   const [scrollTarget, setScrollTarget] = useState<{ id: string } | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const {
+    expanded,
+    setExpanded,
+    selectedId,
+    setSelectedId,
+    search,
+    setSearch,
+    firstShowing,
+    scrollTopRef,
+  } = useExplorerView();
   const [menu, setMenu] = useState<{ node: ExplorerNode; x: number; y: number } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExplorerNode | null>(null);
   const studioId = studioTarget?.selected?.key;
-  const openedStudioRef = useRef<string | undefined>(undefined);
+  const placeKey = explorerPlaceKey(studioTarget?.selected);
   const latestTreeRef = useRef(tree);
   latestTreeRef.current = tree;
 
@@ -276,21 +322,26 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
   // A place opens with its services showing, once.
   useEffect(() => {
-    if (!tree?.roots.length || openedStudioRef.current === studioId) return;
-    openedStudioRef.current = studioId;
+    if (!tree?.roots.length || !firstShowing(placeKey)) return;
     setExpanded(new Set(tree.roots.map(nodeId)));
-  }, [tree, studioId]);
+  }, [tree, placeKey, firstShowing, setExpanded]);
 
-  const selectNode = useCallback((node: ExplorerNode) => setSelectedId(nodeId(node)), []);
+  const selectNode = useCallback(
+    (node: ExplorerNode) => setSelectedId(nodeId(node)),
+    [setSelectedId],
+  );
 
-  const toggleNode = useCallback((path: string) => {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
+  const toggleNode = useCallback(
+    (path: string) => {
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+        return next;
+      });
+    },
+    [setExpanded],
+  );
 
   useEffect(() => {
     // A reply can link to an object before this panel's next sync has it, so the request waits.
@@ -301,8 +352,24 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     const ids = chain.map(nodeId);
     setSelectedId(ids[ids.length - 1]);
     setScrollTarget({ id: ids[ids.length - 1] });
+    // Keyboard users clicked a link to get here, so focus comes too.
+    pendingFocusRef.current = ids[ids.length - 1];
     setExpanded((current) => new Set([...current, ...ids.slice(0, -1)]));
-  }, [focusRequest, tree, consumeFocus]);
+  }, [focusRequest, tree, consumeFocus, setSearch, setSelectedId, setExpanded]);
+
+  // Rows are named by path, so in another place this would silently be a different object.
+  const selectionPlaceRef = useRef(placeKey);
+  useEffect(() => {
+    if (selectionPlaceRef.current === placeKey) return;
+    selectionPlaceRef.current = placeKey;
+    setFocusedId(null);
+    setRenamingId(null);
+    setMenu(null);
+    setDeleteTarget(null);
+    pendingFocusRef.current = null;
+    // A row still waiting to be drawn belongs to the place that was left.
+    focusTargetRef.current = null;
+  }, [placeKey]);
 
   const selected = selectedId ? (tree?.byId.get(selectedId) ?? null) : null;
 
@@ -335,6 +402,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => treeRef.current,
+    initialOffset: scrollTopRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
   });
@@ -365,12 +433,24 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     [captureReference],
   );
 
-  const openMenu = useCallback((event: MouseEvent, node: ExplorerNode) => {
-    event.preventDefault();
-    setSelectedId(nodeId(node));
-    setMenu({ node, ...menuPosition(event) });
-    posthog.capture("object_menu_opened", analyticsProperties("explorer"));
-  }, []);
+  const openMenu = useCallback(
+    (event: MouseEvent, node: ExplorerNode) => {
+      event.preventDefault();
+      setSelectedId(nodeId(node));
+      setMenu({ node, ...menuPosition(event) });
+      posthog.capture("object_menu_opened", analyticsProperties("explorer"));
+    },
+    [setSelectedId],
+  );
+
+  const openMenuAt = useCallback(
+    (x: number, y: number, node: ExplorerNode) => {
+      setSelectedId(nodeId(node));
+      setMenu({ node, ...menuPosition({ clientX: x, clientY: y }) });
+      posthog.capture("object_menu_opened", analyticsProperties("explorer"));
+    },
+    [setSelectedId],
+  );
 
   const copyPath = async (node: ExplorerNode) => {
     try {
@@ -395,10 +475,16 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         occurrence: node.occurrence,
         occurrences: node.occurrences,
       } as ExplorerEdit;
+      const startedIn = selectionPlaceRef.current;
       try {
         const { name } = await desktop.editExplorerObject(studioId, request);
         posthog.capture("object_edited", analyticsProperties("explorer", { action: edit.action }));
-        onDone(name);
+        // The rows are another place's by now, where the same path is a different object.
+        if (selectionPlaceRef.current === startedIn) onDone(name);
+        // What it's called now, except for a delete, where the old name is all there is.
+        setEditNote(
+          `${EDIT_DONE[edit.action] ?? "Changed"} ${edit.action === "delete" ? node.name : name}.`,
+        );
         requestSync({ force: true });
       } catch (error) {
         console.error(`[explorer] couldn't ${edit.action} an object`, error);
@@ -414,9 +500,19 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     [studioId, requestSync],
   );
 
+  const focusRowRef = useRef<(id: string) => void>(() => {});
+  // Where focus goes once the next read has brought that row in.
+  const pendingFocusRef = useRef<string | null>(null);
+  // The row focus is on its way to, so an older row still being waited for gives way to it.
+  const focusTargetRef = useRef<string | null>(null);
+  const focusInTreeRef = useRef(false);
+  const lastFocusIndexRef = useRef(0);
+  const [editNote, setEditNote] = useState<string | null>(null);
   const handleRenamed = useCallback(
     (node: ExplorerNode, name: string | null) => {
       setRenamingId(null);
+      // The field that had focus is gone, so it goes back to the row.
+      focusRowRef.current(nodeId(node));
       const next = name?.trim();
       if (!next || next === node.name) return;
       void editObject(node, { action: "rename", name: next }, (renamed) => {
@@ -432,19 +528,209 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         }
         setSelectedId((current) => current && movedPath(current, from, to));
         setExpanded((current) => new Set([...current].map((id) => movedPath(id, from, to))));
+        // The row is about to come back under its new name, and focus has to come back with it.
+        pendingFocusRef.current = to;
       });
     },
-    [editObject],
+    [editObject, setExpanded, setSelectedId],
   );
+
+  // Stable, because the dialog's focus handling starts over whenever this changes.
+  const cancelDelete = useCallback(() => setDeleteTarget(null), []);
 
   const handleDelete = (node: ExplorerNode) => {
     setDeleteTarget(null);
+    // Its row is going away, so focus goes to the one before it, or after it if it was first.
+    const shown = [...(treeRef.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? [])];
+    const at = shown.findIndex((row) => row.dataset.id === nodeId(node));
+    const nextFocus = (shown[at - 1] ?? shown[at + 1])?.dataset.id;
     void editObject(node, { action: "delete" }, () => {
       setSelectedId((current) =>
         current === nodeId(node) || current?.startsWith(`${nodeId(node)}.`) ? null : current,
       );
+      if (nextFocus) pendingFocusRef.current = nextFocus;
     });
   };
+
+  const waitingNotice = waiting
+    ? ((waitingLong ? EXPLORER_LONG_WAIT_NOTICES[waiting] : undefined) ??
+      EXPLORER_WAIT_NOTICES[waiting])
+    : null;
+  const placeClosed = !studioId && studioTarget?.missing && studioTarget.status !== "loading";
+  const noMatches = !!tree && !!query && rows.length === 0;
+  const statusNotice = placeClosed
+    ? // Studios listed before a failed check can't say the place is closed.
+      studioTarget.status === "error" || studioTarget.discoveryFailed
+      ? "Couldn't reach Studio."
+      : (studioTarget.twins ?? 0) > 1
+        ? `${studioTarget.twins} places named ${placeName(studioTarget.missing?.label ?? "")} are open. Choose one in the Studio picker.`
+        : studioTarget.nameMatch
+          ? `Is the open ${placeName(studioTarget.nameMatch.label)} this chat's place?`
+          : `${placeName(studioTarget.missing?.label ?? "")} isn't open. Reopen it to see its objects.`
+    : (waitingNotice ??
+      (syncError
+        ? "Explorer couldn’t load this place. If it keeps failing, restart Studio."
+        : null));
+  // Coming back from a notice is news too, and whatever had focus in it has gone.
+  const [recovered, setRecovered] = useState(false);
+  const hadNotice = useRef(false);
+  const checkNowFocused = useRef(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (statusNotice) {
+      hadNotice.current = true;
+      setRecovered(false);
+      setEditNote(null);
+    } else if (hadNotice.current && tree) {
+      hadNotice.current = false;
+      setRecovered(true);
+      if (checkNowFocused.current) searchRef.current?.focus();
+      checkNowFocused.current = false;
+    }
+  }, [statusNotice, tree]);
+
+  const focusableRows = rows.filter((row) => !row.loading);
+  // Has to be a row that's actually rendered, or Tab would skip the tree altogether.
+  const renderedRows = virtualizer
+    .getVirtualItems()
+    .flatMap((item) => (rows[item.index] && !rows[item.index]?.loading ? [rows[item.index]] : []));
+  const tabStopId =
+    focusedId && renderedRows.some((row) => row && nodeId(row.node) === focusedId)
+      ? focusedId
+      : renderedRows[0]
+        ? nodeId(renderedRows[0].node)
+        : null;
+
+  focusRowRef.current = (id: string) => focusRow(id);
+  // Coming back to the panel picks up at what was selected, not at the top.
+  const resumedRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, as the first rows arrive
+  useEffect(() => {
+    if (resumedRef.current || rows.length === 0) return;
+    resumedRef.current = true;
+    const index = selectedId
+      ? rows.findIndex((row) => !row.loading && nodeId(row.node) === selectedId)
+      : -1;
+    if (index < 0) return;
+    setFocusedId(selectedId);
+    virtualizer.scrollToIndex(index);
+  }, [rows]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs as the rows it's waiting for arrive
+  useEffect(() => {
+    const id = pendingFocusRef.current;
+    if (id && rows.some((row) => !row.loading && nodeId(row.node) === id)) {
+      pendingFocusRef.current = null;
+      focusRowRef.current(id);
+      return;
+    }
+    // The agent or a closing place can take the focused row away, and focus shouldn't go with it.
+    if (!focusInTreeRef.current || document.activeElement !== document.body || id) return;
+    const usable = rows.filter((row) => !row.loading);
+    const nearest = usable[Math.min(lastFocusIndexRef.current, usable.length - 1)];
+    if (nearest) focusRowRef.current(nodeId(nearest.node));
+  }, [rows]);
+  const focusRow = (id: string) => {
+    setFocusedId(id);
+    focusTargetRef.current = id;
+    const index = rows.findIndex((row) => !row.loading && nodeId(row.node) === id);
+    if (index >= 0) virtualizer.scrollToIndex(index);
+    // A row scrolled to from far off is only drawn once the list catches up, which can take a few
+    // frames. Not forever, though, and not once another row has been asked for.
+    let frames = 0;
+    const attempt = () => {
+      if (focusTargetRef.current !== id) return;
+      const element = [
+        ...(treeRef.current?.querySelectorAll<HTMLElement>("[role=treeitem]") ?? []),
+      ].find((item) => item.dataset.id === id);
+      if (element) element.focus();
+      else if (++frames < FOCUS_ROW_FRAMES) requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
+  };
+
+  // One Tab stop for the whole tree and arrow keys inside it, as a tree is expected to work.
+  const moveThroughTree = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.tagName === "INPUT") return;
+    const id = target.closest<HTMLElement>("[role=treeitem]")?.dataset.id;
+    const index = focusableRows.findIndex((row) => nodeId(row.node) === id);
+    if (!id || index < 0) return;
+    const row = focusableRows[index];
+    if (!row) return;
+    const next = focusableRows[index + 1];
+    const previous = focusableRows[index - 1];
+    const go = (to: (typeof focusableRows)[number] | undefined) => {
+      event.preventDefault();
+      if (to) focusRow(nodeId(to.node));
+    };
+    const canExpand = row.node.hasChildren || row.node.children.length > 0;
+    switch (event.key) {
+      case "F2":
+        if (canEditObject(row.node) && !waiting) {
+          event.preventDefault();
+          setRenamingId(id);
+        }
+        break;
+      case "Delete":
+      case "Backspace":
+        if (canEditObject(row.node) && !waiting) {
+          event.preventDefault();
+          setDeleteTarget(tree?.byId.get(id) ?? row.node);
+        }
+        break;
+      case "ArrowDown":
+        go(next);
+        break;
+      case "ArrowUp":
+        go(previous);
+        break;
+      case "Home":
+        go(focusableRows[0]);
+        break;
+      case "End":
+        go(focusableRows[focusableRows.length - 1]);
+        break;
+      case "ArrowRight":
+        // A search shows what matches however things are expanded, so there's nothing to change.
+        if (canExpand && !visibleExpanded.has(id) && !query) {
+          event.preventDefault();
+          toggleNode(id);
+        } else if (canExpand) go(next);
+        break;
+      case "ArrowLeft":
+        if (canExpand && visibleExpanded.has(id) && !query) {
+          event.preventDefault();
+          toggleNode(id);
+        } else {
+          go(
+            focusableRows
+              .slice(0, index)
+              .reverse()
+              .find((item) => item.depth < row.depth),
+          );
+        }
+        break;
+    }
+  };
+
+  const checkNow = (
+    <button
+      type="button"
+      onFocus={() => {
+        checkNowFocused.current = true;
+      }}
+      onBlur={() => {
+        checkNowFocused.current = false;
+      }}
+      onClick={() => {
+        if (!syncing) requestSync();
+      }}
+      aria-busy={syncing}
+      className="shrink-0 underline underline-offset-2 hover:text-foreground aria-busy:opacity-60"
+    >
+      {syncing ? "Checking…" : "Check now"}
+    </button>
+  );
 
   if (collapsed) {
     return (
@@ -475,23 +761,61 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         </button>
       </header>
 
-      <div className="px-3 pb-2 pt-1">
-        <div className="flex h-8 items-center gap-2 rounded-md border bg-transparent px-2 text-muted-foreground focus-within:border-ring focus-within:text-foreground">
-          <Search aria-hidden="true" size={12} />
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search instances"
-            aria-label="Search Explorer"
-            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-          />
+      {tree || !statusNotice ? (
+        <div className="px-3 pb-2 pt-1">
+          <div className="flex h-8 items-center gap-2 rounded-md border bg-transparent px-2 text-muted-foreground focus-within:border-ring focus-within:text-foreground">
+            <Search aria-hidden="true" size={12} />
+            <input
+              type="search"
+              ref={searchRef}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search instances"
+              aria-label="Search Explorer"
+              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      {syncError ? (
-        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-          Explorer couldn’t load this Studio place. Trying again shortly.
+      {/* Always in the page, so a screen reader announces it when the words arrive. */}
+      <output className="sr-only">
+        {statusNotice ??
+          (noMatches
+            ? "No matches."
+            : (editNote ?? (tree ? (recovered ? "Explorer is back." : null) : "Loading objects.")))}
+      </output>
+      {statusNotice ? (
+        <div
+          className={
+            !tree
+              ? "flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-xs leading-relaxed text-muted-foreground"
+              : syncError
+                ? "flex shrink-0 items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
+                : "flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 text-xs text-muted-foreground"
+          }
+        >
+          <span aria-hidden="true">{statusNotice}</span>
+          {placeClosed ? (
+            studioTarget.nameMatch ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!studioTarget.nameMatch) return;
+                  void studioTarget.select(studioTarget.nameMatch).then((worked) => {
+                    if (worked) {
+                      document.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
+                    }
+                  });
+                }}
+                className="shrink-0 underline underline-offset-2 hover:text-foreground"
+              >
+                Use it
+              </button>
+            ) : null
+          ) : (
+            checkNow
+          )}
         </div>
       ) : null}
 
@@ -503,11 +827,47 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
       <div
         ref={treeRef}
-        className="min-h-0 flex-1 overflow-y-auto py-1"
+        onScroll={(event) => {
+          scrollTopRef.current = event.currentTarget.scrollTop;
+        }}
+        className={`min-h-0 flex-1 overflow-y-auto py-1 ${statusNotice && !tree ? "hidden" : ""}`}
         role="tree"
         aria-label="Instance hierarchy"
+        onKeyDown={moveThroughTree}
+        onFocus={(event) => {
+          const id = (event.target as HTMLElement).closest<HTMLElement>("[role=treeitem]")?.dataset
+            .id;
+          if (id) setFocusedId(id);
+          focusInTreeRef.current = true;
+          lastFocusIndexRef.current = rows.findIndex(
+            (row) => !row.loading && nodeId(row.node) === id,
+          );
+        }}
+        onBlur={(event) => {
+          // Going somewhere else, as opposed to its row disappearing under it.
+          if (event.relatedTarget) {
+            focusInTreeRef.current = false;
+            // A row still waiting to be drawn mustn't pull focus back from where it went.
+            focusTargetRef.current = null;
+            return;
+          }
+          // Nothing to go to happens for a click on nothing in particular too, but a row that's
+          // still there afterwards wasn't taken away.
+          const left = event.target;
+          queueMicrotask(() => {
+            if (left.isConnected && !treeRef.current?.contains(document.activeElement)) {
+              focusInTreeRef.current = false;
+              focusTargetRef.current = null;
+            }
+          });
+        }}
       >
-        {!tree && (syncing || !syncError) ? <ExplorerLoading /> : null}
+        {!tree && !statusNotice ? <ExplorerLoading /> : null}
+        {noMatches ? (
+          <p aria-hidden="true" className="px-4 py-2 text-xs text-muted-foreground">
+            No matches.
+          </p>
+        ) : null}
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((item) => {
             const row = rows[item.index];
@@ -538,9 +898,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
                 isExpanded={visibleExpanded.has(id)}
                 isSelected={selectedId === id}
                 isRenaming={renamingId === id}
+                isTabStop={tabStopId === id}
                 onToggle={toggleNode}
                 onSelect={selectNode}
                 onOpenMenu={openMenu}
+                onOpenMenuAt={openMenuAt}
                 onRenamed={handleRenamed}
                 onDroppedInChat={handleDroppedInChat}
               />
@@ -549,7 +911,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         </div>
       </div>
 
-      {selected ? (
+      {selected && !waiting ? (
         <Inspector
           node={selected}
           studioId={studioId ?? null}
@@ -560,11 +922,11 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           onChange={(change, onDone) => void editObject(selected, change, onDone)}
           onRename={(name) => handleRenamed(selected, name)}
         />
-      ) : (
+      ) : tree && !waiting ? (
         <div className="shrink-0 border-t px-3 py-2 text-xs text-muted-foreground">
           Select an object to see its details, or drag it into your message.
         </div>
-      )}
+      ) : null}
 
       {menu ? (
         <ContextMenu
@@ -590,7 +952,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           >
             Copy path
           </ContextMenuItem>
-          {canEditObject(menu.node) ? (
+          {canEditObject(menu.node) && !waiting ? (
             <>
               <div className="my-1 h-px bg-border" />
               <ContextMenuItem
@@ -630,7 +992,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
       {deleteTarget ? (
         <DeleteObjectDialog
           node={deleteTarget}
-          onCancel={() => setDeleteTarget(null)}
+          onCancel={cancelDelete}
           onConfirm={() => handleDelete(deleteTarget)}
         />
       ) : null}
@@ -648,13 +1010,21 @@ function DeleteObjectDialog({
   onConfirm: () => void;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const openedFrom = document.activeElement;
     cancelRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      // Back to the row it came from, unless what happened next took focus elsewhere.
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body) (openedFrom as HTMLElement | null)?.focus();
+      });
+    };
   }, [onCancel]);
 
   const inside = countNodes(node.children);
@@ -666,8 +1036,23 @@ function DeleteObjectDialog({
       }}
     >
       <div
+        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
+        onKeyDown={(event) => {
+          // Stays inside the dialog: everything behind it is out of reach while it's open.
+          if (event.key !== "Tab") return;
+          const buttons = [...(dialogRef.current?.querySelectorAll("button") ?? [])];
+          const first = buttons[0];
+          const last = buttons[buttons.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }}
         aria-labelledby="delete-object-title"
         aria-describedby="delete-object-description"
         className="animate-scale-in w-full max-w-sm rounded-xl border bg-card p-5 text-card-foreground shadow-2xl"

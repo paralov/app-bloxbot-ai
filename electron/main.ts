@@ -1,19 +1,39 @@
-import { rename, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, readFile, rm, writeFile } from "node:fs/promises";
+import { networkDriveLetters, onNetworkDrive } from "./networkDrives";
+import { isOpenableUrl } from "./openableUrl";
+import {
+  getUploadAccess,
+  modelFolder,
+  readModelFile,
+  readSentModel,
+  sendModelToPlace,
+  sentModelsFile,
+} from "./services/ModelUpload";
+import {
+  blenderMcpServerConfig,
+  getBlenderToolsState,
+  installBlenderTools,
+  isBlenderInstalled,
+  openBlender,
+  removeBlenderTools,
+} from "./services/BlenderTools";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, ipcMain, Menu, Notification, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, net, Notification, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { Cause, Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
 import {
+  BlenderSetupProgress,
   type AppConfig,
   AppConfigPatchSchema,
   AppConfigSchema,
   DEFAULT_APP_CONFIG,
   type OpenCodeStartupProgress,
   SystemNotificationSchema,
+  ModelUploadResult,
 } from "../src/types/desktop";
 import {
   ExplorerDetailsRequestSchema,
@@ -36,7 +56,7 @@ import {
   inspectExplorerNode,
   selectStudioTarget,
 } from "./studioQueries";
-import { withSystemPrompt } from "./opencodeConfig";
+import { withBlender, withSystemPrompt } from "./opencodeConfig";
 import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 import { createSystemNotifier, notificationSettingsUrl } from "./systemNotifications";
@@ -113,15 +133,23 @@ const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
 }).pipe(Layer.tapErrorCause(reportLayerFailure("studio_mcp_broker_start")));
 
 const openCodeBinaryDirectory = join(app.getPath("userData"), "opencode");
+const blenderToolsRoot = () => join(app.getPath("userData"), "blender-tools");
 
 const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
       binaryCacheDirectory: openCodeBinaryDirectory,
+      // Chromium's network stack, which trusts the certificates installed on the system.
+      fetchWithSystemCertificates: (url, init) => net.fetch(url, init),
       workspace: join(app.getPath("home"), "BloxBot"),
+      onNetstatMiss: (error) => reportMainError("opencode_netstat_miss", error),
       loadSystemPrompt: () =>
         loadConfig.pipe(
           Effect.map((config) => config.systemPrompt),
           Effect.catchAll(() => Effect.succeed(null)),
+        ),
+      loadBlenderServer: () =>
+        Effect.promise(async () =>
+          (await isBlenderInstalled(blenderToolsRoot())) ? blenderMcpServerConfig(blenderToolsRoot()) : null,
         ),
       onStartupProgress: (progress: OpenCodeStartupProgress) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -147,16 +175,34 @@ function parseExternalUrl(rawUrl: string) {
   return Effect.try({
     try: () => new URL(rawUrl),
     catch: (cause) =>
-      new DesktopMainError({ message: "Only HTTP and HTTPS links can be opened", cause }),
+      new DesktopMainError({ message: "Only web, email and local file links can be opened", cause }),
   }).pipe(
     Effect.flatMap((url) =>
-      url.protocol === "https:" || url.protocol === "http:"
+      isOpenableUrl(url)
         ? Effect.succeed(url)
         : Effect.fail(
-            new DesktopMainError({ message: "Only HTTP and HTTPS links can be opened" }),
+            new DesktopMainError({ message: "Only web, email and local file links can be opened" }),
           ),
     ),
   );
+}
+
+function openLink(url: URL) {
+  return Effect.tryPromise({
+    try: async () => {
+      if (url.protocol === "file:") {
+        const path = fileURLToPath(url);
+        // Showing it opens Explorer on the share, which sends the person's sign-in there.
+        if (onNetworkDrive(path, await networkDriveLetters())) {
+          throw new Error("Files on network drives can't be opened from a link");
+        }
+        shell.showItemInFolder(path);
+        return;
+      }
+      await shell.openExternal(url.href);
+    },
+    catch: (cause) => new DesktopMainError({ message: "Failed to open URL", cause }),
+  });
 }
 
 const loadConfig = Effect.gen(function* () {
@@ -266,6 +312,9 @@ const registerIpcHandlers = Effect.sync(() => {
   );
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));
+  // The system prompt and Blender's settings both read opencode.json and write it back, so one
+  // mustn't write over the other's change.
+  const configWrites = Effect.unsafeMakeSemaphore(1);
   ipcMain.handle(channels.setSystemPrompt, (_event, input: unknown) =>
     runMain(
       Effect.gen(function* () {
@@ -274,15 +323,22 @@ const registerIpcHandlers = Effect.sync(() => {
             (cause) => new DesktopMainError({ message: "System prompt is invalid", cause }),
           ),
         );
-        yield* patchConfig({ systemPrompt });
-        // OpenCode reads this file. The renderer reloads it once this has written the change.
-        const configFile = join(openCodeConfigDirectory(), "opencode.json");
-        yield* Effect.tryPromise({
-          try: async () =>
-            writeFile(configFile, withSystemPrompt(await readFile(configFile, "utf8"), systemPrompt)),
-          catch: (cause) =>
-            new DesktopMainError({ message: "Failed to apply the system prompt", cause }),
-        });
+        yield* configWrites.withPermits(1)(
+          Effect.gen(function* () {
+            yield* patchConfig({ systemPrompt });
+            // OpenCode reads this file. The renderer reloads it once this has written the change.
+            const configFile = join(openCodeConfigDirectory(), "opencode.json");
+            yield* Effect.tryPromise({
+              try: async () =>
+                writeFile(
+                  configFile,
+                  withSystemPrompt(await readFile(configFile, "utf8"), systemPrompt),
+                ),
+              catch: (cause) =>
+                new DesktopMainError({ message: "Failed to apply the system prompt", cause }),
+            });
+          }),
+        );
       }),
     ),
   );
@@ -340,12 +396,7 @@ const registerIpcHandlers = Effect.sync(() => {
   ipcMain.handle(channels.openUrl, (_event, rawUrl: string) =>
     runMain(
       parseExternalUrl(rawUrl).pipe(
-        Effect.flatMap((url) =>
-          Effect.tryPromise({
-            try: () => shell.openExternal(url.href),
-            catch: (cause) => new DesktopMainError({ message: "Failed to open URL", cause }),
-          }),
-        ),
+        Effect.flatMap(openLink),
       ),
     ),
   );
@@ -402,6 +453,161 @@ const registerIpcHandlers = Effect.sync(() => {
       }),
     ),
   );
+  // Kept here rather than on the page, since leaving Settings shouldn't stop or lose a setup.
+  let blenderSetup: AbortController | null = null;
+  let blenderProgress: BlenderSetupProgress | null = null;
+  const applyBlenderToConfig = (blender: ReturnType<typeof blenderMcpServerConfig> | null) =>
+    configWrites.withPermits(1)(
+      Effect.gen(function* () {
+        const { systemPrompt } = yield* loadConfig;
+        yield* Effect.tryPromise({
+          try: async () => {
+            const configFile = join(openCodeConfigDirectory(), "opencode.json");
+            await writeFile(
+              configFile,
+              withBlender(await readFile(configFile, "utf8"), blender, systemPrompt),
+            );
+          },
+          catch: (cause) =>
+            new DesktopMainError({ message: "Failed to apply Blender's settings", cause }),
+        });
+      }),
+    );
+  ipcMain.handle(channels.getBlenderToolsState, () =>
+    blenderSetup
+      ? { state: "installing", progress: blenderProgress }
+      : getBlenderToolsState(blenderToolsRoot()),
+  );
+  ipcMain.handle(channels.installBlenderTools, (event) => {
+    if (blenderSetup) return undefined;
+    const setup = new AbortController();
+    blenderSetup = setup;
+    blenderProgress = null;
+    return runMain(
+      installBlenderTools({
+        root: blenderToolsRoot(),
+        fetch: (url, init) => net.fetch(url, init),
+        signal: setup.signal,
+        onProgress: (progress) => {
+          blenderProgress = progress;
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(channels.blenderSetupProgress, progress);
+          }
+        },
+      }).pipe(
+        // The page reads the reason from the message, as errors lose everything else crossing over.
+        Effect.mapError(
+          (error) =>
+            new DesktopMainError({
+              message: `${error.message} (reason: ${error.reason})`,
+              cause: error.cause,
+            }),
+        ),
+        Effect.andThen(applyBlenderToConfig(blenderMcpServerConfig(blenderToolsRoot()))),
+        Effect.ensuring(
+          Effect.sync(() => {
+            blenderSetup = null;
+          }),
+        ),
+      ),
+    );
+  });
+  ipcMain.handle(channels.cancelBlenderTools, () => blenderSetup?.abort());
+  ipcMain.handle(channels.openBlender, () =>
+    runMain(
+      Effect.tryPromise({
+        try: () => openBlender(blenderToolsRoot()),
+        catch: (cause) => new DesktopMainError({ message: "Couldn't open Blender", cause }),
+      }),
+    ),
+  );
+  ipcMain.handle(channels.removeBlenderTools, () =>
+    runMain(
+      Effect.gen(function* () {
+        const state = yield* Effect.promise(() => getBlenderToolsState(blenderToolsRoot()));
+        if (state.state === "ready" && state.running) {
+          return yield* Effect.fail(new DesktopMainError({ message: "Close Blender first" }));
+        }
+        yield* applyBlenderToConfig(null);
+        yield* Effect.tryPromise({
+          try: () => removeBlenderTools(blenderToolsRoot()),
+          // The page reloads OpenCode only for a lock, which is the one thing that fixes.
+          catch: (cause) => {
+            const code = (cause as { code?: unknown } | null)?.code;
+            const locked = code === "EBUSY" || code === "EPERM" || code === "EACCES";
+            return new DesktopMainError({
+              message: `Couldn't remove Blender${locked ? " (locked)" : ""}`,
+              cause,
+            });
+          },
+        });
+      }),
+    ),
+  );
+  const sentModels = () => sentModelsFile(app.getPath("userData"));
+  const uploadsInFlight = new Map<
+    string,
+    { result: Promise<ModelUploadResult>; urls: Set<string> }
+  >();
+  ipcMain.handle(channels.getUploadAccess, async (_event, studioKey: unknown, modelUrl: unknown) => {
+    const modelsFolder = join(app.getPath("home"), "BloxBot", "Models");
+    await mkdir(modelsFolder, { recursive: true }).catch(() => {});
+    const folder = (typeof modelUrl === "string" ? modelFolder(modelUrl) : null) ?? modelsFolder;
+    const details = await queryStudio((callTool) =>
+      getUploadAccess(callTool, typeof studioKey === "string" ? studioKey : null, folder),
+    ).catch(() => ({ state: "no_studio" as const, readOn: false, writeOn: false }));
+    // Failing keeps the last answer on screen, and the checklist asks again on its next check.
+    if (details.state === "rate_limited") throw new Error("Roblox asked BloxBot to slow down");
+    return { ...details, state: details.state, folder, folderUrl: pathToFileURL(folder).href };
+  });
+  ipcMain.handle(channels.readModelFile, async (_event, url: unknown) => {
+    const file = await readModelFile(await Schema.decodeUnknownPromise(Schema.String)(url));
+    if (!file) return null;
+    return {
+      name: file.name,
+      fileName: file.fileName,
+      path: file.path,
+      folder: file.folder,
+      data: file.bytes,
+      kind: file.kind,
+      sizeBytes: file.bytes.byteLength,
+      hash: file.hash,
+      sent: await readSentModel(sentModels(), file.hash),
+    };
+  });
+  ipcMain.handle(
+    channels.uploadModelToPlace,
+    async (event, url: unknown, studioKey: unknown, hash: unknown, addOnly: unknown) => {
+      const decodedUrl = await Schema.decodeUnknownPromise(Schema.String)(url);
+      const studioId = await Schema.decodeUnknownPromise(StudioKeySchema)(studioKey);
+      const expectedHash = await Schema.decodeUnknownPromise(Schema.String)(hash);
+      // A second click, or a second card with the same bytes, joins the upload that's running for
+      // this Studio. Another Studio gets its own, since the model has to go in its place too.
+      const onlyAdd = addOnly === true;
+      const key = `${studioId}\n${expectedHash}\n${onlyAdd}`;
+      const running = uploadsInFlight.get(key);
+      if (running) {
+        running.urls.add(decodedUrl);
+        return running.result;
+      }
+      const urls = new Set([decodedUrl]);
+      const result = queryStudio((callTool) =>
+        sendModelToPlace(decodedUrl, {
+          callTool,
+          studioId,
+          sentFile: sentModels(),
+          expectedHash,
+          addOnly: onlyAdd,
+          onStep: (step) => {
+            if (event.sender.isDestroyed()) return;
+            for (const each of urls) event.sender.send(channels.modelUploadStep, each, step);
+          },
+        }),
+      ).finally(() => uploadsInFlight.delete(key));
+      uploadsInFlight.set(key, { result, urls });
+      return result;
+    },
+  );
   ipcMain.handle(channels.relaunch, () =>
     runMain(
       Effect.sync(() => {
@@ -443,13 +649,7 @@ function createWindow(): Effect.Effect<void, DesktopMainError> {
       window.webContents.setWindowOpenHandler(({ url }) => {
         Effect.runFork(
           parseExternalUrl(url).pipe(
-            Effect.flatMap((externalUrl) =>
-              Effect.tryPromise({
-                try: () => shell.openExternal(externalUrl.href),
-                catch: (cause) =>
-                  new DesktopMainError({ message: "Failed to open URL", cause }),
-              }),
-            ),
+            Effect.flatMap(openLink),
             Effect.catchAll(Effect.logWarning),
           ),
         );

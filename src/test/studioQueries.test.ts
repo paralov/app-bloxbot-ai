@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import {
   type CallStudioTool,
   discoverStudioTargets,
   editExplorerObject,
+  insertUploadedModel,
   inspectExplorerNode,
   readHistoryState,
+  readStudioAccount,
   resetStudioCaches,
   selectStudioTarget,
 } from "../../electron/studioQueries";
@@ -691,5 +692,71 @@ describe("Studio targets", () => {
       ).rejects.toThrow("Stop the playtest first");
       expect(callTool).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("adding an uploaded model", () => {
+  const answers = (inserted: unknown, leftover: unknown = "none") => {
+    const calls: { name: string; args: Record<string, unknown> }[] = [];
+    const callTool = async (name: string, args: Record<string, unknown>) => {
+      calls.push({ name, args });
+      // One script looks for a model an earlier insert left behind.
+      const answer = String(args.code ?? "").includes("PackageId") ? leftover : inserted;
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(answer) }],
+      };
+    };
+    return { calls, callTool };
+  };
+
+  it("asks only the chosen Studio, and only unlinks the newest with that name", async () => {
+    const { calls, callTool } = answers({
+      insertedInstances: [{ fullPath: "game.Workspace.My_Crate" }],
+    });
+    const path = await insertUploadedModel(callTool as never, "studio-1", "555", "My_Crate v2");
+
+    expect(path).toBe("game.Workspace.My_Crate");
+    expect(calls[0]?.name).toBe("execute_luau");
+    expect(calls[1]).toEqual({
+      name: "insert_asset",
+      args: { studio_id: "studio-1", assetId: "555", assetName: "My_Cratev2", assetType: "Model" },
+    });
+    const cleanup = String(calls[2]?.args.code);
+    expect(calls[2]?.args.studio_id).toBe("studio-1");
+    expect(cleanup).toContain("#children, 1, -1");
+    expect(cleanup).toContain("break");
+  });
+
+  it("uses the model an unanswered insert left, instead of adding a second", async () => {
+    const { calls, callTool } = answers(null, "game.Workspace.My_Crate");
+    const path = await insertUploadedModel(callTool as never, "studio-1", "555", "My_Crate");
+
+    expect(path).toBe("game.Workspace.My_Crate");
+    expect(calls.map((call) => call.name)).toEqual(["execute_luau"]);
+    expect(String(calls[0]?.args.code)).toContain('== "555"');
+  });
+
+  it("adds nothing when it can't tell whether the place already has the model", async () => {
+    const inserted = { insertedInstances: [{ fullPath: "game.Workspace.My_Crate" }] };
+    for (const leftover of [{ unexpected: true }, null, ""]) {
+      const { calls, callTool } = answers(inserted, leftover);
+      await expect(
+        insertUploadedModel(callTool as never, "studio-1", "555", "My_Crate"),
+      ).rejects.toThrow();
+      expect(calls.map((call) => call.name)).not.toContain("insert_asset");
+    }
+    const failing = async () => failure("Studio is busy");
+    await expect(
+      insertUploadedModel(failing as never, "studio-1", "555", "My_Crate"),
+    ).rejects.toThrow("Studio is busy");
+  });
+
+  it("reads who's signed in, and refuses an answer that isn't a person", async () => {
+    await expect(readStudioAccount(answers(1739783978).callTool as never, "s")).resolves.toBe(
+      "1739783978",
+    );
+    await expect(readStudioAccount(answers(0).callTool as never, "s")).rejects.toThrow(
+      "isn't signed in",
+    );
   });
 });

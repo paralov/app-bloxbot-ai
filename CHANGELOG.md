@@ -7,6 +7,47 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-06
+
+### Added
+
+- Set up Blender from Settings, 3D tools, with one click. It's free and stays in BloxBot's own folder, away from any Blender you already use, and the agent can then make 3D models in it. You import what it makes through Studio yourself.
+- A reply that links to an FBX or GLB model now shows it, with a preview you can turn and the steps to import it through Studio.
+- One click uploads a model you've checked and adds it to your place, using Studio's own Open Cloud access, so there's no API key to make. You choose what's allowed in Studio's MCP Permissions. BloxBot won't send the same file twice, and a model stays out of your place until Roblox approves it.
+
+### Removed
+
+- Intel Macs are no longer supported, and BloxBot for Mac now requires Apple Silicon. Intel Macs stay on v0.14.0.
+
+### Changed
+
+- BloxBot asks before Studio's `upload_image` and `open_cloud_invoke` tools act on your Roblox account, because Roblox holds you responsible for what they do.
+- BloxBot works without Studio, for things like small websites. Skip setup the first time, or choose Work without Studio in any chat.
+- A chat is tied to a place once the agent has used it. If that place closes while another is open, BloxBot asks before going on, so the agent can't change the wrong one. It picks the place back up when it reopens, and commands like `/new` and `/model` always run.
+- A Studio with the same name as a chat's unpublished place is offered with one click rather than taken, since every new template is a Baseplate.
+- When several Studios are open and a chat hasn't used one, the agent asks which one before touching Studio.
+- Keyboard focus is easier to see across the app.
+- A reply can link to a file it made, and clicking shows you where it is.
+- Finishing or skipping Studio setup starts a new chat.
+
+### Fixed
+
+- A slow first start of a new engine version no longer makes BloxBot skip that version for good. Only a version that fails to run is passed over.
+- On Windows, replacing a broken copy of BloxBot's engine waits for antivirus to let go of it, instead of failing with EPERM.
+- Windows: BloxBot now reads OpenCode's port from its output, for machines stuck at startup on "OpenCode did not open a listening port".
+- Slow connections can finish downloading OpenCode. A download now stops only after 60 seconds with no data, and carries on from where it stopped, even after a restart.
+- BloxBot opens straight away when a working engine is installed, and any newer version downloads in the background for next launch.
+- Downloads refused over an unknown certificate, as behind some company networks and antivirus software, retry with your system's certificates. The file must still match the same checksum.
+- Installing OpenCode waits longer for antivirus software to release a new file, and doesn't download again after antivirus blocks unpacking.
+- Startup failures say what to try next and show the folder to allow in antivirus software. BloxBot also looks for an update by itself, and a step that has gone quiet says so and offers Try again.
+- Refresh in the Studio picker now shows what it found, and the steps to connect Studio are right there when none are found. Three empty Refreshes bring them to the front.
+- The setup screen no longer cuts off its top in a short window.
+- The Explorer shows a short notice when Studio closes, has no place open, is loading or is starting or stopping a playtest, and picks up again on its own without being in front.
+- What you've typed in the message box survives Settings, the Studio setup screen, switching chats, Reconnect and restarting BloxBot, including references to objects.
+- A chat's Playtest closes when you switch chats, so its plan can't run in another one.
+- The Explorer keeps what's open, selected and searched when its panel closes, and remembers each place.
+- Reconnect restarts an engine that has stopped, rather than reloading into an error.
+
 ## [0.14.0] - 2026-11-04
 
 ### Added
@@ -346,7 +387,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.7...v0.14.0
 [0.13.7]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.5...v0.13.6

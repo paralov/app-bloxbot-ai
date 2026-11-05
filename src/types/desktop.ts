@@ -39,6 +39,13 @@ export const AppConfigSchema = Schema.mutable(
     // Highest analytics policy notice the user has seen; 0 predates the opt-out model.
     analyticsNoticeVersion: Schema.Number,
     studioTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
+    // Chats someone chose to use for work that has nothing to do with Studio.
+    chatsWithoutStudio: MutableStrings,
+    // Places someone picked by hand, as opposed to whichever Studio happened to be open.
+    chatsWithChosenPlace: MutableStrings,
+    // The Studio a chat's latest message was sent to, which says which one it used if it did.
+    routedTargetsBySession: Schema.Record({ key: Schema.String, value: StudioTargetSchema }),
+    studioSetupSkipped: Schema.Boolean,
     // Only for people who haven't chosen kinds yet: off here means every kind starts off.
     systemNotifications: Schema.Boolean,
     notificationKinds: Schema.NullOr(NotificationKindsSchema),
@@ -60,6 +67,10 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   detailedAnalytics: "unset",
   analyticsNoticeVersion: 0,
   studioTargetsBySession: {},
+  chatsWithoutStudio: [],
+  chatsWithChosenPlace: [],
+  routedTargetsBySession: {},
+  studioSetupSkipped: false,
   systemNotifications: true,
   notificationKinds: null,
   notificationSound: true,
@@ -170,9 +181,109 @@ export interface DesktopApi {
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;
+  getBlenderToolsState(): Promise<BlenderToolsState>;
+  /** Resolves once setup has finished, and rejects if it can't, with a BlenderFailureReason in its message. */
+  installBlenderTools(): Promise<void>;
+  cancelBlenderTools(): Promise<void>;
+  openBlender(): Promise<void>;
+  removeBlenderTools(): Promise<void>;
+  onBlenderSetupProgress(listener: (progress: BlenderSetupProgress) => void): () => void;
+  /** What this Studio can do about uploads. Runs no script, so it can be asked in the background. */
+  getUploadAccess(studioKey: string | null, modelUrl: string | null): Promise<UploadAccess>;
+  /** Null when the link isn't a model file BloxBot can read. */
+  readModelFile(url: string): Promise<ModelFileInfo | null>;
+  /** `hash` is the file the person looked at, and nothing else gets sent. */
+  /** With addOnly, it only adds what's already on Roblox for this game's owner, and never uploads. */
+  uploadModelToPlace(
+    url: string,
+    studioKey: string,
+    hash: string,
+    addOnly?: boolean,
+  ): Promise<ModelUploadResult>;
+  onModelUploadStep(listener: (url: string, step: ModelUploadStep) => void): () => void;
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
    * tells the main process the window is ready, which flushes errors buffered until then.
    */
   onMainError(listener: (report: MainErrorReport) => void): () => void;
 }
+
+export type UploadAccessState =
+  | "no_studio"
+  /** Several Studios are open and this chat hasn't picked one. */
+  | "choose_studio"
+  /** This Studio was open before Roblox's update, and doesn't have Open Cloud until it's reopened. */
+  | "reopen_studio"
+  /** Permissions are per game, so a place that isn't published can't have any. */
+  | "not_published"
+  | "needs_permission"
+  /** Studio only uploads from folders someone has approved. */
+  | "needs_folder"
+  /** Uploads send a copy saved next to the model, and BloxBot can't save in its folder. */
+  | "folder_unwritable"
+  /** Studio couldn't get a sign-in Roblox accepts, which no permission fixes. */
+  | "refused"
+  | "ready";
+
+export interface UploadAccess {
+  state: UploadAccessState;
+  readOn: boolean;
+  writeOn: boolean;
+  /** The folder to approve in Studio: where this model is, or where the AI exports models. */
+  folder: string;
+  folderUrl: string;
+}
+
+export interface ModelFileInfo {
+  name: string;
+  fileName: string;
+  path: string;
+  folder: string;
+  data: Uint8Array;
+  kind: "fbx" | "glb";
+  sizeBytes: number;
+  hash: string;
+  /** What already happened to exactly these bytes. */
+  sent: { assetId: string | null; moderation: "approved" | "rejected" | "checking" } | null;
+}
+
+export type ModelUploadStep = "uploading" | "checking" | "adding";
+
+export type ModelUploadFailure =
+  | "no_file"
+  | "file_changed"
+  | "refused"
+  | "rate_limited"
+  | "file_rejected"
+  | "folder_unwritable"
+  | "other_owner"
+  | "place_changed"
+  | "studio_error";
+
+/** Why an approved model wasn't put in the place, when BloxBot can tell. */
+export type NotAddedReason = "place_changed" | "playtest";
+
+export type ModelUploadResult =
+  | { status: "added"; assetId: string; path: string }
+  | { status: "rejected"; assetId: string }
+  | { status: "checking"; assetId: string }
+  | { status: "not_added"; assetId: string; reason?: NotAddedReason }
+  | { status: "needs_setup"; access: UploadAccessState }
+  | { status: "needs_folder"; folder: string }
+  | { status: "failed"; reason: ModelUploadFailure };
+
+export type BlenderSetupStep = "downloading" | "unpacking" | "connecting";
+
+export interface BlenderSetupProgress {
+  step: BlenderSetupStep;
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
+export type BlenderFailureReason = "disk_full" | "network" | "blocked" | "corrupt" | "other";
+
+export type BlenderToolsState =
+  | { state: "unsupported" }
+  | { state: "not_installed" }
+  | { state: "installing"; progress: BlenderSetupProgress | null }
+  | { state: "ready"; running: boolean };

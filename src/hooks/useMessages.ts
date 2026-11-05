@@ -1,6 +1,7 @@
 import { hashKey, type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { useSessions } from "@/hooks/useSessions";
+import { isStudioTool } from "@/lib/aiTracing";
 import type { OpencodeClient } from "@/lib/opencode/client";
 import { hasPlaytestContext } from "@/lib/playtestPlan";
 import { qk } from "@/lib/queryKeys";
@@ -137,6 +138,47 @@ export function useMessage(messageId: string): MessageWithParts | undefined {
  * Whether the active chat has any text a playtest plan can be built from.
  * Undefined until its messages load.
  */
+/** Looking at what's open isn't working in any of it, however it's called. */
+export function worksInStudio(tool: string, input?: Record<string, unknown>): boolean {
+  if (tool.endsWith("list_roblox_studios") || !isStudioTool(tool, input)) return false;
+  if (tool !== "execute" || typeof input?.code !== "string") return true;
+  return (
+    input.code.replace(/roblox[-_]studio\W+list_roblox_studios/g, "").match(/roblox[-_]studio/) !==
+    null
+  );
+}
+
+/** Whether this chat is under way, and whether the agent has used Studio in it. */
+export function useChatStudioUse(): { started: boolean; usedStudio: boolean } | null {
+  const { activeSessionId } = useActiveSession();
+  const { client, ready } = useOpenCodeClient();
+  const queryClient = useQueryClient();
+
+  return (
+    useQuery<MessagesCache, Error, { started: boolean; usedStudio: boolean }>({
+      queryKey: activeSessionId ? qk.messages(activeSessionId) : NOOP_KEY,
+      queryFn: () =>
+        client && activeSessionId
+          ? fetchMessages(client, queryClient, activeSessionId)
+          : Promise.resolve(EMPTY_CACHE),
+      enabled: ready && !!client && !!activeSessionId,
+      select: useCallback(
+        (d: MessagesCache) => ({
+          started: d.messageIds.length > 0,
+          usedStudio: d.messageIds.some((id) =>
+            d.messagesById[id]?.parts.some(
+              (part) =>
+                part.type === "tool" &&
+                worksInStudio(part.tool, part.state.input as Record<string, unknown> | undefined),
+            ),
+          ),
+        }),
+        [],
+      ),
+    }).data ?? null
+  );
+}
+
 export function useHasPlaytestContext(): boolean | undefined {
   const { activeSessionId } = useActiveSession();
   const { client, ready } = useOpenCodeClient();

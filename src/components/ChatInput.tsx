@@ -1,3 +1,4 @@
+import type { SerializedEditorState } from "lexical";
 import { Paperclip, Plus } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,8 +23,9 @@ import { useSessionGoal } from "@/hooks/useSessionGoal";
 import { useIsBusy } from "@/hooks/useSessionStatuses";
 import { useTodos } from "@/hooks/useTodos";
 import { analyticsProperties } from "@/lib/analytics";
-import { OBJECT_DRAG_NAME_TYPE, OBJECT_DRAG_TYPE } from "@/lib/explorer";
+import { EXPLORER_WAIT_NOTICES, OBJECT_DRAG_NAME_TYPE, OBJECT_DRAG_TYPE } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
+import { needsStudio } from "@/lib/promptSuggestions";
 import { splitModelKey } from "@/lib/splitModelKey";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
@@ -184,11 +186,14 @@ const SendButton = memo(function SendButton({
   text,
   hasAttachments,
   isBusy,
+  blockedReason,
   onSend,
 }: {
   text: string;
   hasAttachments: boolean;
   isBusy: boolean;
+  /** Why sending is off, shown on the button. */
+  blockedReason?: string | null;
   onSend: () => void;
 }) {
   const abort = useAbort();
@@ -221,8 +226,9 @@ const SendButton = memo(function SendButton({
           type="button"
           onClick={onSend}
           disabled={(!text.trim() && !hasAttachments) || !canSend}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-30"
-          title="Send"
+          aria-disabled={!!blockedReason}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-30 aria-disabled:opacity-30"
+          title={blockedReason ?? "Send"}
         >
           <svg
             width="12"
@@ -259,7 +265,91 @@ function effortLabel(variant: string | null): string {
   return EFFORT_LABELS[variant] ?? variant;
 }
 
-function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
+/** What was in the message box when something else took over the screen, by chat. */
+interface Draft {
+  text: string;
+  attachments: ImageAttachment[];
+  editorState?: SerializedEditorState;
+}
+
+const KEPT_DRAFTS_KEY = "bloxbot-kept-drafts";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isAttachment(value: unknown): value is ImageAttachment {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.dataUrl === "string" &&
+    typeof value.mime === "string" &&
+    typeof value.filename === "string"
+  );
+}
+
+/** Only the outline Lexical needs to start reading a saved state. */
+function isEditorState(value: unknown): value is SerializedEditorState {
+  return (
+    isRecord(value) &&
+    isRecord(value.root) &&
+    value.root.type === "root" &&
+    Array.isArray(value.root.children)
+  );
+}
+
+// Storage can hold anything, and a bad entry mustn't stop the app from opening.
+function isKeptDraft(value: unknown): value is [string, Draft] {
+  if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string") return false;
+  const draft: unknown = value[1];
+  return (
+    isRecord(draft) &&
+    typeof draft.text === "string" &&
+    Array.isArray(draft.attachments) &&
+    draft.attachments.every(isAttachment)
+  );
+}
+
+/** A draft's text is worth keeping even when its editor state isn't, which then restores as text. */
+function keptDraft([id, draft]: [string, Draft]): [string, Draft] {
+  if (draft.editorState === undefined || isEditorState(draft.editorState)) return [id, draft];
+  const { editorState: _unreadable, ...rest } = draft;
+  return [id, rest];
+}
+
+/** Reconnecting reloads the page or restarts the app, neither of which should take a draft with it. */
+export function takeKeptDrafts(): [string, Draft][] {
+  try {
+    const stored = localStorage.getItem(KEPT_DRAFTS_KEY);
+    localStorage.removeItem(KEPT_DRAFTS_KEY);
+    const parsed: unknown = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed.filter(isKeptDraft).map(keptDraft) : [];
+  } catch {
+    return [];
+  }
+}
+
+export const savedDrafts = new Map<string, Draft>(takeKeptDrafts());
+
+function keepDrafts() {
+  try {
+    if (savedDrafts.size > 0) {
+      localStorage.setItem(KEPT_DRAFTS_KEY, JSON.stringify([...savedDrafts]));
+    }
+  } catch {
+    // Too big to keep, as with large images. The page is going either way.
+  }
+}
+
+window.addEventListener("beforeunload", keepDrafts);
+
+function ChatInput({
+  onOpenSettings,
+  focusOnMount = false,
+}: {
+  onOpenSettings?: () => void;
+  focusOnMount?: boolean;
+}) {
   const {
     pendingReference,
     consumeReference,
@@ -268,6 +358,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
     objectIndex,
     objectsLoading,
     objectsFailed,
+    objectsWaiting,
     requestSync,
   } = useExplorerReference();
   const allModels = useAllModels();
@@ -279,6 +370,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const studioTarget = useStudioTargetOptional();
   const studioTargetReference = studioTarget?.promptReference ?? null;
   const studioId = studioTarget?.selected?.key ?? null;
+  const sendBlock = studioTarget?.sendBlock ?? null;
   const goal = useSessionGoal();
   const todos = useTodos();
   const showTodos = isBusy && hasOpenTodos(todos);
@@ -340,13 +432,87 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
     },
   });
 
+  // Setup and Settings replace the message box for a while, and what was typed should still be here.
+  // Plain text can't bring an object's chip back, so the editor's own state goes with a draft.
+  const editorStateRef = useRef<SerializedEditorState>();
+  const handleEditorChange = useCallback((nextText: string, state: SerializedEditorState) => {
+    setText(nextText);
+    editorStateRef.current = state;
+  }, []);
+  const restoreDraft = useCallback((draft: Draft) => {
+    let restored = false;
+    if (draft.editorState) {
+      // A kept state can still hold nodes Lexical won't read, and the words are worth keeping.
+      try {
+        promptEditorRef.current?.restore(draft.editorState);
+        restored = true;
+      } catch (error) {
+        console.error("[chat-input] couldn't restore a draft", error);
+      }
+    }
+    if (!restored && draft.text) promptEditorRef.current?.insertText(draft.text);
+    setAttachments(draft.attachments);
+  }, []);
+  const draftRef = useRef({ text, attachments, sessionId: activeSessionId });
+  draftRef.current = { text, attachments, sessionId: activeSessionId };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: restores once, and saves on the way out
+  useEffect(() => {
+    const draft = activeSessionId ? savedDrafts.get(activeSessionId) : undefined;
+    if (activeSessionId && draft) {
+      savedDrafts.delete(activeSessionId);
+      restoreDraft(draft);
+    }
+    if (focusOnMount) requestAnimationFrame(() => promptEditorRef.current?.focus());
+    return () => {
+      const { text: lastText, attachments: lastAttachments, sessionId } = draftRef.current;
+      if (sessionId && (lastText || lastAttachments.length > 0)) {
+        savedDrafts.set(sessionId, {
+          text: lastText,
+          attachments: lastAttachments,
+          editorState: editorStateRef.current,
+        });
+      }
+    };
+  }, []);
+
+  // Before the page goes, so the message box's draft is saved with the others.
+  useEffect(() => {
+    const keepDraft = () => {
+      const { text: lastText, attachments: lastAttachments, sessionId } = draftRef.current;
+      if (sessionId && (lastText || lastAttachments.length > 0)) {
+        savedDrafts.set(sessionId, {
+          text: lastText,
+          attachments: lastAttachments,
+          editorState: editorStateRef.current,
+        });
+        keepDrafts();
+      }
+    };
+    window.addEventListener("beforeunload", keepDraft);
+    return () => window.removeEventListener("beforeunload", keepDraft);
+  }, []);
+
   useEffect(() => {
     if (previousSessionRef.current === activeSessionId) return;
+    const leaving = previousSessionRef.current;
+    const { text: leftText, attachments: leftAttachments } = draftRef.current;
+    if (leaving && (leftText || leftAttachments.length > 0)) {
+      savedDrafts.set(leaving, {
+        text: leftText,
+        attachments: leftAttachments,
+        editorState: editorStateRef.current,
+      });
+    }
     previousSessionRef.current = activeSessionId;
     setText("");
     setAttachments([]);
     promptEditorRef.current?.clear();
-  }, [activeSessionId]);
+    const draft = activeSessionId ? savedDrafts.get(activeSessionId) : undefined;
+    if (activeSessionId && draft) {
+      savedDrafts.delete(activeSessionId);
+      restoreDraft(draft);
+    }
+  }, [activeSessionId, restoreDraft]);
 
   useEffect(() => {
     if (!pendingReference) return;
@@ -524,6 +690,11 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
     const editorText = promptEditorRef.current?.getText() ?? text;
     const trimmed = editorText.trim();
     if (!trimmed && attachments.length === 0) return;
+    if (sendBlock && needsStudio(trimmed)) {
+      if (studioTarget?.status === "loading") notify.message(sendBlock);
+      else notify.error(sendBlock);
+      return;
+    }
     const submittedText = editorText;
     const submittedAttachments = attachments;
     const images =
@@ -547,6 +718,9 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
       return;
     }
     if (isBusy) return;
+    // Only a message that goes to the agent uses a Studio. Commands like /model and /new run here,
+    // and a message typed while the chat is busy isn't sent.
+    if (needsStudio(trimmed)) studioTarget?.noteRouted?.();
     failedSendRef.current = {
       sessionId: activeSessionId,
       text: submittedText,
@@ -608,13 +782,17 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
             {goal ? (
               <GoalPill
                 goal={goal}
-                onCommand={(command) =>
-                  runCommand(`/goal ${command}`, {
+                onCommand={(command) => {
+                  if (sendBlock && needsStudio(`/goal ${command}`)) {
+                    notify.error(sendBlock);
+                    return false;
+                  }
+                  return runCommand(`/goal ${command}`, {
                     system: studioTargetReference,
                     onFailed: (error) =>
                       notify.error("Command failed", { description: error.message }),
-                  })
-                }
+                  });
+                }}
               />
             ) : null}
             {showTodos ? <TodoPill todos={todos} /> : null}
@@ -690,13 +868,18 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
               objectsLoading={objectsLoading}
               objectsUnavailable={
                 !studioId
-                  ? "Open a place in Studio to reference its objects."
-                  : objectsFailed
-                    ? "Couldn't read this place in Studio. Type @ again to retry."
-                    : null
+                  ? (studioTarget?.targets.length ?? 0) > 0
+                    ? "Choose a Studio to reference its objects."
+                    : "Open a place in Studio to reference its objects."
+                  : objectsWaiting
+                    ? EXPLORER_WAIT_NOTICES[objectsWaiting]
+                    : objectsFailed
+                      ? "Couldn't read this place in Studio. Type @ again to retry."
+                      : null
               }
               onObjectsWanted={requestSync}
-              onChange={setText}
+              noStudio={!studioId}
+              onChange={handleEditorChange}
               onSubmit={handleSubmit}
               onPaste={(e) => {
                 const items = e.clipboardData.items;
@@ -818,6 +1001,7 @@ function ChatInput({ onOpenSettings }: { onOpenSettings?: () => void }) {
               text={text}
               hasAttachments={attachments.length > 0}
               isBusy={isBusy}
+              blockedReason={sendBlock && needsStudio(text.trim()) ? sendBlock : null}
               onSend={handleSubmit}
             />
           </div>

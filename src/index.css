@@ -186,7 +186,7 @@
     @apply border-border;
   }
   :focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--foreground) 22%, transparent);
+    outline: 2px solid var(--ring);
     outline-offset: 1px;
   }
   body {
@@ -331,7 +331,10 @@
   .animate-disclosure-expand,
   .animate-disclosure-collapse,
   .animate-side-panel-in,
-  .animate-side-panel-out {
+  .animate-side-panel-out,
+  .bloxbot-face,
+  .bloxbot-face-think,
+  .bloxbot-eye {
     animation: none;
   }
 }

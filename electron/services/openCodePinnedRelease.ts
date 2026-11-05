@@ -35,11 +35,6 @@ export const PINNED_OPENCODE_RELEASE: PinnedOpenCodeRelease = {
       url: download("opencode-darwin-arm64.zip"),
       sha256: "25ba9908979fa7d764792c82589b4b5768ab1511154e0317d98aa77d216ce767",
     },
-    "darwin-x64": {
-      assetName: "opencode-darwin-x64.zip",
-      url: download("opencode-darwin-x64.zip"),
-      sha256: "4d4419022e6ffbd48afc97c5101bdf001d38b0499f516169b9a80a87a340fd56",
-    },
     "win32-x64": {
       assetName: "opencode-windows-x64.zip",
       url: download("opencode-windows-x64.zip"),

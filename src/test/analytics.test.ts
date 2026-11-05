@@ -4,6 +4,7 @@ import {
   detailedAnalyticsProperties,
   errorAnalyticsProperties,
   explorerAnalyticsProperties,
+  scrubAnalyticsEvent,
   setDetailedAnalyticsEnabled,
 } from "@/lib/analytics";
 
@@ -95,5 +96,44 @@ describe("PostHog analytics", () => {
     expect(errorAnalyticsProperties("chat", "send_message", undefined)).not.toHaveProperty(
       "error_message",
     );
+  });
+});
+
+describe("harmless browser warnings", () => {
+  const exception = (value: string) =>
+    ({
+      event: "$exception",
+      properties: { $exception_list: [{ type: "Error", value }] },
+    }) as never;
+
+  it("never reports a ResizeObserver loop, which means nothing is wrong", () => {
+    expect(
+      scrubAnalyticsEvent(
+        exception("ResizeObserver loop completed with undelivered notifications."),
+      ),
+    ).toBeNull();
+    expect(scrubAnalyticsEvent(exception("ResizeObserver loop limit exceeded"))).toBeNull();
+  });
+
+  it("keeps a longer message that only starts like the warning, and a real error beside one", () => {
+    expect(
+      scrubAnalyticsEvent(exception("ResizeObserver loop limit exceeded while saving the draft")),
+    ).not.toBeNull();
+    expect(
+      scrubAnalyticsEvent({
+        event: "$exception",
+        properties: {
+          $exception_list: [
+            { type: "Error", value: "ResizeObserver loop limit exceeded" },
+            { type: "TypeError", value: "Cannot read properties of undefined" },
+          ],
+        },
+      } as never),
+    ).not.toBeNull();
+  });
+
+  it("still reports real errors, and other events", () => {
+    expect(scrubAnalyticsEvent(exception("Cannot read properties of undefined"))).not.toBeNull();
+    expect(scrubAnalyticsEvent({ event: "app_opened", properties: {} } as never)).not.toBeNull();
   });
 });

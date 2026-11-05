@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import type {
+  BlenderSetupProgress,
+  ModelUploadStep,
   AppConfig,
   DesktopApi,
   MainErrorReport,
@@ -28,6 +30,26 @@ const api: DesktopApi = {
   checkForUpdate: () => ipcRenderer.invoke(channels.checkForUpdate),
   installUpdate: () => ipcRenderer.invoke(channels.installUpdate),
   relaunch: () => ipcRenderer.invoke(channels.relaunch),
+  getBlenderToolsState: () => ipcRenderer.invoke(channels.getBlenderToolsState),
+  installBlenderTools: () => ipcRenderer.invoke(channels.installBlenderTools),
+  cancelBlenderTools: () => ipcRenderer.invoke(channels.cancelBlenderTools),
+  openBlender: () => ipcRenderer.invoke(channels.openBlender),
+  removeBlenderTools: () => ipcRenderer.invoke(channels.removeBlenderTools),
+  getUploadAccess: (studioKey, modelUrl) =>
+    ipcRenderer.invoke(channels.getUploadAccess, studioKey, modelUrl),
+  readModelFile: (url) => ipcRenderer.invoke(channels.readModelFile, url),
+  uploadModelToPlace: (url, studioKey, hash, addOnly) =>
+    ipcRenderer.invoke(channels.uploadModelToPlace, url, studioKey, hash, addOnly === true),
+  onModelUploadStep: (listener) => {
+    const handler = (_event: unknown, url: string, step: ModelUploadStep) => listener(url, step);
+    ipcRenderer.on(channels.modelUploadStep, handler);
+    return () => ipcRenderer.removeListener(channels.modelUploadStep, handler);
+  },
+  onBlenderSetupProgress: (listener) => {
+    const handler = (_event: unknown, progress: BlenderSetupProgress) => listener(progress);
+    ipcRenderer.on(channels.blenderSetupProgress, handler);
+    return () => ipcRenderer.removeListener(channels.blenderSetupProgress, handler);
+  },
   showSystemNotification: (notification) =>
     ipcRenderer.invoke(channels.showSystemNotification, notification),
   openNotificationSettings: () => ipcRenderer.invoke(channels.openNotificationSettings),

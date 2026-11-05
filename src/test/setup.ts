@@ -33,3 +33,6 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: () => false,
   }),
 });
+
+// jsdom's Range has no layout, and Lexical measures one to keep the selection in view.
+Range.prototype.getBoundingClientRect = () => new DOMRect();

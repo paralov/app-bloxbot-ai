@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ExplorerNode } from "@/lib/explorer";
 import {
   buildObjectSearchIndex,
+  needsStudio,
   parseSlashCommand,
   promptTriggerMatch,
   searchObjects,
@@ -65,5 +66,14 @@ describe("commands", () => {
     });
     expect(parseSlashCommand("  /review\n")).toEqual({ name: "review", input: "" });
     expect(parseSlashCommand("run /goal")).toBeNull();
+  });
+
+  it("needs a Studio only for what sets the agent to work", () => {
+    expect(needsStudio("Build a lobby")).toBe(true);
+    expect(needsStudio("/goal Build a lobby")).toBe(true);
+    expect(needsStudio("/goal")).toBe(false);
+    expect(needsStudio("/goal pause")).toBe(false);
+    expect(needsStudio("/goal clear")).toBe(false);
+    expect(needsStudio("/new")).toBe(false);
   });
 });

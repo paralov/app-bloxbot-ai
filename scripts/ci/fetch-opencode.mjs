@@ -39,7 +39,6 @@ console.log(`OpenCode ${tag}: ${executable}`);
 const V1_TAG = "v1.18.33";
 const V1_RELEASES = {
   "darwin-arm64": ["opencode-darwin-arm64.zip", "24b12873e605b3db3387cb355f43ba7451cd6065c180d8c188663337d2eeb553"],
-  "darwin-x64": ["opencode-darwin-x64.zip", "90c7e7d9ffa0d8691ca0f15b42a7b89b72e17a4d26074b9ef06559ff87b221ec"],
   "win32-x64": ["opencode-windows-x64.zip", "cc827fda2e32502373c5de25a4b78471766b99881d12a441ae5b9fcff39c5780"],
   "linux-x64": ["opencode-linux-x64.tar.gz", "e546123213ae47909a4268692aa4b94950d011afe9cac9938753a2194f1c16d5"],
 };
