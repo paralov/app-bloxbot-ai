@@ -11,6 +11,7 @@ import type {
   UploadAccessState,
 } from "../../src/types/desktop";
 import type { StudioTarget } from "../../src/types/studioTarget";
+import { networkDriveLetters, onNetworkDrive } from "../networkDrives";
 import { isOpenableUrl } from "../openableUrl";
 import {
   type CallStudioTool,
@@ -321,12 +322,18 @@ export const isNetworkPath = (path: string) =>
 
 /**
  * Where a path really leads, following each link by hand. realpath would already have reached a
- * network share by the time it said so. Null for a share, or for links that go on too long.
+ * network share by the time it said so. Null for a share, a mapped network drive, or for links
+ * that go on too long.
  */
-export async function localTarget(path: string): Promise<string | null> {
+export async function localTarget(
+  path: string,
+  networkDrives: () => Promise<Set<string>> = networkDriveLetters,
+): Promise<string | null> {
+  const drives = await networkDrives();
+  if (onNetworkDrive(path, drives)) return null;
   let pending = resolve(path);
   for (let links = 0; links < 32; links++) {
-    if (isNetworkPath(pending)) return null;
+    if (isNetworkPath(pending) || onNetworkDrive(pending, drives)) return null;
     const { root } = parse(pending);
     const parts = pending.slice(root.length).split(sep).filter(Boolean);
     let current = root;
