@@ -34,14 +34,26 @@ async function attemptStudioConnection(
   }
 }
 
+// Giving up on a check doesn't stop its requests, so a hung one is waited on again rather than
+// joined by another every few seconds.
+const attempts = new WeakMap<object, Promise<Exclude<StudioConnectionState, "checking">>>();
+
 /** Any of it can hang, and the app waits on this to get past "Finding Roblox Studio". */
 export function checkStudioConnection(
   client: Pick<OpencodeClient, "mcp">,
 ): Promise<Exclude<StudioConnectionState, "checking">> {
+  let attempt = attempts.get(client);
+  if (!attempt) {
+    attempt = attemptStudioConnection(client).finally(() => attempts.delete(client));
+    attempts.set(client, attempt);
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
-    attemptStudioConnection(client),
-    new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), CONNECT_WAIT_MS)),
-  ]);
+    attempt,
+    new Promise<"waiting">((resolve) => {
+      timer = setTimeout(() => resolve("waiting"), CONNECT_WAIT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 export function useStudioConnection() {

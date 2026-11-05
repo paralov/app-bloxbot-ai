@@ -19,6 +19,7 @@ import {
   indexExplorerObjects,
 } from "@/lib/explorer";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
+import type { StudioTarget } from "@/types/studioTarget";
 
 interface ExplorerReferenceContextValue {
   pendingReference: ExplorerReference | null;
@@ -40,6 +41,18 @@ interface ExplorerReferenceContextValue {
 
 const NOTHING_EXPANDED: Set<string> = new Set();
 
+/**
+ * Which place a Studio has open, for keeping the Explorer's state apart. A Place ID survives a rename,
+ * and Studio can hand the same key to another place, so the key only counts for an unpublished place,
+ * along with its name, which is all there is to tell two of those apart by.
+ */
+export function explorerPlaceKey(target: StudioTarget | null | undefined): string | undefined {
+  if (!target) return undefined;
+  return target.placeId && target.placeId !== "0"
+    ? JSON.stringify(["place", target.placeId])
+    : JSON.stringify(["studio", target.key, target.label]);
+}
+
 /** What someone has opened and searched for, which outlives the panel being closed. */
 export interface ExplorerView {
   expanded: Set<string>;
@@ -49,7 +62,7 @@ export interface ExplorerView {
   search: string;
   setSearch: Dispatch<SetStateAction<string>>;
   /** Whether this is the first look at a place, when its services open out. */
-  firstShowing: (studioId: string | undefined) => boolean;
+  firstShowing: (placeKey: string | undefined) => boolean;
   scrollTopRef: MutableRefObject<number>;
 }
 
@@ -63,32 +76,26 @@ const ExplorerTreeContext = createContext<ExplorerTreeSync | null>(null);
 export function ExplorerReferenceProvider({ children }: { children: ReactNode }) {
   const sync = useExplorerTreeSync();
   // Per place, so going back to one finds it as it was left.
-  const selectedStudio = useStudioTargetOptional()?.selected;
-  const studioId = selectedStudio?.key;
-  // Studio can hand the same key to another place, so the key alone doesn't say which place it is.
-  // Unpublished, the name is all there is to tell two apart by.
-  const placeKey = selectedStudio
-    ? JSON.stringify([selectedStudio.key, selectedStudio.placeId ?? null, selectedStudio.label])
-    : undefined;
-  const [expandedByStudio, setExpandedByStudio] = useState<
+  const placeKey = explorerPlaceKey(useStudioTargetOptional()?.selected);
+  const [expandedByPlace, setExpandedByPlace] = useState<
     ReadonlyMap<string | undefined, Set<string>>
   >(() => new Map());
-  const expanded = expandedByStudio.get(studioId) ?? NOTHING_EXPANDED;
+  const expanded = expandedByPlace.get(placeKey) ?? NOTHING_EXPANDED;
   const setExpanded = useCallback<Dispatch<SetStateAction<Set<string>>>>(
     (action) =>
-      setExpandedByStudio((all) => {
-        const current = all.get(studioId) ?? NOTHING_EXPANDED;
-        return new Map(all).set(studioId, typeof action === "function" ? action(current) : action);
+      setExpandedByPlace((all) => {
+        const current = all.get(placeKey) ?? NOTHING_EXPANDED;
+        return new Map(all).set(placeKey, typeof action === "function" ? action(current) : action);
       }),
-    [studioId],
+    [placeKey],
   );
   const scrollTopRef = useRef(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const shownStudiosRef = useRef(new Set<string | undefined>());
-  const firstShowing = useCallback((studioId: string | undefined) => {
-    if (shownStudiosRef.current.has(studioId)) return false;
-    shownStudiosRef.current.add(studioId);
+  const shownPlacesRef = useRef(new Set<string | undefined>());
+  const firstShowing = useCallback((place: string | undefined) => {
+    if (shownPlacesRef.current.has(place)) return false;
+    shownPlacesRef.current.add(place);
     return true;
   }, []);
   const view = useMemo(

@@ -307,6 +307,27 @@ describe("Explorer", () => {
     }
   });
 
+  it("doesn't call a place closed when the latest check failed with Studios still listed", async () => {
+    mocks.studioTarget.selected = null as never;
+    Object.assign(mocks.studioTarget, {
+      status: "ready",
+      discoveryFailed: true,
+      missing: { key: "gone", label: "Dungeon (placeId: 1)" },
+    });
+    try {
+      start();
+      await advance(0);
+      expect(screen.getByRole("status")).toHaveTextContent("Couldn't reach Studio.");
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+      Object.assign(mocks.studioTarget, {
+        status: undefined,
+        discoveryFailed: undefined,
+        missing: undefined,
+      });
+    }
+  });
+
   it("moves through the tree with the arrow keys, with one Tab stop", async () => {
     const lighting = {
       ...tree.roots[0],
@@ -470,6 +491,65 @@ describe("Explorer", () => {
       );
       await advance(0);
       expect(screen.queryByRole("treeitem", { selected: true })).toBeNull();
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+    }
+  });
+
+  it("keeps the selection and search when a published place is renamed", async () => {
+    mocks.getSnapshot.mockResolvedValue(tree);
+    mocks.getDetails.mockResolvedValue({ properties: [], attributes: [], tags: [] });
+    mocks.studioTarget.selected = { key: "studio-1", label: "Obby", placeId: "1" } as never;
+    try {
+      const { rerender } = start();
+      await advance(0);
+      fireEvent.click(screen.getByText("Workspace"));
+      fireEvent.change(screen.getByRole("searchbox", { name: "Search Explorer" }), {
+        target: { value: "Work" },
+      });
+      await advance(0);
+
+      mocks.studioTarget.selected = { key: "studio-1", label: "Obby 2", placeId: "1" } as never;
+      rerender(
+        <ExplorerReferenceProvider>
+          <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />
+        </ExplorerReferenceProvider>,
+      );
+      await advance(0);
+      expect(screen.getByRole("treeitem", { selected: true })).toHaveTextContent("Workspace");
+      expect(screen.getByRole("searchbox", { name: "Search Explorer" })).toHaveValue("Work");
+    } finally {
+      mocks.studioTarget.selected = { key: "studio-1" };
+    }
+  });
+
+  it("opens out the services of another place in the same Studio window", async () => {
+    const part = { ...tree.roots[0], name: "Part", className: "Part", path: "game.Workspace.Part" };
+    mocks.getSnapshot.mockResolvedValue({
+      ...tree,
+      roots: [{ ...tree.roots[0], hasChildren: true, children: [part] }],
+    });
+    mocks.studioTarget.selected = { key: "studio-1", label: "Obby", placeId: "1" } as never;
+    try {
+      const { rerender } = start();
+      await advance(0);
+      fireEvent.click(screen.getByLabelText("Collapse Workspace"));
+      expect(screen.getByRole("treeitem", { name: "Workspace" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+
+      mocks.studioTarget.selected = { key: "studio-1", label: "Dungeon", placeId: "2" } as never;
+      rerender(
+        <ExplorerReferenceProvider>
+          <Explorer collapsed={false} sessionBusy={false} onToggle={onToggle} />
+        </ExplorerReferenceProvider>,
+      );
+      await advance(5_000);
+      expect(screen.getByRole("treeitem", { name: "Workspace" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
     } finally {
       mocks.studioTarget.selected = { key: "studio-1" };
     }
