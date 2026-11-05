@@ -25,6 +25,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - BloxBot notices its engine has started even when the engine's last line of output has no line ending
 - Downloads work on school and company networks that inspect traffic, by also trusting the certificates the computer trusts
+- On Windows, replacing a broken copy of BloxBot's engine waits for antivirus to let go of it, instead of failing with EPERM
 - Windows: BloxBot now reads OpenCode's port from its output, for machines stuck at startup on "OpenCode did not open a listening port".
 - Slow connections can finish downloading OpenCode. A download now stops only after 60 seconds with no data, and carries on from where it stopped, even after a restart.
 - BloxBot opens straight away when a working engine is installed, and any newer version downloads in the background for next launch.
