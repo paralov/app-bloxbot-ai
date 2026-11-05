@@ -6,6 +6,7 @@ import { ModelCard } from "@/components/ModelCard";
 import { describePermission } from "@/components/PermissionPrompt";
 import { ThreeDToolsTab } from "@/components/ThreeDToolsTab";
 import { buildUploadSteps } from "@/components/UploadChecklist";
+import { SLOWED_DOWN } from "@/hooks/useUploadAccess";
 import { desktop } from "@/lib/desktop";
 import { modelLinksIn } from "@/lib/modelLinks";
 import { notify } from "@/lib/notifications";
@@ -248,6 +249,8 @@ describe("before uploads can run", () => {
       .mockRejectedValueOnce(new Error("Roblox asked BloxBot to slow down"))
       .mockResolvedValue(accessOf("needs_permission"));
     render(wrap(<ModelCard url={URL_A} />));
+    // With no earlier answer to keep showing, it says why there's nothing yet.
+    expect(await screen.findByText(SLOWED_DOWN)).toBeTruthy();
     expect(
       await screen.findByText("Turn on one-click uploads", undefined, { timeout: 6000 }),
     ).toBeTruthy();

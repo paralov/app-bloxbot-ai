@@ -3,7 +3,7 @@ import posthog from "posthog-js/dist/module.full.no-external.js";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { UploadChecklist } from "@/components/UploadChecklist";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
-import { useUploadAccess } from "@/hooks/useUploadAccess";
+import { SLOWED_DOWN, useUploadAccess } from "@/hooks/useUploadAccess";
 import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
@@ -73,7 +73,11 @@ export function ModelCard({ url }: { url: string }) {
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 0,
   });
-  const { data: access } = useUploadAccess(selected, url, !!file && !!studioKey);
+  const { data: access, isError: accessFailed } = useUploadAccess(
+    selected,
+    url,
+    !!file && !!studioKey,
+  );
   const accessState = studioKey ? access?.state : "no_studio";
 
   // A folder refusal came from the Studio the upload went to, so it doesn't apply to another one.
@@ -270,6 +274,14 @@ export function ModelCard({ url }: { url: string }) {
             try again later.
           </p>
           <ImportByHand fileName={file.fileName} open />
+        </>
+      );
+    }
+    if (!access && accessFailed && studioKey) {
+      return (
+        <>
+          <output className="block text-xs text-muted-foreground">{SLOWED_DOWN}</output>
+          <ImportByHand fileName={file.fileName} />
         </>
       );
     }

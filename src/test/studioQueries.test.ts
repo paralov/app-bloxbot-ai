@@ -714,14 +714,24 @@ describe("adding an uploaded model", () => {
     const path = await insertUploadedModel(callTool as never, "studio-1", "555", "My_Crate v2");
 
     expect(path).toBe("game.Workspace.My_Crate");
-    expect(calls[0]).toEqual({
+    expect(calls[0]?.name).toBe("execute_luau");
+    expect(calls[1]).toEqual({
       name: "insert_asset",
       args: { studio_id: "studio-1", assetId: "555", assetName: "My_Cratev2", assetType: "Model" },
     });
-    const cleanup = String(calls[1]?.args.code);
-    expect(calls[1]?.args.studio_id).toBe("studio-1");
+    const cleanup = String(calls[2]?.args.code);
+    expect(calls[2]?.args.studio_id).toBe("studio-1");
     expect(cleanup).toContain("#children, 1, -1");
     expect(cleanup).toContain("break");
+  });
+
+  it("uses the model an unanswered insert left, instead of adding a second", async () => {
+    const { calls, callTool } = answers("game.Workspace.My_Crate");
+    const path = await insertUploadedModel(callTool as never, "studio-1", "555", "My_Crate");
+
+    expect(path).toBe("game.Workspace.My_Crate");
+    expect(calls.map((call) => call.name)).toEqual(["execute_luau"]);
+    expect(String(calls[0]?.args.code)).toContain('== "555"');
   });
 
   it("reads who's signed in, and refuses an answer that isn't a person", async () => {

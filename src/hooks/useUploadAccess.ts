@@ -18,6 +18,9 @@ function announceUploadsOn() {
  * What this place can do about uploads. Only Studio can change it, so this watches until it's ready.
  * Asking runs no script, so it can't disturb what someone's doing in Studio.
  */
+/** Shown when the only answer so far is Roblox asking to slow down, which a later check gets past. */
+export const SLOWED_DOWN = "Roblox asked BloxBot to slow down. Checking again in a moment.";
+
 export function useUploadAccess(
   studio: StudioTarget | null,
   modelUrl: string | null,

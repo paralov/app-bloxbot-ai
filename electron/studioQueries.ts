@@ -125,6 +125,22 @@ export async function insertUploadedModel(
   name: string,
 ): Promise<string> {
   const assetName = name.replace(/[^\p{L}\p{N}_]+/gu, "");
+  // An insert whose answer never came back still leaves its model, linked to the asset until the
+  // cleanup below runs. Finding one means that model is the answer, not a second copy.
+  const leftover = await callTool("execute_luau", {
+    studio_id: studioId,
+    datamodel_type: "Edit",
+    code: `for _, child in workspace:GetChildren() do
+  local link = child:FindFirstChildOfClass("PackageLink")
+  if link and string.match(link.PackageId, "%d+$") == ${JSON.stringify(assetId)} then
+    link:Destroy()
+    return "game." .. child:GetFullName()
+  end
+end
+return ""`,
+  }).catch(() => null);
+  const found = leftover && !mcpError(leftover) ? mcpData(leftover) : null;
+  if (typeof found === "string" && found.startsWith("game.")) return found;
   const result = await callTool("insert_asset", {
     studio_id: studioId,
     assetId,

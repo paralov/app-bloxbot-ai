@@ -3,7 +3,7 @@ import { Box, type LucideIcon, Upload } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { UploadChecklist } from "@/components/UploadChecklist";
-import { useUploadAccess } from "@/hooks/useUploadAccess";
+import { SLOWED_DOWN, useUploadAccess } from "@/hooks/useUploadAccess";
 import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { notify } from "@/lib/notifications";
@@ -263,8 +263,18 @@ function BlenderRow() {
 }
 
 function UploadsRow() {
-  const { data: access } = useUploadAccess(useStudioTargetOptional()?.selected ?? null, null);
-  if (!access) return null;
+  const { data: access, isError } = useUploadAccess(
+    useStudioTargetOptional()?.selected ?? null,
+    null,
+  );
+  if (!access) {
+    if (!isError) return null;
+    return (
+      <ToolRow icon={Upload} name="Upload to Roblox" state={<StatePill on={false}>Off</StatePill>}>
+        <output className="block">{SLOWED_DOWN}</output>
+      </ToolRow>
+    );
+  }
   const ready = access.state === "ready";
   return (
     <ToolRow

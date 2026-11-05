@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect, Either } from "effect";
+import { c as createTar } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BLENDER_MCP_PORT,
@@ -13,6 +14,7 @@ import {
   isBlenderInstalled,
   openBlender,
   removeBlenderTools,
+  unpackUv,
 } from "../../electron/services/BlenderTools";
 
 const CONTENTS = Buffer.from("blender bytes, all of them");
@@ -401,5 +403,35 @@ describe("Blender tools", () => {
     expect(config.environment.BLENDER_MCP_PORT).toBe(String(BLENDER_MCP_PORT));
     expect(config.environment.BLENDER_USER_RESOURCES).toBe(join("/tools", "user"));
     expect(blenderMcpServerConfig("C:\\tools", "win32").command[0]).toContain("blender-mcp.exe");
+  });
+});
+
+describe("unpacking uv", () => {
+  // Like uv's own archive: one folder holding the executable.
+  const archiveOf = async (folder: string) => {
+    await mkdir(join(folder, "src", "uv-arch"), { recursive: true });
+    await writeFile(join(folder, "src", "uv-arch", "uv"), "uv");
+    const archive = join(folder, "uv.tar.gz");
+    await createTar({ gzip: true, file: archive, cwd: join(folder, "src") }, ["uv-arch"]);
+    return archive;
+  };
+
+  it("unpacks the executable to the top of the folder", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "uv-"));
+    const destination = join(folder, "out");
+    const executable = await unpackUv(await archiveOf(folder), destination);
+    expect(executable).toBe(join(destination, "uv"));
+    await expect(readFile(executable, "utf8")).resolves.toBe("uv");
+    await rm(folder, { recursive: true, force: true });
+  });
+
+  it("stops when setup is stopped", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "uv-"));
+    const archive = await archiveOf(folder);
+    const stop = new AbortController();
+    stop.abort();
+    await expect(unpackUv(archive, join(folder, "out"), stop.signal)).rejects.toThrow();
+    await expect(stat(join(folder, "out", "uv"))).rejects.toThrow();
+    await rm(folder, { recursive: true, force: true });
   });
 });

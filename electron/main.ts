@@ -303,6 +303,9 @@ const registerIpcHandlers = Effect.sync(() => {
   );
   ipcMain.handle(channels.loadConfig, () => runMain(loadConfig));
   ipcMain.handle(channels.patchConfig, (_event, patch: unknown) => runMain(patchConfig(patch)));
+  // The system prompt and Blender's settings both read opencode.json and write it back, so one
+  // mustn't write over the other's change.
+  const configWrites = Effect.unsafeMakeSemaphore(1);
   ipcMain.handle(channels.setSystemPrompt, (_event, input: unknown) =>
     runMain(
       Effect.gen(function* () {
@@ -311,15 +314,22 @@ const registerIpcHandlers = Effect.sync(() => {
             (cause) => new DesktopMainError({ message: "System prompt is invalid", cause }),
           ),
         );
-        yield* patchConfig({ systemPrompt });
-        // OpenCode reads this file. The renderer reloads it once this has written the change.
-        const configFile = join(openCodeConfigDirectory(), "opencode.json");
-        yield* Effect.tryPromise({
-          try: async () =>
-            writeFile(configFile, withSystemPrompt(await readFile(configFile, "utf8"), systemPrompt)),
-          catch: (cause) =>
-            new DesktopMainError({ message: "Failed to apply the system prompt", cause }),
-        });
+        yield* configWrites.withPermits(1)(
+          Effect.gen(function* () {
+            yield* patchConfig({ systemPrompt });
+            // OpenCode reads this file. The renderer reloads it once this has written the change.
+            const configFile = join(openCodeConfigDirectory(), "opencode.json");
+            yield* Effect.tryPromise({
+              try: async () =>
+                writeFile(
+                  configFile,
+                  withSystemPrompt(await readFile(configFile, "utf8"), systemPrompt),
+                ),
+              catch: (cause) =>
+                new DesktopMainError({ message: "Failed to apply the system prompt", cause }),
+            });
+          }),
+        );
       }),
     ),
   );
@@ -438,20 +448,22 @@ const registerIpcHandlers = Effect.sync(() => {
   let blenderSetup: AbortController | null = null;
   let blenderProgress: BlenderSetupProgress | null = null;
   const applyBlenderToConfig = (blender: ReturnType<typeof blenderMcpServerConfig> | null) =>
-    Effect.gen(function* () {
-      const { systemPrompt } = yield* loadConfig;
-      yield* Effect.tryPromise({
-        try: async () => {
-          const configFile = join(openCodeConfigDirectory(), "opencode.json");
-          await writeFile(
-            configFile,
-            withBlender(await readFile(configFile, "utf8"), blender, systemPrompt),
-          );
-        },
-        catch: (cause) =>
-          new DesktopMainError({ message: "Failed to apply Blender's settings", cause }),
-      });
-    });
+    configWrites.withPermits(1)(
+      Effect.gen(function* () {
+        const { systemPrompt } = yield* loadConfig;
+        yield* Effect.tryPromise({
+          try: async () => {
+            const configFile = join(openCodeConfigDirectory(), "opencode.json");
+            await writeFile(
+              configFile,
+              withBlender(await readFile(configFile, "utf8"), blender, systemPrompt),
+            );
+          },
+          catch: (cause) =>
+            new DesktopMainError({ message: "Failed to apply Blender's settings", cause }),
+        });
+      }),
+    );
   ipcMain.handle(channels.getBlenderToolsState, () =>
     blenderSetup
       ? { state: "installing", progress: blenderProgress }

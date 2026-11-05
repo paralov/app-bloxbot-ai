@@ -369,13 +369,22 @@ async function defaultUnpackBlender(
   await run("tar", ["-xJf", archive, "-C", destination], { signal });
 }
 
-async function unpackUv(archive: string, destination: string, signal?: AbortSignal): Promise<string> {
+export async function unpackUv(
+  archive: string,
+  destination: string,
+  signal?: AbortSignal,
+): Promise<string> {
   await mkdir(destination, { recursive: true });
   if (archive.endsWith(".zip")) {
     await unzip(archive, destination, signal);
     return join(destination, "uv.exe");
   }
-  await extractTar({ file: archive, cwd: destination, strip: 1 });
+  // Streamed rather than read by path, so Stop can end it part-way.
+  await pipeline(
+    createReadStream(archive),
+    extractTar({ cwd: destination, strip: 1 }) as unknown as NodeJS.WritableStream,
+    { signal },
+  );
   const executable = join(destination, "uv");
   await chmod(executable, 0o755);
   return executable;
