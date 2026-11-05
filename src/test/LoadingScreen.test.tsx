@@ -61,9 +61,34 @@ describe("startup progress", () => {
         onRetry={onRetry}
       />,
     );
+    // Marked so it stays while focused once things start moving again.
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveAttribute(
+      "data-startup-retry",
+      "true",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Restarting..." })).toBeDisabled();
+  });
+
+  it("says an update check failed even after something was copied", async () => {
+    checkForUpdate.mockRejectedValue(new Error("offline"));
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    render(
+      <LoadingScreen
+        message="BloxBot couldn't start"
+        detailPath="C:\\BloxBot"
+        error
+        onRetry={() => {}}
+      />,
+    );
+    const check = await screen.findByRole("button", { name: "Check for updates" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy folder" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+
+    fireEvent.click(check);
+    await expect(screen.findByText("Couldn't check for updates")).resolves.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't check for updates");
   });
 
   it("fills in a report with what happened, for checking before sending", () => {

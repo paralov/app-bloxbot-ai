@@ -626,6 +626,25 @@ describe("ChatInput", () => {
     expect(takeKeptDrafts()).toEqual([]);
   });
 
+  it("skips kept drafts that aren't drafts", () => {
+    const draft = { text: "Still here", attachments: [] };
+    localStorage.setItem(
+      "bloxbot-kept-drafts",
+      JSON.stringify([
+        ["s1", draft],
+        ["s2", { text: 5 }],
+        "s3",
+        ["s4", { ...draft, attachments: [{}] }],
+      ]),
+    );
+    expect(takeKeptDrafts()).toEqual([["s1", draft]]);
+
+    for (const stored of ["{}", "null", "7", '"text"']) {
+      localStorage.setItem("bloxbot-kept-drafts", stored);
+      expect(takeKeptDrafts()).toEqual([]);
+    }
+  });
+
   it("keeps an object's chip in a draft across chats", async () => {
     const client = createClient();
     const qc = createQueryClient();

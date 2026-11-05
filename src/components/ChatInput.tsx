@@ -274,12 +274,41 @@ interface Draft {
 
 const KEPT_DRAFTS_KEY = "bloxbot-kept-drafts";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isAttachment(value: unknown): value is ImageAttachment {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.dataUrl === "string" &&
+    typeof value.mime === "string" &&
+    typeof value.filename === "string"
+  );
+}
+
+// Storage can hold anything, and a bad entry mustn't stop the app from opening.
+function isKeptDraft(value: unknown): value is [string, Draft] {
+  if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string") return false;
+  const draft: unknown = value[1];
+  return (
+    isRecord(draft) &&
+    typeof draft.text === "string" &&
+    Array.isArray(draft.attachments) &&
+    draft.attachments.every(isAttachment) &&
+    (draft.editorState === undefined ||
+      (isRecord(draft.editorState) && isRecord(draft.editorState.root)))
+  );
+}
+
 /** Reconnecting reloads the page or restarts the app, neither of which should take a draft with it. */
 export function takeKeptDrafts(): [string, Draft][] {
   try {
     const stored = localStorage.getItem(KEPT_DRAFTS_KEY);
     localStorage.removeItem(KEPT_DRAFTS_KEY);
-    return stored ? JSON.parse(stored) : [];
+    const parsed: unknown = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed.filter(isKeptDraft) : [];
   } catch {
     return [];
   }

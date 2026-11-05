@@ -88,21 +88,29 @@ function LoadingScreen({
     if (error) retryRef.current?.focus();
   }, [error]);
 
+  // An older copy result would talk over this, and the newest news is what should be heard.
+  function showUpdateStatus(status: UpdateCheckStatus) {
+    setUpdateStatus(status);
+    if (status === "idle") return;
+    setCopyStatus("idle");
+    setFolderCopied("idle");
+  }
+
   async function checkForUpdates(automatic: boolean) {
-    setUpdateStatus("checking");
+    showUpdateStatus("checking");
     try {
       const update = await desktop.checkForUpdate();
       if (!update) {
-        setUpdateStatus("up-to-date");
+        showUpdateStatus("up-to-date");
         return;
       }
       updateRef.current = update;
       setUpdateVersion(update.version);
-      setUpdateStatus("available");
+      showUpdateStatus("available");
     } catch (err) {
       console.error("[loading] Failed to check for updates:", err);
       // Nobody asked for the automatic one, so its failure isn't worth a retry of its own.
-      setUpdateStatus(automatic ? "idle" : "error");
+      showUpdateStatus(automatic ? "idle" : "error");
     }
   }
   const handleCheckForUpdates = () => checkForUpdates(false);
@@ -117,11 +125,11 @@ function LoadingScreen({
     const update = updateRef.current;
     if (!update) return;
     try {
-      setUpdateStatus("downloading");
+      showUpdateStatus("downloading");
       await desktop.installUpdate();
     } catch (err) {
       console.error("[loading] Failed to install update:", err);
-      setUpdateStatus("install-error");
+      showUpdateStatus("install-error");
     }
   }
 
@@ -439,6 +447,8 @@ function LoadingScreen({
             <StartupProgressGraphic startup={startup} />
             {onRetry && (
               <button
+                // So it isn't taken away while focused when things start moving again.
+                data-startup-retry="true"
                 type="button"
                 onClick={() => {
                   setRestarting(true);
