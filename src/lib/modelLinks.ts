@@ -18,9 +18,10 @@ export function modelLinksIn(text: string): string[] {
   const found: string[] = [];
   const visit = (node: MarkdownNode) => {
     if (node.type === "code" || node.type === "inlineCode" || node.type === "html") return;
-    if (node.type === "link" && node.url) found.push(...(node.url.match(MODEL_LINK) ?? []));
     if (node.type === "text" && node.value) found.push(...(node.value.match(MODEL_LINK) ?? []));
+    // A link's label comes before its target in the reply.
     node.children?.forEach(visit);
+    if (node.type === "link" && node.url) found.push(...(node.url.match(MODEL_LINK) ?? []));
   };
   visit(fromMarkdown(text) as MarkdownNode);
   return [...new Set(found)];
