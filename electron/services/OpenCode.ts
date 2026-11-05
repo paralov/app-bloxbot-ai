@@ -65,13 +65,25 @@ export function parseListeningPort(line: string): number | null {
   return port >= 1 && port <= 65_535 ? port : null;
 }
 
-/** Calls onLine with whole lines only: a port cut off by a chunk boundary would read as valid. */
+/** How long output has to pause before a last line with no newline counts as finished. */
+const UNFINISHED_LINE_QUIET_MS = 250;
+
+/**
+ * Calls onLine with whole lines only: a port cut off by a chunk boundary would read as valid. A last
+ * line with no newline still counts once the output pauses, so an engine that ends its output
+ * without one, or with a lone carriage return, is still noticed.
+ */
 function lineSplitter(onLine: (line: string) => void): (chunk: string) => void {
   let partial = "";
+  let quiet: ReturnType<typeof setTimeout> | undefined;
   return (chunk) => {
-    const lines = (partial + chunk).split("\n");
+    clearTimeout(quiet);
+    const lines = (partial + chunk).split(/\r\n|\r|\n/);
     partial = (lines.pop() ?? "").slice(-OUTPUT_TAIL_MAX_CHARS);
     lines.forEach(onLine);
+    if (!partial) return;
+    quiet = setTimeout(() => onLine(partial), UNFINISHED_LINE_QUIET_MS);
+    quiet.unref?.();
   };
 }
 

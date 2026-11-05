@@ -64,9 +64,31 @@ export function errorAnalyticsProperties(
   });
 }
 
+/**
+ * Browser warnings that say nothing is wrong. "ResizeObserver loop" means a resize was handled on
+ * the next frame instead of this one, and it was v0.14.0's third most common error, from 80 people.
+ */
+const HARMLESS_ERRORS = [
+  /^ResizeObserver loop (completed with undelivered notifications|limit exceeded)/,
+];
+
+const isHarmlessError = (event: CaptureResult) => {
+  if (event.event !== "$exception") return false;
+  const messages = (event.properties?.$exception_list as { value?: unknown }[] | undefined) ?? [];
+  const values = [
+    ...messages.map((exception) => exception?.value),
+    ...((event.properties?.$exception_values as unknown[] | undefined) ?? []),
+    event.properties?.$exception_message,
+  ];
+  return values.some(
+    (value) => typeof value === "string" && HARMLESS_ERRORS.some((pattern) => pattern.test(value)),
+  );
+};
+
 /** PostHog `before_send` hook: scrubs error text from every event before it leaves the device. */
 export function scrubAnalyticsEvent(event: CaptureResult | null): CaptureResult | null {
   if (!event) return event;
+  if (isHarmlessError(event)) return null;
   return { ...event, properties: scrubEventProperties(event.properties) };
 }
 

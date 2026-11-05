@@ -196,6 +196,22 @@ describe("finding OpenCode's port", () => {
     await expect(output.announcedPort).resolves.toBe(51078);
   });
 
+  it("reads a last line with no newline once the output pauses, as Windows can leave it", async () => {
+    const { child, output } = fakeChild();
+
+    child.stdout.emit("data", Buffer.from(LINE));
+    expect(await isPending(output.announcedPort)).toBe(true);
+
+    await expect(output.announcedPort).resolves.toBe(51078);
+  });
+
+  it("splits lines on a lone carriage return too", async () => {
+    const { child, output } = fakeChild();
+
+    child.stdout.emit("data", Buffer.from(`starting\r${LINE}\rmore`));
+    await expect(output.announcedPort).resolves.toBe(51078);
+  });
+
   it("keeps stdout and stderr lines apart when their chunks interleave", async () => {
     const { child, output } = fakeChild();
 
