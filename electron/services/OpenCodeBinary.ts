@@ -147,6 +147,8 @@ type StartupProgressReporter = (progress: OpenCodeStartupProgress) => void;
 /** The filesystem calls an install makes that tests replace to simulate Windows failures. */
 export interface OpenCodeInstallFileSystem {
   rename: (from: string, to: string) => Promise<void>;
+  /** Deletes a folder and everything in it. */
+  remove: (path: string) => Promise<void>;
   stat: (path: string) => Promise<{ isFile(): boolean; size: number }>;
   /** Free bytes available on the volume that holds `path`, or null when unknown. */
   freeBytes: (path: string) => Promise<number | null>;
@@ -182,6 +184,7 @@ async function defaultFreeBytes(path: string): Promise<number | null> {
 
 const DEFAULT_FILE_SYSTEM: OpenCodeInstallFileSystem = {
   rename,
+  remove: (path) => rm(path, { recursive: true, force: true }),
   stat,
   freeBytes: defaultFreeBytes,
 };
@@ -1139,6 +1142,44 @@ function publishWithRetry(
   return attempt(1);
 }
 
+/**
+ * Deletes a broken copy of a version before the new one takes its place. Windows refuses while
+ * antivirus is still reading a file in it, which made v0.14.0 fail with EPERM, so this waits it out
+ * the same way publishing does.
+ */
+function replaceWithRetry(
+  context: InstallContext,
+  versionDirectory: string,
+  findPublished: Effect.Effect<OpenCodeBinary | null>,
+): Effect.Effect<void, OpenCodeBinaryError> {
+  const retryDelays = context.delays.renameRetryMs;
+  const attempt = (number: number): Effect.Effect<void, OpenCodeBinaryError> =>
+    Effect.gen(function* () {
+      // Another BloxBot may have put a working copy there while this one waited, and it stays.
+      if (number > 1 && (yield* findPublished)) return;
+      const result = yield* Effect.either(
+        Effect.tryPromise(() => context.fileSystem.remove(versionDirectory)),
+      );
+      if (Either.isRight(result)) return;
+      if (yield* findPublished) return;
+
+      const cause = result.left.error;
+      const code = errorCode(cause);
+      const retryable = code !== undefined && RENAME_RETRY_CODES.has(code);
+      if (!retryable || number > retryDelays.length) {
+        const suffix = retryable ? ` (${number} attempts)` : "";
+        return yield* fail(
+          `Failed to replace the cached OpenCode version: ${describeCause(cause)}${suffix}`,
+          cause,
+          classifyFileError(cause, retryable),
+        );
+      }
+      yield* Effect.interruptible(sleep(retryDelays[number - 1] ?? 0));
+      return yield* attempt(number + 1);
+    });
+  return attempt(1);
+}
+
 function installRelease(
   context: InstallContext,
   release: CompatibleRelease,
@@ -1249,9 +1290,7 @@ function installRelease(
             const published = yield* findPublished;
             if (published) return published;
 
-            yield* tryPromise("Failed to replace the cached OpenCode version", () =>
-              rm(versionDirectory, { recursive: true, force: true }),
-            );
+            yield* replaceWithRetry(context, versionDirectory, findPublished);
             yield* publishWithRetry(context, installDirectory, versionDirectory, findPublished);
             return {
               executable: join(versionDirectory, spec.executableName),

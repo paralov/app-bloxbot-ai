@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { cpSync, existsSync, rmSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -793,6 +793,77 @@ describe("OpenCode installs that Windows blocks", () => {
       },
     });
     expect(rename).toHaveBeenCalledTimes(3);
+  });
+
+  it("waits out antivirus holding a broken copy it has to replace", async () => {
+    const cacheDirectory = await makeTemporaryDirectory();
+    const archive = Buffer.from("pinned windows archive");
+    // A copy of the same version with no metadata, which has to be deleted before the new one goes in.
+    await mkdir(join(cacheDirectory, "win32-x64", "2.2.3"), { recursive: true });
+    await writeFile(join(cacheDirectory, "win32-x64", "2.2.3", EXE), "half written");
+    let firstAttemptAt: number | undefined;
+    const remove = vi.fn(async (path: string) => {
+      firstAttemptAt ??= Date.now();
+      if (Date.now() - firstAttemptAt < 5_000) {
+        throw errno("EPERM", "EPERM: operation not permitted, unlink");
+      }
+      await rm(path, { recursive: true, force: true });
+    });
+
+    const { result } = await runInVirtualTime(
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "win32",
+        arch: "x64",
+        fetch: async (url) =>
+          url.includes("api.github.com") ? rateLimited() : new Response(archive),
+        pinnedRelease: pinnedFor("win32-x64", "opencode-windows-x64.zip", archive),
+        delays: { extractRetryMs: [0, 0], verifyMs: 0 },
+        extractArchive: writeExecutable(EXE),
+        fileSystem: { freeBytes: PLENTY_OF_SPACE, remove },
+      }),
+    );
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.3" } });
+    expect(remove.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("leaves a working copy another BloxBot published while this one waited to replace it", async () => {
+    const archive = Buffer.from("pinned windows archive");
+    const install = (cacheDirectory: string, fileSystem?: object) =>
+      ensureOpenCodeBinary({
+        cacheDirectory,
+        platform: "win32",
+        arch: "x64",
+        fetch: async (url) =>
+          url.includes("api.github.com") ? rateLimited() : new Response(archive),
+        pinnedRelease: pinnedFor("win32-x64", "opencode-windows-x64.zip", archive),
+        delays: { extractRetryMs: [0, 0], verifyMs: 0 },
+        extractArchive: writeExecutable(EXE),
+        fileSystem: { freeBytes: PLENTY_OF_SPACE, ...fileSystem },
+      });
+    // What the other BloxBot ends up publishing: a complete, verified copy.
+    const elsewhere = await makeTemporaryDirectory();
+    expect((await runInVirtualTime(install(elsewhere))).result).toMatchObject({ _tag: "Right" });
+    const published = join(elsewhere, "win32-x64", "2.2.3");
+
+    const cacheDirectory = await makeTemporaryDirectory();
+    const versionDirectory = join(cacheDirectory, "win32-x64", "2.2.3");
+    await mkdir(versionDirectory, { recursive: true });
+    await writeFile(join(versionDirectory, EXE), "half written");
+    const remove = vi.fn(async () => {
+      // Held by antivirus, and the other BloxBot publishes during the wait that follows.
+      setTimeout(() => {
+        rmSync(versionDirectory, { recursive: true, force: true });
+        cpSync(published, versionDirectory, { recursive: true });
+      }, 100);
+      throw errno("EPERM", "EPERM: operation not permitted, unlink");
+    });
+
+    const { result } = await runInVirtualTime(install(cacheDirectory, { remove }));
+
+    expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.3" } });
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 
   it("keeps retrying a publish that antivirus holds for 20 seconds", async () => {

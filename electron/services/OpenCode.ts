@@ -65,11 +65,14 @@ export function parseListeningPort(line: string): number | null {
   return port >= 1 && port <= 65_535 ? port : null;
 }
 
-/** Calls onLine with whole lines only: a port cut off by a chunk boundary would read as valid. */
+/**
+ * Calls onLine with whole lines only: a port cut off by a chunk boundary would read as valid. A lone
+ * carriage return ends a line too, as some Windows programs write it.
+ */
 function lineSplitter(onLine: (line: string) => void): (chunk: string) => void {
   let partial = "";
   return (chunk) => {
-    const lines = (partial + chunk).split("\n");
+    const lines = (partial + chunk).split(/\r\n|\r|\n/);
     partial = (lines.pop() ?? "").slice(-OUTPUT_TAIL_MAX_CHARS);
     lines.forEach(onLine);
   };
