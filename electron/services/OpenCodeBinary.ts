@@ -1155,6 +1155,8 @@ function replaceWithRetry(
   const retryDelays = context.delays.renameRetryMs;
   const attempt = (number: number): Effect.Effect<void, OpenCodeBinaryError> =>
     Effect.gen(function* () {
+      // Another BloxBot may have put a working copy there while this one waited, and it stays.
+      if (number > 1 && (yield* findPublished)) return;
       const result = yield* Effect.either(
         Effect.tryPromise(() => context.fileSystem.remove(versionDirectory)),
       );

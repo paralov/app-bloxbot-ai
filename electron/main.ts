@@ -1,6 +1,5 @@
 import { rename, readFile, rm, writeFile } from "node:fs/promises";
 import { isOpenableUrl } from "./openableUrl";
-import { trustSystemCertificates } from "./systemCertificates";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,9 +42,6 @@ import { channels } from "./channels";
 import { makeOpenCodeLayer, OpenCode } from "./services/OpenCode";
 import { createSystemNotifier, notificationSettingsUrl } from "./systemNotifications";
 import { makeStudioMcpBrokerLayer, StudioMcpBroker } from "./services/StudioMcpBroker";
-
-// Before anything downloads.
-trustSystemCertificates();
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultConfig: AppConfig = DEFAULT_APP_CONFIG;

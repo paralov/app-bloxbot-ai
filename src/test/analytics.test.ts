@@ -115,6 +115,23 @@ describe("harmless browser warnings", () => {
     expect(scrubAnalyticsEvent(exception("ResizeObserver loop limit exceeded"))).toBeNull();
   });
 
+  it("keeps a longer message that only starts like the warning, and a real error beside one", () => {
+    expect(
+      scrubAnalyticsEvent(exception("ResizeObserver loop limit exceeded while saving the draft")),
+    ).not.toBeNull();
+    expect(
+      scrubAnalyticsEvent({
+        event: "$exception",
+        properties: {
+          $exception_list: [
+            { type: "Error", value: "ResizeObserver loop limit exceeded" },
+            { type: "TypeError", value: "Cannot read properties of undefined" },
+          ],
+        },
+      } as never),
+    ).not.toBeNull();
+  });
+
   it("still reports real errors, and other events", () => {
     expect(scrubAnalyticsEvent(exception("Cannot read properties of undefined"))).not.toBeNull();
     expect(scrubAnalyticsEvent({ event: "app_opened", properties: {} } as never)).not.toBeNull();

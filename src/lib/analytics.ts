@@ -65,23 +65,28 @@ export function errorAnalyticsProperties(
 }
 
 /**
- * Browser warnings that say nothing is wrong. "ResizeObserver loop" means a resize was handled on
- * the next frame instead of this one, and it was v0.14.0's third most common error, from 80 people.
+ * Browser warnings that say nothing is wrong, matched whole so a longer message still counts.
+ * "ResizeObserver loop" means a resize was handled on the next frame instead of this one, and it was
+ * v0.14.0's third most common error, from 80 people.
  */
 const HARMLESS_ERRORS = [
-  /^ResizeObserver loop (completed with undelivered notifications|limit exceeded)/,
+  /^ResizeObserver loop completed with undelivered notifications\.?$/,
+  /^ResizeObserver loop limit exceeded\.?$/,
 ];
 
+/** Only when every exception in the event is one of those, so a real error beside one is kept. */
 const isHarmlessError = (event: CaptureResult) => {
   if (event.event !== "$exception") return false;
-  const messages = (event.properties?.$exception_list as { value?: unknown }[] | undefined) ?? [];
-  const values = [
-    ...messages.map((exception) => exception?.value),
-    ...((event.properties?.$exception_values as unknown[] | undefined) ?? []),
-    event.properties?.$exception_message,
-  ];
-  return values.some(
-    (value) => typeof value === "string" && HARMLESS_ERRORS.some((pattern) => pattern.test(value)),
+  const list = event.properties?.$exception_list;
+  const values: unknown[] = Array.isArray(list)
+    ? list.map((exception: { value?: unknown } | null) => exception?.value)
+    : [event.properties?.$exception_message];
+  return (
+    values.length > 0 &&
+    values.every(
+      (value) =>
+        typeof value === "string" && HARMLESS_ERRORS.some((pattern) => pattern.test(value.trim())),
+    )
   );
 };
 
