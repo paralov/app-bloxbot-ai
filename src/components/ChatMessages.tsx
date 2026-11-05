@@ -1090,9 +1090,14 @@ const MessageBubble = memo(function MessageBubble({
               <PartRenderer key={part.id} part={part} />
             ))}
             {msg.info.role === "assistant" && msg.info.time.completed
-              ? modelLinksIn(
-                  msg.parts.map((part) => (part.type === "text" ? part.text : "")).join("\n"),
-                ).map((url) => <ModelCard key={url} url={url} />)
+              ? // Each text part is shown as its own Markdown, so its links are read on their own too.
+                [
+                  ...new Set(
+                    msg.parts.flatMap((part) =>
+                      part.type === "text" ? modelLinksIn(part.text) : [],
+                    ),
+                  ),
+                ].map((url) => <ModelCard key={url} url={url} />)
               : null}
             {"error" in msg.info &&
               msg.info.error &&

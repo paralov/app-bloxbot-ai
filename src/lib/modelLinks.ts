@@ -20,7 +20,13 @@ export function modelLinksIn(text: string): string[] {
   // A reference link, like [model][asset], keeps its target in a definition elsewhere in the reply.
   const definitions = new Map<string, string>();
   const define = (node: MarkdownNode) => {
-    if (node.type === "definition" && node.identifier && node.url) {
+    // As in Markdown, the first definition of a name is the one that counts.
+    if (
+      node.type === "definition" &&
+      node.identifier &&
+      node.url &&
+      !definitions.has(node.identifier)
+    ) {
       definitions.set(node.identifier, node.url);
     }
     node.children?.forEach(define);
