@@ -10,6 +10,7 @@ import {
   type Object3D,
   PerspectiveCamera,
   Scene,
+  Texture,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -41,6 +42,22 @@ async function parseModel(
   if (kind === "fbx") return new FBXLoader(manager).parse(buffer, "");
   const gltf = await new GLTFLoader(manager).parseAsync(buffer, "");
   return gltf.scene;
+}
+
+/** Frees what a model holds on the GPU. Disposing a material leaves its textures, so those go too. */
+export function disposeModel(model: Object3D): void {
+  model.traverse((item) => {
+    const mesh = item as Mesh;
+    mesh.geometry?.dispose();
+    const materials = [mesh.material].flat() as (Material | undefined)[];
+    for (const material of materials) {
+      if (!material) continue;
+      for (const value of Object.values(material)) {
+        if (value instanceof Texture) value.dispose();
+      }
+      material.dispose();
+    }
+  });
 }
 
 /** Draws the file that would really be uploaded, not a picture someone says is of it. */
@@ -114,12 +131,7 @@ export default function ModelPreview({
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
-      model?.traverse((item) => {
-        const mesh = item as Mesh;
-        mesh.geometry?.dispose();
-        const materials = [mesh.material].flat() as (Material | undefined)[];
-        for (const material of materials) material?.dispose();
-      });
+      if (model) disposeModel(model);
       renderer?.dispose();
     };
   }, [data, kind, onFailed]);

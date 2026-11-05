@@ -211,6 +211,8 @@ export type UploadAccessState =
   | "needs_permission"
   /** Studio only uploads from folders someone has approved. */
   | "needs_folder"
+  /** Studio couldn't get a sign-in Roblox accepts, which no permission fixes. */
+  | "refused"
   | "ready";
 
 export interface UploadAccess {

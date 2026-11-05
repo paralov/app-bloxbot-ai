@@ -170,6 +170,21 @@ describe("what this place can do", () => {
     expect((await access(callTool)).state).toBe("reopen_studio");
   });
 
+  it("checks a published place even when Studio hasn't sent its name", async () => {
+    const { callTool } = studio({
+      ...scopeGate([]),
+      list: () => ({ studios: [{ id: STUDIO, name: null, place_id: 123 }] }),
+    });
+    expect((await access(callTool)).state).toBe("ready");
+  });
+
+  it("says when Studio can't get a sign-in Roblox accepts, instead of ready", async () => {
+    const { callTool } = studio({
+      invoke: () => error("GET https://apis.roblox.com/x -> 401 Unauthorized"),
+    });
+    expect((await access(callTool)).state).toBe("refused");
+  });
+
   it("doesn't call a place unpublished while it's still loading and has no name", async () => {
     const { callTool } = studio({ list: () => ({ studios: [{ id: STUDIO, name: null }] }) });
     expect((await access(callTool)).state).toBe("no_studio");
@@ -358,6 +373,15 @@ describe("from the click to the place", () => {
     expect(await sendModelToPlace(modelUrl, deps(callTool))).toEqual({
       status: "needs_setup",
       access: "not_published",
+    });
+    expect(uploads()).toEqual([]);
+  });
+
+  it("says Studio didn't answer when it can't read the game's owner, rather than doing nothing", async () => {
+    const { callTool, uploads } = studio({ luau: () => error("Studio is busy") });
+    expect(await sendModelToPlace(modelUrl, deps(callTool))).toEqual({
+      status: "failed",
+      reason: "studio_error",
     });
     expect(uploads()).toEqual([]);
   });

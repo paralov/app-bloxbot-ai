@@ -74,6 +74,12 @@ export function ModelCard({ url }: { url: string }) {
   const { data: access } = useUploadAccess(studioKey, url, !!file && !!studioKey);
   const accessState = studioKey ? access?.state : "no_studio";
 
+  // A folder refusal came from the Studio the upload went to, so it doesn't apply to another one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Runs when the chosen Studio changes.
+  useEffect(() => {
+    setResult((current) => (current?.status === "needs_folder" ? null : current));
+  }, [studioKey]);
+
   useEffect(
     () =>
       desktop.onModelUploadStep((stepUrl, nextStep) => {
@@ -233,6 +239,17 @@ export function ModelCard({ url }: { url: string }) {
             Asset {assetId}.
           </p>
           <div className="flex flex-wrap gap-1.5">{uploadButton("Add it to your place")}</div>
+        </>
+      );
+    }
+    if (accessState === "refused") {
+      return (
+        <>
+          <p className="text-xs leading-relaxed">
+            Roblox isn't accepting Studio's sign-in for uploads right now. Import it yourself, or
+            try again later.
+          </p>
+          <ImportByHand fileName={file.fileName} open />
         </>
       );
     }

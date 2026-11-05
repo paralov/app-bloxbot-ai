@@ -223,6 +223,42 @@ describe("Blender tools", () => {
       await expect(stat(join(root, "downloads"))).rejects.toThrow();
     });
 
+    it("stops every other download when one fails, before it says so", async () => {
+      const root = await directory();
+      const stopped: string[] = [];
+      let finished = false;
+      const result = install(root, {
+        download: async (
+          file: { name: string },
+          _dir: string,
+          options: { signal: AbortSignal },
+        ) => {
+          if (file.name.startsWith("uv-")) throw new Error("network");
+          await new Promise((resolve) => options.signal.addEventListener("abort", resolve));
+          // Still busy for a moment after being told, like a real download closing its file.
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          stopped.push(file.name);
+          finished = true;
+          throw new Error("stopped");
+        },
+      }).then((value) => {
+        expect(finished).toBe(true);
+        return value;
+      });
+
+      const outcome = await result;
+      expect(Either.isLeft(outcome)).toBe(true);
+      expect(stopped).toHaveLength(3);
+      expect(String(Either.isLeft(outcome) ? outcome.left.message : "")).not.toContain("stopped");
+    });
+
+    it("treats a marker cut short as not installed, so it can't stop OpenCode starting", async () => {
+      const root = await directory();
+      await mkdir(root, { recursive: true });
+      await writeFile(join(root, "installed.json"), '{"blender":');
+      await expect(isBlenderInstalled(root)).resolves.toBe(false);
+    });
+
     it("stops partway through connecting, and doesn't finish", async () => {
       const root = await directory();
       const stop = new AbortController();

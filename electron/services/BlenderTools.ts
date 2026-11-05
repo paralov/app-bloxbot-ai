@@ -424,16 +424,37 @@ async function installEverything(options: BlenderToolsOptions): Promise<void> {
       downloadedBytes: [...received.values()].reduce((sum, bytes) => sum + bytes, 0),
       totalBytes,
     });
-  const [blenderArchive, uvArchive, addon, server] = await Promise.all(
+  // One failure stops the rest, and setup only ends once they have, so a retry never writes the same
+  // partial files as downloads still running from before.
+  const together = new AbortController();
+  const stopAll = () => together.abort();
+  options.signal?.addEventListener("abort", stopAll, { once: true });
+  const downloaded = await Promise.allSettled(
     pinned.map((file) =>
       (options.download ?? downloadPinned)(file, downloads, {
         ...options,
+        signal: together.signal,
         onBytes: (bytes) => {
           received.set(file.name, bytes);
           report("downloading");
         },
+      }).catch((error: unknown) => {
+        together.abort();
+        throw error;
       }),
     ),
+  );
+  options.signal?.removeEventListener("abort", stopAll);
+  if (options.signal?.aborted) throw new SetupCancelled();
+  const failed = downloaded.find(
+    (result): result is PromiseRejectedResult =>
+      result.status === "rejected" && !(result.reason instanceof SetupCancelled),
+  );
+  if (failed) throw failed.reason;
+  const cancelled = downloaded.find((result) => result.status === "rejected");
+  if (cancelled) throw (cancelled as PromiseRejectedResult).reason;
+  const [blenderArchive, uvArchive, addon, server] = downloaded.map(
+    (result) => (result as PromiseFulfilledResult<string>).value,
   );
 
   if (options.signal?.aborted) throw new SetupCancelled();
@@ -534,8 +555,15 @@ function isBlenderListening(): Promise<boolean> {
 }
 
 export function isBlenderInstalled(root: string): Promise<boolean> {
+  // A marker cut short counts as not installed, so it can never stop OpenCode starting.
   return readFile(markerPath(root), "utf8").then(
-    (contents) => JSON.parse(contents).blender === BLENDER_VERSION,
+    (contents) => {
+      try {
+        return JSON.parse(contents).blender === BLENDER_VERSION;
+      } catch {
+        return false;
+      }
+    },
     () => false,
   );
 }

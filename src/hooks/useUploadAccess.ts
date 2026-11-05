@@ -29,11 +29,20 @@ export function useUploadAccess(studioKey: string | null, modelUrl: string | nul
   });
 
   const state = query.data?.state;
-  const previous = useRef(state);
+  // Kept per place, since switching to one that was already set up isn't news.
+  const previous = useRef({ studioKey, state });
   useEffect(() => {
-    if (previous.current && previous.current !== "ready" && state === "ready") announceUploadsOn();
-    previous.current = state;
-  }, [state]);
+    const before = previous.current;
+    if (
+      before.studioKey === studioKey &&
+      before.state &&
+      before.state !== "ready" &&
+      state === "ready"
+    ) {
+      announceUploadsOn();
+    }
+    previous.current = { studioKey, state };
+  }, [studioKey, state]);
 
   return query;
 }

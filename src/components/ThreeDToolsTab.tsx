@@ -278,7 +278,11 @@ function UploadsRow() {
           ? "Upload appears on each model a reply links to. You choose what's allowed in Studio's MCP Permissions."
           : "Add models to your place with one click, after you check each one. Studio handles the sign-in, so there's no key to make."}
       </p>
-      {ready ? null : (
+      {access.state === "refused" ? (
+        <p className="pt-1">
+          Roblox isn't accepting Studio's sign-in for uploads right now. Try again later.
+        </p>
+      ) : ready ? null : (
         <div className="pt-2">
           <UploadChecklist access={access} />
         </div>

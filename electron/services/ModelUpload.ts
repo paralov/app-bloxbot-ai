@@ -153,6 +153,8 @@ async function scopeIsOn(
     if (error instanceof OpenCloudError) {
       if (error.reason === "needs_permission") return false;
       if (error.reason === "reopen_studio" || error.reason === "studio_error") throw error;
+      // Studio couldn't get a token it can use, which no permission fixes.
+      if (error.reason === "refused") throw error;
     }
   }
   return true;
@@ -217,7 +219,7 @@ export async function getUploadAccess(
       : undefined;
   if (!target) return none("no_studio");
   // A place that's still loading has no name yet, which says nothing about whether it's published.
-  if (target.label === target.key) return none("no_studio");
+  if (!target.placeId && target.label === target.key) return none("no_studio");
   if (!isPublished(target)) return none("not_published");
   try {
     const readOn = await scopeIsOn(callTool, target.key, "asset:read");
@@ -226,16 +228,21 @@ export async function getUploadAccess(
     const approved = await folderIsApproved(callTool, target.key, folder);
     return { state: approved ? "ready" : "needs_folder", readOn, writeOn };
   } catch (error) {
-    return none(
-      error instanceof OpenCloudError && error.reason === "reopen_studio"
-        ? "reopen_studio"
-        : "no_studio",
-    );
+    if (error instanceof OpenCloudError && error.reason === "reopen_studio") {
+      return none("reopen_studio");
+    }
+    return none(error instanceof OpenCloudError && error.reason === "refused" ? "refused" : "no_studio");
   }
 }
 
-/** Who a new asset belongs to, which Roblox says must be the game's owner. Only runs after a click. */
-async function readGameOwner(callTool: CallStudioTool, studioId: string) {
+/**
+ * Who a new asset belongs to, which Roblox says must be the game's owner. Only runs after a click.
+ * "unpublished" is a real answer, and null means Studio couldn't say.
+ */
+async function readGameOwner(
+  callTool: CallStudioTool,
+  studioId: string,
+): Promise<{ userId: string } | { groupId: string } | "unpublished" | null> {
   const result = await callTool("execute_luau", {
     studio_id: studioId,
     datamodel_type: "Edit",
@@ -243,6 +250,7 @@ async function readGameOwner(callTool: CallStudioTool, studioId: string) {
   });
   if (mcpError(result)) return null;
   const data = mcpData(result);
+  if (data?.placeId === 0) return "unpublished";
   if (!data?.placeId || !data.creatorId) return null;
   return String(data.creatorType).endsWith("Group")
     ? { groupId: String(data.creatorId) }
@@ -433,7 +441,8 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
     let sent = await readSentModel(deps.sentFile, file.hash);
     if (!sent) {
       const creator = await readGameOwner(callTool, studioId).catch(() => null);
-      if (!creator) return { status: "needs_setup", access: "not_published" };
+      if (creator === "unpublished") return { status: "needs_setup", access: "not_published" };
+      if (!creator) return { status: "failed", reason: "studio_error" };
       onStep?.("uploading");
       const operation = await callOpenCloud(callTool, studioId, {
         method: "POST",

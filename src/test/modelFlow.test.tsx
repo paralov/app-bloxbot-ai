@@ -148,6 +148,62 @@ describe("before uploads can run", () => {
     expect(success.mock.calls[0]?.[1]).toMatchObject({ system: expect.anything() });
   }, 8000);
 
+  it("doesn't announce switching to a place that was already set up", async () => {
+    setUp("needs_permission");
+    vi.spyOn(desktop, "getUploadAccess").mockImplementation(async (key) =>
+      key === "studio-2" ? accessOf("ready", true, true) : accessOf("needs_permission"),
+    );
+    const success = vi.spyOn(notify, "success").mockReturnValue("id");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (
+      <QueryClientProvider client={client}>
+        <ModelCard url={URL_A} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view);
+    await screen.findByText("Turn on one-click uploads");
+    studio.selected = { key: "studio-2" };
+    rerender(
+      <QueryClientProvider client={client}>
+        <ModelCard url={URL_A} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("button", { name: "Upload to Roblox" })).toBeTruthy();
+    expect(success).not.toHaveBeenCalled();
+  });
+
+  it("drops a folder refusal when another Studio is chosen", async () => {
+    setUp("ready");
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(accessOf("ready", true, true));
+    vi.spyOn(desktop, "uploadModelToPlace").mockResolvedValue({
+      status: "needs_folder",
+      folder: FOLDER,
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <ModelCard url={URL_A} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Upload to Roblox" }));
+    expect(await screen.findByText(/hasn't approved this file's folder/)).toBeTruthy();
+    studio.selected = { key: "studio-2" };
+    rerender(
+      <QueryClientProvider client={client}>
+        <ModelCard url={URL_A} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("button", { name: "Upload to Roblox" })).toBeTruthy();
+    expect(screen.queryByText(/hasn't approved this file's folder/)).toBeNull();
+  });
+
+  it("explains when Roblox won't accept Studio's sign-in, and offers importing", async () => {
+    setUp("refused");
+    render(wrap(<ModelCard url={URL_A} />));
+    expect(await screen.findByText(/isn't accepting Studio's sign-in/)).toBeTruthy();
+    expect(screen.getByText("In Studio, open the File menu and choose Import.")).toBeTruthy();
+  });
+
   it("doesn't announce uploads that were already on", async () => {
     setUp("ready");
     const success = vi.spyOn(notify, "success").mockReturnValue("id");
