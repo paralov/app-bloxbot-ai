@@ -402,12 +402,28 @@ async function saveDownload(path: string, data: Buffer): Promise<void> {
     .catch(() => {});
 }
 
-async function removeOtherSavedDownloads(keep: string, archiveName: string): Promise<void> {
+/**
+ * Clears what was saved for this release and older ones. A newer release's download stays, since
+ * a failed lookup can install an older release while the newer one is still worth resuming.
+ */
+async function removeOtherSavedDownloads(
+  keep: string,
+  archiveName: string,
+  installed: Version,
+): Promise<void> {
   const directory = dirname(keep);
   const names = await readdir(directory).catch(() => [] as string[]);
+  const isNewer = (name: string) => {
+    const tag = /^(\d+\.\d+\.\d+)\./.exec(name.slice(archiveName.length + 1))?.[1];
+    const version = tag ? parseVersion(tag) : null;
+    return version !== null && compareVersions(version, installed) > 0;
+  };
   await Promise.all(
     names
-      .filter((name) => name.startsWith(`${archiveName}.`) && join(directory, name) !== keep)
+      .filter(
+        (name) =>
+          name.startsWith(`${archiveName}.`) && join(directory, name) !== keep && !isNewer(name),
+      )
       .map((name) => rm(join(directory, name), { force: true }).catch(() => {})),
   );
 }
@@ -442,6 +458,8 @@ async function downloadWithResume(
   // Any new data starts the count over, so only a connection that's really gone runs it out.
   let resumes = 0;
   let bytesAtLastFailure = partial.bytes;
+  // Whether what's held so far came in one response from the start of the file.
+  let partialFromStart = false;
   for (;;) {
     const stall = watchForStall(DOWNLOAD_STALL_TIMEOUT_MS, () => partial.bytes);
     // Said before the first byte, because that wait can be the long one.
@@ -483,8 +501,13 @@ async function downloadWithResume(
           if (resumes++ < DOWNLOAD_RESUMES) continue;
           throw new Error("the server sent the wrong part of the file");
         }
+        // The server ignored the range and is sending the whole file again. Bytes that were saved
+        // or resumed say nothing about how far that gets, so what arrives now is progress. Against
+        // an earlier whole-file try, a server that always drops at the same point still runs out.
+        if (!partialFromStart) bytesAtLastFailure = 0;
         partial = emptyDownload();
       }
+      partialFromStart = partial.bytes === 0;
       return {
         archiveBuffer: await readDownload(
           response,
@@ -508,15 +531,16 @@ async function downloadWithResume(
       resumes += 1;
       // A moment for a connection that just dropped, or every try would land in the same blip.
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, resumeDelaysMs[resumes - 1] ?? 0);
-        signal.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(timer);
-            reject(signal.reason);
-          },
-          { once: true },
-        );
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(signal.reason);
+        };
+        // A long download can retry many times, so each wait takes its listener with it.
+        const timer = setTimeout(() => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, resumeDelaysMs[resumes - 1] ?? 0);
+        signal.addEventListener("abort", onAbort, { once: true });
       }).catch(async (reason: unknown) => {
         if (partial.bytes > 0) {
           await saveDownload(savedPath, Buffer.concat(partial.chunks, partial.bytes));
@@ -1186,10 +1210,11 @@ function installRelease(
 ): Effect.Effect<OpenCodeBinary, OpenCodeBinaryError> {
   const { platformDirectory, platform, arch, spec, downloadFetch, reportProgress } = context;
   const versionDirectory = join(platformDirectory, release.version.value);
-  // Named by its checksum, so it can only ever be picked up for this exact file.
+  // Named by its checksum, so it can only ever be picked up for this exact file. The version is
+  // there so clearing up after an install can tell a newer release's download from an older one.
   const savedDownload = join(
     context.partialDirectory,
-    `${spec.archiveName}.${release.archiveSha256}.partial`,
+    `${spec.archiveName}.${release.version.value}.${release.archiveSha256}.partial`,
   );
 
   return Effect.gen(function* () {
@@ -1306,7 +1331,9 @@ function installRelease(
     yield* Effect.promise(() => rm(savedDownload, { force: true }).catch(() => {}));
     // Only now, since a failed lookup can land here on an older release while a newer one's
     // download is still worth resuming.
-    yield* Effect.promise(() => removeOtherSavedDownloads(savedDownload, spec.archiveName));
+    yield* Effect.promise(() =>
+      removeOtherSavedDownloads(savedDownload, spec.archiveName, release.version),
+    );
     return installed;
   });
 }
