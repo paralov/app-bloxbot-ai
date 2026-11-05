@@ -77,6 +77,20 @@ export default function StudioTargetPicker({
     setStuck(false);
   }, [hasTargets]);
 
+  // Once each time the steps are on screen, so following them always has a showing to count against.
+  const pickerStatus = studioTarget?.status;
+  const offersSteps = open && (pickerStatus === "empty" || pickerStatus === "error");
+  const stepsShown = useRef(false);
+  useEffect(() => {
+    if (!open) stepsShown.current = false;
+    if (!offersSteps || stepsShown.current) return;
+    stepsShown.current = true;
+    posthog.capture(
+      "studio_target_guidance_shown",
+      analyticsProperties("studio_target", { trigger: "empty", status: pickerStatus }),
+    );
+  }, [open, offersSteps, pickerStatus]);
+
   if (!studioTarget) return null;
   const { targets, selected, status, error, missing, withoutStudio, discover, select } =
     studioTarget;

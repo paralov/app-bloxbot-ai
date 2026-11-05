@@ -65,6 +65,11 @@ function guidanceEvents() {
   );
 }
 
+/** Opening the picker with nothing found shows the steps too, under a different trigger. */
+function stuckEvents() {
+  return guidanceEvents().filter(([, properties]) => properties?.trigger === "repeated_refresh");
+}
+
 describe("StudioTargetPicker", () => {
   beforeEach(() => {
     discoverStudioTargets.mockReset();
@@ -191,9 +196,28 @@ describe("StudioTargetPicker", () => {
     discoverStudioTargets.mockRejectedValueOnce(new Error("offline"));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByText("Couldn’t find Studios")).toBeVisible();
-    expect(
-      screen.getByText("Couldn't reach Roblox Studio. Check it's installed and open."),
-    ).toBeVisible();
+    expect(screen.getByText("Couldn't reach Roblox Studio. Refresh to try again.")).toBeVisible();
+  });
+
+  it("dims the other Studios while one is being checked, since clicks on them do nothing", async () => {
+    discoverStudioTargets.mockResolvedValue({
+      targets: [
+        { key: "one", label: "Lobby", detail: null },
+        { key: "two", label: "Dungeon", detail: null },
+        { key: "three", label: "Arena", detail: null },
+      ],
+      selectedKey: "one",
+    });
+    selectStudioTarget.mockReturnValue(new Promise(() => {}));
+    renderPicker();
+    fireEvent.click(await screen.findByRole("button", { name: /Lobby/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Dungeon/ }));
+
+    const arena = await screen.findByRole("button", { name: /Arena/ });
+    await waitFor(() => expect(arena).toHaveAttribute("aria-disabled", "true"));
+    expect(arena).toHaveClass("aria-disabled:opacity-60");
+    fireEvent.click(arena);
+    expect(selectStudioTarget).not.toHaveBeenCalledWith("three");
   });
 
   it("keeps the prior target when verification fails", async () => {
@@ -381,12 +405,12 @@ describe("StudioTargetPicker", () => {
       await refresh();
       expect(screen.queryByText(STUCK_HEADING)).toBeNull();
       expect(screen.getByText("No Studio found")).toBeVisible();
-      expect(guidanceEvents()).toEqual([]);
+      expect(stuckEvents()).toEqual([]);
 
       await refresh();
       expect(screen.getByText(STUCK_HEADING)).toBeVisible();
       await refresh();
-      expect(guidanceEvents()).toEqual([
+      expect(stuckEvents()).toEqual([
         [
           "studio_target_guidance_shown",
           {
@@ -407,9 +431,7 @@ describe("StudioTargetPicker", () => {
       await refresh();
 
       expect(screen.getByText(STUCK_HEADING)).toBeVisible();
-      expect(
-        screen.getByText("Couldn't reach Roblox Studio. Check it's installed and open."),
-      ).toBeVisible();
+      expect(screen.getByText("Couldn't reach Roblox Studio. Refresh to try again.")).toBeVisible();
     });
 
     it("doesn't call someone stuck for empty Refreshes spread past the window", async () => {
@@ -423,7 +445,7 @@ describe("StudioTargetPicker", () => {
       await refresh();
 
       expect(screen.queryByText(STUCK_HEADING)).toBeNull();
-      expect(guidanceEvents()).toEqual([]);
+      expect(stuckEvents()).toEqual([]);
     });
 
     it("doesn't open the steps while a Studio is found", async () => {
@@ -456,7 +478,7 @@ describe("StudioTargetPicker", () => {
       discoverStudioTargets.mockResolvedValue({ targets: [], selectedKey: null });
       await refresh();
       await refresh();
-      expect(guidanceEvents()).toEqual([]);
+      expect(stuckEvents()).toEqual([]);
 
       await refresh();
       expect(screen.getByText(STUCK_HEADING)).toBeVisible();
@@ -495,7 +517,12 @@ describe("StudioTargetPicker", () => {
       fireEvent.click(screen.getByRole("button", { name: "Show me how" }));
 
       expect(onOpenSetup).toHaveBeenCalledOnce();
+      // Shown once on opening, however often it renders, so following it has a showing to match.
       expect(guidanceEvents()).toEqual([
+        [
+          "studio_target_guidance_shown",
+          expect.objectContaining({ feature: "studio_target", trigger: "empty", status: "empty" }),
+        ],
         [
           "studio_target_guidance_followed",
           expect.objectContaining({ feature: "studio_target", trigger: "empty", status: "empty" }),

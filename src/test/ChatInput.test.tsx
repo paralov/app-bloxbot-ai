@@ -29,6 +29,7 @@ const studio = vi.hoisted(() => ({
   selected: null as { key: string } | null,
   sendBlock: null as string | null,
   targets: [] as unknown[],
+  noteRouted: vi.fn(),
 }));
 vi.mock("@/providers/StudioTargetProvider", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/providers/StudioTargetProvider")>()),
@@ -250,6 +251,37 @@ describe("ChatInput", () => {
     const args = client.session.promptAsync.mock.calls[0][0];
     expect(args.parts[0].text).toBe("Build a game");
     expect(args.sessionID).toBe("s1");
+  });
+
+  it("notes the Studio a message went to, but not for a command that runs here", async () => {
+    const onOpenSettings = vi.fn();
+    const client = createClient();
+    render(
+      <TestChatInput
+        client={client}
+        queryClient={createQueryClient()}
+        onOpenSettings={onOpenSettings}
+      />,
+    );
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "/connect" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+    expect(onOpenSettings).toHaveBeenCalled();
+    expect(studio.noteRouted).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.input(textarea, { target: { textContent: "Build a game" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Send"));
+    });
+    expect(client.session.promptAsync).toHaveBeenCalled();
+    expect(studio.noteRouted).toHaveBeenCalledOnce();
   });
 
   it("offers a way to add providers and models from the model picker", async () => {

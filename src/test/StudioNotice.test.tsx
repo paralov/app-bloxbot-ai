@@ -43,15 +43,30 @@ describe("StudioNotice", () => {
   });
 
   it("leads to the setup steps when nothing is connected", () => {
-    show({ status: "empty" });
+    const { rerender } = show({ status: "empty" });
     expect(screen.getByRole("status")).toHaveTextContent("No Studio connected.");
+    // Another render of the same notice isn't another showing.
+    mocks.studioTarget = { ...(mocks.studioTarget as object), status: "error" };
+    rerender(<StudioNotice onOpenSetup={onOpenSetup} onOpenPicker={onOpenPicker} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Show me how" }));
 
     expect(onOpenSetup).toHaveBeenCalledOnce();
-    expect(mocks.capture).toHaveBeenCalledWith(
-      "studio_target_guidance_followed",
-      expect.objectContaining({ trigger: "notice" }),
+    expect(
+      mocks.capture.mock.calls.filter(([name]) =>
+        String(name).startsWith("studio_target_guidance"),
+      ),
+    ).toEqual([
+      ["studio_target_guidance_shown", expect.objectContaining({ trigger: "notice" })],
+      ["studio_target_guidance_followed", expect.objectContaining({ trigger: "notice" })],
+    ]);
+  });
+
+  it("doesn't count a showing when the notice offers the picker instead of the steps", () => {
+    show({ targets: [LOBBY, DUNGEON] });
+    expect(mocks.capture).not.toHaveBeenCalledWith(
+      "studio_target_guidance_shown",
+      expect.anything(),
     );
   });
 

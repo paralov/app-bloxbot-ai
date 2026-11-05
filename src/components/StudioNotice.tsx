@@ -79,6 +79,22 @@ export default function StudioNotice({
                 ? "Several Studios are open."
                 : "No Studio connected.";
 
+  // Once each time Show me how appears, so following it always has a showing to count against.
+  const offersSteps = message !== null && !canChoose;
+  const stepsShown = useRef(false);
+  useEffect(() => {
+    if (!offersSteps) {
+      stepsShown.current = false;
+      return;
+    }
+    if (stepsShown.current) return;
+    stepsShown.current = true;
+    posthog.capture(
+      "studio_target_guidance_shown",
+      analyticsProperties("studio_target", { trigger: "notice", status }),
+    );
+  }, [offersSteps, status]);
+
   const openSetup = () => {
     posthog.capture(
       "studio_target_guidance_followed",

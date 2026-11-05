@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   loadConfig: vi.fn(),
   patchConfig: vi.fn(),
+  mcpStatus: vi.fn(),
   capture: vi.fn(),
   client: {},
   session: { id: "chat" },
@@ -17,6 +18,7 @@ vi.mock("@/lib/desktop", () => ({
     selectStudioTarget: mocks.select,
     loadConfig: mocks.loadConfig,
     patchConfig: mocks.patchConfig,
+    getStudioMcpStatus: mocks.mcpStatus,
   },
 }));
 vi.mock("@/providers/OpenCodeClientProvider", () => ({
@@ -54,6 +56,7 @@ describe("StudioTargetProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.patchConfig.mockResolvedValue(undefined);
+    mocks.mcpStatus.mockResolvedValue({ state: "connected" });
   });
 
   it("doesn't offer a remembered Studio id until discovery has found it", async () => {
@@ -327,6 +330,55 @@ describe("StudioTargetProvider", () => {
     expect(mocks.patchConfig).toHaveBeenCalledWith({ studioTargetsBySession: { chat: dungeon } });
   });
 
+  it("doesn't let a chat's late place restore start a check in the chat opened since", async () => {
+    const dungeon = { key: "s1", label: "Dungeon", detail: null, placeId: "1" };
+    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+    mocks.loadConfig.mockResolvedValue({
+      studioTargetsBySession: { next: lobby },
+      routedTargetsBySession: { chat: dungeon },
+    });
+    mocks.discover.mockResolvedValue({ targets: [dungeon, lobby], selectedKey: null });
+    mocks.select.mockImplementation(async (key: string) => ({
+      selected: key === dungeon.key ? dungeon : lobby,
+      verified: true,
+    }));
+    let saved: (value?: unknown) => void = () => {};
+    mocks.patchConfig.mockReturnValueOnce(
+      new Promise((resolve) => {
+        saved = resolve;
+      }),
+    );
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    const tree = () => (
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>
+    );
+    const { rerender } = render(tree());
+    expect(await screen.findByText("status: ready")).toBeInTheDocument();
+    await act(async () => context?.reportStudioUse({ started: true, usedStudio: true }));
+
+    mocks.session.id = "next";
+    try {
+      rerender(tree());
+      expect(await screen.findByText("selected: lobby")).toBeInTheDocument();
+      const checks = mocks.discover.mock.calls.length;
+
+      await act(async () => saved());
+
+      expect(mocks.discover).toHaveBeenCalledTimes(checks);
+      expect(mocks.select).not.toHaveBeenCalledWith(dungeon.key);
+      expect(screen.getByText("selected: lobby")).toBeInTheDocument();
+    } finally {
+      mocks.session.id = "chat";
+    }
+  });
+
   it("says a chat is about Studio by that chat's own choice, not another's", async () => {
     const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
     mocks.loadConfig.mockResolvedValue({
@@ -478,15 +530,23 @@ describe("StudioTargetProvider", () => {
     try {
       mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
       mocks.discover.mockReturnValue(new Promise(() => {}));
+      let context: ReturnType<typeof useStudioTargetOptional> = null;
+      function Spy() {
+        context = useStudioTargetOptional();
+        return null;
+      }
       render(
         <StudioTargetProvider>
           <Seen keys={[]} />
+          <Spy />
         </StudioTargetProvider>,
       );
       await act(() => vi.advanceTimersByTimeAsync(0));
       expect(screen.getByText("block: Finding Studios.")).toBeInTheDocument();
       await act(() => vi.advanceTimersByTimeAsync(3_000));
       expect(screen.getByText("block: none")).toBeInTheDocument();
+      // What goes out now still keeps the agent from picking a Studio by itself.
+      expect(context?.promptReference).toContain("Do not use Roblox Studio tools.");
     } finally {
       vi.useRealTimers();
     }
@@ -812,6 +872,31 @@ describe("StudioTargetProvider", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("tells a missing Studio apart from a check that didn't get through", async () => {
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+    mocks.discover.mockRejectedValue(new Error("offline"));
+    function ErrorText() {
+      return <div>error: {useStudioTargetOptional()?.error ?? "none"}</div>;
+    }
+    const tree = () => (
+      <StudioTargetProvider>
+        <ErrorText />
+      </StudioTargetProvider>
+    );
+
+    const first = render(tree());
+    expect(
+      await screen.findByText("error: Couldn't reach Roblox Studio. Refresh to try again."),
+    ).toBeInTheDocument();
+    first.unmount();
+
+    mocks.mcpStatus.mockResolvedValue({ state: "not_installed" });
+    render(tree());
+    expect(
+      await screen.findByText("error: BloxBot can't find Roblox Studio. Check it's installed."),
+    ).toBeInTheDocument();
   });
 
   it("checks a Studio once, not on every background check", async () => {

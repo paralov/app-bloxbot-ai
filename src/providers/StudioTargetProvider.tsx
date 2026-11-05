@@ -92,6 +92,20 @@ function discoveredPlaceIds(targets: readonly StudioTarget[]): string[] {
   return [...new Set(targets.flatMap((target) => (target.placeId ? [target.placeId] : [])))];
 }
 
+/**
+ * A closed Studio lists nothing rather than failing, so a failure means Studio's helper is missing,
+ * has stopped, or a request just didn't get through, and only the helper's state can tell which.
+ */
+async function discoveryErrorMessage(): Promise<string> {
+  let state: string | null = null;
+  try {
+    state = (await desktop.getStudioMcpStatus()).state;
+  } catch {}
+  if (state === "not_installed") return "BloxBot can't find Roblox Studio. Check it's installed.";
+  if (state === "unavailable") return "Roblox Studio stopped responding. Open it, then refresh.";
+  return "Couldn't reach Roblox Studio. Refresh to try again.";
+}
+
 /** For a chat with no Studio, so the agent doesn't go looking for one and change the wrong place. */
 export const NO_STUDIO_PROMPT_REFERENCE =
   "This chat isn't working in Roblox Studio. Do not use Roblox Studio tools unless the person asks you to connect one.";
@@ -106,6 +120,13 @@ const PLACE_CLOSED_PROMPT_REFERENCE =
  */
 const CHOOSE_STUDIO_PROMPT_REFERENCE =
   "Several Roblox Studio places are open and this chat hasn't chosen one. Before using any Roblox Studio tool, ask the person to choose one in BloxBot's Studio picker. If the request has nothing to do with Roblox, ignore this.";
+
+/**
+ * Still finding Studios when a message goes out anyway, so nothing says which place is this chat's
+ * and the agent mustn't pick one itself.
+ */
+const STILL_FINDING_PROMPT_REFERENCE =
+  "BloxBot hasn't finished finding which Roblox Studio places are open. Do not use Roblox Studio tools. If the request needs Studio, ask the person to try again in a moment.";
 
 export function createStudioTargetPromptReference(target: StudioTarget): string {
   return `Route every Roblox Studio MCP tool call for this request to studio_id ${JSON.stringify(target.key)}. The selected Studio is ${JSON.stringify(target.label)}${target.placeId ? ` with Place ID ${JSON.stringify(target.placeId)}` : ""}. Do not call set_active_studio; routing is stateless. Re-list Studios and stop if this studio_id is no longer connected.`;
@@ -126,6 +147,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const selectOperationRef = useRef(0);
   const selectedRef = useRef<StudioTarget | null>(null);
   selectedRef.current = selected;
+  const activeSessionRef = useRef(activeSessionId);
+  activeSessionRef.current = activeSessionId;
   const chatsWithoutStudioRef = useRef<ReadonlySet<string>>(new Set());
   const [withoutStudio, setWithoutStudio] = useState(false);
   const studioUseRef = useRef<{ session: string; used: boolean } | null>(null);
@@ -299,13 +322,14 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           setError(null);
         }
       } catch (discoveryError) {
+        const message = await discoveryErrorMessage();
         if (operation === operationRef.current) {
           setStatus(targetsRef.current.length > 0 ? "ready" : "error");
           setSelectingKey(null);
           const alreadyReported = errorSourceRef.current === "discovery";
           errorSourceRef.current = "discovery";
           console.error("[studio-target] discovery failed", discoveryError);
-          setError("Couldn't reach Roblox Studio. Check it's installed and open.");
+          setError(message);
           if (!alreadyReported)
             posthog.capture(
               "studio_target_discovery_failed",
@@ -451,7 +475,11 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           // A check under way may have settled on another, so it starts again from this one.
           operationRef.current += 1;
           discoveryRef.current = null;
-          void rememberTarget(routed).then(() => discover());
+          // Saving takes a moment, and by then another chat may be open with its own check.
+          const session = activeSessionId;
+          void rememberTarget(routed).then(() => {
+            if (activeSessionRef.current === session) void discover();
+          });
         } else if (!usedStudio && remembered && !chosenChatsRef.current.has(activeSessionId)) {
           // Older versions saved whichever Studio was open, even for a chat about something else.
           const { [activeSessionId]: _forgotten, ...rest } = targetsBySessionRef.current;
@@ -583,9 +611,12 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       ? PLACE_CLOSED_PROMPT_REFERENCE
       : withoutStudio || (status !== "loading" && targets.length === 0)
         ? NO_STUDIO_PROMPT_REFERENCE
-        : targets.length > 1
-          ? CHOOSE_STUDIO_PROMPT_REFERENCE
-          : null;
+        : // A stuck check stops holding messages back, but they still mustn't reach a Studio.
+          status === "loading"
+          ? STILL_FINDING_PROMPT_REFERENCE
+          : targets.length > 1
+            ? CHOOSE_STUDIO_PROMPT_REFERENCE
+            : null;
   const value = useMemo(
     () => ({
       targets,

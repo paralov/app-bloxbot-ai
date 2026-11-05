@@ -648,7 +648,8 @@ function ChatInput({
       attachments.length > 0
         ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
         : undefined;
-    studioTarget?.noteRouted?.();
+    // Commands like /model and /new run here and never reach the agent, so they use no Studio.
+    if (needsStudio(trimmed)) studioTarget?.noteRouted?.();
     const ranCommand = runCommand(trimmed, {
       images,
       system: studioTargetReference,
