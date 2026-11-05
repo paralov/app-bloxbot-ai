@@ -193,7 +193,13 @@ export interface DesktopApi {
   /** Null when the link isn't a model file BloxBot can read. */
   readModelFile(url: string): Promise<ModelFileInfo | null>;
   /** `hash` is the file the person looked at, and nothing else gets sent. */
-  uploadModelToPlace(url: string, studioKey: string, hash: string): Promise<ModelUploadResult>;
+  /** With addOnly, it only adds what's already on Roblox for this game's owner, and never uploads. */
+  uploadModelToPlace(
+    url: string,
+    studioKey: string,
+    hash: string,
+    addOnly?: boolean,
+  ): Promise<ModelUploadResult>;
   onModelUploadStep(listener: (url: string, step: ModelUploadStep) => void): () => void;
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
@@ -213,6 +219,8 @@ export type UploadAccessState =
   | "needs_permission"
   /** Studio only uploads from folders someone has approved. */
   | "needs_folder"
+  /** Uploads send a copy saved next to the model, and BloxBot can't save in its folder. */
+  | "folder_unwritable"
   /** Studio couldn't get a sign-in Roblox accepts, which no permission fixes. */
   | "refused"
   | "ready";
@@ -247,13 +255,19 @@ export type ModelUploadFailure =
   | "refused"
   | "rate_limited"
   | "file_rejected"
+  | "folder_unwritable"
+  | "other_owner"
+  | "place_changed"
   | "studio_error";
+
+/** Why an approved model wasn't put in the place, when BloxBot can tell. */
+export type NotAddedReason = "place_changed" | "playtest";
 
 export type ModelUploadResult =
   | { status: "added"; assetId: string; path: string }
   | { status: "rejected"; assetId: string }
   | { status: "checking"; assetId: string }
-  | { status: "not_added"; assetId: string }
+  | { status: "not_added"; assetId: string; reason?: NotAddedReason }
   | { status: "needs_setup"; access: UploadAccessState }
   | { status: "needs_folder"; folder: string }
   | { status: "failed"; reason: ModelUploadFailure };

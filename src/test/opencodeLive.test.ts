@@ -41,6 +41,7 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
   let server: ChildProcess;
   let mcp: Server;
   let client: OpencodeClient;
+  let baseUrl: string;
   let queryClient: QueryClient;
   const active = { current: null as string | null };
   const events: Event[] = [];
@@ -140,7 +141,7 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
         OPENCODE_PASSWORD: PASSWORD,
       },
     });
-    const baseUrl = await new Promise<string>((resolve, reject) => {
+    baseUrl = await new Promise<string>((resolve, reject) => {
       let output = "";
       const read = (chunk: Buffer) => {
         output += chunk;
@@ -227,6 +228,22 @@ describe.skipIf(!BIN)("OpenCode server, through BloxBot's client", () => {
     }
     expect(Object.values(servers).map((server) => server.status)).toContain("connected");
   }, 30_000);
+
+  it("keeps the ask-first rules for Studio's upload tools", async () => {
+    // The engine's own reading of the config file: a key it doesn't know isn't kept.
+    const response = await fetch(`${baseUrl}/api/config`, {
+      headers: { Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}` },
+    });
+    const documents = (await response.json()) as { info?: { permissions?: unknown[] } }[];
+    const rules = documents.flatMap((document) => document.info?.permissions ?? []);
+    for (const tool of ["upload_image", "open_cloud_invoke"]) {
+      expect(rules).toContainEqual({
+        action: `roblox-studio_${tool}`,
+        resource: "*",
+        effect: "ask",
+      });
+    }
+  });
 
   it("manages chats: hidden metadata, rename, archive, delete", async () => {
     const hidden = await client.session.create(

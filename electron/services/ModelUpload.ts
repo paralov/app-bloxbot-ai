@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
+import { lstat, mkdir, readFile, readlink, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, join, parse, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
   ModelUploadFailure,
   ModelUploadResult,
   ModelUploadStep,
+  NotAddedReason,
   UploadAccessState,
 } from "../../src/types/desktop";
 import type { StudioTarget } from "../../src/types/studioTarget";
@@ -17,7 +18,9 @@ import {
   insertUploadedModel,
   mcpData,
   mcpError,
+  PLACE_CHANGED,
   runScript,
+  STOP_PLAYTEST,
 } from "../studioQueries";
 
 /** Roblox's limit for one file through open_cloud_invoke. */
@@ -165,17 +168,18 @@ async function scopeIsOn(
  * Roblox has no way to ask which folders are approved, but Studio refuses a file from anywhere else.
  * So this offers a tiny blank file to an address that doesn't exist. Nothing can be created, and the
  * file is deleted again. When it can't tell, it says yes and lets the real upload report the problem.
+ * A folder it can't write to can't take the upload's copy either, so that's an answer of its own.
  */
-async function folderIsApproved(
+async function folderState(
   callTool: CallStudioTool,
   studioId: string,
   folder: string,
-): Promise<boolean> {
+): Promise<"ready" | "needs_folder" | "folder_unwritable"> {
   const probe = join(folder, `.bloxbot-folder-check-${randomUUID()}.glb`);
   try {
     await writeFile(probe, "glTF");
   } catch {
-    return true;
+    return "folder_unwritable";
   }
   try {
     await callOpenCloud(callTool, studioId, {
@@ -185,11 +189,13 @@ async function folderIsApproved(
       files: [{ name: "fileContent", path: probe }],
       scopes: ["asset:write"],
     });
-    return true;
+    return "ready";
   } catch (error) {
     // Being told to slow down isn't an answer, and the next check can ask again.
     if (error instanceof OpenCloudError && error.reason === "rate_limited") throw error;
-    return !(error instanceof OpenCloudError && error.reason === "needs_folder");
+    return error instanceof OpenCloudError && error.reason === "needs_folder"
+      ? "needs_folder"
+      : "ready";
   } finally {
     await rm(probe, { force: true }).catch(() => {});
   }
@@ -229,8 +235,7 @@ export async function getUploadAccess(
     const readOn = await scopeIsOn(callTool, target.key, "asset:read");
     const writeOn = await scopeIsOn(callTool, target.key, "asset:write");
     if (!readOn || !writeOn) return { state: "needs_permission", readOn, writeOn };
-    const approved = await folderIsApproved(callTool, target.key, folder);
-    return { state: approved ? "ready" : "needs_folder", readOn, writeOn };
+    return { state: await folderState(callTool, target.key, folder), readOn, writeOn };
   } catch (error) {
     if (
       error instanceof OpenCloudError &&
@@ -263,6 +268,16 @@ async function readGameOwner(
   return String(data.creatorType).endsWith("Group")
     ? { groupId: String(data.creatorId) }
     : { userId: String(data.creatorId) };
+}
+
+/** Which place a Studio has open, from Studio's own list, so no script runs. Null once it's closed. */
+async function placeIn(callTool: CallStudioTool, studioId: string): Promise<string | null> {
+  const target = (await discoverStudioTargets(callTool)).targets.find(
+    (candidate) => candidate.key === studioId,
+  );
+  if (!target) return null;
+  // A local place has no ID, so its name is the best there is.
+  return target.placeId ?? /\(placeId:\s*([1-9]\d*)\)\s*$/.exec(target.label)?.[1] ?? target.label;
 }
 
 // ── The model file ──────────────────────────────────────────────────────
@@ -300,6 +315,37 @@ export function modelFolder(url: string): string | null {
   }
 }
 
+/** "\\server\share", "//server/share" or "\\?\UNC\server\share". Windows sends its sign-in to a share it reads. */
+export const isNetworkPath = (path: string) =>
+  /^[\\/]{2}/.test(path) && !/^[\\/]{2}[?.][\\/](?!UNC[\\/])/i.test(path);
+
+/**
+ * Where a path really leads, following each link by hand. realpath would already have reached a
+ * network share by the time it said so. Null for a share, or for links that go on too long.
+ */
+export async function localTarget(path: string): Promise<string | null> {
+  let pending = resolve(path);
+  for (let links = 0; links < 32; links++) {
+    if (isNetworkPath(pending)) return null;
+    const { root } = parse(pending);
+    const parts = pending.slice(root.length).split(sep).filter(Boolean);
+    let current = root;
+    let next: string | null = null;
+    for (const [index, part] of parts.entries()) {
+      current = join(current, part);
+      if (!(await lstat(current)).isSymbolicLink()) continue;
+      const target = await readlink(current);
+      // Checked before resolving, which turns "//server" into "/server" on a Mac.
+      if (isNetworkPath(target)) return null;
+      next = resolve(dirname(current), target, ...parts.slice(index + 1));
+      break;
+    }
+    if (next === null) return current;
+    pending = next;
+  }
+  return null;
+}
+
 /** Reads a model a reply linked to. Null for anything else, so a link can't reach other files. */
 export async function readModelFile(url: string): Promise<ModelFile | null> {
   let path: string;
@@ -313,9 +359,12 @@ export async function readModelFile(url: string): Promise<ModelFile | null> {
   const extension = extname(path).toLowerCase();
   if (!MODEL_EXTENSIONS.has(extension)) return null;
   try {
-    const info = await stat(path);
+    // A local-looking path can be a link to a share, and a card reads its file without a click.
+    const target = await localTarget(path);
+    if (!target) return null;
+    const info = await stat(target);
     if (!info.isFile() || info.size > MAX_MODEL_BYTES) return null;
-    const bytes = await readFile(path);
+    const bytes = await readFile(target);
     return {
       path,
       folder: dirname(path),
@@ -347,14 +396,28 @@ export interface SentModel {
   assetId: string | null;
   moderation: Moderation;
   operationId?: string;
+  /** The game owner it was made for, like "user:1" or "group:2". */
+  owner?: string;
 }
 
 /** Remembered by content: uploads are permanent, so the same bytes never go up twice. */
 export const sentModelsFile = (root: string) => join(root, "roblox-sent-models.json");
 
-export async function readSentModel(file: string, hash: string): Promise<SentModel | null> {
+/** Each owner's record is kept too, so another owner's upload doesn't hide the first one's. */
+const ownedKey = (hash: string, owner: string) => `${hash}/${owner}`;
+
+/**
+ * The latest record for these bytes. With an owner, only one made for that owner, since an asset
+ * belongs to the owner it was made for.
+ */
+export async function readSentModel(
+  file: string,
+  hash: string,
+  owner?: string,
+): Promise<SentModel | null> {
   try {
-    return (JSON.parse(await readFile(file, "utf8")) as Record<string, SentModel>)[hash] ?? null;
+    const all = JSON.parse(await readFile(file, "utf8")) as Record<string, SentModel>;
+    return (owner === undefined ? all[hash] : all[ownedKey(hash, owner)]) ?? null;
   } catch {
     return null;
   }
@@ -370,7 +433,8 @@ export function recordSentModel(file: string, hash: string, sent: SentModel): Pr
       all = JSON.parse(await readFile(file, "utf8"));
     } catch {}
     await mkdir(dirname(file), { recursive: true });
-    await writeFile(`${file}.tmp`, JSON.stringify({ ...all, [hash]: sent }));
+    const owned = sent.owner ? { [ownedKey(hash, sent.owner)]: sent } : {};
+    await writeFile(`${file}.tmp`, JSON.stringify({ ...all, [hash]: sent, ...owned }));
     await rename(`${file}.tmp`, file);
   };
   const result = sentModelWrites.then(write, write);
@@ -380,12 +444,32 @@ export function recordSentModel(file: string, hash: string, sent: SentModel): Pr
 
 // ── From the click to the place ─────────────────────────────────────────
 
+const sending = new Map<string, Promise<void>>();
+
+/** Runs one at a time for each key, in the order they were asked. */
+const adding = new Map<string, Promise<ModelUploadResult>>();
+
+function oneAtATime<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const turn = (sending.get(key) ?? Promise.resolve()).then(run);
+  const done = turn.then(
+    () => {},
+    () => {},
+  );
+  sending.set(key, done);
+  void done.then(() => {
+    if (sending.get(key) === done) sending.delete(key);
+  });
+  return turn;
+}
+
 export interface SendModelDeps {
   callTool: CallStudioTool;
   studioId: string;
   sentFile: string;
   /** The bytes the person looked at. Anything else in the file by now hasn't been checked. */
   expectedHash: string;
+  /** From a card that says nothing will be uploaded: it may add what's on Roblox, never send more. */
+  addOnly?: boolean;
   sleep?: (ms: number) => Promise<void>;
   onStep?: (step: ModelUploadStep) => void;
 }
@@ -401,13 +485,34 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
   if (!file) return { status: "failed", reason: "no_file" };
   if (file.hash !== deps.expectedHash) return { status: "failed", reason: "file_changed" };
 
+  // Roblox can take minutes, and the same Studio can open another place meanwhile. The model is for
+  // the place that was open when the person pressed the button.
+  const place = await placeIn(callTool, studioId).catch(() => null);
+  if (!place) return { status: "failed", reason: "studio_error" };
+
   const addToPlace = async (assetId: string): Promise<ModelUploadResult> => {
     onStep?.("adding");
+    const notAdded = (reason?: NotAddedReason): ModelUploadResult =>
+      reason ? { status: "not_added", assetId, reason } : { status: "not_added", assetId };
     try {
-      const path = await insertUploadedModel(callTool, studioId, assetId, file.name);
+      if ((await placeIn(callTool, studioId)) !== place) return notAdded("place_changed");
+      const path = await insertUploadedModel(
+        callTool,
+        studioId,
+        assetId,
+        file.name,
+        /^\d+$/.test(place) ? place : undefined,
+      );
       return { status: "added", assetId, path };
-    } catch {
-      return { status: "not_added", assetId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      return notAdded(
+        message === STOP_PLAYTEST
+          ? "playtest"
+          : message === PLACE_CHANGED
+            ? "place_changed"
+            : undefined,
+      );
     }
   };
   const moderationOfAsset = async (assetId: string): Promise<Moderation> => {
@@ -437,61 +542,81 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
     if (!operation?.done) throw new OpenCloudError("studio_error");
     const assetId = operation.response?.assetId;
     if (!assetId) throw new OpenCloudError("file_rejected");
-    const moderation = moderationOf(operation.response);
-    return {
-      assetId: String(assetId),
-      moderation:
-        moderation === "checking" ? await moderationOfAsset(String(assetId)) : moderation,
-    };
+    return { assetId: String(assetId), moderation: moderationOf(operation.response) };
+  };
+
+  /** Finds what was already sent for this game's owner, or sends it and records Roblox's answer. */
+  const findOrSend = async (): Promise<ModelUploadResult | { sent: SentModel; first?: unknown }> => {
+    const creator = await readGameOwner(callTool, studioId).catch(() => null);
+    if (creator === "unpublished") return { status: "needs_setup", access: "not_published" };
+    if (!creator) return { status: "failed", reason: "studio_error" };
+    // A turn spent waiting behind another upload of these bytes can end in a different place. The
+    // owner just read has to be the pinned place's, since the asset will be theirs for good.
+    if ((await placeIn(callTool, studioId).catch(() => null)) !== place) {
+      return { status: "failed", reason: "place_changed" };
+    }
+    const owner = "groupId" in creator ? `group:${creator.groupId}` : `user:${creator.userId}`;
+    const sent = await readSentModel(deps.sentFile, file.hash, owner);
+    if (sent) return { sent };
+    // Sent before, but for another owner's game, which can't use it. Uploading again is a new
+    // permanent asset, so it takes its own click.
+    if (deps.addOnly) return { status: "failed", reason: "other_owner" };
+    onStep?.("uploading");
+    // Studio reads the file itself, and the model's own file can change before it does. So it gets a
+    // copy of the checked bytes, in the same folder because that's the one Studio approved. Each
+    // upload gets its own, since two links can have the same bytes.
+    const snapshot = join(file.folder, `.bloxbot-upload-${randomUUID()}.${file.kind}`);
+    let operation: any;
+    try {
+      await writeFile(snapshot, file.bytes).catch(() => {
+        throw new OpenCloudError("folder_unwritable");
+      });
+      operation = await callOpenCloud(callTool, studioId, {
+          method: "POST",
+        endpoint: "/assets/v1/assets",
+        body: JSON.stringify({
+          request: {
+            assetType: "Model",
+            displayName: file.name,
+            description: "Made with BloxBot",
+            creationContext: { creator },
+          },
+        }),
+        files: [{ name: "fileContent", path: snapshot }],
+        scopes: UPLOAD_SCOPES,
+      });
+    } finally {
+      await rm(snapshot, { force: true }).catch(() => {});
+    }
+    // Roblox has it from here on, so whatever it said is kept before asking anything more. A failure
+    // after this resumes rather than sending it again.
+    const operationId: string | undefined =
+      operation?.operationId ?? (String(operation?.path ?? "").split("/").at(-1) || undefined);
+    const assetId = operation?.done && !operation.error ? operation.response?.assetId : undefined;
+    if (!operationId && !assetId) {
+      throw new OpenCloudError(operation?.done ? "file_rejected" : "studio_error");
+    }
+    const record: SentModel = assetId
+      ? { assetId: String(assetId), moderation: moderationOf(operation.response), owner }
+      : { assetId: null, moderation: "checking", operationId, owner };
+    await recordSentModel(deps.sentFile, file.hash, record);
+    onStep?.("checking");
+    return { sent: record, first: operation };
   };
 
   try {
-    let sent = await readSentModel(deps.sentFile, file.hash);
-    if (!sent) {
-      const creator = await readGameOwner(callTool, studioId).catch(() => null);
-      if (creator === "unpublished") return { status: "needs_setup", access: "not_published" };
-      if (!creator) return { status: "failed", reason: "studio_error" };
-      onStep?.("uploading");
-      // Studio reads the file itself, and the model's own file can change before it does. So it gets a
-      // copy of the checked bytes, in the same folder because that's the one Studio approved. Each
-      // upload gets its own, since two links can have the same bytes.
-      const snapshot = join(file.folder, `.bloxbot-upload-${randomUUID()}.${file.kind}`);
-      let operation: any;
-      try {
-        await writeFile(snapshot, file.bytes);
-        operation = await callOpenCloud(callTool, studioId, {
-          method: "POST",
-          endpoint: "/assets/v1/assets",
-          body: JSON.stringify({
-            request: {
-              assetType: "Model",
-              displayName: file.name,
-              description: "Made with BloxBot",
-              creationContext: { creator },
-            },
-          }),
-          files: [{ name: "fileContent", path: snapshot }],
-          scopes: UPLOAD_SCOPES,
-        });
-      } finally {
-        await rm(snapshot, { force: true }).catch(() => {});
-      }
-      // Roblox has it from here on, so a failure after this has to resume rather than send it again.
-      const operationId: string | undefined =
-        operation?.operationId ?? (String(operation?.path ?? "").split("/").at(-1) || undefined);
-      if (operationId) {
-        await recordSentModel(deps.sentFile, file.hash, {
-          assetId: null,
-          moderation: "checking",
-          operationId,
-        });
-      }
+    // One upload of these bytes at a time until Roblox's answer is kept, so two links or two Studios
+    // can't send the same file at once. The second finds the first one's record instead.
+    const found = await oneAtATime(file.hash, findOrSend);
+    if ("status" in found) return found;
+    let { sent } = found;
+    if (!sent.assetId && sent.operationId) {
       onStep?.("checking");
-      sent = await finishOperation(operation, operationId);
-    } else if (!sent.assetId && sent.operationId) {
-      onStep?.("checking");
-      sent = await finishOperation({ done: false }, sent.operationId);
-    } else if (sent.assetId && sent.moderation === "checking") {
+      const finished = await finishOperation(found.first ?? { done: false }, sent.operationId);
+      sent = { ...finished, owner: sent.owner };
+      await recordSentModel(deps.sentFile, file.hash, sent);
+    }
+    if (sent.assetId && sent.moderation === "checking") {
       onStep?.("checking");
       sent = { ...sent, moderation: await moderationOfAsset(sent.assetId) };
     }
@@ -499,7 +624,14 @@ export async function sendModelToPlace(url: string, deps: SendModelDeps): Promis
     await recordSentModel(deps.sentFile, file.hash, sent);
     if (sent.moderation === "rejected") return { status: "rejected", assetId: sent.assetId };
     if (sent.moderation === "checking") return { status: "checking", assetId: sent.assetId };
-    return await addToPlace(sent.assetId);
+    // Two cards for the same bytes could otherwise both find nothing in the place and both add it,
+    // so an add already running for this asset and Studio is the answer for both.
+    const key = `${studioId}\n${sent.assetId}`;
+    const running = adding.get(key);
+    if (running) return await running;
+    const added = addToPlace(sent.assetId).finally(() => adding.delete(key));
+    adding.set(key, added);
+    return await added;
   } catch (error) {
     if (!(error instanceof OpenCloudError)) throw error;
     if (error.reason === "reopen_studio" || error.reason === "needs_permission") {

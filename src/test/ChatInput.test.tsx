@@ -611,6 +611,28 @@ describe("ChatInput", () => {
     expect(savedDrafts.has("s2")).toBe(false);
   });
 
+  it("falls back to a draft's words when its editor state can't be read", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    savedDrafts.set("s2", {
+      text: "Still worth keeping",
+      attachments: [],
+      editorState: {
+        root: { type: "root", children: [{ type: "not-a-node", version: 1 }] },
+      } as never,
+    });
+    const client = createClient();
+    const qc = createQueryClient();
+    const view = render(<TestChatInput client={client} queryClient={qc} sessionId="s1" />);
+    const textarea = await screen.findByRole("textbox", { name: "Message" });
+
+    await act(async () => {
+      view.rerender(<TestChatInput client={client} queryClient={qc} sessionId="s2" />);
+    });
+
+    expect(textarea).toHaveTextContent("Still worth keeping");
+    error.mockRestore();
+  });
+
   it("keeps drafts through a reload or restart", async () => {
     const client = createClient();
     render(<TestChatInput client={client} queryClient={createQueryClient()} sessionId="s1" />);
@@ -635,9 +657,16 @@ describe("ChatInput", () => {
         ["s2", { text: 5 }],
         "s3",
         ["s4", { ...draft, attachments: [{}] }],
+        ["s5", { ...draft, editorState: { root: {} } }],
+        ["s6", { ...draft, editorState: { root: { type: "paragraph", children: [] } } }],
       ]),
     );
-    expect(takeKeptDrafts()).toEqual([["s1", draft]]);
+    // A bad editor state costs only the formatting: the text comes back.
+    expect(takeKeptDrafts()).toEqual([
+      ["s1", draft],
+      ["s5", draft],
+      ["s6", draft],
+    ]);
 
     for (const stored of ["{}", "null", "7", '"text"']) {
       localStorage.setItem("bloxbot-kept-drafts", stored);

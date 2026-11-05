@@ -44,6 +44,11 @@ interface StudioTargetContextValue {
   selected: StudioTarget | null;
   promptReference: string | null;
   status: StudioTargetStatus;
+  /**
+   * The latest check for open Studios failed. Status stays ready while earlier ones are still
+   * listed, but whether a place is open is then unknown.
+   */
+  discoveryFailed: boolean;
   selectingKey: string | null;
   error: string | null;
   /** The place this chat was working in, when it isn't open any more. */
@@ -141,6 +146,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const [targets, setTargets] = useState<readonly StudioTarget[]>([]);
   const [selected, setSelected] = useState<StudioTarget | null>(null);
   const [status, setStatus] = useState<StudioTargetStatus>("loading");
+  const [discoveryFailed, setDiscoveryFailed] = useState(false);
   const [selectingKey, setSelectingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const operationRef = useRef(0);
@@ -155,7 +161,8 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
   const chatsWithoutStudioRef = useRef<ReadonlySet<string>>(new Set());
   const [withoutStudio, setWithoutStudio] = useState(false);
   const studioUseRef = useRef<{ session: string; used: boolean } | null>(null);
-  const unknownPlaceRef = useRef<string | null>(null);
+  // By chat, so another chat choosing a Studio doesn't let this one take whichever is open.
+  const unknownPlacesRef = useRef<ReadonlySet<string>>(new Set());
   // Saved places live in a ref, so forgetting one needs a nudge to show.
   const [, setForgotten] = useState(0);
   const [unknownPlace, setUnknownPlace] = useState(false);
@@ -207,7 +214,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         return;
       }
       const remembered = activeSessionId ? targetsBySessionRef.current[activeSessionId] : undefined;
-      const askWhich = activeSessionId !== null && unknownPlaceRef.current === activeSessionId;
+      const askWhich = activeSessionId !== null && unknownPlacesRef.current.has(activeSessionId);
       const placeMatches = remembered?.placeId
         ? result.targets.filter((target) => target.placeId === remembered.placeId)
         : [];
@@ -320,6 +327,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       const operation = ++operationRef.current;
       try {
         await applyDiscovery(operation);
+        if (operation === operationRef.current) setDiscoveryFailed(false);
         if (operation === operationRef.current && errorSourceRef.current === "discovery") {
           errorSourceRef.current = null;
           setError(null);
@@ -328,6 +336,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         const message = await discoveryErrorMessage();
         if (operation === operationRef.current) {
           setStatus(targetsRef.current.length > 0 ? "ready" : "error");
+          setDiscoveryFailed(true);
           setSelectingKey(null);
           const alreadyReported = errorSourceRef.current === "discovery";
           errorSourceRef.current = "discovery";
@@ -366,7 +375,13 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
         if (operation !== operationRef.current) return false;
         verifiedKeyRef.current = result.selected.key;
         await setChatWithoutStudio(false);
-        unknownPlaceRef.current = null;
+        // Saving that can take long enough for another chat to have opened, with its own Studio.
+        if (operation !== operationRef.current) return false;
+        if (activeSessionId) {
+          const unknown = new Set(unknownPlacesRef.current);
+          unknown.delete(activeSessionId);
+          unknownPlacesRef.current = unknown;
+        }
         setUnknownPlace(false);
         setStudioChosen(true);
         setStudioChoices((count) => count + 1);
@@ -495,7 +510,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
           // would put it right back.
           operationRef.current += 1;
           discoveryRef.current = null;
-          unknownPlaceRef.current = activeSessionId;
+          unknownPlacesRef.current = new Set(unknownPlacesRef.current).add(activeSessionId);
           selectedRef.current = null;
           setSelected(null);
           setUnknownPlace(true);
@@ -511,7 +526,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       if (usedTarget) {
         void rememberTarget(usedTarget);
       } else {
-        unknownPlaceRef.current = activeSessionId;
+        unknownPlacesRef.current = new Set(unknownPlacesRef.current).add(activeSessionId);
         setUnknownPlace(true);
       }
     },
@@ -549,7 +564,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       setWithoutStudio(chatsWithoutStudioRef.current.has(activeSessionId));
       // A failed choice belongs to the chat it happened in.
       if (errorSourceRef.current === "select") clearError();
-      setUnknownPlace(unknownPlaceRef.current === activeSessionId);
+      setUnknownPlace(unknownPlacesRef.current.has(activeSessionId));
       setStudioChosen(chosenChatsRef.current.has(activeSessionId));
       // A remembered id can belong to a Studio that has since closed, and discovery will tell.
       const remembered = targetsBySessionRef.current[activeSessionId];
@@ -576,15 +591,18 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       ? status === "loading" && !withoutStudio && !findingForAWhile
         ? "Finding Studios."
         : null
-      : missing && twins > 1
-        ? `${twins} places named ${placeName(missing.label)} are open. Choose one, or work without Studio.`
-        : missing && nameMatch
-          ? `Is the open ${placeName(missing.label)} this chat's place? Choose it, or work without Studio.`
-          : missing
-            ? `${placeName(missing.label)} isn't open. Reopen it, choose another, or work without Studio.`
-            : unknownPlace && !selected
-              ? "Choose which Studio this chat worked in, or work without Studio."
-              : null;
+      : // What's listed is from before the check failed, so it can't say the place is closed.
+        missing && discoveryFailed
+        ? `Couldn't check if ${placeName(missing.label)} is open. Refresh, or work without Studio.`
+        : missing && twins > 1
+          ? `${twins} places named ${placeName(missing.label)} are open. Choose one, or work without Studio.`
+          : missing && nameMatch
+            ? `Is the open ${placeName(missing.label)} this chat's place? Choose it, or work without Studio.`
+            : missing
+              ? `${placeName(missing.label)} isn't open. Reopen it, choose another, or work without Studio.`
+              : unknownPlace && !selected
+                ? "Choose which Studio this chat worked in, or work without Studio."
+                : null;
 
   // Finding Studios is normally a moment. A stuck helper mustn't keep every chat from sending.
   useEffect(() => {
@@ -626,6 +644,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       selected,
       promptReference,
       status,
+      discoveryFailed,
       selectingKey,
       error,
       missing,
@@ -649,6 +668,7 @@ export function StudioTargetProvider({ children }: { children: ReactNode }) {
       selected,
       promptReference,
       status,
+      discoveryFailed,
       selectingKey,
       error,
       missing,

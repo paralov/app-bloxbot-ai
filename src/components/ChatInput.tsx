@@ -288,6 +288,16 @@ function isAttachment(value: unknown): value is ImageAttachment {
   );
 }
 
+/** Only the outline Lexical needs to start reading a saved state. */
+function isEditorState(value: unknown): value is SerializedEditorState {
+  return (
+    isRecord(value) &&
+    isRecord(value.root) &&
+    value.root.type === "root" &&
+    Array.isArray(value.root.children)
+  );
+}
+
 // Storage can hold anything, and a bad entry mustn't stop the app from opening.
 function isKeptDraft(value: unknown): value is [string, Draft] {
   if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string") return false;
@@ -296,10 +306,15 @@ function isKeptDraft(value: unknown): value is [string, Draft] {
     isRecord(draft) &&
     typeof draft.text === "string" &&
     Array.isArray(draft.attachments) &&
-    draft.attachments.every(isAttachment) &&
-    (draft.editorState === undefined ||
-      (isRecord(draft.editorState) && isRecord(draft.editorState.root)))
+    draft.attachments.every(isAttachment)
   );
+}
+
+/** A draft's text is worth keeping even when its editor state isn't, which then restores as text. */
+function keptDraft([id, draft]: [string, Draft]): [string, Draft] {
+  if (draft.editorState === undefined || isEditorState(draft.editorState)) return [id, draft];
+  const { editorState: _unreadable, ...rest } = draft;
+  return [id, rest];
 }
 
 /** Reconnecting reloads the page or restarts the app, neither of which should take a draft with it. */
@@ -308,7 +323,7 @@ export function takeKeptDrafts(): [string, Draft][] {
     const stored = localStorage.getItem(KEPT_DRAFTS_KEY);
     localStorage.removeItem(KEPT_DRAFTS_KEY);
     const parsed: unknown = stored ? JSON.parse(stored) : [];
-    return Array.isArray(parsed) ? parsed.filter(isKeptDraft) : [];
+    return Array.isArray(parsed) ? parsed.filter(isKeptDraft).map(keptDraft) : [];
   } catch {
     return [];
   }
@@ -425,8 +440,17 @@ function ChatInput({
     editorStateRef.current = state;
   }, []);
   const restoreDraft = useCallback((draft: Draft) => {
-    if (draft.editorState) promptEditorRef.current?.restore(draft.editorState);
-    else if (draft.text) promptEditorRef.current?.insertText(draft.text);
+    let restored = false;
+    if (draft.editorState) {
+      // A kept state can still hold nodes Lexical won't read, and the words are worth keeping.
+      try {
+        promptEditorRef.current?.restore(draft.editorState);
+        restored = true;
+      } catch (error) {
+        console.error("[chat-input] couldn't restore a draft", error);
+      }
+    }
+    if (!restored && draft.text) promptEditorRef.current?.insertText(draft.text);
     setAttachments(draft.attachments);
   }, []);
   const draftRef = useRef({ text, attachments, sessionId: activeSessionId });

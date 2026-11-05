@@ -75,14 +75,14 @@ export default function ModelPreview({
   /** Says which data is on screen, since Upload sends that file and nothing older. */
   onDrawn: (data: Uint8Array) => void;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const holderRef = useRef<HTMLDivElement>(null);
   const turnRef = useRef<(yaw: number, pitch: number) => void>(() => {});
   const draggingRef = useRef(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const holder = holderRef.current;
+    if (!holder) return;
     // A new file isn't the one on screen until it's drawn.
     setReady(false);
     let cancelled = false;
@@ -94,9 +94,15 @@ export default function ModelPreview({
       try {
         model = await parseModel(data, kind, () => draw());
         if (cancelled) return;
-        renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true });
+        // A canvas can't get another context once its own is released, so each draw has a new one.
+        renderer = new WebGLRenderer({ alpha: true, antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(WIDTH, HEIGHT, false);
+        renderer.setSize(WIDTH, HEIGHT);
+        renderer.domElement.style.display = "block";
+        renderer.domElement.addEventListener("webglcontextlost", () => {
+          if (!cancelled) onFailed();
+        });
+        holder.append(renderer.domElement);
 
         const box = new Box3().setFromObject(model);
         const size = box.getSize(new Vector3()).length() || 1;
@@ -141,21 +147,22 @@ export default function ModelPreview({
       draw = () => {};
       turnRef.current = () => {};
       if (model) disposeModel(model);
-      // Otherwise the last frame stays on the canvas while the next file is read.
-      renderer?.clear();
       renderer?.dispose();
+      // Chromium allows only a few WebGL contexts at once, and disposing alone keeps this one until
+      // the canvas is collected. The chat unmounts cards scrolled far away, which lets theirs go.
+      renderer?.forceContextLoss();
+      // Otherwise the last frame stays on screen while the next file is read.
+      renderer?.domElement.remove();
     };
   }, [data, kind, onFailed, onDrawn]);
 
   return (
-    <canvas
-      ref={canvasRef}
+    <div
+      ref={holderRef}
       tabIndex={ready ? 0 : -1}
       role="img"
       aria-label={`Preview of ${name}. Drag or use the arrow keys to turn it.`}
-      width={WIDTH}
-      height={HEIGHT}
-      className="block h-[124px] w-[148px] cursor-grab touch-none rounded-md bg-muted active:cursor-grabbing"
+      className="h-[124px] w-[148px] cursor-grab touch-none overflow-hidden rounded-md bg-muted active:cursor-grabbing"
       onPointerDown={(event) => {
         draggingRef.current = true;
         event.currentTarget.setPointerCapture(event.pointerId);

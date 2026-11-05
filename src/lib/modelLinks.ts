@@ -1,4 +1,5 @@
-const MODEL_LINK = /file:\/\/[^\s)\]>"'`]+\.(?:fbx|glb)\b/gi;
+// A path can hold balanced brackets, like Crate (1), but a link's closing bracket isn't part of it.
+const MODEL_LINK = /file:\/\/(?:[^\s()\]>"'`]|\([^\s()\]>"'`]*\))+\.(?:fbx|glb)\b/gi;
 /** A fenced block, to its closing fence or the end of the reply, or a run of inline code. */
 const CODE =
   /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[`~]*[ \t]*$|(?![\s\S]))|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\2(?!`)/gm;

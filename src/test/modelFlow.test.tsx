@@ -18,8 +18,8 @@ import type {
   UploadAccessState,
 } from "@/types/desktop";
 
-/** Draws as soon as it's shown, unless a test holds it back to draw by hand. */
-const preview = vi.hoisted(() => ({ auto: true, draw: () => {} }));
+/** Draws as soon as it's shown, unless a test holds it back to draw by hand or makes it fail. */
+const preview = vi.hoisted(() => ({ auto: true, fail: false, draw: () => {} }));
 vi.mock("@/components/ModelPreview", async () => {
   const { useEffect } = await import("react");
   return {
@@ -27,15 +27,18 @@ vi.mock("@/components/ModelPreview", async () => {
       name,
       data,
       onDrawn,
+      onFailed,
     }: {
       name: string;
       data: Uint8Array;
       onDrawn: (data: Uint8Array) => void;
+      onFailed: () => void;
     }) {
       useEffect(() => {
         preview.draw = () => onDrawn?.(data);
-        if (preview.auto) onDrawn?.(data);
-      }, [data, onDrawn]);
+        if (preview.fail) onFailed();
+        else if (preview.auto) onDrawn?.(data);
+      }, [data, onDrawn, onFailed]);
       return <div>Preview of {name}</div>;
     },
   };
@@ -100,6 +103,7 @@ beforeEach(() => {
   studio.selected = { key: "studio-1" };
   studio.targets = [];
   preview.auto = true;
+  preview.fail = false;
   sendMessage.mockClear();
 });
 afterEach(() => {
@@ -134,6 +138,14 @@ describe("finding models in a reply", () => {
         ].join("\n"),
       ),
     ).toEqual(["file:///a/Crate.fbx", "file:///a/Bare.glb"]);
+  });
+
+  it("finds paths with brackets in them, without taking a link's closing bracket", () => {
+    expect(
+      modelLinksIn(
+        "See [crate](file:///m/Crate%20(1).fbx) and file:///m/Box%20(2).glb (or file:///m/C.fbx).",
+      ),
+    ).toEqual(["file:///m/Crate%20(1).fbx", "file:///m/Box%20(2).glb", "file:///m/C.fbx"]);
   });
 });
 
@@ -184,6 +196,19 @@ describe("before uploads can run", () => {
     expect(screen.getByRole("button", { name: "Copy path" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Show folder" }));
     expect(open).toHaveBeenCalledWith(`file://${FOLDER}`);
+  });
+
+  it("asks for changes to be allowed in a folder BloxBot can't save in, instead of approval", async () => {
+    setUp("folder_unwritable");
+    vi.spyOn(desktop, "getUploadAccess").mockResolvedValue(
+      accessOf("folder_unwritable", true, true),
+    );
+    render(wrap(<ModelCard url={URL_A} />));
+    expect(await screen.findByText(FOLDER)).toBeTruthy();
+    const current = document.querySelector('[aria-current="step"]')?.textContent;
+    expect(current).toContain("can't save in this folder");
+    expect(current).not.toContain("Upload folders");
+    expect(screen.queryByRole("button", { name: "Upload to Roblox" })).toBeNull();
   });
 
   it("moves on by itself, and says so wherever someone is", async () => {
@@ -349,7 +374,12 @@ describe("the upload click", () => {
     render(wrap(<ModelCard url={URL_A} />));
     fireEvent.click(await uploadButton());
     await waitFor(() =>
-      expect(desktop.uploadModelToPlace).toHaveBeenCalledWith(URL_A, "studio-1", "previewed-hash"),
+      expect(desktop.uploadModelToPlace).toHaveBeenCalledWith(
+        URL_A,
+        "studio-1",
+        "previewed-hash",
+        false,
+      ),
     );
   };
 
@@ -380,7 +410,31 @@ describe("the upload click", () => {
 
     act(() => preview.draw());
     fireEvent.click(await uploadButton());
-    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "new-hash"));
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "new-hash", false));
+  });
+
+  it("won't upload a file it couldn't draw until someone says they checked it", async () => {
+    preview.fail = true;
+    setUp("ready");
+    const open = vi.spyOn(desktop, "openUrl").mockResolvedValue();
+    const upload = vi
+      .spyOn(desktop, "uploadModelToPlace")
+      .mockResolvedValue({ status: "rejected", assetId: "9" });
+    render(wrap(<ModelCard url={URL_A} />));
+    expect(await screen.findByText(/Couldn't draw a preview/)).toBeTruthy();
+    const button = screen.getByRole("button", { name: "Upload to Roblox" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(upload).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show file" }));
+    expect(open).toHaveBeenCalledWith(URL_A);
+    fireEvent.click(screen.getByRole("checkbox", { name: "I opened it and checked it" }));
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", "previewed-hash", false),
+    );
   });
 
   it("does nothing until it's pressed, and says uploads are permanent", async () => {
@@ -494,6 +548,38 @@ describe("the upload click", () => {
     render(wrap(<ModelCard url={URL_A} />));
     expect(await screen.findByRole("button", { name: "Add it to your place" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Upload to Roblox" })).toBeNull();
+  });
+
+  it("only adds from a card that's already on Roblox, and asks before a new upload", async () => {
+    setUp("ready", { ...file, sent: { assetId: "5", moderation: "approved" } });
+    const upload = vi
+      .spyOn(desktop, "uploadModelToPlace")
+      .mockResolvedValueOnce({ status: "failed", reason: "other_owner" })
+      .mockResolvedValueOnce({ status: "added", assetId: "6", path: "game.Workspace.Crate" });
+    render(wrap(<ModelCard url={URL_A} />));
+    const add = await screen.findByRole("button", { name: "Add it to your place" });
+    await waitFor(() => expect(add).toBeEnabled());
+    fireEvent.click(add);
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(URL_A, "studio-1", file.hash, true));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Upload it for this game" }));
+    await waitFor(() =>
+      expect(upload).toHaveBeenLastCalledWith(URL_A, "studio-1", file.hash, false),
+    );
+  });
+
+  it("keeps a retry after a failed add to adding only", async () => {
+    setUp("ready", { ...file, sent: { assetId: "5", moderation: "approved" } });
+    const upload = vi
+      .spyOn(desktop, "uploadModelToPlace")
+      .mockResolvedValue({ status: "failed", reason: "studio_error" });
+    render(wrap(<ModelCard url={URL_A} />));
+    const add = await screen.findByRole("button", { name: "Add it to your place" });
+    await waitFor(() => expect(add).toBeEnabled());
+    fireEvent.click(add);
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+    expect(upload).toHaveBeenLastCalledWith(URL_A, "studio-1", file.hash, true);
   });
 });
 

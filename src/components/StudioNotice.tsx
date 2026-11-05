@@ -59,9 +59,12 @@ export default function StudioNotice({
   }, [missing, selected]);
 
   const place = missing ? placeName(missing.label) : null;
+  // Studios listed before a failed check can't say the place is closed.
+  const unreachable =
+    place !== null && (status === "error" || (studioTarget?.discoveryFailed ?? false));
   const message = hidden
     ? null
-    : place && status === "error"
+    : unreachable
       ? "Couldn't reach Studio."
       : place && twins > 1
         ? `${twins} places named ${place} are open.`
@@ -129,12 +132,12 @@ export default function StudioNotice({
           <span aria-hidden="true" className="text-center">
             {message}
           </span>
-          {nameMatch ? (
+          {nameMatch && !unreachable ? (
             <button type="button" onClick={useMatch} className={LINK}>
               Use it
             </button>
           ) : null}
-          {nameMatch && openCount === 1 ? null : canChoose ? (
+          {nameMatch && !unreachable && openCount === 1 ? null : canChoose ? (
             <button type="button" onClick={onOpenPicker} className={LINK}>
               {nameMatch || (place && twins === 0) ? "Choose another" : "Choose one"}
             </button>
@@ -146,7 +149,7 @@ export default function StudioNotice({
           <button type="button" onClick={workWithoutStudio} className={LINK}>
             Work without Studio
           </button>
-          {studioTarget?.error && status !== "error" ? (
+          {studioTarget?.error && status !== "error" && !unreachable ? (
             <p role="alert" className="w-full text-center text-destructive">
               {studioTarget.error}
             </p>

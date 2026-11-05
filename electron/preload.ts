@@ -38,8 +38,8 @@ const api: DesktopApi = {
   getUploadAccess: (studioKey, modelUrl) =>
     ipcRenderer.invoke(channels.getUploadAccess, studioKey, modelUrl),
   readModelFile: (url) => ipcRenderer.invoke(channels.readModelFile, url),
-  uploadModelToPlace: (url, studioKey, hash) =>
-    ipcRenderer.invoke(channels.uploadModelToPlace, url, studioKey, hash),
+  uploadModelToPlace: (url, studioKey, hash, addOnly) =>
+    ipcRenderer.invoke(channels.uploadModelToPlace, url, studioKey, hash, addOnly === true),
   onModelUploadStep: (listener) => {
     const handler = (_event: unknown, url: string, step: ModelUploadStep) => listener(url, step);
     ipcRenderer.on(channels.modelUploadStep, handler);

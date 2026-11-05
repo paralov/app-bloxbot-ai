@@ -8,7 +8,12 @@ import { analyticsProperties } from "@/lib/analytics";
 import { desktop } from "@/lib/desktop";
 import { qk } from "@/lib/queryKeys";
 import { useStudioTargetOptional } from "@/providers/StudioTargetProvider";
-import type { ModelUploadFailure, ModelUploadResult, ModelUploadStep } from "@/types/desktop";
+import type {
+  ModelUploadFailure,
+  ModelUploadResult,
+  ModelUploadStep,
+  NotAddedReason,
+} from "@/types/desktop";
 
 const ModelPreview = lazy(() => import("@/components/ModelPreview"));
 
@@ -28,7 +33,19 @@ const FAILURES: Record<ModelUploadFailure, string> = {
   refused: "Roblox refused this from Studio. You can still import it yourself below.",
   rate_limited: "Roblox asked BloxBot to slow down. Try again in a minute.",
   file_rejected: "Roblox refused the file. Ask for it to be exported again.",
+  folder_unwritable:
+    "BloxBot can't save in this file's folder, so nothing was uploaded. Allow changes to the folder, then try again.",
+  other_owner:
+    "This game has a different owner, and its upload isn't on Roblox for them yet, so nothing was added. Uploading it for this game makes a new asset.",
+  place_changed:
+    "Your place changed while this waited, so nothing was uploaded. Open the place you want it in, then try again.",
   studio_error: "Studio didn't answer. Make sure this place is open, then try again.",
+};
+
+const NOT_ADDED: Record<NotAddedReason, string> = {
+  place_changed:
+    "Your place changed, so it wasn't added. Add it from here when that place is open again.",
+  playtest: "Studio is playtesting, so it wasn't added. Stop the playtest, then add it again.",
 };
 
 const secondary = "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-accent";
@@ -64,6 +81,8 @@ export function ModelCard({ url }: { url: string }) {
   const [previewFailed, setPreviewFailed] = useState(false);
   const failPreview = useCallback(() => setPreviewFailed(true), []);
   const [drawn, setDrawn] = useState<Uint8Array | null>(null);
+  // Without a preview, someone has to say they looked at the file. A new version needs another look.
+  const [checkedByHand, setCheckedByHand] = useState<Uint8Array | null>(null);
   // The fix has to reach the place this went to, even if someone has since chosen another.
   const uploadedTo = useRef<string | null>(null);
 
@@ -97,9 +116,13 @@ export function ModelCard({ url }: { url: string }) {
   const refreshAccess = () =>
     queryClient.invalidateQueries({ queryKey: qk.uploadAccess(selected, url) });
 
-  const upload = useMutation<ModelUploadResult, Error, string>({
-    mutationFn: (key) => desktop.uploadModelToPlace(url, key, file?.hash ?? ""),
-    onMutate: () => {
+  // So trying again after an add that failed is still only an add.
+  const lastAddOnly = useRef(false);
+  const upload = useMutation<ModelUploadResult, Error, { key: string; addOnly: boolean }>({
+    mutationFn: ({ key, addOnly }) =>
+      desktop.uploadModelToPlace(url, key, file?.hash ?? "", addOnly),
+    onMutate: ({ addOnly }) => {
+      lastAddOnly.current = addOnly;
       uploadedTo.current = studio?.promptReference ?? null;
       setResult(null);
       setStep("uploading");
@@ -124,33 +147,60 @@ export function ModelCard({ url }: { url: string }) {
   if (!file) return null;
 
   // Upload sends this file's hash, so it waits until this same file is the one on screen.
-  const previewed = previewFailed || drawn === file.data;
-  const start = studioKey && previewed ? () => upload.mutate(studioKey) : undefined;
+  const previewed = drawn === file.data || (previewFailed && checkedByHand === file.data);
+  const startWith = (addOnly: boolean) =>
+    studioKey && previewed ? () => upload.mutate({ key: studioKey, addOnly }) : undefined;
   const sent = result ? null : file.sent;
   const rejected = result?.status === "rejected" || sent?.moderation === "rejected";
   const assetId = result && "assetId" in result ? result.assetId : sent?.assetId;
 
   // A sent model's card can come back in a chat with no place chosen, where there's nowhere to send it.
-  const uploadButton = (label: string) => (
-    <>
-      <button
-        type="button"
-        className={`${primary} disabled:opacity-50`}
-        disabled={!start}
-        onClick={start}
-      >
-        {label}
-      </button>
-      {/* Waiting for the preview needs no explanation; a missing place does. */}
-      {studioKey ? null : (
-        <span className="self-center text-xs text-muted-foreground">
-          {studio?.targets.length
-            ? "Choose your place in the Studio picker first."
-            : "Open your place in Studio first."}
-        </span>
-      )}
-    </>
-  );
+  // A model already on Roblox only gets added, so its buttons never upload by themselves.
+  const uploadButton = (
+    label: string,
+    addOnly = assetId !== undefined || (result?.status === "failed" && lastAddOnly.current),
+  ) => {
+    const start = startWith(addOnly);
+    return (
+      <>
+        {previewFailed ? (
+          <div className="flex basis-full flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              className={secondary}
+              onClick={() => desktop.openUrl(url).catch(() => {})}
+            >
+              Show file
+            </button>
+            <label className="flex items-center gap-1.5 text-xs">
+              <input
+                type="checkbox"
+                checked={checkedByHand === file.data}
+                onChange={(event) => setCheckedByHand(event.target.checked ? file.data : null)}
+              />
+              I opened it and checked it
+            </label>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className={`${primary} disabled:opacity-50`}
+          disabled={!start}
+          onClick={start}
+        >
+          {label}
+        </button>
+        {/* Waiting for the preview needs no explanation; a missing place does. */}
+        {studioKey ? null : (
+          <span className="self-center text-xs text-muted-foreground">
+            {studio?.targets.length
+              ? "Choose your place in the Studio picker first."
+              : "Open your place in Studio first."}
+          </span>
+        )}
+      </>
+    );
+  };
 
   const body = () => {
     if (upload.isPending) {
@@ -235,6 +285,8 @@ export function ModelCard({ url }: { url: string }) {
               <button type="button" className={primary} onClick={() => setResult(null)}>
                 Check the new version
               </button>
+            ) : result.reason === "other_owner" ? (
+              uploadButton("Upload it for this game", false)
             ) : result.reason !== "no_file" && result.reason !== "refused" ? (
               uploadButton("Try again")
             ) : null}
@@ -257,9 +309,11 @@ export function ModelCard({ url }: { url: string }) {
       return (
         <>
           <p className="text-xs leading-relaxed">
-            {result
-              ? "Roblox approved it, but Studio couldn't add it."
-              : "Already on Roblox, so there's nothing to upload."}{" "}
+            {result?.status === "not_added" && result.reason
+              ? NOT_ADDED[result.reason]
+              : result
+                ? "Roblox approved it, but Studio couldn't add it."
+                : "Already on Roblox, so there's nothing to upload."}{" "}
             Asset {assetId}.
           </p>
           <div className="flex flex-wrap gap-1.5">{uploadButton("Add it to your place")}</div>

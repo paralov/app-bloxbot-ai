@@ -21,6 +21,9 @@ const FAILURES: Record<BlenderFailureReason, string> = {
   other: "Blender couldn't be set up. Try again, or email support@bloxbot.ai if it keeps failing.",
 };
 
+/** What the main process says when a file it had to delete was still in use. */
+const DELETE_LOCKED = "Couldn't remove Blender (locked)";
+
 function failureReason(error: Error): BlenderFailureReason {
   const reason = /\(reason: ([a-z_]+)\)/.exec(error.message)?.[1];
   return reason && reason in FAILURES ? (reason as BlenderFailureReason) : "other";
@@ -106,11 +109,17 @@ function BlenderRow() {
   useEffect(() => desktop.onBlenderSetupProgress(setProgress), []);
   const refresh = () => queryClient.invalidateQueries({ queryKey: qk.blenderTools });
 
-  const setup = useMutation<void, Error>({
+  /** Resolves to whether OpenCode reloaded, since Blender is set up either way. */
+  const setup = useMutation<boolean, Error>({
     mutationFn: async () => {
       await desktop.installBlenderTools();
       // A chat already running keeps going, and its next message can reach Blender.
-      await client?.instance.dispose({}, { throwOnError: true });
+      return (
+        client?.instance.dispose({}, { throwOnError: true }).then(
+          () => true,
+          () => false,
+        ) ?? true
+      );
     },
     onMutate: () => {
       stoppedRef.current = false;
@@ -118,9 +127,12 @@ function BlenderRow() {
       setProgress(null);
       posthog.capture("blender_setup_started", analyticsProperties("three_d_tools"));
     },
-    onSuccess: () => {
+    onSuccess: (reloaded) => {
       posthog.capture("blender_setup_finished", analyticsProperties("three_d_tools"));
-      notify.success("Blender is ready");
+      notify.success(
+        "Blender is ready",
+        reloaded ? undefined : { description: "Restart BloxBot so the AI can use it." },
+      );
     },
     onError: (error) => {
       // Stopping isn't a failure, and what downloaded so far is still there for next time.
@@ -138,9 +150,11 @@ function BlenderRow() {
     mutationFn: async () => {
       try {
         await desktop.removeBlenderTools();
-      } catch {
+      } catch (error) {
         // Windows won't delete Blender's server while OpenCode is still running it. Blender is out
-        // of the config by now, so reloading stops the server.
+        // of the config by now, so reloading stops the server. Anything else, like Blender being
+        // open, a reload won't fix.
+        if (!(error instanceof Error && error.message.includes(DELETE_LOCKED))) throw error;
         await client?.instance.dispose({}, { throwOnError: true });
         await desktop.removeBlenderTools();
       }

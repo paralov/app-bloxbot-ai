@@ -1637,7 +1637,7 @@ describe("OpenCode downloads on a poor connection", () => {
           .mockResolvedValueOnce(new Response(archive)),
       );
       expect(running.version).toBe("2.2.2");
-      const saved = join(cacheDirectory, "partial", `${ASSET_NAME}.${digest}.partial`);
+      const saved = join(cacheDirectory, "partial", `${ASSET_NAME}.2.2.3.${digest}.partial`);
       await vi.waitFor(async () => {
         expect(await readdir(platformDirectory)).toContain("2.2.3");
         expect(existsSync(saved)).toBe(false);
@@ -1693,6 +1693,35 @@ describe("OpenCode downloads on a poor connection", () => {
 
       expect(result).toMatchObject({ _tag: "Right" });
       await expect(readFile(stale)).rejects.toThrow();
+    });
+
+    it("keeps what was saved for a newer release when the pinned one installs", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      const partialDirectory = join(cacheDirectory, "partial");
+      const newer = join(partialDirectory, `${ASSET_NAME}.2.2.9.${"e".repeat(64)}.partial`);
+      const older = join(partialDirectory, `${ASSET_NAME}.2.2.1.${"f".repeat(64)}.partial`);
+      await mkdir(partialDirectory, { recursive: true });
+      await writeFile(newer, "worth resuming");
+      await writeFile(older, "old bytes");
+      const fetch = vi.fn(async (url: string) =>
+        url.includes("api.github.com") ? rateLimited() : new Response(archive),
+      );
+
+      const { result } = await runInVirtualTime(
+        ensureOpenCodeBinary({
+          cacheDirectory,
+          platform: "darwin",
+          arch: "arm64",
+          fetch,
+          extractArchive: writeExecutable("opencode"),
+          pinnedRelease: pinnedFor("darwin-arm64", ASSET_NAME, archive),
+          delays: { verifyMs: 0 },
+        }),
+      );
+
+      expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.3" } });
+      await expect(readFile(newer, "utf8")).resolves.toBe("worth resuming");
+      await expect(readFile(older)).rejects.toThrow();
     });
 
     it("rejects a joined file that doesn't match its checksum", async () => {

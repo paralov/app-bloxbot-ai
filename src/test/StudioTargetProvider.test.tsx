@@ -874,6 +874,94 @@ describe("StudioTargetProvider", () => {
     }
   });
 
+  it("doesn't call a chat's place closed when the latest check failed", async () => {
+    vi.useFakeTimers();
+    try {
+      const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+      mocks.loadConfig.mockResolvedValue({
+        studioTargetsBySession: { chat: { ...lobby, key: "gone", label: "Dungeon", placeId: "1" } },
+      });
+      mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+      let context: ReturnType<typeof useStudioTargetOptional> = null;
+      function Spy() {
+        context = useStudioTargetOptional();
+        return null;
+      }
+      render(
+        <StudioTargetProvider>
+          <Seen keys={[]} />
+          <Spy />
+        </StudioTargetProvider>,
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(
+        screen.getByText(
+          "block: Dungeon isn't open. Reopen it, choose another, or work without Studio.",
+        ),
+      ).toBeInTheDocument();
+
+      mocks.discover.mockRejectedValue(new Error("offline"));
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      // Lobby is still listed from before, so status alone doesn't say the check failed.
+      expect(screen.getByText("status: ready")).toBeInTheDocument();
+      expect(context?.discoveryFailed).toBe(true);
+      expect(
+        screen.getByText(
+          "block: Couldn't check if Dungeon is open. Refresh, or work without Studio.",
+        ),
+      ).toBeInTheDocument();
+
+      mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(context?.discoveryFailed).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps asking which Studio a chat used after another chat chooses one", async () => {
+    const lobby = { key: "lobby", label: "Lobby", detail: null, placeId: "2" };
+    mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
+    mocks.discover.mockResolvedValue({ targets: [lobby], selectedKey: null });
+    mocks.select.mockResolvedValue({ selected: lobby, verified: true });
+    let context: ReturnType<typeof useStudioTargetOptional> = null;
+    function Spy() {
+      context = useStudioTargetOptional();
+      return null;
+    }
+    const tree = () => (
+      <StudioTargetProvider>
+        <Seen keys={[]} />
+        <Spy />
+      </StudioTargetProvider>
+    );
+    const { rerender } = render(tree());
+    expect(await screen.findByText("selected: lobby")).toBeInTheDocument();
+    await act(async () => context?.reportStudioUse({ started: true, usedStudio: true }));
+    expect(screen.getByText("selected: none")).toBeInTheDocument();
+
+    mocks.session.id = "next";
+    try {
+      rerender(tree());
+      expect(await screen.findByText("selected: lobby")).toBeInTheDocument();
+      await act(async () => context?.select(lobby));
+
+      mocks.session.id = "chat";
+      const checks = mocks.discover.mock.calls.length;
+      rerender(tree());
+      await waitFor(() => expect(mocks.discover).toHaveBeenCalledTimes(checks + 1));
+      await act(async () => {});
+
+      expect(screen.getByText("selected: none")).toBeInTheDocument();
+      expect(context?.unknownPlace).toBe(true);
+      expect(
+        screen.getByText("block: Choose which Studio this chat worked in, or work without Studio."),
+      ).toBeInTheDocument();
+    } finally {
+      mocks.session.id = "chat";
+    }
+  });
+
   it("tells a missing Studio apart from a check that didn't get through", async () => {
     mocks.loadConfig.mockResolvedValue({ studioTargetsBySession: {} });
     mocks.discover.mockRejectedValue(new Error("offline"));

@@ -135,6 +135,21 @@ describe("StudioNotice", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Couldn't reach Studio.");
   });
 
+  it("doesn't call a place closed from Studios listed before a failed check", () => {
+    const twin = { ...DUNGEON, key: "other" };
+    show({
+      targets: [twin, LOBBY],
+      missing: DUNGEON,
+      twins: 1,
+      nameMatch: twin,
+      discoveryFailed: true,
+      error: "Couldn't reach Roblox Studio. Refresh to try again.",
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't reach Studio.");
+    expect(screen.queryByRole("button", { name: "Use it" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("stays out of a chat that's under way without a Studio", () => {
     mocks.studioTarget = {
       status: "empty",

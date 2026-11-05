@@ -25,6 +25,8 @@ const SERVER_USERNAME = "opencode";
 export class OpenCodeError extends Data.TaggedError("OpenCodeError")<{
   message: string;
   cause?: unknown;
+  /** The binary itself failed: it couldn't start, or it exited. A timeout doesn't say that. */
+  couldNotRun?: boolean;
 }> {}
 
 interface OpenCodeProcess {
@@ -141,6 +143,7 @@ function exitedDuringStartup(
             `OpenCode exited during startup with code ${child.exitCode ?? child.signalCode}`,
             output,
           ),
+          couldNotRun: true,
         }),
       ),
     ),
@@ -225,7 +228,15 @@ function waitForSpawn(child: ChildProcessWithoutNullStreams): Effect.Effect<void
     const onError = (cause: Error) => {
       cleanup();
       const reason = (cause as NodeJS.ErrnoException).code ?? cause.message;
-      resume(Effect.fail(new OpenCodeError({ message: `Failed to spawn OpenCode: ${reason}`, cause })));
+      resume(
+        Effect.fail(
+          new OpenCodeError({
+            message: `Failed to spawn OpenCode: ${reason}`,
+            cause,
+            couldNotRun: true,
+          }),
+        ),
+      );
     };
 
     child.once("spawn", onSpawn);
@@ -392,7 +403,9 @@ export function waitForListeningPort(
 ): Effect.Effect<number, OpenCodeError> {
   const { pid } = child;
   if (pid === undefined) {
-    return Effect.fail(new OpenCodeError({ message: "OpenCode started without a process ID" }));
+    return Effect.fail(
+      new OpenCodeError({ message: "OpenCode started without a process ID", couldNotRun: true }),
+    );
   }
   return Effect.gen(function* () {
     const sightings = noSightings();
@@ -665,7 +678,8 @@ export function makeOpenCodeLayer(options: OpenCodeOptions) {
       const prepared = yield* prepareOpenCode(options);
       const process = yield* Effect.acquireRelease(spawnOpenCode(prepared), stopOpenCode);
       // A copy can pass every check and still not run. An older one is worth one more try, and if
-      // that runs, the newer one isn't chosen again.
+      // that runs, the newer one isn't chosen again. A timeout can be a slow machine rather than a
+      // broken copy, so only a copy that couldn't start or exited is set aside.
       const resource = yield* awaitOpenCode(process).pipe(
         Effect.catchAll((failure) =>
           Effect.gen(function* () {
@@ -680,10 +694,12 @@ export function makeOpenCodeLayer(options: OpenCodeOptions) {
               stopOpenCode,
             );
             const started = yield* awaitOpenCode(second).pipe(Effect.mapError(() => failure));
-            yield* distrustOpenCodeVersion(
-              { cacheDirectory: options.binaryCacheDirectory },
-              prepared.version,
-            );
+            if (failure.couldNotRun) {
+              yield* distrustOpenCodeVersion(
+                { cacheDirectory: options.binaryCacheDirectory },
+                prepared.version,
+              );
+            }
             return started;
           }),
         ),

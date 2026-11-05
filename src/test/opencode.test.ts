@@ -288,6 +288,37 @@ describe("finding OpenCode's port", () => {
     });
   });
 
+  it("says the copy couldn't run when it exits, but not when startup only timed out", async () => {
+    const exited = fakeChild();
+    const run = quietly(
+      waitForListeningPort(exited.typed, exited.output, "20 seconds", {
+        connections: never,
+        ...noProbe,
+      }),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    exited.child.exitCode = 1;
+    exited.child.emit("exit");
+    exited.child.emit("close");
+    const { typed, output } = fakeChild();
+
+    const noPort = await quietly(
+      waitForListeningPort(typed, output, "100 millis", {
+        connections: async () => [],
+        ...noProbe,
+      }),
+    );
+    // Nothing listens on port 1, so the check never passes.
+    const unhealthy = await quietly(
+      waitForHealth(typed, output, 1, "Basic c2VjcmV0", "100 millis"),
+    );
+
+    expect(await run).toMatchObject({ left: { couldNotRun: true } });
+    expect(Either.isLeft(noPort) && noPort.left.couldNotRun).toBeFalsy();
+    expect(Either.isLeft(unhealthy) && unhealthy.left.couldNotRun).toBeFalsy();
+    expect([noPort, unhealthy].every(Either.isLeft)).toBe(true);
+  });
+
   it("doesn't take a non-loopback address, and says what netstat saw at the timeout", async () => {
     const { child, typed, output } = fakeChild();
     child.stdout.emit("data", Buffer.from("server listening on http://0.0.0.0:51078\n"));

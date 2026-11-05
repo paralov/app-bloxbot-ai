@@ -32,6 +32,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- A slow first start of a new engine version no longer makes BloxBot skip that version for good. Only a version that fails to run is passed over.
 - On Windows, replacing a broken copy of BloxBot's engine waits for antivirus to let go of it, instead of failing with EPERM.
 - Windows: BloxBot now reads OpenCode's port from its output, for machines stuck at startup on "OpenCode did not open a listening port".
 - Slow connections can finish downloading OpenCode. A download now stops only after 60 seconds with no data, and carries on from where it stopped, even after a restart.

@@ -88,6 +88,7 @@ interface DesktopEffects {
     url: string,
     studioKey: string,
     hash: string,
+    addOnly?: boolean,
   ) => Effect.Effect<ModelUploadResult, DesktopError>;
   readonly discoverStudioTargets: Effect.Effect<StudioTargetDiscovery, DesktopError>;
   readonly selectStudioTarget: (
@@ -260,8 +261,10 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     getUploadAccess: (studioKey, modelUrl) =>
       invoke("Failed to check uploads", () => api.getUploadAccess(studioKey, modelUrl)),
     readModelFile: (url) => invoke("Failed to read the model", () => api.readModelFile(url)),
-    uploadModelToPlace: (url, studioKey, hash) =>
-      invoke("Failed to upload the model", () => api.uploadModelToPlace(url, studioKey, hash)),
+    uploadModelToPlace: (url, studioKey, hash, addOnly) =>
+      invoke("Failed to upload the model", () =>
+        api.uploadModelToPlace(url, studioKey, hash, addOnly),
+      ),
     discoverStudioTargets: invoke("Failed to discover Studio targets", () =>
       api.discoverStudioTargets(),
     ).pipe(decodeBridgeValue("Studio target discovery is invalid", StudioTargetDiscoverySchema)),
@@ -318,8 +321,8 @@ export const desktop: DesktopApi = {
   getUploadAccess: (studioKey, modelUrl) =>
     runPromise(desktopEffects.getUploadAccess(studioKey, modelUrl)),
   readModelFile: (url) => runPromise(desktopEffects.readModelFile(url)),
-  uploadModelToPlace: (url, studioKey, hash) =>
-    runPromise(desktopEffects.uploadModelToPlace(url, studioKey, hash)),
+  uploadModelToPlace: (url, studioKey, hash, addOnly) =>
+    runPromise(desktopEffects.uploadModelToPlace(url, studioKey, hash, addOnly)),
   onModelUploadStep: (listener) => window.bloxbot?.onModelUploadStep(listener) ?? (() => {}),
   onBlenderSetupProgress: (listener) =>
     window.bloxbot?.onBlenderSetupProgress(listener) ?? (() => {}),

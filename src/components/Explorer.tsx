@@ -59,6 +59,7 @@ import {
 } from "@/lib/explorer";
 import { notify } from "@/lib/notifications";
 import {
+  explorerPlaceKey,
   useExplorerReference,
   useExplorerTree,
   useExplorerView,
@@ -302,6 +303,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExplorerNode | null>(null);
   const studioId = studioTarget?.selected?.key;
+  const placeKey = explorerPlaceKey(studioTarget?.selected);
   const latestTreeRef = useRef(tree);
   latestTreeRef.current = tree;
 
@@ -320,9 +322,9 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
 
   // A place opens with its services showing, once.
   useEffect(() => {
-    if (!tree?.roots.length || !firstShowing(studioId)) return;
+    if (!tree?.roots.length || !firstShowing(placeKey)) return;
     setExpanded(new Set(tree.roots.map(nodeId)));
-  }, [tree, studioId, firstShowing, setExpanded]);
+  }, [tree, placeKey, firstShowing, setExpanded]);
 
   const selectNode = useCallback(
     (node: ExplorerNode) => setSelectedId(nodeId(node)),
@@ -355,12 +357,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     setExpanded((current) => new Set([...current, ...ids.slice(0, -1)]));
   }, [focusRequest, tree, consumeFocus, setSearch, setSelectedId, setExpanded]);
 
-  // Rows are named by path, so in another place this would silently be a different object. Studio can
-  // reuse a key for another place, so the place's ID and name count too, as in the Explorer's provider.
-  const selectedStudio = studioTarget?.selected;
-  const placeKey = selectedStudio
-    ? JSON.stringify([selectedStudio.key, selectedStudio.placeId ?? null, selectedStudio.label])
-    : null;
+  // Rows are named by path, so in another place this would silently be a different object.
   const selectionPlaceRef = useRef(placeKey);
   useEffect(() => {
     if (selectionPlaceRef.current === placeKey) return;
@@ -562,7 +559,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
   const placeClosed = !studioId && studioTarget?.missing && studioTarget.status !== "loading";
   const noMatches = !!tree && !!query && rows.length === 0;
   const statusNotice = placeClosed
-    ? studioTarget.status === "error"
+    ? // Studios listed before a failed check can't say the place is closed.
+      studioTarget.status === "error" || studioTarget.discoveryFailed
       ? "Couldn't reach Studio."
       : (studioTarget.twins ?? 0) > 1
         ? `${studioTarget.twins} places named ${placeName(studioTarget.missing?.label ?? "")} are open. Choose one in the Studio picker.`
