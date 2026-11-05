@@ -91,7 +91,7 @@ function setUp(access: UploadAccessState, model: ModelFileInfo | null = file) {
 /** Upload only works once the preview has drawn, which comes a moment after the card. */
 async function uploadButton() {
   const button = await screen.findByRole("button", { name: "Upload to Roblox" });
-  await waitFor(() => expect(button.getAttribute("aria-disabled")).toBe("false"));
+  await waitFor(() => expect(button).toBeEnabled());
   return button;
 }
 
@@ -371,7 +371,7 @@ describe("the upload click", () => {
     await act(() => client.invalidateQueries({ queryKey: qk.modelFile(URL_A) }));
 
     const button = screen.getByRole("button", { name: "Upload to Roblox" });
-    await waitFor(() => expect(button.getAttribute("aria-disabled")).toBe("true"));
+    await waitFor(() => expect(button).toBeDisabled());
     fireEvent.click(button);
     expect(upload).not.toHaveBeenCalled();
 
@@ -476,6 +476,14 @@ describe("the upload click", () => {
     render(wrap(<ModelCard url={URL_A} />));
     expect(await screen.findByRole("button", { name: "Check again" })).toBeDisabled();
     expect(screen.getByText("Choose your place in the Studio picker first.")).toBeTruthy();
+  });
+
+  it("doesn't blame the place while a chosen one waits for the preview to draw", async () => {
+    preview.auto = false;
+    setUp("ready", { ...file, sent: { assetId: "5", moderation: "approved" } });
+    render(wrap(<ModelCard url={URL_A} />));
+    expect(await screen.findByRole("button", { name: "Add it to your place" })).toBeDisabled();
+    expect(screen.queryByText("Open your place in Studio first.")).toBeNull();
   });
 
   it("offers to add a file that's already on Roblox, whatever Studio's permissions", async () => {

@@ -137,7 +137,8 @@ export function ModelCard({ url }: { url: string }) {
       >
         {label}
       </button>
-      {start ? null : (
+      {/* Waiting for the preview needs no explanation; a missing place does. */}
+      {studioKey ? null : (
         <span className="self-center text-xs text-muted-foreground">
           {studio?.targets.length
             ? "Choose your place in the Studio picker first."
