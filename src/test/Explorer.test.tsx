@@ -355,6 +355,37 @@ describe("Explorer", () => {
     expect(screen.getAllByRole("treeitem")[1]).toHaveFocus();
   });
 
+  it("doesn't move focus to a row drawn after the user has gone elsewhere", async () => {
+    const lighting = {
+      ...tree.roots[0],
+      name: "Lighting",
+      className: "Lighting",
+      path: "game.Lighting",
+    };
+    mocks.getSnapshot.mockResolvedValue({ ...tree, roots: [lighting, ...tree.roots] });
+    mocks.drawnRows = 1;
+    mocks.scrollToIndex.mockImplementation(() => {
+      setTimeout(() => {
+        mocks.drawnRows = null;
+        mocks.redraw();
+      }, 100);
+    });
+    const elsewhere = document.createElement("button");
+    document.body.append(elsewhere);
+    start();
+    await advance(0);
+    const [first] = screen.getAllByRole("treeitem") as [HTMLElement];
+
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    // Tabbed away before the row came in.
+    elsewhere.focus();
+    await advance(100);
+    await advance(50);
+    expect(elsewhere).toHaveFocus();
+    elsewhere.remove();
+  });
+
   it("doesn't pull focus back into the tree after it left for nothing in particular", async () => {
     const lighting = {
       ...tree.roots[0],

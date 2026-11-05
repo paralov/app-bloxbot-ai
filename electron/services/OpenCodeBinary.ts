@@ -1394,7 +1394,8 @@ export function ensureOpenCodeBinary(
     const notes = yield* Effect.promise(() => readCacheNotes(platformDirectory));
     const working = yield* findNewestCachedBinary(platformDirectory, platform, arch, spec);
     if (working) {
-      yield* findCompatibleRelease(fetchFn, spec.archiveName).pipe(
+      // One that has already refused to run here is passed over for the newest that hasn't.
+      yield* findCompatibleRelease(fetchFn, spec.archiveName, notes.distrusted).pipe(
         Effect.tap((release) =>
           Effect.promise(() =>
             updateCacheNotes(platformDirectory, (notes) => ({
@@ -1402,12 +1403,6 @@ export function ensureOpenCodeBinary(
               latest: release.version.value,
             })),
           ),
-        ),
-        Effect.filterOrFail(
-          // Not again if this one has already refused to run here.
-          (release) => !notes.distrusted.includes(release.version.value),
-          () =>
-            new OpenCodeBinaryError({ message: "The newest release doesn't run on this computer" }),
         ),
         Effect.flatMap((release) =>
           readValidCachedBinary(

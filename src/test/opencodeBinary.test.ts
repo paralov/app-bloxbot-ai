@@ -1527,6 +1527,30 @@ describe("OpenCode downloads on a poor connection", () => {
       expect(fetch).toHaveBeenCalledTimes(1);
     });
 
+    it("updates in the background to the newest release that hasn't failed here", async () => {
+      const cacheDirectory = await makeTemporaryDirectory();
+      await installVersion(cacheDirectory, "2.2.1");
+      const platformDirectory = join(cacheDirectory, "darwin-arm64");
+      await writeFile(
+        join(platformDirectory, "cache-notes.json"),
+        JSON.stringify({ distrusted: ["2.2.3"] }),
+      );
+      const fetch = vi.fn(async (url: string) =>
+        url.includes("api.github.com")
+          ? Response.json([
+              release("v2.2.3", ASSET_NAME, `sha256:${digest}`),
+              release("v2.2.2", ASSET_NAME, `sha256:${digest}`),
+            ])
+          : new Response(archive),
+      );
+
+      expect((await launch(cacheDirectory, fetch)).version).toBe("2.2.1");
+      await vi.waitFor(async () => {
+        expect(await readdir(platformDirectory)).toContain("2.2.2");
+      });
+      expect(await readdir(platformDirectory)).not.toContain("2.2.3");
+    });
+
     it("keeps the copy startup falls back to when an update lands in the background", async () => {
       const cacheDirectory = await makeTemporaryDirectory();
       const platformDirectory = join(cacheDirectory, "darwin-arm64");

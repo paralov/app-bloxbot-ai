@@ -370,6 +370,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     setMenu(null);
     setDeleteTarget(null);
     pendingFocusRef.current = null;
+    // A row still waiting to be drawn belongs to the place that was left.
+    focusTargetRef.current = null;
   }, [placeKey]);
 
   const selected = selectedId ? (tree?.byId.get(selectedId) ?? null) : null;
@@ -847,6 +849,8 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           // Going somewhere else, as opposed to its row disappearing under it.
           if (event.relatedTarget) {
             focusInTreeRef.current = false;
+            // A row still waiting to be drawn mustn't pull focus back from where it went.
+            focusTargetRef.current = null;
             return;
           }
           // Nothing to go to happens for a click on nothing in particular too, but a row that's
@@ -855,6 +859,7 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
           queueMicrotask(() => {
             if (left.isConnected && !treeRef.current?.contains(document.activeElement)) {
               focusInTreeRef.current = false;
+              focusTargetRef.current = null;
             }
           });
         }}
