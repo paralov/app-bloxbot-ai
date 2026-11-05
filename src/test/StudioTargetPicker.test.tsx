@@ -197,6 +197,8 @@ describe("StudioTargetPicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByText("Couldn’t find Studios")).toBeVisible();
     expect(screen.getByText("Couldn't reach Roblox Studio. Refresh to try again.")).toBeVisible();
+    // A hiccup isn't a missing Studio, so it doesn't send anyone off to install it.
+    expect(screen.queryByRole("link", { name: "Get Roblox Studio" })).toBeNull();
   });
 
   it("dims the other Studios while one is being checked, since clicks on them do nothing", async () => {

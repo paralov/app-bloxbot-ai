@@ -677,8 +677,6 @@ function ChatInput({
       attachments.length > 0
         ? attachments.map((a) => ({ mime: a.mime, url: a.dataUrl, filename: a.filename }))
         : undefined;
-    // Commands like /model and /new run here and never reach the agent, so they use no Studio.
-    if (needsStudio(trimmed)) studioTarget?.noteRouted?.();
     const ranCommand = runCommand(trimmed, {
       images,
       system: studioTargetReference,
@@ -696,6 +694,9 @@ function ChatInput({
       return;
     }
     if (isBusy) return;
+    // Only a message that goes to the agent uses a Studio. Commands like /model and /new run here,
+    // and a message typed while the chat is busy isn't sent.
+    if (needsStudio(trimmed)) studioTarget?.noteRouted?.();
     failedSendRef.current = {
       sessionId: activeSessionId,
       text: submittedText,

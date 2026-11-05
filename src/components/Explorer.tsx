@@ -355,17 +355,22 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
     setExpanded((current) => new Set([...current, ...ids.slice(0, -1)]));
   }, [focusRequest, tree, consumeFocus, setSearch, setSelectedId, setExpanded]);
 
-  // Rows are named by path, so in another place this would silently be a different object.
-  const selectionStudioRef = useRef(studioId);
+  // Rows are named by path, so in another place this would silently be a different object. Studio can
+  // reuse a key for another place, so the place's ID and name count too, as in the Explorer's provider.
+  const selectedStudio = studioTarget?.selected;
+  const placeKey = selectedStudio
+    ? JSON.stringify([selectedStudio.key, selectedStudio.placeId ?? null, selectedStudio.label])
+    : null;
+  const selectionPlaceRef = useRef(placeKey);
   useEffect(() => {
-    if (selectionStudioRef.current === studioId) return;
-    selectionStudioRef.current = studioId;
+    if (selectionPlaceRef.current === placeKey) return;
+    selectionPlaceRef.current = placeKey;
     setFocusedId(null);
     setRenamingId(null);
     setMenu(null);
     setDeleteTarget(null);
     pendingFocusRef.current = null;
-  }, [studioId]);
+  }, [placeKey]);
 
   const selected = selectedId ? (tree?.byId.get(selectedId) ?? null) : null;
 
@@ -471,11 +476,12 @@ export default function Explorer({ collapsed, sessionBusy, onToggle }: ExplorerP
         occurrence: node.occurrence,
         occurrences: node.occurrences,
       } as ExplorerEdit;
+      const startedIn = selectionPlaceRef.current;
       try {
         const { name } = await desktop.editExplorerObject(studioId, request);
         posthog.capture("object_edited", analyticsProperties("explorer", { action: edit.action }));
         // The rows are another place's by now, where the same path is a different object.
-        if (selectionStudioRef.current === studioId) onDone(name);
+        if (selectionPlaceRef.current === startedIn) onDone(name);
         // What it's called now, except for a delete, where the old name is all there is.
         setEditNote(
           `${EDIT_DONE[edit.action] ?? "Changed"} ${edit.action === "delete" ? node.name : name}.`,

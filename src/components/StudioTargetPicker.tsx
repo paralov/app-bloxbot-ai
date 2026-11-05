@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/menu";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { analyticsProperties } from "@/lib/analytics";
-import { placeName, useStudioTargetOptional } from "@/providers/StudioTargetProvider";
+import {
+  placeName,
+  STUDIO_NOT_INSTALLED,
+  useStudioTargetOptional,
+} from "@/providers/StudioTargetProvider";
 
 /** Three fruitless Refreshes inside 30 seconds means someone is stuck, not just checking. */
 const STUCK_REFRESHES = 3;
@@ -274,14 +278,18 @@ export default function StudioTargetPicker({
               >
                 {error ?? "The Studio integration could not be initialized."}
               </p>
-              <a
-                href="https://create.roblox.com/docs/studio/setup"
-                target="_blank"
-                rel="noreferrer"
-                className="mt-0.5 inline-block text-xs underline underline-offset-2 hover:opacity-80"
-              >
-                Get Roblox Studio
-              </a>
+              {/* Only when Studio is missing. Telling someone to install it after a hiccup sends them
+                  the wrong way. */}
+              {!error || error === STUDIO_NOT_INSTALLED ? (
+                <a
+                  href="https://create.roblox.com/docs/studio/setup"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-0.5 inline-block text-xs underline underline-offset-2 hover:opacity-80"
+                >
+                  Get Roblox Studio
+                </a>
+              ) : null}
             </div>
             {connectSteps}
           </>

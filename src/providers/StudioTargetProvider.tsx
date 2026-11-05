@@ -92,6 +92,9 @@ function discoveredPlaceIds(targets: readonly StudioTarget[]): string[] {
   return [...new Set(targets.flatMap((target) => (target.placeId ? [target.placeId] : [])))];
 }
 
+/** Shown only when Studio's helper is missing, which is when a link to get Studio helps. */
+export const STUDIO_NOT_INSTALLED = "BloxBot can't find Roblox Studio. Check it's installed.";
+
 /**
  * A closed Studio lists nothing rather than failing, so a failure means Studio's helper is missing,
  * has stopped, or a request just didn't get through, and only the helper's state can tell which.
@@ -101,7 +104,7 @@ async function discoveryErrorMessage(): Promise<string> {
   try {
     state = (await desktop.getStudioMcpStatus()).state;
   } catch {}
-  if (state === "not_installed") return "BloxBot can't find Roblox Studio. Check it's installed.";
+  if (state === "not_installed") return STUDIO_NOT_INSTALLED;
   if (state === "unavailable") return "Roblox Studio stopped responding. Open it, then refresh.";
   return "Couldn't reach Roblox Studio. Refresh to try again.";
 }
