@@ -863,12 +863,14 @@ describe("User journeys", () => {
 
     // The permission prompt should appear (populated by selectSession from SDK response)
     await waitFor(() => {
-      expect(screen.getByText("Permission Required")).toBeInTheDocument();
-      expect(screen.getByText("bash")).toBeInTheDocument();
+      expect(
+        screen.getByRole("region", { name: "BloxBot needs your permission" }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Run this command?")).toBeInTheDocument();
     });
 
     // Click "Allow Once"
-    const allowBtn = screen.getByText("Allow Once");
+    const allowBtn = screen.getByText("Allow once");
     await act(async () => {
       fireEvent.click(allowBtn);
     });

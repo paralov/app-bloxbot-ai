@@ -14,10 +14,13 @@ import {
   type AppConfig,
   AppConfigPatchSchema,
   AppConfigSchema,
+  type BlenderToolsState,
   DEFAULT_APP_CONFIG,
   type DesktopApi,
   type InstructionFile,
   InstructionFileSchema,
+  type ModelFileInfo,
+  type ModelUploadResult,
   type OpenCodeInfo,
   OpenCodeInfoSchema,
   type OpenCodeStartupProgress,
@@ -26,6 +29,7 @@ import {
   type SystemNotification,
   type UpdateInfo,
   UpdateInfoSchema,
+  type UploadAccess,
 } from "@/types/desktop";
 import {
   type StudioTargetDiscovery,
@@ -70,6 +74,21 @@ interface DesktopEffects {
   readonly checkForUpdate: Effect.Effect<UpdateInfo | null, DesktopError>;
   readonly installUpdate: Effect.Effect<void, DesktopError>;
   readonly relaunch: Effect.Effect<void, DesktopError>;
+  readonly getBlenderToolsState: Effect.Effect<BlenderToolsState, DesktopError>;
+  readonly installBlenderTools: Effect.Effect<void, DesktopError>;
+  readonly cancelBlenderTools: Effect.Effect<void, DesktopError>;
+  readonly openBlender: Effect.Effect<void, DesktopError>;
+  readonly removeBlenderTools: Effect.Effect<void, DesktopError>;
+  readonly getUploadAccess: (
+    studioKey: string | null,
+    modelUrl: string | null,
+  ) => Effect.Effect<UploadAccess, DesktopError>;
+  readonly readModelFile: (url: string) => Effect.Effect<ModelFileInfo | null, DesktopError>;
+  readonly uploadModelToPlace: (
+    url: string,
+    studioKey: string,
+    hash: string,
+  ) => Effect.Effect<ModelUploadResult, DesktopError>;
   readonly discoverStudioTargets: Effect.Effect<StudioTargetDiscovery, DesktopError>;
   readonly selectStudioTarget: (
     targetKey: string,
@@ -138,6 +157,25 @@ const browserEffects: DesktopEffects = {
     new DesktopError({ message: "Updates are only available in the desktop app." }),
   ),
   relaunch: Effect.sync(() => window.location.reload()),
+  getBlenderToolsState: Effect.succeed({ state: "unsupported" }),
+  installBlenderTools: Effect.fail(
+    new DesktopError({ message: "Blender can only be set up in the desktop app." }),
+  ),
+  cancelBlenderTools: Effect.void,
+  openBlender: Effect.fail(
+    new DesktopError({ message: "Blender can only be opened from the desktop app." }),
+  ),
+  removeBlenderTools: Effect.void,
+  getUploadAccess: () =>
+    Effect.succeed({
+      state: "no_studio",
+      readOn: false,
+      writeOn: false,
+      folder: "",
+      folderUrl: "",
+    }),
+  readModelFile: () => Effect.succeed(null),
+  uploadModelToPlace: () => Effect.succeed({ status: "needs_setup", access: "no_studio" }),
   discoverStudioTargets: Effect.fail(
     new DesktopError({ message: "Studio targets are only available in the desktop app." }),
   ),
@@ -214,6 +252,16 @@ function makeBridgeEffects(api: DesktopApi): DesktopEffects {
     ),
     installUpdate: invoke("Failed to install the update", () => api.installUpdate()),
     relaunch: invoke("Failed to relaunch the app", () => api.relaunch()),
+    getBlenderToolsState: invoke("Failed to check Blender", () => api.getBlenderToolsState()),
+    installBlenderTools: invoke("Failed to set up Blender", () => api.installBlenderTools()),
+    cancelBlenderTools: invoke("Failed to stop setting up Blender", () => api.cancelBlenderTools()),
+    openBlender: invoke("Failed to open Blender", () => api.openBlender()),
+    removeBlenderTools: invoke("Failed to remove Blender", () => api.removeBlenderTools()),
+    getUploadAccess: (studioKey, modelUrl) =>
+      invoke("Failed to check uploads", () => api.getUploadAccess(studioKey, modelUrl)),
+    readModelFile: (url) => invoke("Failed to read the model", () => api.readModelFile(url)),
+    uploadModelToPlace: (url, studioKey, hash) =>
+      invoke("Failed to upload the model", () => api.uploadModelToPlace(url, studioKey, hash)),
     discoverStudioTargets: invoke("Failed to discover Studio targets", () =>
       api.discoverStudioTargets(),
     ).pipe(decodeBridgeValue("Studio target discovery is invalid", StudioTargetDiscoverySchema)),
@@ -262,6 +310,19 @@ export const desktop: DesktopApi = {
   checkForUpdate: () => runPromise(desktopEffects.checkForUpdate),
   installUpdate: () => runPromise(desktopEffects.installUpdate),
   relaunch: () => runPromise(desktopEffects.relaunch),
+  getBlenderToolsState: () => runPromise(desktopEffects.getBlenderToolsState),
+  installBlenderTools: () => runPromise(desktopEffects.installBlenderTools),
+  cancelBlenderTools: () => runPromise(desktopEffects.cancelBlenderTools),
+  openBlender: () => runPromise(desktopEffects.openBlender),
+  removeBlenderTools: () => runPromise(desktopEffects.removeBlenderTools),
+  getUploadAccess: (studioKey, modelUrl) =>
+    runPromise(desktopEffects.getUploadAccess(studioKey, modelUrl)),
+  readModelFile: (url) => runPromise(desktopEffects.readModelFile(url)),
+  uploadModelToPlace: (url, studioKey, hash) =>
+    runPromise(desktopEffects.uploadModelToPlace(url, studioKey, hash)),
+  onModelUploadStep: (listener) => window.bloxbot?.onModelUploadStep(listener) ?? (() => {}),
+  onBlenderSetupProgress: (listener) =>
+    window.bloxbot?.onBlenderSetupProgress(listener) ?? (() => {}),
   discoverStudioTargets: () => runPromise(desktopEffects.discoverStudioTargets),
   selectStudioTarget: (targetKey) => runPromise(desktopEffects.selectStudioTarget(targetKey)),
   onMainError: (listener) => window.bloxbot?.onMainError(listener) ?? (() => {}),

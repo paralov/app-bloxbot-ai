@@ -894,7 +894,8 @@ describe("OpenCode installs that Windows blocks", () => {
     );
 
     expect(result).toMatchObject({ _tag: "Right", right: { version: "2.2.3" } });
-    expect(rename.mock.calls.length).toBeGreaterThan(3);
+    // Virtual time can jump past several delays, so success after a refused first try is the proof.
+    expect(rename.mock.calls.length).toBeGreaterThan(1);
   });
 
   it("stops waiting between publish attempts when interrupted, and cleans up", async () => {

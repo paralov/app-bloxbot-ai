@@ -181,9 +181,95 @@ export interface DesktopApi {
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   relaunch(): Promise<void>;
+  getBlenderToolsState(): Promise<BlenderToolsState>;
+  /** Resolves once setup has finished, and rejects if it can't, with a BlenderFailureReason in its message. */
+  installBlenderTools(): Promise<void>;
+  cancelBlenderTools(): Promise<void>;
+  openBlender(): Promise<void>;
+  removeBlenderTools(): Promise<void>;
+  onBlenderSetupProgress(listener: (progress: BlenderSetupProgress) => void): () => void;
+  /** What this Studio can do about uploads. Runs no script, so it can be asked in the background. */
+  getUploadAccess(studioKey: string | null, modelUrl: string | null): Promise<UploadAccess>;
+  /** Null when the link isn't a model file BloxBot can read. */
+  readModelFile(url: string): Promise<ModelFileInfo | null>;
+  /** `hash` is the file the person looked at, and nothing else gets sent. */
+  uploadModelToPlace(url: string, studioKey: string, hash: string): Promise<ModelUploadResult>;
+  onModelUploadStep(listener: (url: string, step: ModelUploadStep) => void): () => void;
   /**
    * Receives errors from the main process so the renderer can report them. Subscribing
    * tells the main process the window is ready, which flushes errors buffered until then.
    */
   onMainError(listener: (report: MainErrorReport) => void): () => void;
 }
+
+export type UploadAccessState =
+  | "no_studio"
+  /** Several Studios are open and this chat hasn't picked one. */
+  | "choose_studio"
+  /** This Studio was open before Roblox's update, and doesn't have Open Cloud until it's reopened. */
+  | "reopen_studio"
+  /** Permissions are per game, so a place that isn't published can't have any. */
+  | "not_published"
+  | "needs_permission"
+  /** Studio only uploads from folders someone has approved. */
+  | "needs_folder"
+  /** Studio couldn't get a sign-in Roblox accepts, which no permission fixes. */
+  | "refused"
+  | "ready";
+
+export interface UploadAccess {
+  state: UploadAccessState;
+  readOn: boolean;
+  writeOn: boolean;
+  /** The folder to approve in Studio: where this model is, or where the AI exports models. */
+  folder: string;
+  folderUrl: string;
+}
+
+export interface ModelFileInfo {
+  name: string;
+  fileName: string;
+  path: string;
+  folder: string;
+  data: Uint8Array;
+  kind: "fbx" | "glb";
+  sizeBytes: number;
+  hash: string;
+  /** What already happened to exactly these bytes. */
+  sent: { assetId: string | null; moderation: "approved" | "rejected" | "checking" } | null;
+}
+
+export type ModelUploadStep = "uploading" | "checking" | "adding";
+
+export type ModelUploadFailure =
+  | "no_file"
+  | "file_changed"
+  | "refused"
+  | "rate_limited"
+  | "file_rejected"
+  | "studio_error";
+
+export type ModelUploadResult =
+  | { status: "added"; assetId: string; path: string }
+  | { status: "rejected"; assetId: string }
+  | { status: "checking"; assetId: string }
+  | { status: "not_added"; assetId: string }
+  | { status: "needs_setup"; access: UploadAccessState }
+  | { status: "needs_folder"; folder: string }
+  | { status: "failed"; reason: ModelUploadFailure };
+
+export type BlenderSetupStep = "downloading" | "unpacking" | "connecting";
+
+export interface BlenderSetupProgress {
+  step: BlenderSetupStep;
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
+export type BlenderFailureReason = "disk_full" | "network" | "blocked" | "corrupt" | "other";
+
+export type BlenderToolsState =
+  | { state: "unsupported" }
+  | { state: "not_installed" }
+  | { state: "installing"; progress: BlenderSetupProgress | null }
+  | { state: "ready"; running: boolean };

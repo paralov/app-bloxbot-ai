@@ -1,3 +1,5 @@
+import type { StudioTarget } from "@/types/studioTarget";
+
 export const qk = {
   sessions: ["sessions"] as const,
   session: (id: string) => ["sessions", id] as const,
@@ -13,5 +15,14 @@ export const qk = {
   config: ["config"] as const,
   instructions: ["instructions"] as const,
   studioConnection: ["studio-connection"] as const,
+  // Studio can hand the same key to another place, so the place's ID and name count too.
+  uploadAccess: (studio: StudioTarget | null, modelUrl: string | null) =>
+    [
+      "uploadAccess",
+      studio ? JSON.stringify([studio.key, studio.placeId ?? null, studio.label]) : null,
+      modelUrl,
+    ] as const,
+  modelFile: (url: string) => ["modelFile", url] as const,
+  blenderTools: ["blender-tools"] as const,
   studioMcpStatus: ["studio-mcp-status"] as const,
 };

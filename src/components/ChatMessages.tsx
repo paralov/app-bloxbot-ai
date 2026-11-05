@@ -27,17 +27,14 @@ import {
 } from "react";
 import Markdown, { type Components, defaultUrlTransform, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ModelCard } from "@/components/ModelCard";
+import { PermissionPrompt } from "@/components/PermissionPrompt";
 import { ReferenceChip } from "@/components/ReferenceChip";
 import type { HighlightLanguage } from "@/components/SyntaxHighlightedOutput";
 import { analyticsProperties } from "@/lib/analytics";
 import type { ExplorerReferenceKind } from "@/lib/explorer";
-import type {
-  Part,
-  PermissionRequest,
-  QuestionAnswer,
-  QuestionRequest,
-  SessionStatus,
-} from "@/lib/opencode/types";
+import { modelLinksIn } from "@/lib/modelLinks";
+import type { Part, QuestionAnswer, QuestionRequest, SessionStatus } from "@/lib/opencode/types";
 import { useExplorerReference } from "@/providers/ExplorerReferenceProvider";
 
 /** Module-level constant to avoid creating a new array on every render. */
@@ -965,11 +962,11 @@ const QuestionPrompt = memo(function QuestionPrompt({
   }
 
   return (
-    <div className="animate-fade-in-up my-2 rounded-lg border border-blue-200 bg-blue-50/30 px-3 py-3">
+    <div className="animate-fade-in-up my-2 rounded-lg border bg-card p-3">
       {question.questions.map((q, qIdx) => (
-        <div key={qIdx} className={qIdx > 0 ? "mt-3 border-t border-blue-100 pt-3" : ""}>
-          <div className="text-xs font-medium text-foreground">{q.header}</div>
-          <div className="mt-0.5 text-xs text-foreground">{q.question}</div>
+        <div key={qIdx} className={qIdx > 0 ? "mt-3 border-t pt-3" : ""}>
+          <div className="text-sm font-medium text-foreground">{q.header}</div>
+          <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{q.question}</div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {q.options.map((opt) => {
               const isSelected = selected[qIdx]?.has(opt.label);
@@ -977,7 +974,7 @@ const QuestionPrompt = memo(function QuestionPrompt({
                 <button
                   key={opt.label}
                   onClick={() => toggleOption(qIdx, opt.label, q.multiple)}
-                  className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${isSelected ? "border-blue-400 bg-blue-100 text-blue-800 dark:border-blue-500 dark:bg-blue-950/50 dark:text-blue-300" : "border-border bg-card text-foreground hover:border-blue-300 hover:bg-blue-50 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"}`}
+                  className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${isSelected ? "border-foreground/40 bg-accent text-foreground" : "text-foreground hover:bg-accent"}`}
                   title={opt.description}
                 >
                   {opt.label}
@@ -1010,59 +1007,6 @@ const QuestionPrompt = memo(function QuestionPrompt({
           className="rounded-md px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           Dismiss
-        </button>
-      </div>
-    </div>
-  );
-});
-
-// ── Permission prompt ───────────────────────────────────────────────────
-
-const PermissionPrompt = memo(function PermissionPrompt({
-  permission,
-  onReply,
-}: {
-  permission: PermissionRequest;
-  onReply: (requestID: string, reply: "once" | "always" | "reject") => void;
-}) {
-  return (
-    <div className="animate-fade-in-up my-2 rounded-lg border border-amber-200 bg-amber-50/30 px-3 py-3 dark:border-amber-900 dark:bg-amber-950/30">
-      <div className="text-xs font-medium text-foreground">Permission Required</div>
-      <div className="mt-1 text-xs text-foreground">
-        <span className="font-mono text-amber-700 dark:text-amber-400">
-          {permission.permission}
-        </span>
-      </div>
-      {permission.patterns.length > 0 && (
-        <div className="mt-1 space-y-0.5">
-          {permission.patterns.map((p, i) => (
-            <div key={i} className="font-mono text-xs text-muted-foreground">
-              {p}
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onReply(permission.id, "once")}
-          className="rounded-md bg-foreground px-3 py-1 text-xs font-medium text-background transition-opacity hover:opacity-90"
-        >
-          Allow Once
-        </button>
-        <button
-          type="button"
-          onClick={() => onReply(permission.id, "always")}
-          className="rounded-md border px-3 py-1 text-xs text-foreground transition-colors hover:bg-accent"
-        >
-          Always Allow
-        </button>
-        <button
-          type="button"
-          onClick={() => onReply(permission.id, "reject")}
-          className="rounded-md px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
-        >
-          Deny
         </button>
       </div>
     </div>
@@ -1145,6 +1089,11 @@ const MessageBubble = memo(function MessageBubble({
             {msg.parts.map((part) => (
               <PartRenderer key={part.id} part={part} />
             ))}
+            {msg.info.role === "assistant" && msg.info.time.completed
+              ? modelLinksIn(
+                  msg.parts.map((part) => (part.type === "text" ? part.text : "")).join("\n"),
+                ).map((url) => <ModelCard key={url} url={url} />)
+              : null}
             {"error" in msg.info &&
               msg.info.error &&
               msg.info.error.name !== "MessageAbortedError" && (

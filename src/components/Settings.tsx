@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Building2, ChevronRight, FileText, Globe, Search, Shield } from "lucide-react";
+import { Box, Building2, ChevronRight, FileText, Globe, Search, Shield } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProviderCheckPopover from "@/components/ProviderCheckPopover";
 import ProviderConnectDialog from "@/components/ProviderConnectDialog";
 import ProviderLogo from "@/components/ProviderLogo";
+import { ThreeDToolsTab } from "@/components/ThreeDToolsTab";
 import { THEME_OPTIONS, type Theme, useTheme } from "@/components/theme-provider";
 import { useCheckProvider } from "@/hooks/mutations/useCheckProvider";
 import { useSaveInstructions } from "@/hooks/mutations/useSaveInstructions";
@@ -71,6 +72,7 @@ const TECHNOLOGIES = [
 
 type SettingsTab =
   | "providers"
+  | "threeD"
   | "appearance"
   | "instructions"
   | "notifications"
@@ -143,6 +145,18 @@ function Settings({ onClose }: SettingsProps) {
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
               Providers
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("threeD")}
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 h-8 text-left text-sm transition-colors ${
+                tab === "threeD"
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <Box aria-hidden="true" size={13} />
+              3D tools
             </button>
             <button
               type="button"
@@ -274,6 +288,7 @@ function Settings({ onClose }: SettingsProps) {
         {/* Content area */}
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-t-xl border-x border-t bg-background">
           {tab === "providers" && <ProvidersTab />}
+          {tab === "threeD" && <ThreeDToolsTab />}
           {tab === "appearance" && <AppearanceTab />}
           {tab === "instructions" && <InstructionsTab />}
           {tab === "notifications" && <NotificationsTab />}
