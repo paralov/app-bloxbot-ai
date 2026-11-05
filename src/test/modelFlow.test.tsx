@@ -118,6 +118,12 @@ describe("finding models in a reply", () => {
         "Here: [crate](file:///a/Crate.fbx), again file:///a/Crate.fbx and [b](file:///a/B.GLB). Not [c](file:///a/c.txt) or https://x.test/d.fbx",
       ),
     ).toEqual(["file:///a/Crate.fbx", "file:///a/B.GLB"]);
+    // A reference link's target sits in a definition, and counts where the link is.
+    expect(
+      modelLinksIn(
+        "See [the crate][crate] and ![tree](file:///a/Tree.glb).\n\n[crate]: file:///a/Ref.fbx",
+      ),
+    ).toEqual(["file:///a/Ref.fbx", "file:///a/Tree.glb"]);
   });
 
   it("leaves paths shown as code alone, but still finds real links around them", () => {
