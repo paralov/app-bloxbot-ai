@@ -1179,6 +1179,9 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
  * Zen limits free use per IP across every free model, for hours at a time, so a machine that has
  * used its quota gets the limit, and this checks BloxBot recognises Zen's real wording either way.
  */
+// A free model, whatever OPENCODE_LIVE_MODEL points the other suites at.
+const ZEN_MODEL = process.env.OPENCODE_LIVE_ZEN_MODEL ?? "deepseek-v4.1-flash-free";
+
 describe.skipIf(!BIN || !process.env.OPENCODE_LIVE_ZEN)("OpenCode Zen's free tier", () => {
   it(
     "answers on a free model, or ends the turn on a limit BloxBot recognises",
@@ -1207,8 +1210,10 @@ describe.skipIf(!BIN || !process.env.OPENCODE_LIVE_ZEN)("OpenCode Zen's free tie
               status: upstream.status,
               retryAfter: upstream.headers.get("retry-after"),
             });
+            const retryAfter = upstream.headers.get("retry-after");
             res.writeHead(upstream.status, {
               "content-type": upstream.headers.get("content-type") ?? "application/json",
+              ...(retryAfter ? { "retry-after": retryAfter } : {}),
             });
             if (upstream.body) for await (const chunk of upstream.body) res.write(chunk);
             res.end();
@@ -1249,7 +1254,7 @@ describe.skipIf(!BIN || !process.env.OPENCODE_LIVE_ZEN)("OpenCode Zen's free tie
         await client.session.promptAsync(
           {
             sessionID,
-            model: { providerID: "opencode", modelID: MODEL.modelID },
+            model: { providerID: "opencode", modelID: ZEN_MODEL },
             parts: [{ type: "text", text: "Reply with OK and nothing else. Don't use any tools." }],
           },
           { throwOnError: true },
@@ -1270,6 +1275,10 @@ describe.skipIf(!BIN || !process.env.OPENCODE_LIVE_ZEN)("OpenCode Zen's free tie
           const error = failure?.type === "session.error" ? failure.properties.error : undefined;
           expect(error && isFreeUsageLimit(error)).toBe(true);
           expect(error && presentModelError(error).kind).toBe("usage");
+          // Zen's Retry-After, in seconds, is what tells people when free messages come back.
+          const retryAfter = Number(limited[0]?.retryAfter);
+          expect(retryAfter).toBeGreaterThan(0);
+          expect(error?.data).toMatchObject({ retryAfterMs: retryAfter * 1000 });
         } else {
           expect(chats.every((request) => request.status === 200)).toBe(true);
           const history = await client.session.messages({ sessionID }, { throwOnError: true });

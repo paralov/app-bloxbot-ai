@@ -32,6 +32,20 @@ describe("creating BloxBot's folders", () => {
     expect(await readFile(movedTo ?? "", "utf8")).toBe("stray");
   });
 
+  it("keeps an earlier backup with the same name", async () => {
+    workspace = await mkdtemp(join(tmpdir(), "bloxbot-folders-"));
+    await writeFile(join(workspace, ".opencode"), "second");
+    await writeFile(join(workspace, ".opencode.bak-2026-11-06T10-00-00-000Z"), "first");
+
+    const movedTo = await ensureFolder(workspace, join(workspace, ".opencode"), undefined, now);
+
+    expect(movedTo).toBe(join(workspace, ".opencode.bak-2026-11-06T10-00-00-000Z-1"));
+    expect(await readFile(movedTo ?? "", "utf8")).toBe("second");
+    expect(await readFile(join(workspace, ".opencode.bak-2026-11-06T10-00-00-000Z"), "utf8")).toBe(
+      "first",
+    );
+  });
+
   it("moves a file where the folder itself should be aside", async () => {
     workspace = await mkdtemp(join(tmpdir(), "bloxbot-folders-"));
     await mkdir(join(workspace, ".opencode"));

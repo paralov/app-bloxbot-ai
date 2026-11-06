@@ -89,7 +89,7 @@ export function presentModelError(
     return {
       kind: "usage",
       title: "You've used the free messages for now",
-      description: `${freeLimitReturn(error, hitAt, now)} To keep going now, connect a provider in Settings or subscribe to OpenCode Go.`,
+      description: `${freeLimitReturn(error, hitAt, now)} To keep going now, connect your own AI account, like ChatGPT or Claude, in Settings under Providers, or subscribe to OpenCode Go.`,
     };
   }
 
@@ -106,7 +106,7 @@ export function presentModelError(
     return {
       kind: "unavailable",
       title: "This model is no longer available",
-      description: "OpenCode may have retired it. Switch to another model to keep going.",
+      description: "It may have been removed. Switch to another model to keep going.",
       detail,
     };
   }

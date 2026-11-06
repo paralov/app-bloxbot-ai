@@ -82,6 +82,12 @@ describe("a saved model that's gone", () => {
     expect(replacementModel(providers(), "anthropic/claude-2", none)?.key).toBe("anthropic/sonnet");
   });
 
+  it("doesn't move a chat to a default OpenCode has marked as retiring", () => {
+    const list = providers();
+    list.default.opencode = "old-free";
+    expect(replacementModel(list, "opencode/exo-free", none)?.key).toBe("opencode/big-pickle");
+  });
+
   it("falls back to another free model when the default can't be used either", () => {
     expect(
       replacementModel(providers(), "opencode/exo-free", new Set(["opencode/flash-free"]))?.key,

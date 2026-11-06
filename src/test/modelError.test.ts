@@ -68,7 +68,9 @@ describe("free usage limit", () => {
     expect(presentation.kind).toBe("usage");
     expect(presentation.title).toBe("You've used the free messages for now");
     expect(presentation.description).toContain("Free messages come back in about 3 hours.");
-    expect(presentation.description).toContain("connect a provider in Settings");
+    expect(presentation.description).toContain(
+      "connect your own AI account, like ChatGPT or Claude, in Settings under Providers",
+    );
     expect(presentation.description).toContain("OpenCode Go");
     // The limit is shared by every free model, whatever OpenCode's own text says.
     expect(presentation.description).not.toMatch(/switch models|other free models/i);

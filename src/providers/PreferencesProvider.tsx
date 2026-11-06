@@ -214,7 +214,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           ? `${name} is no longer available`
           : `${name} isn't offered in your region`,
         {
-          description: `This chat now uses ${next?.name ?? "OpenCode's default model"}.`,
+          description: `This chat now uses ${next?.name ?? "the default model"}.`,
         },
       );
       return;
@@ -223,7 +223,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   }, [configData, connectedProviders, providerList, selectedModel, unavailableModels]);
 
   const setSelectedModel = useCallback((modelID: string) => {
-    setSelectedModelState(modelID);
+    setSelectedModelState((current) => {
+      // A variant belongs to its model, and another model may not have it.
+      if (current !== modelID) setSelectedVariantState(null);
+      return modelID;
+    });
     patchConfig({ lastModel: modelID }).catch(() => {});
   }, []);
 

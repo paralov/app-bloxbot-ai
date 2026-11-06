@@ -111,6 +111,23 @@ describe("the saved model", () => {
     expect(result.current.selectedModel).toBe("opencode/crouton-alpha-free");
     expect(message).not.toHaveBeenCalled();
   });
+
+  it("drops the variant when switching to another model, as it may not have one", async () => {
+    mocks.loadConfig.mockResolvedValue({
+      ...DEFAULT_APP_CONFIG,
+      analyticsNoticeVersion: 99,
+      lastModel: "opencode/crouton-alpha-free",
+    });
+    const { result } = renderPreferences();
+    await waitFor(() => expect(result.current.selectedModel).toBe("opencode/crouton-alpha-free"));
+
+    act(() => result.current.setSelectedVariant("high"));
+    act(() => result.current.setSelectedModel("opencode/crouton-alpha-free"));
+    expect(result.current.selectedVariant).toBe("high");
+
+    act(() => result.current.setSelectedModel("opencode/flash-free"));
+    expect(result.current.selectedVariant).toBeNull();
+  });
 });
 
 describe("notification preferences", () => {

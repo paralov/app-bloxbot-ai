@@ -292,8 +292,8 @@ describe("Studio MCP startup (#106)", () => {
           }),
         ),
       );
-      // The setup screen's not-installed copy already says to install or update Studio.
-      expect(status).toEqual({ state: "not_installed" });
+      // The setup screen says to open Studio once, not that Studio can't be found.
+      expect(status).toEqual({ state: "helper_missing" });
       expect(onStartFailure).toHaveBeenCalledOnce();
       const message = describeError(onStartFailure.mock.calls[0]?.[0]).message ?? "";
       expect(message).toContain(
@@ -323,7 +323,7 @@ describe("Studio MCP startup (#106)", () => {
     );
 
     expect(connectUpstream).toHaveBeenCalledOnce();
-    expect(connection.status()).toEqual({ state: "not_installed" });
+    expect(connection.status()).toEqual({ state: "helper_missing" });
     expect(describeError(onFailure.mock.calls[0]?.[0]).message).toBe(
       "Failed to connect to Studio MCP at startup (cause: Roblox Studio's MCP helper (StudioMCP.exe) is missing. Open Roblox Studio once so it installs its MCP helper, or update Studio. Searched: ~\\Roblox Studio)",
     );

@@ -9,20 +9,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
-- Opening BloxBot again brings back the window that's already open, instead of starting a second copy.
-- Windows: BloxBot's engine now lives in your local AppData folder, so a roaming profile no longer copies it at every sign-in. An engine you already have moves there once, with no new download. A Blender setup you already have stays where it is, and new ones go there too.
+- Opening BloxBot when it's already open brings up the window you have, instead of opening a second copy.
+- Windows: BloxBot keeps its downloads in a folder that stays on this computer, so they're no longer copied around when you sign in on a school or work network. Nothing needs downloading again.
 
 ### Fixed
 
-- Running out of free messages now says when they come back, usually in a few hours, instead of telling you to wait a day. The free messages are shared by every free model on your network, so BloxBot no longer suggests switching to another one, and still points you to OpenCode Go or connecting a provider.
-- A model that isn't offered in your region now says so, with one click to switch to another free model, and is marked in the model picker so you don't pick it again.
-- A chat on a model OpenCode has retired moves to the default model and tells you. "Model is unavailable" errors offer to switch to another free model.
-- BloxBot no longer fails to start with "database is locked". It waits for an earlier engine to close, stops one left behind by a crash, and tries again for a few seconds.
-- When BloxBot can't read its chats from disk, it says to check free space and that antivirus or a sync app isn't holding the folder, instead of showing a database error.
-- BloxBot starts when a file is sitting where one of its folders should be, by moving the file aside as a `.bak` copy.
-- When security software or a school or work policy blocks the BloxBot folder, the startup screen says so and how to allow BloxBot, instead of a raw permissions error.
-- When Studio's MCP helper is missing, BloxBot asks you to open or update Roblox Studio, instead of failing on Studio's `mcp.bat`.
-- A harmless network check on Windows is no longer reported as an error. BloxBot keeps it in its own log.
+- When you've used up the free messages, BloxBot now tells you when they come back, usually in a few hours, instead of telling you to wait a day. Free messages are shared by every free model, so BloxBot no longer suggests switching to another one. To keep going right away, you can still connect your own AI account or subscribe to OpenCode Go.
+- If a model isn't offered where you live, BloxBot says so and switches you to another free model in one click. The model is greyed out in the list so you don't pick it again.
+- If a chat's model has been removed, BloxBot moves the chat to the default model and tells you.
+- BloxBot no longer gets stuck at startup with "database is locked" after it closes unexpectedly.
+- When BloxBot can't open your saved chats, it now says what to check instead of showing a technical error.
+- BloxBot now starts even when a stray file is in the way of one of its folders. The file is kept, renamed, next to it.
+- When antivirus or a school or work setting stops BloxBot from saving files, the startup screen now says so and what to do.
+- When Roblox Studio isn't ready to connect yet, BloxBot asks you to open or update Studio, instead of showing an error.
+- BloxBot no longer reports a harmless Windows check as an error.
 
 ## [0.15.0] - 2026-11-06
 

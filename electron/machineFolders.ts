@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { posix, win32 } from "node:path";
+import { BLENDER_MARKER_FILE } from "./services/BlenderTools";
 
 /**
  * Where BloxBot keeps what it downloads for this computer: the engine and Blender's tools. On
@@ -17,12 +18,14 @@ export interface MachineFolderOptions {
 /** The file system calls these make, so tests can fake them. */
 export interface MachineFolderFileSystem {
   exists(path: string): boolean;
+  isFile(path: string): boolean;
   mkdir(path: string): void;
   rename(from: string, to: string): void;
 }
 
 const nodeFileSystem: MachineFolderFileSystem = {
   exists: existsSync,
+  isFile: (path) => statSync(path, { throwIfNoEntry: false })?.isFile() ?? false,
   mkdir: (path) => mkdirSync(path, { recursive: true }),
   rename: renameSync,
 };
@@ -45,7 +48,16 @@ export function engineFolder(
 ): string {
   const old = pathsFor(options.platform).join(options.userData, "opencode");
   const next = machineFolder(options, "opencode");
-  if (!next || fileSystem.exists(next) || !fileSystem.exists(old)) return next ?? old;
+  if (!next) return old;
+  // A file where the folder should be would stop the engine installing, so it's moved aside.
+  if (fileSystem.isFile(next)) {
+    try {
+      fileSystem.rename(next, `${next}.bak-${Date.now()}`);
+    } catch {
+      return old;
+    }
+  }
+  if (fileSystem.exists(next) || !fileSystem.exists(old)) return next;
   try {
     fileSystem.mkdir(win32.dirname(next));
     fileSystem.rename(old, next);
@@ -56,14 +68,16 @@ export function engineFolder(
 }
 
 /**
- * Blender's tools folder. These hold a Python environment with its own path written into it, so
- * one already set up stays where it is; new setups go to this computer's folder.
+ * Blender's tools folder. A finished setup holds a Python environment with its own path written
+ * into it, so it stays where it is. A folder a failed setup left behind holds nothing to keep, so
+ * new setups go to this computer's folder.
  */
 export function blenderToolsFolder(
   options: MachineFolderOptions,
   fileSystem: MachineFolderFileSystem = nodeFileSystem,
 ): string {
-  const old = pathsFor(options.platform).join(options.userData, "blender-tools");
+  const paths = pathsFor(options.platform);
+  const old = paths.join(options.userData, "blender-tools");
   const next = machineFolder(options, "blender-tools");
-  return !next || fileSystem.exists(old) ? old : next;
+  return !next || fileSystem.exists(paths.join(old, BLENDER_MARKER_FILE)) ? old : next;
 }

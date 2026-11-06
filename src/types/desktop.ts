@@ -126,11 +126,12 @@ export const UpdateInfoSchema = Schema.mutable(
 export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
 /**
- * Whether BloxBot could start Roblox Studio's MCP helper. `not_installed` means the helper
- * isn't on this computer, `unavailable` means it started but closed before it connected.
+ * Whether BloxBot could start Roblox Studio's MCP helper. `not_installed` means Studio isn't on
+ * this computer, `helper_missing` that Studio is but hasn't installed its helper yet, and
+ * `unavailable` that the helper started but closed before it connected.
  */
 export const StudioMcpStatusSchema = Schema.Struct({
-  state: Schema.Literal("starting", "connected", "not_installed", "unavailable"),
+  state: Schema.Literal("starting", "connected", "not_installed", "helper_missing", "unavailable"),
 });
 
 export type StudioMcpStatus = typeof StudioMcpStatusSchema.Type;

@@ -189,11 +189,11 @@ describe("startup progress", () => {
 
     expect(presentation("database_locked")).toMatchObject({
       message: "BloxBot couldn't start",
-      detail: expect.stringContaining("Close other BloxBot or OpenCode windows"),
+      detail: expect.stringContaining("Another copy of BloxBot is still open"),
     });
     expect(presentation("database_io")).toMatchObject({
       message: "BloxBot couldn't start",
-      detail: expect.stringContaining("antivirus or a sync app isn't holding your BloxBot folder"),
+      detail: expect.stringContaining("your antivirus may be blocking the BloxBot folder"),
     });
     expect(presentation("folder_blocked")).toMatchObject({
       detail: expect.stringContaining("Allow BloxBot in your antivirus"),

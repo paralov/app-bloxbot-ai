@@ -9,17 +9,20 @@ const USER_DATA = "C:\\Users\\Ada\\AppData\\Roaming\\bloxbot";
 const LOCAL = "C:\\Users\\Ada\\AppData\\Local";
 const windows = { platform: "win32" as const, userData: USER_DATA, localAppData: LOCAL };
 
-function fakeFileSystem(present: string[], renameError?: Error) {
-  const paths = new Set(present);
+function fakeFileSystem(present: string[], renameError?: Error, files: string[] = []) {
+  const paths = new Set([...present, ...files]);
+  const fileSet = new Set(files);
   const renames: Array<[string, string]> = [];
   const fileSystem: MachineFolderFileSystem = {
     exists: (path) => paths.has(path),
+    isFile: (path) => fileSet.has(path),
     mkdir: () => undefined,
     rename: (from, to) => {
       if (renameError) throw renameError;
       renames.push([from, to]);
       paths.delete(from);
       paths.add(to);
+      if (fileSet.delete(from)) fileSet.add(to);
     },
   };
   return { fileSystem, renames };
@@ -36,6 +39,16 @@ describe("engineFolder", () => {
     const { fileSystem, renames } = fakeFileSystem([`${USER_DATA}\\opencode`]);
     expect(engineFolder(windows, fileSystem)).toBe(`${LOCAL}\\bloxbot\\opencode`);
     expect(renames).toEqual([[`${USER_DATA}\\opencode`, `${LOCAL}\\bloxbot\\opencode`]]);
+  });
+
+  it("moves a file where the new folder should be aside, then moves the engine over", () => {
+    const { fileSystem, renames } = fakeFileSystem([`${USER_DATA}\\opencode`], undefined, [
+      `${LOCAL}\\bloxbot\\opencode`,
+    ]);
+    expect(engineFolder(windows, fileSystem)).toBe(`${LOCAL}\\bloxbot\\opencode`);
+    expect(renames[0]?.[0]).toBe(`${LOCAL}\\bloxbot\\opencode`);
+    expect(renames[0]?.[1]).toMatch(/opencode\.bak-\d+$/);
+    expect(renames[1]).toEqual([`${USER_DATA}\\opencode`, `${LOCAL}\\bloxbot\\opencode`]);
   });
 
   it("keeps using the old folder when it can't be moved", () => {
@@ -73,8 +86,16 @@ describe("blenderToolsFolder", () => {
   });
 
   it("keeps a setup that's already there, since its Python environment can't move", () => {
-    const { fileSystem, renames } = fakeFileSystem([`${USER_DATA}\\blender-tools`]);
+    const { fileSystem, renames } = fakeFileSystem([
+      `${USER_DATA}\\blender-tools`,
+      `${USER_DATA}\\blender-tools\\installed.json`,
+    ]);
     expect(blenderToolsFolder(windows, fileSystem)).toBe(`${USER_DATA}\\blender-tools`);
     expect(renames).toEqual([]);
+  });
+
+  it("doesn't keep a folder a failed setup left behind", () => {
+    const { fileSystem } = fakeFileSystem([`${USER_DATA}\\blender-tools`]);
+    expect(blenderToolsFolder(windows, fileSystem)).toBe(`${LOCAL}\\bloxbot\\blender-tools`);
   });
 });

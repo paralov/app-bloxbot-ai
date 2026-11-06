@@ -84,7 +84,12 @@ export function replacementModel(
   const [providerID] = splitModelKey(key);
   const fallback = list.default[providerID];
   const fallbackKey = fallback ? `${providerID}/${fallback}` : undefined;
-  if (fallbackKey && fallbackKey !== key && !goneReason(list, fallbackKey, unavailable)) {
+  if (
+    fallbackKey &&
+    fallbackKey !== key &&
+    !goneReason(list, fallbackKey, unavailable) &&
+    listedModel(list, fallbackKey)?.status !== "deprecated"
+  ) {
     return { key: fallbackKey, name: modelName(list, fallbackKey) };
   }
   return pickFreeModel(list, { avoid: [key], unavailable }) ?? null;

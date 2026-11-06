@@ -210,7 +210,7 @@ export function getStartupErrorPresentation(
     return {
       message: "BloxBot couldn't start",
       detail:
-        "Another copy of BloxBot's engine is still using your chats. Close other BloxBot or OpenCode windows, or restart your computer, then try again.",
+        "Another copy of BloxBot is still open and using your chats. Close it, or restart your computer, then try again.",
       technicalDetail,
     };
   }
@@ -219,7 +219,7 @@ export function getStartupErrorPresentation(
     return {
       message: "BloxBot couldn't start",
       detail:
-        "BloxBot couldn't read your chats from disk. Make sure your drive has free space and that antivirus or a sync app isn't holding your BloxBot folder, then try again.",
+        "BloxBot couldn't open your saved chats. Check that your computer has free space, then restart it and try again. If it keeps happening, your antivirus may be blocking the BloxBot folder.",
       helpLink: exclusionHelp(),
       technicalDetail,
     };
@@ -231,8 +231,8 @@ export function getStartupErrorPresentation(
       // Neither OneDrive nor Controlled folder access covers the user folder itself unless someone
       // set them up to, so the usual cause is security software or a school or work policy.
       detail: navigator.userAgent.includes("Windows")
-        ? "Something on this computer stopped BloxBot from writing to the BloxBot folder in your user folder. That's usually security software, or a policy set by your school or workplace. Allow BloxBot in your antivirus, or ask whoever manages this computer, then try again."
-        : "BloxBot isn't allowed to write to its BloxBot folder in your home folder. Check that folder's permissions, then try again.",
+        ? "Something on this computer stopped BloxBot from saving files in the BloxBot folder in your user folder. That's usually antivirus, or a setting from your school or workplace. Allow BloxBot in your antivirus, or ask whoever looks after this computer, then try again."
+        : "BloxBot isn't allowed to save files in the BloxBot folder in your home folder. Make sure your account can change that folder, then try again.",
       helpLink: exclusionHelp(),
       technicalDetail,
     };

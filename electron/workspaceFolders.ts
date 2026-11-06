@@ -52,6 +52,15 @@ async function findFileInTheWay(
   return null;
 }
 
+/** The backup name, or the first free one with a counter, as a rename would replace a file there. */
+async function freeBackupName(name: string, fileSystem: FolderFileSystem): Promise<string> {
+  let candidate = name;
+  for (let n = 1; (await fileSystem.isDirectory(candidate)) !== null; n++) {
+    candidate = `${name}-${n}`;
+  }
+  return candidate;
+}
+
 /**
  * Creates a folder under root. A file sitting where the folder, or one on the way to it, should
  * be is moved aside to `<name>.bak-<timestamp>` first, and the new name is returned so it can be
@@ -71,7 +80,7 @@ export async function ensureFolder(
     if (!code || !FILE_IN_THE_WAY_CODES.has(code)) throw cause;
     const file = await findFileInTheWay(root, folder, fileSystem);
     if (!file) throw cause;
-    const movedTo = `${file}.bak-${fileNameTimestamp(now())}`;
+    const movedTo = await freeBackupName(`${file}.bak-${fileNameTimestamp(now())}`, fileSystem);
     await fileSystem.rename(file, movedTo);
     await fileSystem.mkdir(folder, { recursive: true });
     return movedTo;

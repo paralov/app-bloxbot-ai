@@ -368,9 +368,9 @@ export class StudioMcpConnection implements StudioMcpUpstream {
   }
 }
 
-/** A missing helper shows as not installed, whose copy already says to install or update Studio. */
 function stateForFailure(cause: unknown): StudioMcpStatus["state"] {
-  return classifyStudioMcpStartFailure(cause) === "closed" ? "unavailable" : "not_installed";
+  const reason = classifyStudioMcpStartFailure(cause);
+  return reason === "closed" ? "unavailable" : reason;
 }
 
 export interface StudioMcpStartupOptions {
