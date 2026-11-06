@@ -79,7 +79,37 @@ describe("engineFolder", () => {
   });
 });
 
+describe("a blocked or obstructed folder", () => {
+  it("keeps the old engine folder instead of stopping BloxBot opening", () => {
+    const { fileSystem } = fakeFileSystem([`${USER_DATA}\\opencode`]);
+    fileSystem.exists = (path) => {
+      if (path.startsWith(LOCAL)) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      return path === `${USER_DATA}\\opencode`;
+    };
+    fileSystem.isFile = (path) => {
+      if (path.startsWith(LOCAL)) throw Object.assign(new Error("ENOTDIR"), { code: "ENOTDIR" });
+      return false;
+    };
+    expect(engineFolder(windows, fileSystem)).toBe(`${USER_DATA}\\opencode`);
+    expect(blenderToolsFolder(windows, fileSystem)).toBe(`${USER_DATA}\\blender-tools`);
+  });
+});
+
 describe("blenderToolsFolder", () => {
+  it("moves a file where the new folder should be aside", () => {
+    const { fileSystem, renames } = fakeFileSystem([], undefined, [
+      `${LOCAL}\\bloxbot\\blender-tools`,
+    ]);
+    expect(blenderToolsFolder(windows, fileSystem)).toBe(`${LOCAL}\\bloxbot\\blender-tools`);
+    expect(renames[0]?.[1]).toMatch(/blender-tools\.bak-\d+$/);
+  });
+
+  it("keeps the old folder when a file in the way can't be moved", () => {
+    const busy = Object.assign(new Error("EPERM"), { code: "EPERM" });
+    const { fileSystem } = fakeFileSystem([], busy, [`${LOCAL}\\bloxbot\\blender-tools`]);
+    expect(blenderToolsFolder(windows, fileSystem)).toBe(`${USER_DATA}\\blender-tools`);
+  });
+
   it("puts a new setup in this computer's folder on Windows", () => {
     const { fileSystem } = fakeFileSystem([]);
     expect(blenderToolsFolder(windows, fileSystem)).toBe(`${LOCAL}\\bloxbot\\blender-tools`);

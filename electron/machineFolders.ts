@@ -25,7 +25,14 @@ export interface MachineFolderFileSystem {
 
 const nodeFileSystem: MachineFolderFileSystem = {
   exists: existsSync,
-  isFile: (path) => statSync(path, { throwIfNoEntry: false })?.isFile() ?? false,
+  isFile: (path) => {
+    // A folder on the way that's blocked or is a file makes statSync throw; neither is a file here.
+    try {
+      return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
+    } catch {
+      return false;
+    }
+  },
   mkdir: (path) => mkdirSync(path, { recursive: true }),
   rename: renameSync,
 };
@@ -38,9 +45,24 @@ function machineFolder({ platform, localAppData }: MachineFolderOptions, name: s
 }
 
 /**
+ * Moves a file sitting where the folder should be aside, as nothing could be put in it. False when
+ * that couldn't be done, so the caller keeps the folder it had.
+ */
+function clearFileInTheWay(fileSystem: MachineFolderFileSystem, folder: string): boolean {
+  if (!fileSystem.isFile(folder)) return true;
+  try {
+    fileSystem.rename(folder, `${folder}.bak-${Date.now()}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The engine's folder. A copy an earlier version downloaded to userData is moved over once, so it
  * isn't downloaded again. If it can't be moved, as when antivirus holds a file or the folders are
- * on different drives, it is used where it is.
+ * on different drives, it is used where it is. This runs as BloxBot loads, before it can show an
+ * error, so any failure keeps the old folder rather than stopping BloxBot opening.
  */
 export function engineFolder(
   options: MachineFolderOptions,
@@ -49,16 +71,9 @@ export function engineFolder(
   const old = pathsFor(options.platform).join(options.userData, "opencode");
   const next = machineFolder(options, "opencode");
   if (!next) return old;
-  // A file where the folder should be would stop the engine installing, so it's moved aside.
-  if (fileSystem.isFile(next)) {
-    try {
-      fileSystem.rename(next, `${next}.bak-${Date.now()}`);
-    } catch {
-      return old;
-    }
-  }
-  if (fileSystem.exists(next) || !fileSystem.exists(old)) return next;
   try {
+    if (!clearFileInTheWay(fileSystem, next)) return old;
+    if (fileSystem.exists(next) || !fileSystem.exists(old)) return next;
     fileSystem.mkdir(win32.dirname(next));
     fileSystem.rename(old, next);
     return next;
@@ -79,5 +94,11 @@ export function blenderToolsFolder(
   const paths = pathsFor(options.platform);
   const old = paths.join(options.userData, "blender-tools");
   const next = machineFolder(options, "blender-tools");
-  return !next || fileSystem.exists(paths.join(old, BLENDER_MARKER_FILE)) ? old : next;
+  if (!next) return old;
+  try {
+    if (fileSystem.exists(paths.join(old, BLENDER_MARKER_FILE))) return old;
+    return clearFileInTheWay(fileSystem, next) ? next : old;
+  } catch {
+    return old;
+  }
 }
