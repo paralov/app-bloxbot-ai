@@ -40,7 +40,7 @@ interface StartupErrorPresentation {
   technicalDetail: string;
 }
 
-/** The `(reason: …)` the desktop service adds when installing OpenCode fails. */
+/** The `(reason: …)` the desktop service adds when installing or starting OpenCode fails. */
 export function getInstallFailureReason(technicalDetail: string): string | null {
   return /\(reason: ([a-z_]+)\)/.exec(technicalDetail)?.[1] ?? null;
 }
@@ -202,6 +202,38 @@ export function getStartupErrorPresentation(
     return {
       message: "Setup couldn't finish",
       detail: "Your drive is nearly full. Free up at least 500 MB, then try again.",
+      technicalDetail,
+    };
+  }
+
+  if (reason === "database_locked") {
+    return {
+      message: "BloxBot couldn't start",
+      detail:
+        "Another copy of BloxBot's engine is still using your chats. Close other BloxBot or OpenCode windows, or restart your computer, then try again.",
+      technicalDetail,
+    };
+  }
+
+  if (reason === "database_io") {
+    return {
+      message: "BloxBot couldn't start",
+      detail:
+        "BloxBot couldn't read your chats from disk. Make sure your drive has free space and that antivirus or a sync app isn't holding your BloxBot folder, then try again.",
+      helpLink: exclusionHelp(),
+      technicalDetail,
+    };
+  }
+
+  if (reason === "folder_blocked") {
+    return {
+      message: "BloxBot couldn't start",
+      // Neither OneDrive nor Controlled folder access covers the user folder itself unless someone
+      // set them up to, so the usual cause is security software or a school or work policy.
+      detail: navigator.userAgent.includes("Windows")
+        ? "Something on this computer stopped BloxBot from writing to the BloxBot folder in your user folder. That's usually security software, or a policy set by your school or workplace. Allow BloxBot in your antivirus, or ask whoever manages this computer, then try again."
+        : "BloxBot isn't allowed to write to its BloxBot folder in your home folder. Check that folder's permissions, then try again.",
+      helpLink: exclusionHelp(),
       technicalDetail,
     };
   }

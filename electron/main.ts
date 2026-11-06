@@ -46,6 +46,7 @@ import {
   StudioTargetSelectionSchema,
 } from "../src/types/studioTarget";
 import { handleLastWindowClosed } from "./appLifecycle";
+import { blenderToolsFolder, engineFolder } from "./machineFolders";
 import { createMainErrorReporter } from "./errorReporter";
 import { syncExplorerTree } from "./explorerTree";
 import { findInstructionFiles, readInstructions, saveInstructions } from "./instructionFiles";
@@ -132,8 +133,13 @@ const studioMcpBrokerLayer = makeStudioMcpBrokerLayer({
   onStartFailure: (error) => reportMainError("studio_mcp_broker_start", error),
 }).pipe(Layer.tapErrorCause(reportLayerFailure("studio_mcp_broker_start")));
 
-const openCodeBinaryDirectory = join(app.getPath("userData"), "opencode");
-const blenderToolsRoot = () => join(app.getPath("userData"), "blender-tools");
+const machineFolderOptions = {
+  platform: process.platform,
+  userData: app.getPath("userData"),
+  localAppData: process.env.LOCALAPPDATA,
+};
+const openCodeBinaryDirectory = engineFolder(machineFolderOptions);
+const blenderToolsRoot = () => blenderToolsFolder(machineFolderOptions);
 
 const openCodeRuntime = ManagedRuntime.make(
   makeOpenCodeLayer({
@@ -141,7 +147,6 @@ const openCodeRuntime = ManagedRuntime.make(
       // Chromium's network stack, which trusts the certificates installed on the system.
       fetchWithSystemCertificates: (url, init) => net.fetch(url, init),
       workspace: join(app.getPath("home"), "BloxBot"),
-      onNetstatMiss: (error) => reportMainError("opencode_netstat_miss", error),
       loadSystemPrompt: () =>
         loadConfig.pipe(
           Effect.map((config) => config.systemPrompt),
@@ -689,6 +694,14 @@ const registerAppLifecycle = Effect.sync(() => {
   // Windows drops notifications from an app without this. It matches appId in electron-builder.yml.
   if (process.platform === "win32") app.setAppUserModelId("ai.bloxbot.desktop");
 
+  // Opening BloxBot again brings this window forward instead of starting a second copy.
+  app.on("second-instance", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
   app.on("window-all-closed", () =>
     Effect.runSync(
       Effect.sync(() => {
@@ -723,6 +736,15 @@ const registerAppLifecycle = Effect.sync(() => {
 
 Effect.runFork(
   Effect.gen(function* () {
+    // A second copy would start a second OpenCode on the same database, which then fails with
+    // "database is locked". It hands over to the first one instead.
+    if (!app.requestSingleInstanceLock()) {
+      yield* Effect.sync(() => {
+        quitting = true;
+        app.quit();
+      });
+      return;
+    }
     yield* Effect.sync(() => {
       autoUpdater.autoDownload = false;
       autoUpdater.autoInstallOnAppQuit = true;

@@ -182,6 +182,26 @@ describe("startup progress", () => {
     expect(checkForUpdate).not.toHaveBeenCalled();
   });
 
+  it("says what to do about a locked or unreadable database, or a blocked folder", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0)");
+    const presentation = (reason: string) =>
+      getStartupErrorPresentation(`OpenCode couldn't start (reason: ${reason})`, "C:\\BloxBot");
+
+    expect(presentation("database_locked")).toMatchObject({
+      message: "BloxBot couldn't start",
+      detail: expect.stringContaining("Close other BloxBot or OpenCode windows"),
+    });
+    expect(presentation("database_io")).toMatchObject({
+      message: "BloxBot couldn't start",
+      detail: expect.stringContaining("antivirus or a sync app isn't holding your BloxBot folder"),
+    });
+    expect(presentation("folder_blocked")).toMatchObject({
+      detail: expect.stringContaining("Allow BloxBot in your antivirus"),
+      helpLink: { href: expect.stringContaining("support.microsoft.com") },
+    });
+    vi.restoreAllMocks();
+  });
+
   it("points at what to do when the engine starts but can't be reached", () => {
     for (const failure of [
       "OpenCode did not open a listening port within 60 seconds. No port in its output",

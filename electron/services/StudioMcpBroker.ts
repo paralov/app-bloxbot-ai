@@ -13,7 +13,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdir } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Context, Data, Effect, Layer, Schedule } from "effect";
 
@@ -23,6 +23,7 @@ import {
   type StudioMcpHelper,
   type StudioMcpHelperProbe,
 } from "../studioMcpHelper";
+import { ensureFolder, workspaceFailureReason } from "../workspaceFolders";
 
 const LOOPBACK = "127.0.0.1";
 
@@ -36,13 +37,27 @@ export class StudioMcpNotInstalledError extends Data.TaggedError("StudioMcpNotIn
   message: string;
 }> {}
 
+/**
+ * Studio has set up MCP (its mcp.bat is there) but StudioMCP.exe isn't anywhere we know of, as
+ * after an update that hasn't finished. The message names the folders searched.
+ */
+export class StudioMcpHelperMissingError extends Data.TaggedError("StudioMcpHelperMissingError")<{
+  message: string;
+}> {}
+
+/** Says what to do about a missing helper, and where it was looked for. */
+export function describeMissingHelper(searched: readonly string[]): string {
+  const where = searched.length > 0 ? ` Searched: ${searched.join("; ")}` : "";
+  return `Roblox Studio's MCP helper (StudioMCP.exe) is missing. Open Roblox Studio once so it installs its MCP helper, or update Studio.${where}`;
+}
+
 /** The helper started but the MCP connection failed. Carries its stderr and exit status. */
 export class StudioMcpConnectError extends Data.TaggedError("StudioMcpConnectError")<{
   message: string;
   cause: unknown;
 }> {}
 
-export type StudioMcpStartFailureReason = "not_installed" | "closed";
+export type StudioMcpStartFailureReason = "not_installed" | "helper_missing" | "closed";
 
 export class StudioMcpStartFailure extends Data.TaggedError("StudioMcpStartFailure")<{
   reason: StudioMcpStartFailureReason;
@@ -51,6 +66,7 @@ export class StudioMcpStartFailure extends Data.TaggedError("StudioMcpStartFailu
 
 export function classifyStudioMcpStartFailure(cause: unknown): StudioMcpStartFailureReason {
   if (cause instanceof StudioMcpNotInstalledError) return "not_installed";
+  if (cause instanceof StudioMcpHelperMissingError) return "helper_missing";
   // A spawn ENOENT means the helper command itself doesn't exist.
   if (cause !== null && typeof cause === "object" && "code" in cause && cause.code === "ENOENT") {
     return "not_installed";
@@ -111,6 +127,11 @@ class SdkStudioMcpUpstream implements StudioMcpUpstream {
 
   static async connect(helper: StudioMcpHelper, cwd: string): Promise<SdkStudioMcpUpstream> {
     const { installPath, source } = helper;
+    if (source === "missing") {
+      throw new StudioMcpHelperMissingError({
+        message: describeMissingHelper(helper.searched ?? []),
+      });
+    }
     const [executable, ...args] = helper.command;
     if (!executable) throw new Error("Studio MCP command is empty");
     if (installPath && !(await exists(installPath))) {
@@ -306,7 +327,7 @@ export class StudioMcpConnection implements StudioMcpUpstream {
   /** Records how the startup attempts ended. Later requests reconnect on demand. */
   finishStartup(failure: StudioMcpStartFailure | null): void {
     this.startupFinished = true;
-    if (failure) this.state = failure.reason === "not_installed" ? "not_installed" : "unavailable";
+    if (failure) this.state = stateForFailure(failure.cause);
     else if (this.current) this.state = "connected";
   }
 
@@ -347,8 +368,9 @@ export class StudioMcpConnection implements StudioMcpUpstream {
   }
 }
 
+/** A missing helper shows as not installed, whose copy already says to install or update Studio. */
 function stateForFailure(cause: unknown): StudioMcpStatus["state"] {
-  return classifyStudioMcpStartFailure(cause) === "not_installed" ? "not_installed" : "unavailable";
+  return classifyStudioMcpStartFailure(cause) === "closed" ? "unavailable" : "not_installed";
 }
 
 export interface StudioMcpStartupOptions {
@@ -359,7 +381,8 @@ export interface StudioMcpStartupOptions {
 
 /**
  * Connects to Studio's MCP helper at startup, retrying closes on a bounded schedule. A missing
- * helper isn't retried or reported, since that only means Studio isn't installed.
+ * helper isn't retried, as trying again won't make it appear. It is reported only when Studio has
+ * set up MCP, since otherwise that only means Studio isn't installed.
  */
 export function runStudioMcpStartup(
   connection: StudioMcpConnection,
@@ -375,7 +398,7 @@ export function runStudioMcpStartup(
     ),
     Effect.retry({
       schedule: options.schedule ?? studioMcpStartSchedule,
-      while: (failure) => failure.reason !== "not_installed",
+      while: (failure) => failure.reason === "closed",
     }),
     Effect.matchEffect({
       onSuccess: () => Effect.sync(() => connection.finishStartup(null)),
@@ -531,11 +554,19 @@ export function makeStudioMcpBrokerLayer(options: StudioMcpBrokerOptions) {
   return Layer.scoped(
     StudioMcpBroker,
     Effect.gen(function* () {
-      yield* Effect.tryPromise({
-        try: () => mkdir(options.workspace, { recursive: true }),
-        catch: (cause) =>
-          new StudioMcpBrokerError({ message: "Failed to create the BloxBot workspace", cause }),
+      const movedAside = yield* Effect.tryPromise({
+        try: () => ensureFolder(options.workspace, options.workspace),
+        catch: (cause) => {
+          const reason = workspaceFailureReason(cause);
+          return new StudioMcpBrokerError({
+            message: `Failed to create the BloxBot workspace${reason ? ` (reason: ${reason})` : ""}`,
+            cause,
+          });
+        },
       });
+      if (movedAside) {
+        yield* Effect.logWarning(`[workspace] Moved a file in the way to ${movedAside}`);
+      }
       // Found again on every attempt, so a Studio update between attempts is picked up.
       const connection = new StudioMcpConnection(async () =>
         SdkStudioMcpUpstream.connect(

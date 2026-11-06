@@ -1,21 +1,43 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Either, Logger, LogLevel } from "effect";
+import {
+  Effect,
+  Either,
+  Exit,
+  Fiber,
+  Logger,
+  LogLevel,
+  Schedule,
+  TestClock,
+  TestContext,
+} from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  databaseProblem,
+  describeDatabaseFailure,
   explainNetstatMiss,
   findOpenCodeListeningPort,
+  OpenCodeError,
   parseListeningPort,
+  retryWhileDatabaseLocked,
+  stopOpenCode,
   trackOpenCodeOutput,
   waitForHealth,
   waitForListeningPort,
   withOutputTail,
 } from "../../electron/services/OpenCode";
+import {
+  forgetOpenCodeProcess,
+  parseTasklistName,
+  recordOpenCodeProcess,
+  stopLeftoverOpenCode,
+} from "../../electron/services/openCodeLeftover";
 import { parseShellEnv } from "../../electron/shellEnv";
 
 describe("OpenCode server startup", () => {
@@ -428,6 +450,182 @@ describe("finding OpenCode's port", () => {
     expect(Either.isLeft(refused) ? refused.left.message : "").toBe(
       `OpenCode did not become healthy on port ${port} within 1 seconds. Last check: ECONNREFUSED`,
     );
+  });
+});
+
+describe("OpenCode's database", () => {
+  const exitedWith = (output: string) =>
+    new OpenCodeError({
+      message: `OpenCode exited during startup with code 1. Output: ${output}`,
+      couldNotRun: true,
+    });
+  const LOCKED = exitedWith(
+    "SqlError/LockTimeoutError: Failed to execute statement (cause: SQLiteError: database is locked)",
+  );
+  const DISK_IO = exitedWith("SQLiteError: disk I/O error");
+  const quietly = <A, E>(effect: Effect.Effect<A, E>) =>
+    Effect.runPromise(Effect.either(effect).pipe(Logger.withMinimumLogLevel(LogLevel.None)));
+
+  it("tells a locked database and a disk error from anything else", () => {
+    expect(databaseProblem(LOCKED.message)).toBe("locked");
+    expect(databaseProblem(DISK_IO.message)).toBe("disk_io");
+    expect(databaseProblem("OpenCode exited during startup with code 3")).toBeNull();
+  });
+
+  it("starts again while the database is locked, then gives up after three tries", async () => {
+    const start = vi.fn(() => Effect.fail(LOCKED));
+    const result = await quietly(
+      retryWhileDatabaseLocked(Effect.suspend(start), Schedule.recurs(2)),
+    );
+
+    expect(start).toHaveBeenCalledTimes(3);
+    expect(result).toMatchObject({ left: LOCKED });
+  });
+
+  it("gets going once whatever held the database lets go", async () => {
+    let tries = 0;
+    const start = Effect.suspend(() => (++tries < 2 ? Effect.fail(LOCKED) : Effect.succeed(51078)));
+
+    expect(await quietly(retryWhileDatabaseLocked(start, Schedule.recurs(2)))).toEqual(
+      Either.right(51078),
+    );
+  });
+
+  it("waits a second, then two, between tries", async () => {
+    let tries = 0;
+    const run = Effect.gen(function* () {
+      const fiber = yield* Effect.fork(
+        retryWhileDatabaseLocked(
+          Effect.suspend(() => {
+            tries += 1;
+            return Effect.fail(LOCKED);
+          }),
+        ),
+      );
+      yield* TestClock.adjust("999 millis");
+      expect(tries).toBe(1);
+      yield* TestClock.adjust("1 millis");
+      expect(tries).toBe(2);
+      yield* TestClock.adjust("2 seconds");
+      expect(tries).toBe(3);
+      return yield* Fiber.await(fiber);
+    }).pipe(Effect.provide(TestContext.TestContext), Logger.withMinimumLogLevel(LogLevel.None));
+
+    expect(Exit.isFailure(await Effect.runPromise(run))).toBe(true);
+    expect(tries).toBe(3);
+  });
+
+  it("doesn't start again for any other failure", async () => {
+    const start = vi.fn(() => Effect.fail(DISK_IO));
+    await quietly(retryWhileDatabaseLocked(Effect.suspend(start), Schedule.recurs(2)));
+
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("says what to do instead of showing SQLite's error, and keeps that as the cause", () => {
+    const folder = "C:\\Users\\Jane\\BloxBot\\.opencode\\data\\opencode";
+    const locked = describeDatabaseFailure(LOCKED, folder);
+    const diskIo = describeDatabaseFailure(DISK_IO, folder);
+
+    expect(locked.message).toBe(
+      `OpenCode's database in ${folder} is in use by another program. Close any other copy of BloxBot or OpenCode, or restart your computer, then try again (reason: database_locked)`,
+    );
+    expect(diskIo.message).toBe(
+      `OpenCode couldn't read or write its database in ${folder}. Make sure the drive has free space and that antivirus or a sync app isn't holding that folder, then try again (reason: database_io)`,
+    );
+    expect(diskIo.message).not.toContain("SQLiteError");
+    expect(diskIo.cause).toBe(DISK_IO);
+    const other = new OpenCodeError({ message: "OpenCode exited during startup with code 3" });
+    expect(describeDatabaseFailure(other, folder)).toBe(other);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("stopping OpenCode", () => {
+  it("waits for one that ignores the request to stop until it has really gone", async () => {
+    // Ignores SIGTERM, as a busy process can, so only the forced kill stops it.
+    const child = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)"],
+      { stdio: "pipe" },
+    );
+    try {
+      await new Promise((resolve) => child.stdout.once("data", resolve));
+      await Effect.runPromise(stopOpenCode({ child }, "200 millis"));
+
+      expect(child.signalCode).toBe("SIGKILL");
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("does nothing for one that has already exited", async () => {
+    const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "pipe" });
+    await new Promise((resolve) => child.once("exit", resolve));
+    const kill = vi.spyOn(child, "kill");
+
+    await Effect.runPromise(stopOpenCode({ child }, "200 millis"));
+    expect(kill).not.toHaveBeenCalled();
+  });
+});
+
+describe("an OpenCode left by an earlier run", () => {
+  let folder = "";
+  afterEach(async () => {
+    if (folder) await rm(folder, { recursive: true, force: true });
+  });
+  const processFile = async () => {
+    folder = await mkdtemp(join(tmpdir(), "bloxbot-leftover-"));
+    return join(folder, "server.pid");
+  };
+  const table = (name: string | null) => {
+    let alive = name !== null;
+    return {
+      name: vi.fn(async () => name),
+      alive: vi.fn(() => alive),
+      kill: vi.fn(() => {
+        alive = false;
+      }),
+    };
+  };
+
+  it("is stopped before a new one starts, and then forgotten", async () => {
+    const file = await processFile();
+    await recordOpenCodeProcess(file, 4321, "C:\\BloxBot\\opencode\\2.2.5\\opencode.exe");
+    const running = table("OpenCode.exe");
+
+    expect(await stopLeftoverOpenCode(file, running, 1_000)).toBe(4321);
+    expect(running.kill).toHaveBeenCalledWith(4321);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("isn't confused with another program that now has its process ID", async () => {
+    const file = await processFile();
+    await recordOpenCodeProcess(file, 4321, "/cache/opencode");
+    const other = table("chrome");
+
+    expect(await stopLeftoverOpenCode(file, other, 1_000)).toBeNull();
+    expect(other.kill).not.toHaveBeenCalled();
+  });
+
+  it("is nothing to do after a clean quit", async () => {
+    const file = await processFile();
+    await recordOpenCodeProcess(file, 4321, "/cache/opencode");
+    await forgetOpenCodeProcess(file, 1111);
+    expect(existsSync(file)).toBe(true);
+    await forgetOpenCodeProcess(file, 4321);
+    const running = table("opencode");
+
+    expect(await stopLeftoverOpenCode(file, running, 1_000)).toBeNull();
+    expect(running.name).not.toHaveBeenCalled();
+  });
+
+  it("reads the program name from tasklist", () => {
+    expect(parseTasklistName('"opencode.exe","4321","Console","1","152,340 K"\r\n')).toBe(
+      "opencode.exe",
+    );
+    expect(
+      parseTasklistName("INFO: No tasks are running which match the specified criteria.\r\n"),
+    ).toBeNull();
   });
 });
 
