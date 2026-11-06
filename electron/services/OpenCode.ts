@@ -276,7 +276,15 @@ export function findOpenCodeListeningPort(
   return Effect.succeed(ports.values().next().value ?? null);
 }
 
-function waitForSpawn(child: ChildProcessWithoutNullStreams): Effect.Effect<void, OpenCodeError> {
+/**
+ * Waits until the process has started. A process with a pid has started: Node gives one that
+ * couldn't start no pid and an error event instead. Checking the pid matters because "spawn" fires
+ * on the next tick, before anything that awaits between spawning and waiting can listen for it.
+ */
+export function waitForSpawn(
+  child: ChildProcessWithoutNullStreams,
+): Effect.Effect<void, OpenCodeError> {
+  if (child.pid !== undefined) return Effect.void;
   return Effect.async<void, OpenCodeError>((resume) => {
     const cleanup = () => {
       child.off("spawn", onSpawn);

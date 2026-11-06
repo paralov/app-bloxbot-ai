@@ -30,6 +30,7 @@ import {
   trackOpenCodeOutput,
   waitForHealth,
   waitForListeningPort,
+  waitForSpawn,
   withOutputTail,
 } from "../../electron/services/OpenCode";
 import {
@@ -565,6 +566,27 @@ describe.skipIf(process.platform === "win32")("stopping OpenCode", () => {
 
     await Effect.runPromise(stopOpenCode({ child }, "200 millis"));
     expect(kill).not.toHaveBeenCalled();
+  });
+});
+
+describe("waitForSpawn", () => {
+  it("sees a start that happened before it was called", async () => {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 5000)"], { stdio: "pipe" });
+    try {
+      // Starting records the pid first, which awaits a file write: "spawn" has fired by then.
+      await new Promise((resolve) => child.once("spawn", resolve));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await Effect.runPromise(waitForSpawn(child).pipe(Effect.timeout("1 second")));
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("fails for a program that can't start", async () => {
+    const child = spawn(join(tmpdir(), "bloxbot-no-such-program"), [], { stdio: "pipe" });
+    const error = await Effect.runPromise(Effect.flip(waitForSpawn(child)));
+    expect(error.message).toContain("Failed to spawn OpenCode");
+    expect(error.couldNotRun).toBe(true);
   });
 });
 
