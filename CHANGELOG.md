@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-06
+
 ### Changed
 
 - Opening BloxBot when it's already open brings up the window you have, instead of opening a second copy.
@@ -404,7 +406,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - OpenCode downloads are restricted to official GitHub release assets and verified with SHA-256 digests before installation and on every cache reuse.
 - Electron runs with context isolation, renderer sandboxing, Node.js integration disabled, validated IPC payloads, and external navigation blocked.
 
-[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/paralov/app-bloxbot-ai/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/paralov/app-bloxbot-ai/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.7...v0.14.0
 [0.13.7]: https://github.com/paralov/app-bloxbot-ai/compare/v0.13.6...v0.13.7
