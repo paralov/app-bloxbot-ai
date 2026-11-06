@@ -70,6 +70,8 @@ export function toModelError(error: SessionStructuredError): ModelError {
     name,
     data: {
       message: error.message,
+      // OpenCode's own reason, such as provider.free-limit, which the name above flattens.
+      type: error.type,
       statusCode: error.status,
       responseBody: error.response?.body,
       retryAfterMs: error.retryAfterMs,

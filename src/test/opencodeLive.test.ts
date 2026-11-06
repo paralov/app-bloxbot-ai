@@ -17,7 +17,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isStudioTool } from "@/lib/aiTracing";
 import { aiTracer } from "@/lib/analytics";
-import { isFreeUsageLimit } from "@/lib/modelError";
+import { isFreeUsageLimit, presentModelError } from "@/lib/modelError";
 import { createOpencodeClient, type OpencodeClient } from "@/lib/opencode/client";
 import type { Event, ToolPart } from "@/lib/opencode/types";
 import { qk } from "@/lib/queryKeys";
@@ -586,9 +586,14 @@ describe.skipIf(!BIN)("[no model] OpenCode 2 failures", () => {
       console.info("[live] free limit:", requests.length, "requests", JSON.stringify(summary));
       expect(requests).toHaveLength(1);
       const failure = events.find((event) => event.type === "session.error");
-      expect(failure?.type === "session.error" && failure.properties.error?.data).toMatchObject({
+      const error = failure?.type === "session.error" ? failure.properties.error : undefined;
+      expect(error?.data).toMatchObject({
         message: expect.stringContaining("Free usage limit"),
       });
+      expect(error && isFreeUsageLimit(error)).toBe(true);
+      // Zen's Retry-After (a few hours, per IP, shared by every free model) is how the card says when
+      // free messages come back.
+      expect(error?.data).toMatchObject({ statusCode: 429, retryAfterMs: 3_600_000 });
       expect(events.some((event) => event.type === "session.idle")).toBe(true);
     } finally {
       abort.abort();
@@ -1163,4 +1168,124 @@ describe.skipIf(!BIN)("[no model] Running a chat", () => {
       mcp.close();
     }
   }, 60_000);
+});
+
+/**
+ * The real free tier, through BloxBot's config. It spends free quota (a few requests per run), so
+ * it only runs when asked:
+ *
+ *   OPENCODE_LIVE_BIN=/path/to/opencode OPENCODE_LIVE_ZEN=1 pnpm vitest run src/test/opencodeLive.test.ts
+ *
+ * Zen limits free use per IP across every free model, for hours at a time, so a machine that has
+ * used its quota gets the limit, and this checks BloxBot recognises Zen's real wording either way.
+ */
+describe.skipIf(!BIN || !process.env.OPENCODE_LIVE_ZEN)("OpenCode Zen's free tier", () => {
+  it(
+    "answers on a free model, or ends the turn on a limit BloxBot recognises",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "bloxbot-zen-"));
+      const seen: Array<{ tools: boolean; status: number; retryAfter: string | null }> = [];
+      // Passes requests on to Zen and notes what came back, as BloxBot's users' requests go.
+      const proxy = createServer((req, res) => {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", async () => {
+          const body = Buffer.concat(chunks);
+          const headers = Object.fromEntries(
+            Object.entries(req.headers).filter(
+              ([key]) => !["host", "content-length", "connection"].includes(key),
+            ),
+          ) as Record<string, string>;
+          try {
+            const upstream = await fetch(`https://opencode.ai/zen${req.url}`, {
+              method: req.method,
+              headers,
+              body: req.method === "GET" ? undefined : body,
+            });
+            seen.push({
+              tools: body.includes('"tools"'),
+              status: upstream.status,
+              retryAfter: upstream.headers.get("retry-after"),
+            });
+            res.writeHead(upstream.status, {
+              "content-type": upstream.headers.get("content-type") ?? "application/json",
+            });
+            if (upstream.body) for await (const chunk of upstream.body) res.write(chunk);
+            res.end();
+          } catch (error) {
+            res.writeHead(502);
+            res.end(String(error));
+          }
+        });
+      });
+      await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+      const url = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}/v1`;
+      await mkdir(join(home, "config", "opencode"), { recursive: true });
+      await writeFile(
+        join(home, "config", "opencode", "opencode.json"),
+        JSON.stringify({
+          ...createOpenCodeConfig({ url: "http://127.0.0.1:9/mcp" }),
+          providers: { opencode: { settings: { baseURL: url } } },
+        }),
+      );
+      const { child, baseUrl, workspace } = await startServer(BIN as string, home);
+      const abort = new AbortController();
+      try {
+        const client = createOpencodeClient({
+          baseUrl,
+          directory: workspace,
+          headers: {
+            Authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString("base64")}`,
+          },
+        });
+        const events: Event[] = [];
+        const { stream } = await client.event.subscribe({}, { signal: abort.signal });
+        void (async () => {
+          for await (const event of stream) events.push(event);
+        })().catch(() => undefined);
+
+        const created = await client.session.create({}, { throwOnError: true });
+        const sessionID = created.data.id;
+        await client.session.promptAsync(
+          {
+            sessionID,
+            model: { providerID: "opencode", modelID: MODEL.modelID },
+            parts: [{ type: "text", text: "Reply with OK and nothing else. Don't use any tools." }],
+          },
+          { throwOnError: true },
+        );
+        const deadline = Date.now() + TURN_MS;
+        while (Date.now() < deadline && !events.some((event) => event.type === "session.idle")) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        console.info("[live] zen:", JSON.stringify(seen));
+        expect(events.some((event) => event.type === "session.idle")).toBe(true);
+
+        const chats = seen.filter((request) => request.tools);
+        const limited = chats.filter((request) => request.status === 429);
+        if (limited.length > 0) {
+          // A limit ends the turn at once: one try, not a retry loop like OpenCode 1's.
+          expect(chats).toHaveLength(1);
+          const failure = events.find((event) => event.type === "session.error");
+          const error = failure?.type === "session.error" ? failure.properties.error : undefined;
+          expect(error && isFreeUsageLimit(error)).toBe(true);
+          expect(error && presentModelError(error).kind).toBe("usage");
+        } else {
+          expect(chats.every((request) => request.status === 200)).toBe(true);
+          const history = await client.session.messages({ sessionID }, { throwOnError: true });
+          const reply = history.data
+            .flatMap((message) => message.parts)
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("");
+          expect(reply).toMatch(/ok/i);
+        }
+      } finally {
+        abort.abort();
+        child.kill();
+        proxy.close();
+        await rm(home, { recursive: true, force: true }).catch(() => undefined);
+      }
+    },
+    TURN_MS + 30_000,
+  );
 });

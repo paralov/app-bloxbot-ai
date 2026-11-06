@@ -34,6 +34,8 @@ export const AppConfigSchema = Schema.mutable(
   Schema.Struct({
     lastModel: Schema.NullOr(Schema.String),
     hiddenModels: MutableStrings,
+    // Models refused in the user's region, so they aren't picked again.
+    unavailableModels: MutableStrings,
     theme: ThemePreferenceSchema,
     detailedAnalytics: DetailedAnalyticsPreferenceSchema,
     // Highest analytics policy notice the user has seen; 0 predates the opt-out model.
@@ -63,6 +65,7 @@ export type AppConfig = typeof AppConfigSchema.Type;
 export const DEFAULT_APP_CONFIG: AppConfig = {
   lastModel: null,
   hiddenModels: [],
+  unavailableModels: [],
   theme: "system",
   detailedAnalytics: "unset",
   analyticsNoticeVersion: 0,

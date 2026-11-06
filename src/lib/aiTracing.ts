@@ -113,6 +113,7 @@ interface Turn {
   lastOutputText: string;
   error: string | null;
   errorMessage: string | null;
+  errorDetails: Properties;
   aborted: boolean;
 }
 
@@ -174,6 +175,23 @@ function iso(ms: number | undefined): string | undefined {
 function errorMessage(error: { data?: unknown } | undefined): string | undefined {
   const data = error?.data as { message?: unknown } | undefined;
   return typeof data?.message === "string" ? truncateText(data.message, 2_000) : undefined;
+}
+
+/**
+ * An error's HTTP status, retry delay and OpenCode reason as their own properties, so limits can
+ * be measured. Absent when OpenCode doesn't pass them on.
+ */
+function errorDetailProperties(error: { data?: unknown } | undefined): Properties {
+  const data = (error?.data ?? {}) as {
+    statusCode?: unknown;
+    retryAfterMs?: unknown;
+    type?: unknown;
+  };
+  return {
+    ai_error_status: typeof data.statusCode === "number" ? data.statusCode : undefined,
+    ai_error_retry_after_ms: typeof data.retryAfterMs === "number" ? data.retryAfterMs : undefined,
+    ai_error_type: typeof data.type === "string" ? data.type : undefined,
+  };
 }
 
 function compareMessages(left: Message, right: Message): number {
@@ -363,6 +381,7 @@ export class AiTracer {
       lastOutputText: "",
       error: null,
       errorMessage: null,
+      errorDetails: {},
       aborted: false,
     };
     const queue = this.turns.get(input.sessionID) ?? [];
@@ -433,6 +452,7 @@ export class AiTracer {
         else {
           turn.error = error.name;
           turn.errorMessage = errorMessage(error) ?? null;
+          turn.errorDetails = errorDetailProperties(error);
         }
         if (this.rootOf(sessionID) === sessionID) {
           setTimeout(() => this.finishTurn(sessionID, turn), ERROR_FINISH_DELAY_MS);
@@ -741,6 +761,7 @@ export class AiTracer {
         $ai_is_error: isError,
         $ai_error: isError ? (errorMessage(info.error) ?? info.error?.name) : undefined,
         error_name: info.error?.name,
+        ...(isError ? errorDetailProperties(info.error) : {}),
         aborted,
         opencode_session_id: info.sessionID,
         subagent: this.rootOf(info.sessionID) !== info.sessionID,
@@ -999,6 +1020,7 @@ export class AiTracer {
         $ai_is_error: turn.error !== null,
         $ai_error: turn.errorMessage ?? turn.error ?? undefined,
         error_name: turn.error ?? undefined,
+        ...turn.errorDetails,
         aborted: turn.aborted,
         session_title: this.sessionTitles.get(sessionID),
         provider: input.provider,

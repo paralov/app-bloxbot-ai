@@ -64,16 +64,20 @@ import { useAnswerQuestion, useRejectQuestion } from "@/hooks/mutations/useAnswe
 import { useReplyPermission } from "@/hooks/mutations/useReplyPermission";
 import { useMessage, useMessageIds } from "@/hooks/useMessages";
 import { useActivePermission } from "@/hooks/usePermissions";
+import { useProviderList } from "@/hooks/useProviders";
 import { useActiveQuestion } from "@/hooks/useQuestions";
 import { useSessionError } from "@/hooks/useSessionError";
 import { useSessionStatus } from "@/hooks/useSessionStatuses";
+import { type ModelChoice, pickFreeModel } from "@/lib/modelChoice";
 import {
   freeLimitEndsAt,
   isFreeUsageLimit,
   type ModelError,
+  type ModelErrorPresentation,
   presentModelError,
 } from "@/lib/modelError";
 import { useActiveSession } from "@/providers/ActiveSessionProvider";
+import { usePreferences } from "@/providers/PreferencesProvider";
 import type { MessageWithParts } from "@/types";
 
 // ── Image lightbox ───────────────────────────────────────────────────────
@@ -822,14 +826,80 @@ const CompactionPartView = memo(function CompactionPartView() {
 
 const OPENCODE_GO_URL = "https://opencode.ai/go";
 
+/**
+ * For a model that can't answer here, region-locked or retired: another free model to move the
+ * chat to, through the same preference the model picker sets.
+ */
+function ModelSwitchCard({
+  presentation,
+  model,
+  isLatest,
+}: {
+  presentation: ModelErrorPresentation;
+  /** The model that failed, as "provider/model". */
+  model?: string;
+  isLatest: boolean;
+}) {
+  const providerList = useProviderList();
+  const { selectedModel, hiddenModels, unavailableModels, setSelectedModel, markModelUnavailable } =
+    usePreferences();
+  const [switchedTo, setSwitchedTo] = useState<ModelChoice | null>(null);
+  const isRegion = presentation.kind === "region";
+
+  useEffect(() => {
+    if (isRegion && model) markModelUnavailable(model);
+  }, [isRegion, model, markModelUnavailable]);
+
+  if (!isLatest) {
+    return <p className="my-1 text-xs text-muted-foreground">{presentation.title}.</p>;
+  }
+  const target =
+    providerList &&
+    pickFreeModel(providerList, {
+      avoid: [model, selectedModel],
+      unavailable: unavailableModels,
+      hidden: hiddenModels,
+    });
+
+  return (
+    <div role="alert" className="my-1 rounded-xl border bg-card px-3.5 py-3">
+      <div className="text-sm font-medium">{presentation.title}</div>
+      <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+        {switchedTo
+          ? `Now using ${switchedTo.name}. Send your message again to keep going.`
+          : presentation.description}
+      </p>
+      {target && !switchedTo ? (
+        <button
+          type="button"
+          onClick={() => {
+            posthog.capture(
+              "model_error_switch_clicked",
+              analyticsProperties("chat", { error_kind: presentation.kind }),
+            );
+            setSelectedModel(target.key);
+            setSwitchedTo(target);
+          }}
+          className="mt-2.5 inline-flex h-7 items-center rounded-md bg-foreground px-2.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
+        >
+          Switch to another free model
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 const ModelErrorCard = memo(function ModelErrorCard({
   error,
   hitAt,
+  model,
   isLatest = true,
 }: {
   error: ModelError;
   /** When the error happened, for a free limit that has since lifted. */
   hitAt?: number;
+  /** The model that failed, as "provider/model", when the error came on its reply. */
+  model?: string;
   isLatest?: boolean;
 }) {
   const isLimit = isFreeUsageLimit(error);
@@ -863,6 +933,10 @@ const ModelErrorCard = memo(function ModelErrorCard({
         </a>
       </div>
     );
+  }
+
+  if (presentation.kind === "region" || presentation.kind === "unavailable") {
+    return <ModelSwitchCard presentation={presentation} model={model} isLatest={isLatest} />;
   }
 
   return (
@@ -1105,6 +1179,7 @@ const MessageBubble = memo(function MessageBubble({
                 <ModelErrorCard
                   error={msg.info.error}
                   hitAt={msg.info.time.completed ?? msg.info.time.created}
+                  model={`${msg.info.providerID}/${msg.info.modelID}`}
                   isLatest={isLatest}
                 />
               )}

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ patchConfig: vi.fn(), loadConfig: vi.fn() }));
 
@@ -12,10 +12,106 @@ vi.mock("@/lib/config", () => ({
 vi.mock("posthog-js/dist/module.full.no-external.js", () => ({
   default: { capture: vi.fn(), register: vi.fn() },
 }));
-vi.mock("@/hooks/useProviders", () => ({ useConnectedProviders: () => [] }));
+const providers = vi.hoisted(() => ({
+  list: undefined as unknown,
+  connected: [] as string[],
+}));
+vi.mock("@/hooks/useProviders", () => ({
+  useConnectedProviders: () => providers.connected,
+  useProviderList: () => providers.list,
+}));
 
+import { notify } from "@/lib/notifications";
 import { PreferencesProvider, usePreferences } from "@/providers/PreferencesProvider";
 import { DEFAULT_APP_CONFIG } from "@/types/desktop";
+
+function renderPreferences() {
+  const client = new QueryClient();
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>
+      <PreferencesProvider>{children}</PreferencesProvider>
+    </QueryClientProvider>
+  );
+  return renderHook(() => usePreferences(), { wrapper });
+}
+
+describe("the saved model", () => {
+  const freeTier = {
+    id: "opencode",
+    name: "OpenCode Zen",
+    source: "custom",
+    models: {
+      "flash-free": { id: "flash-free", name: "Flash Free", status: "active" },
+      "crouton-alpha-free": { id: "crouton-alpha-free", name: "Crouton", status: "alpha" },
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.patchConfig.mockResolvedValue(undefined);
+    providers.connected = ["opencode"];
+    providers.list = {
+      all: [freeTier],
+      connected: ["opencode"],
+      default: { opencode: "flash-free" },
+    };
+  });
+  afterEach(() => {
+    providers.connected = [];
+    providers.list = undefined;
+  });
+
+  it("moves to the default model, and says so, when OpenCode no longer lists it", async () => {
+    const message = vi.spyOn(notify, "message");
+    mocks.loadConfig.mockResolvedValue({
+      ...DEFAULT_APP_CONFIG,
+      analyticsNoticeVersion: 99,
+      lastModel: "opencode/nemotron-3-ultra-free",
+    });
+    const { result } = renderPreferences();
+
+    await waitFor(() => expect(result.current.selectedModel).toBe("opencode/flash-free"));
+    expect(mocks.patchConfig).toHaveBeenCalledWith({ lastModel: "opencode/flash-free" });
+    expect(message).toHaveBeenCalledTimes(1);
+    expect(message).toHaveBeenCalledWith("nemotron-3-ultra-free is no longer available", {
+      description: "This chat now uses Flash Free.",
+    });
+  });
+
+  it("doesn't bring back a model refused in the user's region", async () => {
+    mocks.loadConfig.mockResolvedValue({
+      ...DEFAULT_APP_CONFIG,
+      analyticsNoticeVersion: 99,
+      lastModel: "opencode/crouton-alpha-free",
+      unavailableModels: ["opencode/crouton-alpha-free"],
+    });
+    const { result } = renderPreferences();
+
+    await waitFor(() => expect(result.current.selectedModel).toBe("opencode/flash-free"));
+    expect(result.current.unavailableModels.has("opencode/crouton-alpha-free")).toBe(true);
+  });
+
+  it("keeps a listed model, and remembers one refused in the region once", async () => {
+    const message = vi.spyOn(notify, "message");
+    mocks.loadConfig.mockResolvedValue({
+      ...DEFAULT_APP_CONFIG,
+      analyticsNoticeVersion: 99,
+      lastModel: "opencode/crouton-alpha-free",
+    });
+    const { result } = renderPreferences();
+    await waitFor(() => expect(result.current.selectedModel).toBe("opencode/crouton-alpha-free"));
+
+    act(() => result.current.markModelUnavailable("opencode/crouton-alpha-free"));
+    act(() => result.current.markModelUnavailable("opencode/crouton-alpha-free"));
+
+    expect(result.current.unavailableModels.has("opencode/crouton-alpha-free")).toBe(true);
+    const saves = mocks.patchConfig.mock.calls.filter(([patch]) => "unavailableModels" in patch);
+    expect(saves).toEqual([[{ unavailableModels: ["opencode/crouton-alpha-free"] }]]);
+    // Its card offers the switch, so the chat isn't moved out from under it.
+    expect(result.current.selectedModel).toBe("opencode/crouton-alpha-free");
+    expect(message).not.toHaveBeenCalled();
+  });
+});
 
 describe("notification preferences", () => {
   beforeEach(() => {

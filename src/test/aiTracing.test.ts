@@ -149,6 +149,51 @@ describe("AI tracing", () => {
   });
 });
 
+describe("failed replies", () => {
+  it("sends an error's status, reset delay and OpenCode reason on their own", () => {
+    const { tracer, send, events } = setup();
+    const error = {
+      name: "APIError",
+      data: {
+        message: "Free usage limit reached.",
+        type: "provider.free-limit",
+        statusCode: 429,
+        retryAfterMs: 3_600_000,
+        isRetryable: false,
+      },
+    };
+
+    tracer.beginTurn({ sessionID: "ses_1", text: "build it", imageCount: 0 });
+    send("message.updated", { info: userMessage() });
+    send("session.error", { sessionID: "ses_1", error });
+    send("message.updated", { info: { ...assistantMessage({}, 1_200), error } });
+    send("session.idle", { sessionID: "ses_1" });
+
+    const details = {
+      error_name: "APIError",
+      ai_error_status: 429,
+      ai_error_retry_after_ms: 3_600_000,
+      ai_error_type: "provider.free-limit",
+    };
+    expect(events("$ai_generation")[0]).toMatchObject({ $ai_is_error: true, ...details });
+    expect(events("$ai_trace")[0]).toMatchObject({ $ai_is_error: true, ...details });
+  });
+
+  it("leaves them out when OpenCode doesn't pass them on", () => {
+    const { tracer, send, events } = setup();
+    const error = { name: "UnknownError", data: { message: "Free usage limit reached." } };
+
+    tracer.beginTurn({ sessionID: "ses_1", text: "build it", imageCount: 0 });
+    send("message.updated", { info: userMessage() });
+    send("message.updated", { info: { ...assistantMessage({}, 1_200), error } });
+
+    const generation = events("$ai_generation")[0] as Record<string, unknown>;
+    expect(generation.error_name).toBe("UnknownError");
+    expect(generation.ai_error_status).toBeUndefined();
+    expect(generation.ai_error_retry_after_ms).toBeUndefined();
+  });
+});
+
 describe("streamed text", () => {
   it("doesn't edit the event's part, which the message cache and the screen share", () => {
     const tracer = new AiTracer(() => {});
