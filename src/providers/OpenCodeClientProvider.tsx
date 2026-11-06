@@ -40,7 +40,7 @@ interface StartupErrorPresentation {
   technicalDetail: string;
 }
 
-/** The `(reason: …)` the desktop service adds when installing OpenCode fails. */
+/** The `(reason: …)` the desktop service adds when installing or starting OpenCode fails. */
 export function getInstallFailureReason(technicalDetail: string): string | null {
   return /\(reason: ([a-z_]+)\)/.exec(technicalDetail)?.[1] ?? null;
 }
@@ -202,6 +202,38 @@ export function getStartupErrorPresentation(
     return {
       message: "Setup couldn't finish",
       detail: "Your drive is nearly full. Free up at least 500 MB, then try again.",
+      technicalDetail,
+    };
+  }
+
+  if (reason === "database_locked") {
+    return {
+      message: "BloxBot couldn't start",
+      detail:
+        "Another copy of BloxBot is still open and using your chats. Close it, or restart your computer, then try again.",
+      technicalDetail,
+    };
+  }
+
+  if (reason === "database_io") {
+    return {
+      message: "BloxBot couldn't start",
+      detail:
+        "BloxBot couldn't open your saved chats. Check that your computer has free space, then restart it and try again. If it keeps happening, your antivirus may be blocking the BloxBot folder.",
+      helpLink: exclusionHelp(),
+      technicalDetail,
+    };
+  }
+
+  if (reason === "folder_blocked") {
+    return {
+      message: "BloxBot couldn't start",
+      // Neither OneDrive nor Controlled folder access covers the user folder itself unless someone
+      // set them up to, so the usual cause is security software or a school or work policy.
+      detail: navigator.userAgent.includes("Windows")
+        ? "Something on this computer stopped BloxBot from saving files in the BloxBot folder in your user folder. That's usually antivirus, or a setting from your school or workplace. Allow BloxBot in your antivirus, or ask whoever looks after this computer, then try again."
+        : "BloxBot isn't allowed to save files in the BloxBot folder in your home folder. Make sure your account can change that folder, then try again.",
+      helpLink: exclusionHelp(),
       technicalDetail,
     };
   }

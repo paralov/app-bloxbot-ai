@@ -393,4 +393,24 @@ describe("toModelError", () => {
     );
     expect(toModelError({ type: "provider", message: "Nope", status: 500 }).name).toBe("APIError");
   });
+
+  it("keeps the free limit's reset delay and OpenCode's reason for the card and analytics", () => {
+    expect(
+      toModelError({
+        type: "provider.free-limit",
+        message: "Free usage limit reached.",
+        status: 429,
+        response: { body: '{"type":"error","error":{"type":"FreeUsageLimitError"}}' },
+        retryAfterMs: 3_600_000,
+      }),
+    ).toMatchObject({
+      name: "APIError",
+      data: {
+        type: "provider.free-limit",
+        statusCode: 429,
+        retryAfterMs: 3_600_000,
+        responseBody: '{"type":"error","error":{"type":"FreeUsageLimitError"}}',
+      },
+    });
+  });
 });

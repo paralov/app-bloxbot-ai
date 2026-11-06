@@ -365,8 +365,14 @@ function ChatInput({
   const connectedProviders = useConnectedProviders();
   const { activeSessionId, activeSessionIdRef } = useActiveSession();
   const isBusy = useIsBusy(activeSessionId);
-  const { selectedModel, selectedVariant, hiddenModels, setSelectedModel, setSelectedVariant } =
-    usePreferences();
+  const {
+    selectedModel,
+    selectedVariant,
+    hiddenModels,
+    unavailableModels,
+    setSelectedModel,
+    setSelectedVariant,
+  } = usePreferences();
   const studioTarget = useStudioTargetOptional();
   const studioTargetReference = studioTarget?.promptReference ?? null;
   const studioId = studioTarget?.selected?.key ?? null;
@@ -759,10 +765,14 @@ function ChatInput({
         <MenuLabel>{group.providerName}</MenuLabel>
         {group.models.map((model) => {
           const fullId = `${model.providerId}/${model.id}`;
+          const refused = unavailableModels.has(fullId);
           return (
             <MenuItem
               key={fullId}
               checked={selectedModel === fullId}
+              disabled={refused}
+              description={refused ? "Not offered in your region" : undefined}
+              className={refused ? "opacity-60" : undefined}
               onClick={() => handleModelClick(model)}
             >
               <span className="truncate">{model.name}</span>

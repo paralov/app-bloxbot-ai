@@ -159,7 +159,9 @@ const filesFor = (platform: NodeJS.Platform, arch: string) => PLATFORM_FILES[`${
 const blenderDirectory = (root: string) => join(root, `blender-${BLENDER_VERSION}`);
 const serverDirectory = (root: string) => join(root, `mcp-server-${MCP_VERSION}`);
 const userResources = (root: string) => join(root, "user");
-const markerPath = (root: string) => join(root, "installed.json");
+/** Written last, once setup has finished, so a folder without it holds no working setup. */
+export const BLENDER_MARKER_FILE = "installed.json";
+const markerPath = (root: string) => join(root, BLENDER_MARKER_FILE);
 
 function blenderExecutable(root: string, platform: NodeJS.Platform): string {
   const directory = blenderDirectory(root);

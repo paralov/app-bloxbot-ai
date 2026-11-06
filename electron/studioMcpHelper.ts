@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { win32 } from "node:path";
 
+import { scrubErrorText } from "../src/lib/errorReporting";
 import {
   studioMcpCommand,
   studioMcpInstallPath,
@@ -14,14 +15,15 @@ import {
  * - registry: next to the ContentFolder Studio records in the registry
  * - versions_scan: the newest StudioMCP.exe under Roblox\Versions
  * - studio_folder: StudioMCP.exe in the newer %LOCALAPPDATA%\Roblox Studio install folder
- * - bat_fallback: Studio's mcp.bat through cmd.exe, when no StudioMCP.exe was found
+ * - missing: Studio's mcp.bat is there but no StudioMCP.exe is. The bat isn't run, since its
+ *   version path is stale by then and it can only fail.
  */
 export type StudioMcpHelperSource =
   | "bat_path"
   | "registry"
   | "versions_scan"
   | "studio_folder"
-  | "bat_fallback";
+  | "missing";
 
 export interface StudioMcpHelper {
   command: string[];
@@ -29,6 +31,8 @@ export interface StudioMcpHelper {
   installPath: string | null;
   /** How the Windows helper was found. Null on other platforms. */
   source: StudioMcpHelperSource | null;
+  /** When the helper is missing: where it was looked for, with home folders shown as `~`. */
+  searched?: string[];
 }
 
 /** The file system and registry reads the resolver needs, so tests can fake them. */
@@ -93,10 +97,19 @@ export const nodeStudioMcpHelperProbe: StudioMcpHelperProbe = {
   },
 };
 
-/** The StudioMCP.exe path in mcp.bat's first `if exist "..."` line. */
+/**
+ * The StudioMCP.exe path in mcp.bat's first `if exist "..."` line. Studio can write it as
+ * `<version>\content\/..\StudioMCP.exe`, so it comes back normalised to `<version>\StudioMCP.exe`.
+ */
 export function parseStudioMcpBatPath(bat: string): string | null {
   const match = /^\s*if\s+exist\s+"([^"\r\n]+)"/im.exec(bat);
-  return match?.[1]?.trim() || null;
+  const path = match?.[1]?.trim();
+  return path ? win32.normalize(path) : null;
+}
+
+/** The Roblox\Versions folder holding a `version-xxx` folder, or null for any other folder. */
+function versionsFolderOf(versionFolder: string): string | null {
+  return /^version-/i.test(win32.basename(versionFolder)) ? win32.dirname(versionFolder) : null;
 }
 
 /** The ContentFolder value from `reg query` output. */
@@ -108,6 +121,7 @@ export function parseContentFolder(output: string): string | null {
 /**
  * Finds Studio's MCP helper. On Windows it starts StudioMCP.exe directly, because the mcp.bat
  * Studio writes has invalid batch syntax that fails once its hard-coded version path is stale.
+ * That bat is never run: with no StudioMCP.exe found, the helper comes back as "missing".
  * Resolved on every connect attempt, so a Studio update between attempts is picked up.
  */
 export async function resolveStudioMcpHelper(
@@ -137,18 +151,32 @@ export async function resolveStudioMcpHelper(
 
   const registry = await probe.queryContentFolder(environment);
   const contentFolder = registry ? parseContentFolder(registry) : null;
-  if (contentFolder) {
-    const fromRegistry = win32.join(contentFolder, "..", "StudioMCP.exe");
-    if (await probe.exists(fromRegistry)) return direct(fromRegistry, "registry");
-  }
+  const registryVersion = contentFolder ? win32.normalize(win32.join(contentFolder, "..")) : null;
+  const fromRegistry = registryVersion ? win32.join(registryVersion, "StudioMCP.exe") : null;
+  if (fromRegistry && (await probe.exists(fromRegistry))) return direct(fromRegistry, "registry");
 
-  const versions = win32.join(dataDirectory, "Roblox", "Versions");
+  // A stale bat or registry path still says where Studio keeps its versions, which may not be
+  // the usual place, so the versions next to the stale one are searched too.
+  const versionsFolders = new Map<string, string>();
+  for (const folder of [
+    win32.join(dataDirectory, "Roblox", "Versions"),
+    fromBat ? versionsFolderOf(win32.dirname(fromBat)) : null,
+    registryVersion ? versionsFolderOf(registryVersion) : null,
+  ]) {
+    if (folder && !versionsFolders.has(folder.toLowerCase())) {
+      versionsFolders.set(folder.toLowerCase(), folder);
+    }
+  }
   let newest: { path: string; modified: number } | null = null;
-  for (const entry of await probe.listDirectory(versions)) {
-    if (!/^version-/i.test(entry)) continue;
-    const path = win32.join(versions, entry, "StudioMCP.exe");
-    const modified = await probe.modifiedTime(path);
-    if (modified !== null && (!newest || modified > newest.modified)) newest = { path, modified };
+  for (const versions of versionsFolders.values()) {
+    for (const entry of await probe.listDirectory(versions)) {
+      if (!/^version-/i.test(entry)) continue;
+      const path = win32.join(versions, entry, "StudioMCP.exe");
+      const modified = await probe.modifiedTime(path);
+      if (modified !== null && (!newest || modified > newest.modified)) {
+        newest = { path, modified };
+      }
+    }
   }
   if (newest) return direct(newest.path, "versions_scan");
 
@@ -156,9 +184,21 @@ export async function resolveStudioMcpHelper(
   const studioFolder = win32.join(dataDirectory, "Roblox Studio", "StudioMCP.exe");
   if (await probe.exists(studioFolder)) return direct(studioFolder, "studio_folder");
 
+  // Without mcp.bat, Studio isn't installed or hasn't set up MCP, and the missing bat says so.
+  if (bat === null) {
+    return { command: studioMcpCommand(platform, environment), installPath: batPath, source: null };
+  }
+  const searched = [
+    fromBat,
+    fromRegistry,
+    ...[...versionsFolders.values()].map((folder) => win32.join(folder, "version-*")),
+    win32.dirname(studioFolder),
+  ].filter((path): path is string => path !== null);
   return {
-    command: studioMcpCommand(platform, environment),
-    installPath: batPath,
-    source: "bat_fallback",
+    command: [],
+    installPath: null,
+    source: "missing",
+    // These end up in error reports, so home folders are swapped for `~` here already.
+    searched: [...new Set(searched)].map((path) => scrubErrorText(path)),
   };
 }

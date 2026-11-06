@@ -34,6 +34,8 @@ export const AppConfigSchema = Schema.mutable(
   Schema.Struct({
     lastModel: Schema.NullOr(Schema.String),
     hiddenModels: MutableStrings,
+    // Models refused in the user's region, so they aren't picked again.
+    unavailableModels: MutableStrings,
     theme: ThemePreferenceSchema,
     detailedAnalytics: DetailedAnalyticsPreferenceSchema,
     // Highest analytics policy notice the user has seen; 0 predates the opt-out model.
@@ -63,6 +65,7 @@ export type AppConfig = typeof AppConfigSchema.Type;
 export const DEFAULT_APP_CONFIG: AppConfig = {
   lastModel: null,
   hiddenModels: [],
+  unavailableModels: [],
   theme: "system",
   detailedAnalytics: "unset",
   analyticsNoticeVersion: 0,
@@ -123,11 +126,12 @@ export const UpdateInfoSchema = Schema.mutable(
 export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
 /**
- * Whether BloxBot could start Roblox Studio's MCP helper. `not_installed` means the helper
- * isn't on this computer, `unavailable` means it started but closed before it connected.
+ * Whether BloxBot could start Roblox Studio's MCP helper. `not_installed` means Studio isn't on
+ * this computer, `helper_missing` that Studio is but hasn't installed its helper yet, and
+ * `unavailable` that the helper started but closed before it connected.
  */
 export const StudioMcpStatusSchema = Schema.Struct({
-  state: Schema.Literal("starting", "connected", "not_installed", "unavailable"),
+  state: Schema.Literal("starting", "connected", "not_installed", "helper_missing", "unavailable"),
 });
 
 export type StudioMcpStatus = typeof StudioMcpStatusSchema.Type;

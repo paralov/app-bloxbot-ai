@@ -9,12 +9,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { useConnectedProviders } from "@/hooks/useProviders";
+import { useConnectedProviders, useProviderList } from "@/hooks/useProviders";
 import {
   ANALYTICS_NOTICE_VERSION,
   setDetailedAnalyticsEnabled as setDetailedAnalyticsCollection,
 } from "@/lib/analytics";
 import { type AppConfig, loadConfig, patchConfig } from "@/lib/config";
+import { goneReason, modelName, replacementModel } from "@/lib/modelChoice";
 import { notify, setNotificationPreferences } from "@/lib/notifications";
 import { qk } from "@/lib/queryKeys";
 import { splitModelKey } from "@/lib/splitModelKey";
@@ -36,10 +37,13 @@ interface PreferencesContextValue {
   selectedModel: string | null;
   selectedVariant: string | null;
   hiddenModels: Set<string>;
+  /** Models refused in the user's region. */
+  unavailableModels: Set<string>;
   detailedAnalyticsEnabled: boolean;
   setSelectedModel: (modelID: string) => void;
   setSelectedVariant: (variant: string | null) => void;
   toggleModelVisibility: (modelKey: string) => void;
+  markModelUnavailable: (modelKey: string) => void;
   setDetailedAnalyticsEnabled: (enabled: boolean) => void;
   notifications: NotificationPreferences;
   setNotificationKind: (kind: keyof NotificationKinds, enabled: boolean) => void;
@@ -63,6 +67,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [selectedModel, setSelectedModelState] = useState<string | null>(null);
   const [selectedVariant, setSelectedVariantState] = useState<string | null>(null);
   const [hiddenModels, setHiddenModels] = useState<Set<string>>(new Set());
+  const [unavailableModels, setUnavailableModels] = useState<Set<string>>(new Set());
+  const unavailableRef = useRef(unavailableModels);
+  // Models already moved away from, so a stale saved choice isn't announced twice.
+  const movedFromRef = useRef(new Set<string>());
   const [detailedAnalyticsEnabled, setDetailedAnalyticsEnabledState] = useState(false);
   const detailedAnalyticsEnabledRef = useRef(false);
 
@@ -74,6 +82,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const notificationSaveRef = useRef(0);
 
   const connectedProviders = useConnectedProviders();
+  const providerList = useProviderList();
 
   const applyNotifications = useCallback((next: NotificationPreferences) => {
     setNotifications(next);
@@ -122,6 +131,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!configData) return;
     setHiddenModels(new Set(configData.hiddenModels));
+    unavailableRef.current = new Set(configData.unavailableModels ?? []);
+    setUnavailableModels(unavailableRef.current);
     const loaded = { kinds: kindsFromConfig(configData), sound: configData.notificationSound };
     notificationsRef.current = loaded;
     applyNotifications(loaded);
@@ -177,17 +188,46 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setSelectedVariantState(null);
       return;
     }
-    if (
+    const restoring =
       !selectedModel &&
       configData.lastModel &&
       connectedProviders.includes(splitModelKey(configData.lastModel)[0])
-    ) {
-      setSelectedModelState(configData.lastModel);
+        ? configData.lastModel
+        : null;
+    const current = selectedModel ?? restoring;
+    if (!current) return;
+
+    // Read from the config too: on first load the state hasn't caught up with it yet.
+    const unavailable = new Set([...(configData.unavailableModels ?? []), ...unavailableModels]);
+    const gone = providerList && goneReason(providerList, current, unavailable);
+    // A model refused in this region keeps its card, which offers the switch, until the next launch.
+    if (providerList && (gone === "retired" || (gone === "region" && restoring))) {
+      if (movedFromRef.current.has(current)) return;
+      movedFromRef.current.add(current);
+      const next = replacementModel(providerList, current, unavailable);
+      setSelectedModelState(next?.key ?? null);
+      setSelectedVariantState(null);
+      patchConfig({ lastModel: next?.key ?? null }).catch(() => {});
+      const name = modelName(providerList, current);
+      notify.message(
+        gone === "retired"
+          ? `${name} is no longer available`
+          : `${name} isn't offered in your region`,
+        {
+          description: `This chat now uses ${next?.name ?? "the default model"}.`,
+        },
+      );
+      return;
     }
-  }, [configData, connectedProviders, selectedModel]);
+    if (restoring) setSelectedModelState(restoring);
+  }, [configData, connectedProviders, providerList, selectedModel, unavailableModels]);
 
   const setSelectedModel = useCallback((modelID: string) => {
-    setSelectedModelState(modelID);
+    setSelectedModelState((current) => {
+      // A variant belongs to its model, and another model may not have it.
+      if (current !== modelID) setSelectedVariantState(null);
+      return modelID;
+    });
     patchConfig({ lastModel: modelID }).catch(() => {});
   }, []);
 
@@ -209,16 +249,26 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     [hiddenModels],
   );
 
+  const markModelUnavailable = useCallback((modelKey: string) => {
+    if (unavailableRef.current.has(modelKey)) return;
+    const next = new Set(unavailableRef.current).add(modelKey);
+    unavailableRef.current = next;
+    setUnavailableModels(next);
+    patchConfig({ unavailableModels: [...next] }).catch(() => {});
+  }, []);
+
   const value = useMemo<PreferencesContextValue>(
     () => ({
       selectedModel,
       selectedVariant,
       hiddenModels,
+      unavailableModels,
       detailedAnalyticsEnabled,
       notifications,
       setSelectedModel,
       setSelectedVariant,
       toggleModelVisibility,
+      markModelUnavailable,
       setDetailedAnalyticsEnabled,
       setNotificationKind,
       setNotificationSound,
@@ -227,11 +277,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       selectedModel,
       selectedVariant,
       hiddenModels,
+      unavailableModels,
       detailedAnalyticsEnabled,
       notifications,
       setSelectedModel,
       setSelectedVariant,
       toggleModelVisibility,
+      markModelUnavailable,
       setDetailedAnalyticsEnabled,
       setNotificationKind,
       setNotificationSound,

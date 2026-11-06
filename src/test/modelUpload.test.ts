@@ -4,7 +4,8 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { networkDriveLetters } from "../../electron/networkDrives";
 import {
   getUploadAccess,
   isNetworkPath,
@@ -112,6 +113,10 @@ const deps = (callTool: CallStudioTool, extra = {}) => ({
   sleep: async () => {},
   ...extra,
 });
+
+// Reading a model asks Windows for its mapped drives through PowerShell, whose first start on a CI
+// runner can outlast a test's 5 seconds. The answer is kept for 30 seconds, so ask once up front.
+beforeAll(() => networkDriveLetters(), 30_000);
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "model-upload-"));

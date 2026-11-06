@@ -1,22 +1,35 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { Context, Duration, Effect, Fiber, Layer, Schedule, TestClock, TestContext } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Fiber,
+  Layer,
+  Logger,
+  LogLevel,
+  Schedule,
+  TestClock,
+  TestContext,
+} from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { StudioMcpUpstream } from "../../electron/services/StudioMcpBroker";
 import {
   describeConnectFailure,
+  describeMissingHelper,
   makeStudioMcpBrokerLayer,
   runStudioMcpStartup,
   StudioMcpBroker,
   StudioMcpBrokerError,
   StudioMcpConnectError,
   StudioMcpConnection,
+  StudioMcpHelperMissingError,
   StudioMcpNotInstalledError,
   startStudioMcpBroker,
   studioMcpStartSchedule,
@@ -113,6 +126,24 @@ describe("Studio MCP broker", () => {
       const layer = makeStudioMcpBrokerLayer({ workspace, platform: "linux" });
       await Effect.runPromise(Effect.scoped(Layer.build(layer)));
       expect(existsSync(workspace)).toBe(true);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("moves a file named like the workspace aside and creates the folder", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "bloxbot-test-"));
+    const workspace = join(tmp, "BloxBot");
+    try {
+      await writeFile(workspace, "not a folder");
+      const layer = makeStudioMcpBrokerLayer({ workspace, platform: "linux" });
+      await Effect.runPromise(
+        Effect.scoped(Layer.build(layer)).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+      );
+      expect((await stat(workspace)).isDirectory()).toBe(true);
+      const backups = (await readdir(tmp)).filter((name) => name.startsWith("BloxBot.bak-"));
+      expect(backups).toHaveLength(1);
+      expect(await readFile(join(tmp, backups[0] ?? ""), "utf8")).toBe("not a folder");
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
@@ -221,6 +252,81 @@ describe("Studio MCP startup (#106)", () => {
     expect(connectUpstream).toHaveBeenCalledOnce();
     expect(connection.status()).toEqual({ state: "not_installed" });
     expect(onFailure).not.toHaveBeenCalled();
+  });
+
+  it("says to open or update Studio, once and without retrying, when StudioMCP.exe is missing", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "bloxbot-test-"));
+    const onStartFailure = vi.fn();
+    // Studio has set up MCP, but the version its mcp.bat names is gone and there's no other.
+    const local = "C:\\Users\\Jane Doe\\AppData\\Local";
+    const bat = `@echo off\r\nif exist "${local}\\Roblox\\Versions\\version-gone\\content\\/..\\StudioMCP.exe" (\r\n`;
+    const mcpBat = vi.fn(async (path: string) => (path.endsWith("mcp.bat") ? bat : null));
+    try {
+      const status = await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const context = yield* Layer.build(
+              makeStudioMcpBrokerLayer({
+                workspace: join(tmp, "BloxBot"),
+                platform: "win32",
+                localAppData: local,
+                helperProbe: {
+                  exists: async () => false,
+                  readText: mcpBat,
+                  listDirectory: async () => [],
+                  modifiedTime: async () => null,
+                  queryContentFolder: async () => null,
+                },
+                onStartFailure,
+                startSchedule: instantSchedule,
+              }),
+            );
+            const broker = Context.get(context, StudioMcpBroker);
+            yield* Effect.promise(() =>
+              vi.waitFor(async () => {
+                const current = await Effect.runPromise(broker.status);
+                if (current.state === "starting") throw new Error("still starting");
+              }),
+            );
+            return yield* broker.status;
+          }),
+        ),
+      );
+      // The setup screen says to open Studio once, not that Studio can't be found.
+      expect(status).toEqual({ state: "helper_missing" });
+      expect(onStartFailure).toHaveBeenCalledOnce();
+      const message = describeError(onStartFailure.mock.calls[0]?.[0]).message ?? "";
+      expect(message).toContain(
+        "Open Roblox Studio once so it installs its MCP helper, or update Studio.",
+      );
+      expect(message).toContain(
+        "Searched: ~\\AppData\\Local\\Roblox\\Versions\\version-gone\\StudioMCP.exe; " +
+          "~\\AppData\\Local\\Roblox\\Versions\\version-*; ~\\AppData\\Local\\Roblox Studio",
+      );
+      expect(message).not.toContain("Jane");
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("doesn't retry a missing helper, and shows it as not installed", async () => {
+    const connectUpstream = vi
+      .fn<() => Promise<StudioMcpUpstream>>()
+      .mockRejectedValue(
+        new StudioMcpHelperMissingError({ message: describeMissingHelper(["~\\Roblox Studio"]) }),
+      );
+    const connection = new StudioMcpConnection(connectUpstream);
+    const onFailure = vi.fn();
+
+    await Effect.runPromise(
+      runStudioMcpStartup(connection, { schedule: instantSchedule, onFailure }),
+    );
+
+    expect(connectUpstream).toHaveBeenCalledOnce();
+    expect(connection.status()).toEqual({ state: "helper_missing" });
+    expect(describeError(onFailure.mock.calls[0]?.[0]).message).toBe(
+      "Failed to connect to Studio MCP at startup (cause: Roblox Studio's MCP helper (StudioMCP.exe) is missing. Open Roblox Studio once so it installs its MCP helper, or update Studio. Searched: ~\\Roblox Studio)",
+    );
   });
 
   it("keeps the app usable and reports Studio isn't installed when the helper is missing", async () => {

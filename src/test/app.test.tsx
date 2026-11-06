@@ -1109,7 +1109,7 @@ describe("User journeys", () => {
       );
     });
 
-    expect(await screen.findByText("You've used today's free messages")).toBeInTheDocument();
+    expect(await screen.findByText("You've used the free messages for now")).toBeInTheDocument();
 
     // The failed reply has no content, and it must not look like it's still thinking.
     act(() => {
@@ -1153,6 +1153,119 @@ describe("User journeys", () => {
       "https://opencode.ai/go",
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByText(/They reset in about 2 hours/)).toBeInTheDocument();
+    expect(screen.getByText(/Free messages come back in about 2 hours/)).toBeInTheDocument();
+    // Every free model shares the limit, so switching between them isn't offered.
+    expect(
+      screen.queryByRole("button", { name: "Switch to another free model" }),
+    ).not.toBeInTheDocument();
+  });
+
+  describe("a model that can't answer here", () => {
+    const FREE_TIER = {
+      all: [
+        {
+          id: "opencode",
+          name: "OpenCode Zen",
+          source: "custom",
+          env: [],
+          models: {
+            "crouton-alpha-free": {
+              id: "crouton-alpha-free",
+              name: "Crouton Alpha",
+              status: "alpha",
+            },
+            "flash-free": { id: "flash-free", name: "Flash Free", status: "active" },
+          },
+        },
+      ],
+      connected: ["opencode"],
+      default: { opencode: "flash-free" },
+    };
+
+    /** A chat on a free model whose reply failed with this message. */
+    async function failReply(message: string) {
+      const session = makeSession("s1", "Free chat");
+      const client = createClient({
+        get: vi.fn().mockResolvedValue({ data: session }),
+        messages: vi.fn().mockResolvedValue({ data: [] }),
+      });
+      client.provider.list = vi.fn().mockResolvedValue({ data: FREE_TIER });
+      const queryClient = createQueryClient();
+      seedReadyState(queryClient, { sessions: [session] });
+      queryClient.setQueryData(qk.providers, FREE_TIER);
+      queryClient.setQueryData(qk.config, {
+        ...(queryClient.getQueryData(qk.config) as object),
+        lastModel: "opencode/crouton-alpha-free",
+      });
+
+      render(<TestApp client={client} queryClient={queryClient} />);
+      await act(async () => {
+        fireEvent.click(await screen.findByText("Free chat"));
+      });
+      await screen.findByRole("button", { name: "Crouton Alpha" });
+
+      act(() => {
+        sseDispatch(
+          queryClient,
+          {
+            type: "message.updated",
+            properties: {
+              sessionID: "s1",
+              info: {
+                id: "reply",
+                sessionID: "s1",
+                role: "assistant",
+                time: { created: Date.now(), completed: Date.now() },
+                parentID: "prompt",
+                modelID: "crouton-alpha-free",
+                providerID: "opencode",
+                mode: "studio",
+                agent: "studio",
+                path: { cwd: "", root: "" },
+                cost: 0,
+                tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                error: { name: "UnknownError", data: { message } },
+              },
+            },
+          } as never,
+          { current: "s1" },
+        );
+      });
+    }
+
+    it("switches a region-locked model to another free one, and marks it in the picker", async () => {
+      await failReply("This model is not available in your country");
+
+      expect(await screen.findByText("This model isn't offered in your region")).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Switch to another free model" }));
+
+      expect(await screen.findByText(/Now using Flash Free/)).toBeVisible();
+      await waitFor(() =>
+        expect(desktop.loadConfig()).resolves.toMatchObject({
+          lastModel: "opencode/flash-free",
+          unavailableModels: ["opencode/crouton-alpha-free"],
+        }),
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Flash Free" }));
+      const refused = await screen.findByRole("button", { name: /Crouton Alpha/ });
+      expect(refused).toBeDisabled();
+      expect(refused).toHaveTextContent("Not offered in your region");
+    });
+
+    it("offers a switch away from a model OpenCode retired, without remembering it", async () => {
+      await failReply("Upstream request failed: Model is unavailable.");
+
+      expect(await screen.findByText("This model is no longer available")).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Switch to another free model" }));
+
+      expect(await screen.findByText(/Now using Flash Free/)).toBeVisible();
+      await waitFor(() =>
+        expect(desktop.loadConfig()).resolves.toMatchObject({
+          lastModel: "opencode/flash-free",
+          unavailableModels: [],
+        }),
+      );
+    });
   });
 });

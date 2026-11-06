@@ -158,21 +158,59 @@ describe("Studio MCP helper on Windows (#106)", () => {
     });
   });
 
-  it("falls back to mcp.bat through cmd.exe when no StudioMCP.exe is found", async () => {
-    const probe = fakeProbe({ files: { [BAT]: "@echo off\r\nsome-other-launcher.exe %*\r\n" } });
+  it("never runs mcp.bat, and says where it looked when no StudioMCP.exe is found", async () => {
+    const probe = fakeProbe({
+      files: { [BAT]: studioBat("version-gone") },
+      registry: registryOutput(`${VERSIONS}\\version-gone\\content`),
+    });
 
     await expect(resolveStudioMcpHelper("win32", environment, probe)).resolves.toEqual({
-      command: ["C:\\WINDOWS\\system32\\cmd.exe", "/c", BAT],
-      installPath: BAT,
-      source: "bat_fallback",
+      command: [],
+      installPath: null,
+      source: "missing",
+      // Home folders are scrubbed the way error reports scrub them.
+      searched: [
+        "~\\AppData\\Local\\Roblox\\Versions\\version-gone\\StudioMCP.exe",
+        "~\\AppData\\Local\\Roblox\\Versions\\version-*",
+        "~\\AppData\\Local\\Roblox Studio",
+      ],
     });
   });
 
-  it("points the fallback at the missing mcp.bat so Studio reads as not installed", async () => {
+  it("points at the missing mcp.bat so Studio reads as not installed", async () => {
     const helper = await resolveStudioMcpHelper("win32", environment, fakeProbe({}));
 
-    expect(helper.source).toBe("bat_fallback");
+    expect(helper.source).toBeNull();
     expect(helper.installPath).toBe(BAT);
+  });
+
+  it("reads the content\\/.. path Studio writes into mcp.bat", async () => {
+    const exe = `${VERSIONS}\\version-abc\\StudioMCP.exe`;
+    const bat = studioBat("version-abc").replace(
+      `${VERSIONS}\\version-abc\\StudioMCP.exe`,
+      `${VERSIONS}\\version-abc\\content\\/..\\StudioMCP.exe`,
+    );
+    const probe = fakeProbe({ files: { [BAT]: bat }, exes: { [exe]: 1 } });
+
+    await expect(resolveStudioMcpHelper("win32", environment, probe)).resolves.toMatchObject({
+      command: [exe],
+      source: "bat_path",
+    });
+  });
+
+  it("searches the versions next to a stale mcp.bat path outside LOCALAPPDATA", async () => {
+    const elsewhere = "D:\\Games\\Roblox\\Versions";
+    const exe = `${elsewhere}\\version-new\\StudioMCP.exe`;
+    const bat = studioBat("version-old").replace(
+      `${VERSIONS}\\version-old\\StudioMCP.exe`,
+      `${elsewhere}\\version-old\\content\\/..\\StudioMCP.exe`,
+    );
+    const probe = fakeProbe({ files: { [BAT]: bat }, exes: { [exe]: 1 } });
+
+    await expect(resolveStudioMcpHelper("win32", environment, probe)).resolves.toMatchObject({
+      command: [exe],
+      source: "versions_scan",
+    });
   });
 
   it("keeps the direct StudioMCP binary on macOS without probing", async () => {
@@ -194,6 +232,9 @@ describe("Studio MCP helper parsing", () => {
       `${VERSIONS}\\version-abc\\StudioMCP.exe`,
     );
     expect(parseStudioMcpBatPath("@echo off\r\n")).toBeNull();
+    expect(
+      parseStudioMcpBatPath(`if exist "${VERSIONS}\\version-abc\\content\\/..\\StudioMCP.exe" (`),
+    ).toBe(`${VERSIONS}\\version-abc\\StudioMCP.exe`);
   });
 
   it("reads ContentFolder from reg query output", () => {

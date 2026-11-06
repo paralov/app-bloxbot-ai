@@ -110,6 +110,8 @@ async function discoveryErrorMessage(): Promise<string> {
     state = (await desktop.getStudioMcpStatus()).state;
   } catch {}
   if (state === "not_installed") return STUDIO_NOT_INSTALLED;
+  if (state === "helper_missing")
+    return "Roblox Studio isn't ready to connect yet. Open it and let it finish starting, then refresh.";
   if (state === "unavailable") return "Roblox Studio stopped responding. Open it, then refresh.";
   return "Couldn't reach Roblox Studio. Refresh to try again.";
 }

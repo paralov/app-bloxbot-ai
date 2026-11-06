@@ -1,15 +1,21 @@
 import { type ChildProcessWithoutNullStreams, exec, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { Context, Data, Duration, Effect, Layer, Option } from "effect";
+import { Context, Data, Duration, Effect, Layer, Option, Schedule, type Scope } from "effect";
 import { networkConnections, type Systeminformation } from "systeminformation";
 
 import type { OpenCodeInfo, OpenCodeStartupProgress } from "../../src/types/desktop";
 import type { blenderMcpServerConfig } from "./BlenderTools";
 import { createOpenCodeConfig, OPENCODE_ISOLATION_ENV } from "../opencodeConfig";
 import { loadShellPath } from "../shellEnv";
+import { ensureFolder, workspaceFailureReason } from "../workspaceFolders";
+import {
+  forgetOpenCodeProcess,
+  recordOpenCodeProcess,
+  stopLeftoverOpenCode,
+} from "./openCodeLeftover";
 import {
   distrustOpenCodeVersion,
   ensureOpenCodeBinary,
@@ -150,6 +156,61 @@ function exitedDuringStartup(
   );
 }
 
+/**
+ * A database problem in OpenCode's output, which no other copy of OpenCode would get past:
+ * - locked: another OpenCode still has the database open
+ * - disk_io: the drive is full, or antivirus or a sync app is holding the file
+ */
+export function databaseProblem(message: string): "locked" | "disk_io" | null {
+  if (/database is locked|SQLITE_BUSY/i.test(message)) return "locked";
+  if (/disk I\/O error|SQLITE_IOERR/i.test(message)) return "disk_io";
+  return null;
+}
+
+/** Retries for a locked database: three tries, 1 then 2 seconds apart. */
+export const databaseLockedSchedule = Schedule.exponential("1 second").pipe(
+  Schedule.intersect(Schedule.recurs(2)),
+);
+
+/**
+ * Starts OpenCode again while its database is locked. The OpenCode holding it is often one that
+ * is still shutting down, so a short wait is usually all it needs.
+ */
+export function retryWhileDatabaseLocked<A, R>(
+  start: Effect.Effect<A, OpenCodeError, R>,
+  schedule: Schedule.Schedule<unknown, OpenCodeError> = databaseLockedSchedule,
+): Effect.Effect<A, OpenCodeError, R> {
+  return start.pipe(
+    Effect.tapError((error) =>
+      databaseProblem(error.message) === "locked"
+        ? Effect.logWarning("[opencode] Its database is locked; trying again shortly")
+        : Effect.void,
+    ),
+    Effect.retry({ schedule, while: (error) => databaseProblem(error.message) === "locked" }),
+  );
+}
+
+/**
+ * Swaps OpenCode's raw database error for one that says what to do. The original stays as the
+ * cause, so a report still carries it.
+ */
+export function describeDatabaseFailure(error: OpenCodeError, dataFolder: string): OpenCodeError {
+  const problem = databaseProblem(error.message);
+  if (problem === "locked") {
+    return new OpenCodeError({
+      message: `OpenCode's database in ${dataFolder} is in use by another program. Close any other copy of BloxBot or OpenCode, or restart your computer, then try again (reason: database_locked)`,
+      cause: error,
+    });
+  }
+  if (problem === "disk_io") {
+    return new OpenCodeError({
+      message: `OpenCode couldn't read or write its database in ${dataFolder}. Make sure the drive has free space and that antivirus or a sync app isn't holding that folder, then try again (reason: database_io)`,
+      cause: error,
+    });
+  }
+  return error;
+}
+
 interface OpenCodeResource extends OpenCodeProcess {
   port: number;
 }
@@ -160,6 +221,8 @@ interface PreparedOpenCode {
   executable: string;
   password: string;
   workspace: string;
+  /** Where the running OpenCode's process ID is kept. */
+  processFile: string;
   xdgCache: string;
   xdgConfig: string;
   xdgData: string;
@@ -173,8 +236,6 @@ export interface OpenCodeOptions {
   fetchWithSystemCertificates?: OpenCodeBinaryOptions["fetchWithSystemCertificates"];
   workspace: string;
   onStartupProgress?: (progress: OpenCodeStartupProgress) => void;
-  /** Windows only: OpenCode started fine, but netstat wouldn't have found it. */
-  onNetstatMiss?: (error: OpenCodeError) => void;
 }
 
 export interface OpenCodeService {
@@ -215,7 +276,15 @@ export function findOpenCodeListeningPort(
   return Effect.succeed(ports.values().next().value ?? null);
 }
 
-function waitForSpawn(child: ChildProcessWithoutNullStreams): Effect.Effect<void, OpenCodeError> {
+/**
+ * Waits until the process has started. A process with a pid has started: Node gives one that
+ * couldn't start no pid and an error event instead. Checking the pid matters because "spawn" fires
+ * on the next tick, before anything that awaits between spawning and waiting can listen for it.
+ */
+export function waitForSpawn(
+  child: ChildProcessWithoutNullStreams,
+): Effect.Effect<void, OpenCodeError> {
+  if (child.pid !== undefined) return Effect.void;
   return Effect.async<void, OpenCodeError>((resume) => {
     const cleanup = () => {
       child.off("spawn", onSpawn);
@@ -430,8 +499,8 @@ export function waitForListeningPort(
 
 /**
  * With OpenCode confirmed on a port, says how netstat's view differs, or null if it agrees. Reading
- * the port from the output means affected machines no longer time out, so this is the only report
- * left of why netstat misses it on them.
+ * the port from the output means affected machines no longer time out, so this only goes in the
+ * local log: nothing is wrong, and the reports it used to send have told us what we needed.
  */
 export function explainNetstatMiss(
   pid: number,
@@ -551,22 +620,30 @@ function prepareOpenCode(
     const fileOperation = <A>(message: string, evaluate: () => PromiseLike<A>) =>
       Effect.tryPromise({
         try: evaluate,
-        catch: (cause) =>
-          new OpenCodeError({
-            // The drive being full is something someone can act on, so it's worth naming.
-            message:
-              (cause as NodeJS.ErrnoException)?.code === "ENOSPC"
-                ? `${message} (reason: disk_full)`
-                : message,
+        catch: (cause) => {
+          // A full drive, or Windows refusing access, is something someone can act on.
+          const reason = workspaceFailureReason(cause);
+          return new OpenCodeError({
+            message: reason ? `${message} (reason: ${reason})` : message,
             cause,
-          }),
+          });
+        },
       });
 
-    yield* Effect.all(
-      [options.workspace, xdgData, configDirectory, xdgCache, xdgState].map((directory) =>
-        fileOperation(`Failed to create ${directory}`, () => mkdir(directory, { recursive: true })),
-      ),
-      { concurrency: "unbounded", discard: true },
+    // One at a time, so a file in the way of them all is only moved aside once.
+    yield* Effect.forEach(
+      [options.workspace, xdgData, configDirectory, xdgCache, xdgState],
+      (directory) =>
+        fileOperation(`Failed to create ${directory}`, () =>
+          ensureFolder(options.workspace, directory),
+        ).pipe(
+          Effect.tap((movedAside) =>
+            movedAside
+              ? Effect.logWarning(`[opencode] Moved a file in the way to ${movedAside}`)
+              : Effect.void,
+          ),
+        ),
+      { discard: true },
     );
     const systemPrompt = options.loadSystemPrompt ? yield* options.loadSystemPrompt() : null;
     const blender = options.loadBlenderServer ? yield* options.loadBlenderServer() : null;
@@ -590,6 +667,7 @@ function prepareOpenCode(
       password,
       version,
       workspace: options.workspace,
+      processFile: join(opencodeHome, "server.pid"),
       xdgCache,
       xdgConfig,
       xdgData,
@@ -635,28 +713,37 @@ function spawnOpenCode(prepared: PreparedOpenCode): Effect.Effect<OpenCodeProces
   });
 }
 
-function stopOpenCode(resource: OpenCodeProcess): Effect.Effect<void> {
-  return Effect.suspend(() => {
-    if (resource.child.exitCode !== null || resource.child.pid === undefined) return Effect.void;
+const hasExited = (child: ChildProcessWithoutNullStreams) =>
+  child.exitCode !== null || child.signalCode !== null;
 
-    const exitedAfterTerminate = Effect.async<void>((resume) => {
-      const cleanup = () => resource.child.off("exit", onExit);
-      const onExit = () => {
-        cleanup();
-        resume(Effect.void);
-      };
-      resource.child.once("exit", onExit);
-      if (resource.child.exitCode !== null) {
-        onExit();
-      } else if (!resource.child.killed) {
-        resource.child.kill("SIGTERM");
-      }
-      return Effect.sync(cleanup);
+/**
+ * Stops OpenCode and waits until it has exited, as only then has it let go of its database. One
+ * that ignores the request is killed after the grace period, and that is waited for too.
+ */
+export function stopOpenCode(
+  resource: Pick<OpenCodeProcess, "child">,
+  grace: Duration.DurationInput = "5 seconds",
+): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const { child } = resource;
+    if (hasExited(child) || child.pid === undefined) return Effect.void;
+
+    const exited = Effect.async<void>((resume) => {
+      const onExit = () => resume(Effect.void);
+      child.once("exit", onExit);
+      if (hasExited(child)) onExit();
+      return Effect.sync(() => child.off("exit", onExit));
     });
-    const forceKill = Effect.sleep("5 seconds").pipe(
-      Effect.tap(() => Effect.sync(() => resource.child.kill("SIGKILL"))),
+    const kill = (signal: NodeJS.Signals) =>
+      Effect.sync(() => {
+        if (!hasExited(child)) child.kill(signal);
+      });
+    return (child.killed ? Effect.void : kill("SIGTERM")).pipe(
+      Effect.zipRight(exited.pipe(Effect.timeout(grace))),
+      Effect.catchAll(() =>
+        kill("SIGKILL").pipe(Effect.zipRight(exited.pipe(Effect.timeout(grace), Effect.ignore))),
+      ),
     );
-    return Effect.race(exitedAfterTerminate, forceKill);
   });
 }
 
@@ -669,6 +756,41 @@ function awaitOpenCode(process: OpenCodeProcess): Effect.Effect<OpenCodeResource
   });
 }
 
+/**
+ * Starts one OpenCode and waits until it's ready. Its process ID is noted while it runs, so a
+ * later start can stop it if BloxBot crashes. One that fails is stopped before this returns, so
+ * it can't hold the database while the next try starts.
+ */
+function startOpenCode(
+  prepared: PreparedOpenCode,
+  executable: string,
+): Effect.Effect<OpenCodeResource, OpenCodeError, Scope.Scope> {
+  return Effect.gen(function* () {
+    const release = (started: OpenCodeProcess) =>
+      stopOpenCode(started).pipe(
+        Effect.zipRight(
+          Effect.promise(async () => {
+            const { pid } = started.child;
+            if (pid !== undefined) await forgetOpenCodeProcess(prepared.processFile, pid);
+          }),
+        ),
+      );
+    const started = yield* Effect.acquireRelease(
+      spawnOpenCode({ ...prepared, executable }).pipe(
+        Effect.tap(({ child }) =>
+          Effect.promise(async () => {
+            if (child.pid !== undefined) {
+              await recordOpenCodeProcess(prepared.processFile, child.pid, executable);
+            }
+          }),
+        ),
+      ),
+      release,
+    );
+    return yield* awaitOpenCode(started).pipe(Effect.tapError(() => release(started)));
+  });
+}
+
 export function makeOpenCodeLayer(options: OpenCodeOptions) {
   return Layer.scoped(
     OpenCode,
@@ -676,24 +798,31 @@ export function makeOpenCodeLayer(options: OpenCodeOptions) {
       // Downloading and readiness polling remain interruptible. Only the short spawn
       // operation is masked, and its finalizer is registered before any waiting begins.
       const prepared = yield* prepareOpenCode(options);
-      const process = yield* Effect.acquireRelease(spawnOpenCode(prepared), stopOpenCode);
+      const leftover = yield* Effect.promise(() => stopLeftoverOpenCode(prepared.processFile));
+      if (leftover !== null) {
+        yield* Effect.logWarning(`[opencode] Stopped OpenCode ${leftover} left by an earlier run`);
+      }
+      const dataFolder = join(prepared.xdgData, "opencode");
       // A copy can pass every check and still not run. An older one is worth one more try, and if
       // that runs, the newer one isn't chosen again. A timeout can be a slow machine rather than a
       // broken copy, so only a copy that couldn't start or exited is set aside.
-      const resource = yield* awaitOpenCode(process).pipe(
+      const resource = yield* retryWhileDatabaseLocked(
+        startOpenCode(prepared, prepared.executable),
+      ).pipe(
         Effect.catchAll((failure) =>
           Effect.gen(function* () {
+            // The database is the problem, not this copy, so another copy would fail the same way.
+            if (databaseProblem(failure.message)) {
+              return yield* Effect.fail(describeDatabaseFailure(failure, dataFolder));
+            }
             const fallback = yield* findOpenCodeFallback(
               { cacheDirectory: options.binaryCacheDirectory },
               prepared.version,
             );
             if (!fallback) return yield* Effect.fail(failure);
-            yield* stopOpenCode(process);
-            const second = yield* Effect.acquireRelease(
-              spawnOpenCode({ ...prepared, executable: fallback.executable }),
-              stopOpenCode,
+            const started = yield* startOpenCode(prepared, fallback.executable).pipe(
+              Effect.mapError(() => failure),
             );
-            const started = yield* awaitOpenCode(second).pipe(Effect.mapError(() => failure));
             if (failure.couldNotRun) {
               yield* distrustOpenCodeVersion(
                 { cacheDirectory: options.binaryCacheDirectory },
@@ -705,12 +834,9 @@ export function makeOpenCodeLayer(options: OpenCodeOptions) {
         ),
       );
       const { pid } = resource.child;
-      const { onNetstatMiss } = options;
-      if (onNetstatMiss && pid !== undefined && globalThis.process.platform === "win32") {
+      if (pid !== undefined && globalThis.process.platform === "win32") {
         yield* explainNetstatMiss(pid, resource.port).pipe(
-          Effect.tap((message) => {
-            if (message) onNetstatMiss(new OpenCodeError({ message }));
-          }),
+          Effect.tap((message) => (message ? Effect.logInfo(`[opencode] ${message}`) : Effect.void)),
           Effect.forkScoped,
         );
       }

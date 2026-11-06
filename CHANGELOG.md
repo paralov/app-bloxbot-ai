@@ -7,6 +7,23 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Opening BloxBot when it's already open brings up the window you have, instead of opening a second copy.
+- Windows: BloxBot keeps its downloads in a folder that stays on this computer, so they're no longer copied around when you sign in on a school or work network. Nothing needs downloading again.
+
+### Fixed
+
+- When you've used up the free messages, BloxBot now tells you when they come back, usually in a few hours, instead of telling you to wait a day. Free messages are shared by every free model, so BloxBot no longer suggests switching to another one. To keep going right away, you can still connect your own AI account or subscribe to OpenCode Go.
+- If a model isn't offered where you live, BloxBot says so and switches you to another free model in one click. The model is greyed out in the list so you don't pick it again.
+- If a chat's model has been removed, BloxBot moves the chat to the default model and tells you.
+- BloxBot no longer gets stuck at startup with "database is locked" after it closes unexpectedly.
+- When BloxBot can't open your saved chats, it now says what to check instead of showing a technical error.
+- BloxBot now starts even when a stray file is in the way of one of its folders. The file is kept, renamed, next to it.
+- When antivirus or a school or work setting stops BloxBot from saving files, the startup screen now says so and what to do.
+- When Roblox Studio isn't ready to connect yet, BloxBot asks you to open or update Studio, instead of showing an error.
+- BloxBot no longer reports a harmless Windows check as an error.
+
 ## [0.15.0] - 2026-11-06
 
 ### Added

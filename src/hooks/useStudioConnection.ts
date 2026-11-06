@@ -13,10 +13,17 @@ const CONNECT_WAIT_MS = 10_000;
 export type StudioConnectionState = "checking" | "connected" | "waiting";
 
 /** Why Studio's MCP helper can't be reached, when BloxBot knows. */
-export type StudioMcpProblem = Extract<StudioMcpStatus["state"], "not_installed" | "unavailable">;
+export type StudioMcpProblem = Extract<
+  StudioMcpStatus["state"],
+  "not_installed" | "helper_missing" | "unavailable"
+>;
 
 export function studioMcpProblem(status: StudioMcpStatus | undefined): StudioMcpProblem | null {
-  return status?.state === "not_installed" || status?.state === "unavailable" ? status.state : null;
+  return status?.state === "not_installed" ||
+    status?.state === "helper_missing" ||
+    status?.state === "unavailable"
+    ? status.state
+    : null;
 }
 
 async function attemptStudioConnection(

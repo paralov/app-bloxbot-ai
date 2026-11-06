@@ -36,6 +36,8 @@ export const STUDIO_SETUP_STEPS = [
 const PROBLEM_COPY: Record<StudioMcpProblem, string> = {
   not_installed:
     "BloxBot can't find Roblox Studio. Install or update it, then follow the steps above.",
+  helper_missing:
+    "Roblox Studio isn't ready to connect yet. Open Roblox Studio and let it finish starting, or update it, then follow the steps above.",
   unavailable:
     "Roblox Studio stopped responding. Open it so it can finish updating, or reinstall it if this keeps happening.",
 };

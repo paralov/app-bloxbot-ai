@@ -28,6 +28,22 @@ describe("StudioSetup", () => {
       <StudioSetup
         connected={false}
         checking={false}
+        problem="helper_missing"
+        onCheck={vi.fn()}
+        onContinue={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(
+        /Roblox Studio isn't ready to connect yet\. Open Roblox Studio and let it finish starting/,
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText(/can't find Roblox Studio/)).toBeNull();
+
+    rerender(
+      <StudioSetup
+        connected={false}
+        checking={false}
         problem="unavailable"
         onCheck={vi.fn()}
         onContinue={vi.fn()}

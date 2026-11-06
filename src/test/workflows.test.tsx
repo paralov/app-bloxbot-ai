@@ -483,7 +483,7 @@ describe.skipIf(!BIN)("[no model] Workflows", () => {
     ]);
     await startChat();
     await send("Hello");
-    await screen.findByText("You've used today's free messages", {}, { timeout: SLOW });
+    await screen.findByText("You've used the free messages for now", {}, { timeout: SLOW });
     await replyFinished();
     expect(screen.queryByTitle("Stop")).not.toBeInTheDocument();
   });
